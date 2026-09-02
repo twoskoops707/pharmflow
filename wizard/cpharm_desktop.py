@@ -1028,19 +1028,45 @@ def _combined_tool_path(rel: str) -> str:
     return str(Path(__file__).resolve().parent.parent / rel)
 
 
-def _ensure_console() -> None:
-    """Give the frozen windowed EXE a stdout when a caller runs it in CLI mode.
+def _bootlog(msg: str) -> None:
+    """Frozen-only marker log to locate where a windowed startup fails."""
+    if not getattr(sys, "frozen", False):
+        return
+    try:
+        import tempfile
+        import traceback as _tb
+        import time as _time
 
-    PyInstaller ``console=False`` builds have ``sys.stdout is None``; argparse
-    ``--help``/``--version`` and tool prints would crash on ``None.write``.
-    When launched from a console we attach to the parent console so output and
-    exit codes behave; otherwise we fall back to ``os.devnull`` (headless runs
-    such as a scheduled watchdog keep their own log redirects).
+        with open(os.path.join(tempfile.gettempdir(), "cpharm_boot.log"), "a", encoding="utf-8") as _f:
+            _f.write(f"[{_time.strftime('%H:%M:%S')}] {msg}\n")
+    except Exception:
+        pass
+
+
+def _in_cli_mode() -> bool:
+    """True when argv routes to a CLI mode instead of the GUI window."""
+    return any(
+        flag in sys.argv
+        for flag in ("--version", "--agent", "--watchdog", "--cloud-phones-cli", "--internal-tk-page")
+    )
+
+
+def _ensure_console() -> None:
+    """Give the frozen windowed EXE a usable stdout.
+
+    PyInstaller ``console=False`` builds start with ``sys.stdout is None`` and
+    argparse ``--help``/``--version`` would crash on ``None.write``. In CLI
+    mode we attach to the parent console so output + exit codes behave; in GUI
+    mode we never attach (attaching a windowed GUI process to the parent console
+    destabilises the app) and instead point stdout/stderr at ``os.devnull`` so
+    stray prints can't crash the UI thread. Headless watchdog runs keep their
+    own log redirects either way.
     """
     if sys.stdout is not None:
         return
-    try:
-        if sys.platform == "win32":
+    cli = _in_cli_mode()
+    if cli and sys.platform == "win32":
+        try:
             import ctypes
 
             kernel32 = ctypes.windll.kernel32
@@ -1049,14 +1075,13 @@ def _ensure_console() -> None:
                 sys.stdout = open("CONOUT$", "w", encoding="utf-8", errors="replace")
                 sys.stderr = open("CONOUT$", "w", encoding="utf-8", errors="replace")
                 return
-    except Exception:
-        pass
-    if sys.stdout is None:
-        import os as _os
+        except Exception:
+            pass
+    import os as _os
 
-        sys.stdout = open(_os.devnull, "w", encoding="utf-8", errors="replace")
-        if sys.stderr is None:
-            sys.stderr = open(_os.devnull, "w", encoding="utf-8", errors="replace")
+    sys.stdout = open(_os.devnull, "w", encoding="utf-8", errors="replace")
+    if sys.stderr is None:
+        sys.stderr = open(_os.devnull, "w", encoding="utf-8", errors="replace")
 
 
 def _exec_tool_module(script: str, target: list[str]) -> int:
@@ -1118,11 +1143,13 @@ def run_combined_tool(flag: str, rel: str) -> int | None:
 
 
 def main() -> None:
+    _bootlog("main: start")
     _ensure_console()
     if "--version" in sys.argv:
         import cpharm_version as ver
         print(ver.display_version())
         return
+    _bootlog("main: version/combined checks done")
 
     # Combined-mode entrypoints: a single CPharm.exe can act as the agent or
     # the watchdog too, so operators only need to keep one binary on disk.
@@ -1164,10 +1191,23 @@ def main() -> None:
         run_main_window()
         return
 
+    _bootlog("main: webview branch")
     _kick_tor_warm_early()
-    from cpharm_app_webview import run_cpharm_app_or_fallback
+    _bootlog("main: tor warm done")
+    try:
+        from cpharm_app_webview import run_cpharm_app_or_fallback
 
-    run_cpharm_app_or_fallback()
+        _bootlog("main: webview module imported")
+        run_cpharm_app_or_fallback()
+        _bootlog("main: webview returned cleanly")
+    except SystemExit:
+        _bootlog("main: SystemExit from webview")
+        raise
+    except BaseException:
+        import traceback as _tb
+
+        _bootlog("main: webview EXCEPTION:\n" + _tb.format_exc())
+        raise
 
 
 if __name__ == "__main__":
