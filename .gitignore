@@ -1,0 +1,124 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+venv/
+.env
+.env.*
+!.env.example
+!.env.sample
+!.env.template
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.kubeconfig
+id_rsa
+id_ed25519
+
+# APKs (too large for git)
+apks/*.apk
+user-downloads/
+**/bundled/*.apk
+**/bundled/_chromium_android.zip
+
+# Legacy emulator backup files (optional local installs)
+*.ldbk
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor
+.vscode/
+.idea/
+*.swp
+
+# Production sequences — local machine only (see CPHARM_SEQUENCES_DIR / ~/CPharm/sequences)
+automation/recordings/sequences/**/*.json
+automation/recordings/groups_config.json
+!automation/tests/fixtures/sequences/**/*.json
+
+# Local proof / scratch scripts (never commit)
+automation/_proof_*.py
+automation/_tmp_*
+automation/_diag_*
+_tmp_*.py
+
+# Root-level status dumps and screenshots (local only)
+/*.png
+/*_LIVE*.txt
+/*_FIX*.txt
+/*_RESULT*.txt
+/*_REPORT*.txt
+/*_STATUS*.txt
+!DEMO_ONE_STATUS.txt
+!FULL_AUTOMATION_AUDIT.txt
+
+# Local Freebuff/session state and generated CPharm runtime/build outputs
+.freebuff/
+_tmp_asar/
+archive_old_exe_*/
+dist_next/
+logs/
+tor_instances/
+tor_test/
+smoke_stdout.txt
+smoke_stderr.txt
+saved_paths.json
+cpharm_config.json
+desktop_prefs.json
+start_farm.bat
+CPharm.exe
+CPharm.exe.*
+CPharmMuMuSetup.exe
+
+# Tor local runtime (never commit)
+automation/tor/data_*/
+
+# Python cache in local modules
+cloud_phones/__pycache__/
+
+automation/tor/tmp*.cfg
+
+# Local scratch audits / one-off builders
+automation/_audit_*.py
+automation/_build_*.py
+automation/_validate_*.py
+automation/run_*_live.py
+
+# Local recordings / demos
+automation/recordings/session_*.rec
+automation/recordings/.wizard_calibrated
+automation/recordings/_hands_off_*/
+automation/recordings/_live_demo/
+automation/recordings/_simplified_ONE_live/
+automation/recordings/_hands_off_*.py
+automation/recordings/_live_demo_run.py
+automation/Sequence Notes.xlsx
+
+# Large generated browser archive stays local; obtain it via release/bootstrap tooling.
+bundled/_chromium_android_Android_Arm64.zip
+
+# Freebuff local memory + secrets — never commit
+LOCAL_MEMORY.md
+.env
+
+# Locally built EXEs / PyInstaller onefile specs at repo root (CI builds canonical EXEs)
+/CPharmAgent.exe
+/CPharmWatchdog.exe
+/CPharmMuMuSetup.exe
+/CPharmSetup.exe
+/CPharmAgent.spec
+/CPharmWatchdog.spec
+/CPharmMuMuSetup.spec
+
+# CI-generated at build time; do not commit a local build stamp
+/wizard/assets/build_info.json

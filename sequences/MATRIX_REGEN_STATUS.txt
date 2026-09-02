@@ -1,0 +1,23 @@
+DabFlow combo matrix regeneration — 2026-07-05
+================================================
+
+Generator: automation/generate_dabflow_gold_matrix.py
+Output:   sequences/ (repo root, shipped via sequences_sync)
+
+Files written
+-------------
+  Matrix JSON:     480  (60 combos × 4 resolutions × 2 ad variants)
+  Demo files:      2    (dabflow__demo__ONE no-ad, dabflow__demo__TWO ad @ 900x1600)
+  Early-exit:      7    (900x1600/no-ad/early-exit/)
+  Home-combo v2:   1152 (automation/recordings/sequences/, event-chain basenames)
+  Total sequences: 1641
+
+Resolutions: 540x960, 720x1280, 900x1600, 1080x1920
+Folders:     ad/, no-ad/
+
+Validation
+----------
+  verify_sequence_matrix_counts.py: PASS
+  verify_ad_sequence_samples.py: PASS
+  test_sequence_wait_duplicates.py: PASS
+  smoke_home_combo_ui_loader.py: PASS (1152 files)

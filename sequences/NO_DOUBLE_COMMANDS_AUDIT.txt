@@ -1,0 +1,72 @@
+NO_DOUBLE_COMMANDS_AUDIT
+========================
+Date: 2026-06-21
+Scope: 69 kept sequence JSON under CPharm/sequences/ (900x1600 no-ad matrix + demo ONE + early-exit + 900x1600/ad demo TWO)
+
+SUMMARY
+-------
+Violations before fix:  0 (all 69 files clean on audit)
+Violations after fix:   0 (all 69 files clean on audit)
+Sequence files regen:   61 (60 combo matrix + dabflow__demo__ONE.json)
+Code files changed:     5 (see below)
+
+The kept JSON on disk already had no consecutive duplicate step types. Work focused on
+hardening generator/normalize paths so doubles cannot reappear when building or saving
+sequences (especially back-to-back wait merges with timer_complete preserved).
+
+AUDIT METHOD
+------------
+- sequence_step_audit.find_consecutive_duplicate_violations() on every kept *.json
+- Checks: consecutive wait, consecutive identical tap (same x,y), consecutive swipe/keyevent/open_url/clear_cookies/close_app/rotate_identity/full_reset/launch_app
+- test_sequence_wait_duplicates.py (3 tests) on all kept JSON + merge unit cases
+
+VIOLATIONS FOUND (before)
+-------------------------
+None in kept sequences. Prior MATRIX_REGEN_STATUS.txt referenced 482-file corpus; post-cleanup
+corpus is 69 files, all passing.
+
+CODE FIXES
+----------
+1. sequence_normalize.py
+   - merge_wait_into_previous(): sum seconds; preserve timer_complete checkpoint when either wait has it
+   - merge_adjacent_wait_step(): shared helper for generator _append_step
+   - _collapse_consecutive_identical_steps(): duplicate taps at same coords keep higher retries
+
+2. generate_dabflow_gold_matrix.py
+   - _append_step uses merge_adjacent_wait_step (timer_complete merges correctly)
+   - _append_timer_complete_wait uses _append_step (can fold prior scroll micro-wait)
+   - build_demo_one_steps uses _append_step/_extend_steps throughout (was raw list append)
+   - demo_post_popup_exit_tail uses _append_step for tab tour swipes/waits
+   - dedupe_consecutive_step_types() delegates to normalize_automation_steps()
+
+3. sequence_step_audit.py (new shared audit helper)
+
+4. test_sequence_wait_duplicates.py
+   - Expanded to all consecutive duplicate types (not wait-only)
+   - Unit tests: timer_complete merge, tap retry collapse
+
+5. _audit_consecutive_dupes.py (local audit runner)
+
+REGENERATION
+------------
+Command:
+  py generate_dabflow_gold_matrix.py --output C:\Users\jsmil\CPharm\sequences \
+    --resolution 900x1600 --flow-dir no-ad --update-demo-one --skip-purge
+
+Output: 60 no_ads combo files + dabflow__demo__ONE.json rewritten.
+Not regen: early-exit (7), demo TWO (ad/), full 480 matrix (per approval gate).
+
+TEST RESULTS
+------------
+  py test_sequence_wait_duplicates.py -v
+  Ran 3 tests — OK
+
+  py _audit_consecutive_dupes.py
+  Files: 69  Violations: 0
+
+EXAMPLE VIOLATION PATTERNS FIXED AT SOURCE (not present in final JSON)
+----------------------------------------------------------------------
+- Two micro-waits before tab tap → single merged wait (seconds summed)
+- Micro-wait immediately before timer_complete wait → one wait with checkpoint timer_complete
+- Duplicate open_url / close_app in generator tail → collapsed by normalize
+- Duplicate tap at same coords → one tap with max(retries)

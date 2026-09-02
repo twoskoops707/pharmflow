@@ -1,0 +1,146 @@
+{
+  "label": "DabFlow early-exit ceramic / diamonds / butane",
+  "baseline_wh": "900x1600",
+  "steps": [
+    {
+      "type": "clear_cookies"
+    },
+    {
+      "type": "open_url",
+      "url": "https://getdabflow.app",
+      "post_wait_secs": 1.1708285219983687,
+      "checkpoint": "loaded",
+      "phase": "pre_site_fast"
+    },
+    {
+      "type": "tap",
+      "x": 460,
+      "y": 907,
+      "base_w": 900,
+      "base_h": 1600,
+      "jitter": 2,
+      "retries": 5,
+      "age_verification": true,
+      "checkpoint": "age_verification",
+      "phase": "pre_site_fast",
+      "pre_wait_ms": 84.01407848840427
+    },
+    {
+      "type": "wait",
+      "seconds": 0.172
+    },
+    {
+      "type": "tap",
+      "x": 660,
+      "y": 501,
+      "base_w": 900,
+      "base_h": 1600,
+      "jitter": 15,
+      "retries": 2
+    },
+    {
+      "type": "wait",
+      "seconds": 0.27070710007938764
+    },
+    {
+      "type": "tap",
+      "x": 573,
+      "y": 587,
+      "base_w": 900,
+      "base_h": 1600,
+      "jitter": 15,
+      "retries": 2
+    },
+    {
+      "type": "wait",
+      "seconds": 0.26011077975235114
+    },
+    {
+      "type": "tap",
+      "x": 235,
+      "y": 663,
+      "base_w": 900,
+      "base_h": 1600,
+      "jitter": 15,
+      "retries": 2
+    },
+    {
+      "type": "wait",
+      "seconds": 0.2758478495421228,
+      "checkpoint": "selections_done"
+    },
+    {
+      "type": "swipe",
+      "x1": 450,
+      "y1": 1150,
+      "x2": 450,
+      "y2": 700,
+      "ms": 793,
+      "base_w": 900,
+      "base_h": 1600
+    },
+    {
+      "type": "wait",
+      "seconds": 0.5377765892047113
+    },
+    {
+      "type": "swipe",
+      "x1": 450,
+      "y1": 1200,
+      "x2": 450,
+      "y2": 750,
+      "ms": 681,
+      "base_w": 900,
+      "base_h": 1600,
+      "checkpoint": "scroll_to_start_dab"
+    },
+    {
+      "type": "wait",
+      "seconds": 0.5107409306120055
+    },
+    {
+      "type": "tap",
+      "x": 450,
+      "y": 1075,
+      "base_w": 900,
+      "base_h": 1600,
+      "jitter": 8,
+      "retries": 5,
+      "pre_wait_ms": 456.27069373228454,
+      "checkpoint": "timer_started"
+    },
+    {
+      "type": "wait",
+      "seconds": 65.65144082200061,
+      "checkpoint": "early_exit"
+    },
+    {
+      "type": "close_app",
+      "package": "com.android.browser",
+      "phase": "post_browser_fast",
+      "checkpoint": "browser_closed"
+    }
+  ],
+  "meta": {
+    "flow": "early-exit",
+    "dabflow_material": "ceramic",
+    "dabflow_concentrate": "diamonds",
+    "dabflow_heater": "butane",
+    "timer_cycles": 1,
+    "baseline_wh": "900x1600",
+    "base_w": 900,
+    "base_h": 1600,
+    "description": "Early exit: age, 3 picks, scroll, start dab, heat+half-cool wait, close browser",
+    "timer_heat_sec": 20,
+    "timer_cool_sec": 85,
+    "timer_total_sec": 105,
+    "timer_half_cool_wait_seconds": 62.5,
+    "timer_wait_formula": "heat(20)+cool/2(85/2=42.5)=62.5",
+    "identity_tail": false,
+    "start_dab_coords": "(450,1075)",
+    "humanize_seed": 30082848,
+    "browser_tag": "farmbrowser",
+    "browser_label": "FarmBrowser"
+  },
+  "preferred_browser": "com.farmbrowser.stealth.debug"
+}

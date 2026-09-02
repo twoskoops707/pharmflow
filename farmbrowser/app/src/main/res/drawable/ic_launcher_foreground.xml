@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Shield background -->
+    <path
+        android:fillColor="#FF44FF88"
+        android:pathData="M54,18L24,32v16c0,16.5 12.9,31.9 30,36 17.1,-4.1 30,-19.5 30,-36V32L54,18z" />
+    <!-- Globe lines -->
+    <path
+        android:fillColor="#FF1A1A2E"
+        android:pathData="M54,30c-11,0 -20,7.2 -23.2,17.1L54,67l23.2,-19.9C74,37.2 65,30 54,30z"
+        android:strokeColor="#FF1A1A2E"
+        android:strokeWidth="0.5" />
+    <!-- Tor onion hint -->
+    <path
+        android:fillColor="#FF1A1A2E"
+        android:pathData="M48,42 C48,38 51,35 54,35 C57,35 60,38 60,42 C60,48 54,52 54,52 C54,52 48,48 48,42z" />
+    <!-- Arrow/proxy indicator -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M44,46 L50,46 L50,42 L60,48 L50,54 L50,50 L44,50z" />
+</vector>

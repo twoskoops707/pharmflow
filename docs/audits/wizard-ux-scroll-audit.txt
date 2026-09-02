@@ -1,0 +1,67 @@
+CPharm Wizard — UX scroll audit (2026-06-21)
+============================================
+File: wizard/setup_wizard.py (+ wizard shell in CPharmWizard)
+
+ROOT CAUSE
+----------
+Tk ``Canvas.create_window`` embeds each page. Child frames packed with
+``fill="both", expand=True`` grow to the *viewport* height, not content height.
+``scrollregion`` stays viewport-sized → bottom controls/options clip with no
+way to scroll to them. Fix: use ``fill="x"`` for vertical stacks inside
+canvas-embedded pages; use dedicated Canvas+Scrollbar for dialogs; keep OK/Cancel
+in a fixed footer outside the scroll region.
+
+PATTERN (matches existing code)
+-------------------------------
+- Canvas + themed_vertical_scrollbar + inner Frame + create_window
+- canvas_set_scrollregion_from_bbox_all on <Configure>
+- canvas_embed_set_width on canvas <Configure>
+- _bind_nested_canvas_mousewheel for Windows/Linux wheel
+- Bottom padding Frame (height ~16–32) so last row is not flush against edge
+- CPharmWizard._on_mousewheel: scroll nested canvas under pointer when present
+
+AUDIT BY PAGE / DIALOG
+----------------------
+
+| Component                    | Status       | Notes |
+|-----------------------------|--------------|-------|
+| CPharmWizard shell          | SCROLL_OK    | All 9 steps wrapped in per-page canvas + vsb; mousewheel routes to nested canvas under cursor |
+| WelcomePage                 | SCROLL_FIXED | cols: expand=True → fill=x |
+| PrerequisitesPage           | SCROLL_FIXED | install log row: expand=True → fill=x |
+| AndroidStudioPage           | SCROLL_OK    | log_fr fill=x (186d8c5); MuMu block scrolls via shell |
+| PhoneFarmPage               | SCROLL_OK    | log uses internal Text+sb; page scrolls via shell |
+| BootPage                    | SCROLL_FIXED | _status_frame: expand=True → fill=x |
+| AutomationPage              | SCROLL_OK    | compact cards; shell scroll |
+| SequenceGeneratorPage       | SCROLL_FIXED | builder layers/tools/list_row: expand → fill=x; bottom pad; advanced toggle refreshes shell scrollregion |
+| GroupsPage                  | SCROLL_OK    | inner canvas for group cards + _scroll_bottom_pad; Tryout in wizard footer |
+| LaunchPage                  | SCROLL_OK    | log_fr fill=x (186d8c5); long A–E sections scroll via shell |
+| PerPhoneSequenceEditor      | SCROLL_FIXED | body/paned expand removed; paned height=720; playlist pane minsize 200; set B fill=x; main bottom pad; _refresh_per_phone_scrollregions |
+| AddStepDialog               | SCROLL_FIXED | full-dialog scroll canvas (replaces 220px-tall nested fields-only canvas); OK/Cancel in FOOTER_BG bar outside scroll |
+| WebpePage                   | N/A          | Not in CPharmWizard.PAGES (standalone applet class only) |
+| PlayStorePage               | N/A          | Defined but not in active wizard flow |
+
+PRIORITY FIXES APPLIED THIS PASS
+--------------------------------
+1. Sequence builder — phase layers, tools card, step list row no longer expand inside shell canvas; bottom pad added.
+2. Per-phone editor — playlist submenu (mode/shuffle/set B radios) scrolls in main + playlist canvases; paned no longer steals all viewport height.
+3. AddStepDialog — entire form scrolls; footer buttons always visible.
+4. Welcome / Prerequisites / Boot — expand=True removed from shell-embedded sections.
+
+BEFORE / AFTER
+--------------
+BEFORE: Sequence builder “Add action” toolbox + save/validation blocks often
+        below fold; wheel did nothing. Per-phone playlist radios (ordered/random/
+        series, shuffle combo, set B) clipped inside paned top pane. Add Step
+        dialog cropped swipe/tap field rows at 220px.
+
+AFTER:  Wizard shell scrollregion grows with builder content; mousewheel scrolls
+        the canvas under the cursor (including Groups inner list + per-phone
+        playlist canvas). Add Step scrolls full form; OK/Cancel fixed at bottom.
+        Per-phone editor scrolls to playlist options and inline steps list.
+
+TEST
+----
+  py -3 -m unittest test_sequence_footer_visibility.py -v   → 7 passed
+  py -3 -c "import setup_wizard"                            → OK
+
+COMMIT: local only (no push per user request).

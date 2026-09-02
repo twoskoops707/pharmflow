@@ -1,0 +1,327 @@
+{
+  "steps": [
+    {
+      "type": "clear_cookies",
+      "phase": "pre_site_fast"
+    },
+    {
+      "type": "wait",
+      "seconds": 0.24715682646458306,
+      "phase": "pre_site_fast"
+    },
+    {
+      "type": "open_url",
+      "url": "https://getdabflow.app",
+      "post_wait_secs": 1.25,
+      "phase": "pre_site_fast",
+      "checkpoint": "loaded"
+    },
+    {
+      "type": "wait",
+      "seconds": 0.2439580368212586,
+      "phase": "pre_site_fast"
+    },
+    {
+      "type": "tap",
+      "x": 460,
+      "y": 907,
+      "base_w": 900,
+      "base_h": 1600,
+      "retries": 5,
+      "jitter": 5,
+      "pre_wait_ms": 120.0,
+      "age_verification": true,
+      "checkpoint": "age_verification",
+      "phase": "pre_site_fast"
+    },
+    {
+      "type": "wait",
+      "seconds": 0.18
+    },
+    {
+      "type": "tap",
+      "x": 221,
+      "y": 596,
+      "base_w": 1080,
+      "base_h": 1920,
+      "retries": 2,
+      "jitter": 15,
+      "pre_wait_ms": 148.2985161041168
+    },
+    {
+      "type": "wait",
+      "seconds": 0.17164147582361455
+    },
+    {
+      "type": "tap",
+      "x": 712,
+      "y": 698,
+      "base_w": 1080,
+      "base_h": 1920,
+      "retries": 3,
+      "jitter": 25,
+      "pre_wait_ms": 108.28059088207016
+    },
+    {
+      "type": "wait",
+      "seconds": 0.14726046478868368
+    },
+    {
+      "type": "tap",
+      "x": 287,
+      "y": 774,
+      "base_w": 1080,
+      "base_h": 1920,
+      "retries": 2,
+      "jitter": 18,
+      "pre_wait_ms": 157.69967135045778
+    },
+    {
+      "type": "wait",
+      "seconds": 0.16198570821825148,
+      "checkpoint": "selections_done"
+    },
+    {
+      "type": "swipe",
+      "x1": 540,
+      "y1": 1380,
+      "x2": 540,
+      "y2": 840,
+      "ms": 774,
+      "base_w": 1080,
+      "base_h": 1920
+    },
+    {
+      "type": "wait",
+      "seconds": 0.14181213790084068
+    },
+    {
+      "type": "swipe",
+      "x1": 540,
+      "y1": 1440,
+      "x2": 540,
+      "y2": 900,
+      "ms": 760,
+      "base_w": 1080,
+      "base_h": 1920,
+      "checkpoint": "scroll_to_start_dab"
+    },
+    {
+      "type": "wait",
+      "seconds": 0.16015875977654656
+    },
+    {
+      "type": "tap",
+      "x": 559,
+      "y": 1298,
+      "base_w": 1080,
+      "base_h": 1920,
+      "retries": 5,
+      "jitter": 26,
+      "pre_wait_ms": 441.8473401416874,
+      "checkpoint": "timer_started"
+    },
+    {
+      "type": "wait",
+      "seconds": 95.5,
+      "checkpoint": "timer_complete"
+    },
+    {
+      "type": "tap",
+      "x": 322,
+      "y": 1210,
+      "base_w": 1080,
+      "base_h": 1920,
+      "retries": 4,
+      "jitter": 25,
+      "pre_wait_ms": 136.53944032693414,
+      "checkpoint": "popup_dismiss",
+      "verify_dismiss": true
+    },
+    {
+      "type": "wait",
+      "seconds": 0.8239895333627035,
+      "checkpoint": "popup_dismissed",
+      "until_session_notes_gone": true
+    },
+    {
+      "type": "tap",
+      "x": 991,
+      "y": 1852,
+      "base_w": 1080,
+      "base_h": 1920,
+      "retries": 4,
+      "jitter": 22,
+      "pre_wait_ms": 147.3360664236773,
+      "checkpoint": "tab_settings",
+      "bottom_nav": true
+    },
+    {
+      "type": "wait",
+      "seconds": 2.8564719992025904
+    },
+    {
+      "type": "swipe",
+      "x1": 533,
+      "y1": 1144,
+      "x2": 548,
+      "y2": 790,
+      "ms": 730,
+      "base_w": 1080,
+      "base_h": 1920
+    },
+    {
+      "type": "swipe",
+      "x1": 534,
+      "y1": 1080,
+      "x2": 536,
+      "y2": 662,
+      "ms": 753,
+      "base_w": 1080,
+      "base_h": 1920
+    },
+    {
+      "type": "swipe",
+      "x1": 539,
+      "y1": 1025,
+      "x2": 534,
+      "y2": 542,
+      "ms": 842,
+      "base_w": 1080,
+      "base_h": 1920,
+      "checkpoint": "tab_settings_scrolled_bottom"
+    },
+    {
+      "type": "wait",
+      "seconds": 2.7117533073371964
+    },
+    {
+      "type": "tap",
+      "x": 527,
+      "y": 1889,
+      "base_w": 1080,
+      "base_h": 1920,
+      "retries": 3,
+      "jitter": 22,
+      "pre_wait_ms": 110.49579606002226,
+      "checkpoint": "tab_stats",
+      "bottom_nav": true
+    },
+    {
+      "type": "wait",
+      "seconds": 2.900970319163383
+    },
+    {
+      "type": "swipe",
+      "x1": 538,
+      "y1": 1141,
+      "x2": 545,
+      "y2": 790,
+      "ms": 834,
+      "base_w": 1080,
+      "base_h": 1920
+    },
+    {
+      "type": "swipe",
+      "x1": 545,
+      "y1": 1090,
+      "x2": 535,
+      "y2": 666,
+      "ms": 760,
+      "base_w": 1080,
+      "base_h": 1920,
+      "checkpoint": "tab_scrolled_bottom"
+    },
+    {
+      "type": "wait",
+      "seconds": 3.169456353194171
+    },
+    {
+      "type": "tap",
+      "x": 568,
+      "y": 1043,
+      "base_w": 1080,
+      "base_h": 1920,
+      "retries": 4,
+      "jitter": 17,
+      "pre_wait_ms": 101.14133002530852,
+      "ad_selected": true,
+      "checkpoint": "ad_stats"
+    },
+    {
+      "type": "wait",
+      "seconds": 38.46878969094299,
+      "checkpoint": "ad_dwell",
+      "ad_read": true
+    },
+    {
+      "type": "keyevent",
+      "key": "4"
+    },
+    {
+      "type": "open_url",
+      "url": "https://getdabflow.app",
+      "post_wait_secs": 1.2146190585327428,
+      "checkpoint": "returned_to_dabflow",
+      "phase": "pre_site_fast"
+    },
+    {
+      "type": "wait",
+      "seconds": 0.45618723355669005
+    },
+    {
+      "type": "close_app",
+      "phase": "post_browser_fast",
+      "checkpoint": "browser_closed"
+    },
+    {
+      "type": "wait",
+      "seconds": 0.2066122073825417,
+      "phase": "post_browser_fast"
+    },
+    {
+      "type": "rotate_identity",
+      "phase": "post_browser_fast",
+      "checkpoint": "identity_rotated"
+    },
+    {
+      "type": "wait",
+      "seconds": 0.3490434998669616,
+      "phase": "post_browser_fast"
+    },
+    {
+      "type": "full_reset",
+      "phase": "post_browser_fast",
+      "checkpoint": "session_reset"
+    }
+  ],
+  "meta": {
+    "flow": "ad",
+    "dabflow_material": "quartz",
+    "dabflow_concentrate": "diamonds",
+    "dabflow_heater": "butane",
+    "timer_cycles": 1,
+    "baseline_wh": "1080x1920",
+    "base_w": 1080,
+    "base_h": 1920,
+    "humanization": "snowflake_v1",
+    "description": "Combo matrix: age, 3 picks, scroll, start dab, full combo timer wait, skip popup; no-ad=tab tour, ad=post-timer tab scroll + ad link + \u226530s dwell",
+    "timer_heat_sec": 20,
+    "timer_cool_sec": 69,
+    "timer_total_sec": 89,
+    "timer_wait_seconds": 95.5,
+    "completion_animation_sec": 5.5,
+    "modal_render_buffer_sec": 1.0,
+    "timer_wait_formula": "ui_total(89)+COMPLETION_ANIMATION(5.5)+MODAL_BUFFER(1.0)=95.5",
+    "identity_tail": true,
+    "start_dab_coords": "(450,1075)",
+    "ad_min_dwell_sec": 30.0,
+    "ad_max_dwell_sec": 45.0,
+    "human_bucket": "046",
+    "humanize_seed": 2908472073,
+    "browser_tag": "farmbrowser",
+    "browser_label": "FarmBrowser"
+  },
+  "label": "DabFlow ad quartz__diamonds__butane (1080x1920)",
+  "preferred_browser": "com.farmbrowser.stealth.debug"
+}

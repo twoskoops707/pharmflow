@@ -1,0 +1,75 @@
+SEQUENCE TAIL AUDIT — 2026-06-21
+================================
+
+PROBLEMS FOUND (pre-fix)
+------------------------
+1. Session notes Skip: RNG path (session_notes_skip_block) used SESSION_NOTES_SKIP_MUMU
+   (337,1266) without verify_dismiss / until_session_notes_gone guards. Matrix JSONs
+   already had ONE coords (276,984) + guards but RNG flows did not.
+2. Tab tour incomplete: build_combo_matrix_steps and dabflow__demo__ONE.json only visited
+   Stats tab — Glass tab (#tab-glass / data-screen="glass") was never tapped or scrolled.
+3. Scroll coverage: only STATS_SCROLL_BOTTOM_SWIPES ran; GLASS_SCROLL_BOTTOM_SWIPES never
+   emitted in combo matrix or demo ONE reference.
+
+DOM / LAYOUT SOURCE (DabFlow www/index.html @ origin/web)
+---------------------------------------------------------
+- Bottom nav: .nav-bar a.nav-item[data-screen] — stats x=450, glass x=630, nav cy=1566
+- Scroll regions: #stats-screen main (overflow-y:auto), #glass-screen main
+- Session notes: #session-notes-modal → skipSessionNotes() Skip button
+
+COORDS (dabflow_layout.py @ 900×1600)
+--------------------------------------
+SESSION_NOTES_SKIP_ONE (MuMu page):  (276, 984)  pre_wait_ms=500  verify_dismiss=true
+TAB_GLASS (bottom_nav):              (630, 1566)
+TAB_STATS (bottom_nav):              (450, 1566)
+GLASS_SCROLL_BOTTOM_SWIPES:
+  {x1:450,y1:900,x2:450,y2:600,ms:850}
+  {x1:450,y1:850,x2:450,y2:500,ms:800}
+STATS_SCROLL_BOTTOM_SWIPES:
+  {x1:450,y1:950,x2:450,y2:650,ms:900}
+  {x1:450,y1:900,x2:450,y2:550,ms:850}
+
+GENERATOR CHANGES (generate_dabflow_gold_matrix.py)
+---------------------------------------------------
++ session_notes_skip_steps_deterministic() — ONE skip + until_session_notes_gone wait
++ glass_stats_tab_tour_steps() — glass tap/scroll then stats tap/scroll (0.5s v7 gaps)
+* session_notes_skip_block() — SESSION_NOTES_SKIP_ONE + verify_dismiss + until_session_notes_gone
+* demo_post_popup_exit_tail(tab='both') — default glass+stats tour before close
+* build_combo_matrix_steps() — uses deterministic skip + glass_stats_tab_tour_steps()
+* build_demo_one_steps() — aligned to gold tail (glass+stats+identity)
+
+REFERENCE JSON (dabflow__demo__ONE.json)
+----------------------------------------
+Updated manually: glass tab block inserted before stats (checkpoints tab_glass,
+tab_glass_scrolled_bottom). Skip remains (276,984) verify_dismiss + until_session_notes_gone.
+
+REGEN
+-----
+900×1600 no-ad combo matrix only: 60 files regen_ok
+  dir=C:\Users\jsmil\CPharm\sequences\900x1600\no-ad
+  (dabflow__demo__ONE.json NOT overwritten by regen script — hand-maintained)
+
+SAMPLE JSON SPOT CHECK (post-regen)
+-----------------------------------
+dabflow__no_ads__mat-ceramic__conc-distillate__heat-propane.json:
+  PASS — tab_glass, tab_glass_scrolled_bottom, tab_stats, tab_scrolled_bottom present
+  PASS — skip (276,984) verify_dismiss + until_session_notes_gone
+
+dabflow__demo__ONE.json:
+  PASS — same tail structure (gold reference)
+
+LIVE TEST (MuMu @ 10.0.2.69:5555)
+----------------------------------
+_spot_tail_live_2seq.py — OVERALL=PASS
+
+dabflow__demo__ONE.json:
+  json_structure=PASS  timer_to_modal=PASS  skip=PASS  glass_tab=PASS  stats_tab=PASS
+
+dabflow__no_ads__mat-quartz__conc-wax__heat-butane.json:
+  json_structure=PASS  timer_to_modal=PASS  skip=PASS  glass_tab=PASS  stats_tab=PASS
+
+Full log: C:\Users\jsmil\CPharm\TAIL_LIVE_2SEQ_RESULT.txt
+
+NOT REGENERATED (per user request)
+----------------------------------
+Full 480-sequence matrix (all resolutions / ad / early-exit / doesnt-finish) — pending approval.

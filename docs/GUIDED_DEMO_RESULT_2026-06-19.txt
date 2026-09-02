@@ -1,0 +1,54 @@
+GUIDED DEMO RESULT — DabFlow MuMu (guided manual session)
+==============================================================
+Device: 10.0.2.179:5555 | baseline 900x1600
+Source log: C:\Users\jsmil\CPharm\GUIDED_TAP_LOG.txt (3114 bytes, UTF-8)
+Final screenshot: C:\Users\jsmil\CPharm\GUIDED_DONE.png
+Recording: getevent not running (no host/device capture process found)
+
+RECORDING NOTE
+  GUIDED_TAP_LOG stopped after ~13 SYN frames at 15:37:53 — one drag only.
+  Steps 2–9 taps were NOT captured in this log; user completed flow manually.
+
+TAP LIST (page coords; WebView inset 192px except age gate)
+  1. scroll (drag)     page(  60,1290) screen(  60,1482) gap=—
+      Continuous swipe: screen X 500→15, Y 1340→1501 (13 frames)
+      Likely early scroll / pointer drift — not mapped to a discrete flow tap
+
+  Prior session coords retained in JSON (USER_TAP_ANALYSIS):
+  2. age_verification  page( 460, 907)  — not in guided log
+  3. mat_ceramic       page( 660, 501)  — not in guided log
+  4. conc_distillate   page( 366, 587)  — not in guided log
+  5. heat_propane       page( 593, 663)  — not in guided log
+  6. timer_started     page( 528,1068)  — not in guided log
+  7. popup_dismiss      page( 184,1230)  — not in guided log
+  8. tab_stats          page( 450,1566)  — not in guided log
+
+TIMING VIBE
+  Guided log: insufficient (single drag, no inter-tap gaps).
+  Prior USER_TAP_ANALYSIS: avg selection gap ~0.28s; post-age 0.38s; fast deliberate vibe.
+  JSON waits unchanged: 0.38s post-age, 0.28s between selections, 0.25s post-skip.
+
+FLOW STEPS IDENTIFIED (from guided log)
+  scroll? — yes (1 drag cluster)
+  age, material, concentrate, heater, start dab, skip, stats — NOT in log
+
+START DAB (final coords for replay)
+  Page (JSON): (528, 1068)
+  Screen (prior): (528, 1260)
+  Source: USER_TAP_ANALYSIS dwell cluster — guided session did not re-record
+
+JSON CHANGES (dabflow__demo__ONE.json)
+  (none — guided log too sparse; all coords/waits match prior USER_TAP_ANALYSIS)
+
+VISUAL FEEDBACK
+  show_touches=0, pointer_location=0 (disabled after session complete)
+
+FILES WRITTEN
+  C:\Users\jsmil\CPharm\GUIDED_DONE.png
+  C:\Users\jsmil\CPharm\GUIDED_DEMO_RESULT.txt
+  C:\Users\jsmil\CPharm\GUIDED_TAP_ANALYSIS.txt (detailed parse)
+  sequences/900x1600/no-ad/dabflow__demo__ONE.json (unchanged)
+
+REPLAY READINESS
+  READY to replay demo ONE using existing JSON coords (prior USER_TAP_ANALYSIS).
+  Guided session did not produce new tap data; no coord refresh needed.

@@ -1,0 +1,217 @@
+CPharm Full Automation Audit
+============================
+Date: 2026-06-21
+Scope: cpharm-clone — wizard Start automation, dashboard groups runner, scheduler, Tor, identity
+
+================================================================================
+EXECUTION FLOW (text diagram)
+================================================================================
+
+Wizard "Start automation" / Groups "Tryout / Run playlist now"
+  |
+  v
+LaunchPage._start_automation_one_click()          [wizard/setup_wizard.py:10928]
+  |  _save() -> groups_config.json
+  |  POST /api/groups/load
+  v
+POST /api/groups/run {"groups": [...]}            [automation/dashboard.py:2320+]
+  |
+  v
+_start_groups_pipeline() [background thread]      [dashboard.py:2531]
+  |  tor_proxy_preflight()
+  |  foreach online serial: register_tor_slot, start_tor_warm_background,
+  |                         ensure_tor_and_proxy_for_phone()
+  v
+_run_group(group) per group [ThreadPool]          [dashboard.py:2439]
+  |
+  |  repeat = _effective_group_repeat(group, repeat, forever)  [2413]
+  |       bumps repeat to max(len playlist slots) for ordered/random
+  |
+  +-- while _running_groups[name] AND (forever OR iteration < repeat):  [2498]
+        foreach serial (stagger): Thread -> _run_one_phone(serial, iteration)
+          |
+          |  _phone_steps_for_run(group, serial, iteration)  [1220]
+          |    -> resolve_steps(ent, iteration, serial, inline)  [sequence_playlist.py:262]
+          |         ordered/random: ONE file per iteration (round-robin or random)
+          |         series: ALL files chained in one iteration
+          |
+          |  _run_steps_adb(phone_steps)  [2381]
+          |    foreach step: run_sequence_step()  [1363]
+          |      open_url -> repair_adb_reverse + ensure_tor_ready  [1384-1416]
+          |      rotate_identity -> tor_manager.rotate_identity_adb  [1682]
+          |      full_reset -> tor_manager.full_identity_reset      [1713]
+          |
+          |  if is_playlist_cycle_end(ent, iteration):              [2477-2486]
+          |       tor_manager.full_identity_reset(serial, idx)  // cycle-end only
+          |
+        iteration += 1
+
+groups_config.json load path:
+  wizard state["groups"] -> POST /api/groups/load -> persisted recordings/groups_config.json
+  normalize via _normalize_groups_payload() [dashboard.py:1267]
+  playlist fields: sequence_playlist, sequence_playlist_secondary,
+                   sequence_playlist_mode, sequence_playlist_shuffle
+
+Scheduler (separate path):
+  POST /api/scheduler/start -> _sched_loop -> _run_steps(serial, steps)  [scheduler.py:128]
+  Uses inline steps only (NOT playlist). Resets identity after EVERY fire [120].
+
+================================================================================
+ROOT CAUSE: single-sequence-only bug
+================================================================================
+
+PRIMARY (fixed in ac4dfb5 + this audit):
+
+1. Group repeat=1 with repeat_forever=false
+   dashboard.py _run_group() while-loop exited after iteration 0 when repeat was 1.
+   Location: dashboard.py:2498  `while ... (forever or iteration < repeat)`
+
+2. sequence_playlist_mode=ordered picks ONE file per iteration
+   sequence_playlist.py resolve_steps() pick_rotating_filename() at line 303-304.
+   With repeat=1 only the first playlist slot ran.
+
+3. Identity reset ran after EVERY iteration (before cycle fix)
+   dashboard.py _run_one_phone called full_identity_reset unconditionally after each
+   run. Fixed at dashboard.py:2477-2486 with is_playlist_cycle_end() gate.
+
+SECONDARY (fixed in this audit — identity tail on every file):
+
+4. _enforce_ip_id_tail() appended rotate_identity/wait/full_reset to EVERY ordered/random
+   batch, and JSON sequence files already embed that tail.
+   sequence_playlist.py:303-304 (old) caused identity rotation after each file even when
+   dashboard deferred cycle-end reset.
+   Fix: strip per-file identity tail in ordered/random; enforce tail once for series only;
+   dashboard full_identity_reset at cycle end.
+
+EARLY EXIT LOCATIONS (historical — no longer active after fixes):
+  - dashboard.py:2498 — loop exit when repeat exhausted (mitigated by _effective_group_repeat)
+  - dashboard.py:2477 — identity every iteration (mitigated by is_playlist_cycle_end)
+  - sequence_playlist.py ordered path — one file per iteration BY DESIGN (mitigated by repeat bump)
+
+================================================================================
+PHASE 2: REPEAT / CYCLE BEHAVIOR
+================================================================================
+
+Config fields (groups[].repeat, groups[].repeat_forever):
+  - repeat: int >= 1, default 1
+  - repeat_forever: bool, default false
+
+After playlist completes once (ordered, N files, repeat bumped to N):
+  - Group logs "Done ✓" and stops (unless repeat_forever=true)
+  - Tor processes STAY RUNNING (no stop_all mid-farm)
+  - full_identity_reset runs once at last iteration (is_playlist_cycle_end)
+
+Secondary playlist (sequence_playlist_secondary):
+  - ordered/random: one pick from A AND one from B per iteration (concatenated steps)
+  - series: all A files then all B files in one iteration
+  - cycle length = max(len(A), len(B)) or len(A)+len(B) if shuffle=combined
+
+repeat_forever=true:
+  - Loop never exits on repeat count; identity resets each full playlist cycle
+
+================================================================================
+PHASE 3: TOR TRIPLE-CHECK
+================================================================================
+
+Checkpoint                                      | Result | Location
+------------------------------------------------|--------|----------------------------------
+Tor preflight before group start                | PASS   | dashboard.py:2370-2378
+ensure_tor_and_proxy_for_phone per phone start  | PASS   | dashboard.py:2552
+Tor stays up between sequences in same cycle    | PASS   | no stop_all in _run_group
+Tor stays up between cycles / after group done  | PASS   | stop_all only on explicit teardown
+repair_adb_reverse before each open_url         | PASS   | dashboard.py:1387
+ensure_tor_ready before each open_url           | PASS   | dashboard.py:1407
+NEWNYM on rotate_identity (not process kill)    | PASS   | tor_manager.py:1197-1211
+NEWNYM + android_id on full_identity_reset      | PASS   | tor_manager.py:1538-1574
+Scheduler ensures Tor before steps              | PASS   | scheduler.py:85-94
+stop_all on wizard exit only (user closes app)  | PASS   | setup_wizard.py:2815-2817
+stop_all on /api/proxy/teardown (Turn off Tor)  | PASS   | dashboard.py:2273
+Mid-farm stop_all                               | PASS   | NOT called during group runs
+
+Note: Privoxy is not used; Tor HTTPTunnelPort + adb reverse is the proxy path.
+
+================================================================================
+PHASE 4: IDENTITY + LOCATION
+================================================================================
+
+Checkpoint                                      | Result | Location
+------------------------------------------------|--------|----------------------------------
+Android ID rotation (full_identity_reset)       | PASS   | tor_manager.randomize_android_id_adb
+Tor exit IP change (NEWNYM)                       | PASS   | tor_manager._send_tor_newnym
+MAC randomization (best-effort)                 | PASS   | tor_manager.randomize_mac_adb
+Browser cookie clear on reset                   | PASS   | tor_manager.full_identity_reset:1560
+Identity deferred to playlist cycle end         | PASS   | dashboard.py:2477-2486
+Per-file identity tail stripped (ordered/random)| PASS   | sequence_playlist._strip_trailing_ip_id_tail
+Series: one identity tail on last file chunk    | PASS   | resolve_step_chunks / _enforce_ip_id_tail
+Geolocation mock                                | N/A    | not implemented; location = Tor exit node
+Scheduler identity after every hit              | WARN   | scheduler.py:120 (by design, not playlist)
+
+Location change flow:
+  Tor circuit NEWNYM -> new exit IP -> apply_identity_adb re-applies http_proxy
+  Android ID changed via settings put secure android_id
+  MAC changed best-effort via ip link (root-dependent)
+
+================================================================================
+CODE CHANGES MADE (this audit)
+================================================================================
+
+Already committed (ac4dfb5):
+  - automation/dashboard.py: _effective_group_repeat, is_playlist_cycle_end gate
+  - automation/sequence_playlist.py: playlist_cycle_length, is_playlist_cycle_end
+  - wizard defaults: sequence_playlist_mode series for new phones
+
+This session (pending commit):
+  - automation/sequence_playlist.py:
+      _strip_trailing_ip_id_tail() — remove per-file identity tail
+      ordered/random: no _enforce_ip_id_tail per iteration
+      series: strip per-file tails, enforce once on combined chain
+  - automation/test_sequence_playlist_paths.py: tests for strip + ordered resolve
+
+================================================================================
+RECOMMENDED groups_config.json SETTINGS
+================================================================================
+
+For run ALL playlist files, repeat forever, Tor always on during farm:
+
+  {
+    "name": "Group 1",
+    "repeat": 1,
+    "repeat_forever": true,
+    "stagger_secs": 30,
+    "phones": {
+      "<adb_serial>": {
+        "sequence_playlist": ["900x1600/no-ad/file1.json", "..."],
+        "sequence_playlist_secondary": [],
+        "sequence_playlist_mode": "series",
+        "sequence_playlist_shuffle": "none",
+        "steps": []
+      }
+    }
+  }
+
+Mode guide:
+  - series + repeat_forever: BEST for continuous filming (all files every cycle)
+  - ordered + repeat_forever: one file per iteration, cycles forever through list
+  - ordered + repeat=1: runs each file once then stops (repeat auto-bumped to N)
+
+Tor: start farm via wizard Launch; do NOT click Turn off Tor between cycles.
+Identity: automatic at end of each full playlist cycle (dashboard full_identity_reset).
+
+================================================================================
+TESTS RUN
+================================================================================
+
+  py -3 -m unittest test_sequence_playlist_paths -v     -> 8 passed
+  py -3 -m unittest test_sequence_footer_visibility test_wizard_regressions -v -> 24 passed
+
+================================================================================
+SUMMARY
+================================================================================
+
+Root cause: repeat=1 + ordered mode (one file per iteration) + per-iteration identity
+reset. Fixed by auto-bumping repeat to playlist length, gating identity to cycle end,
+and stripping per-file identity tails so location/Android ID change only after the full
+playlist completes.
+
+Files touched: automation/sequence_playlist.py, automation/test_sequence_playlist_paths.py
+(alongside prior ac4dfb5: dashboard.py, setup_wizard.py)

@@ -1,0 +1,31 @@
+﻿PROXY_FIX_STATUS - 2026-06-19 (follow-up verification)
+Device: 10.0.2.179:5555 (MuMu GC3VE)
+Outcome: FIXED (Y)
+
+Steps performed:
+1. adb connect 10.0.2.179:5555 -> already connected, state=device
+2. Host proxy stack: 127.0.0.1:8118 (Privoxy) and 127.0.0.1:9050 (Tor) LISTENING (PID 5560). No start required.
+3. Emulator global http_proxy: 127.0.0.1:8118 (unchanged; not cleared)
+4. repair_adb_reverse_for_proxy("10.0.2.179:5555", phone_idx=0) -> {"repaired": false, "reason": "reverse_ok", "port": 8118}
+5. Re-applied: adb reverse tcp:8118 tcp:8118 (idempotent)
+6. Verification:
+   - Host: curl -x http://127.0.0.1:8118 https://getdabflow.app -> HTTP 200
+   - Device: adb shell curl -x http://127.0.0.1:8118 https://getdabflow.app -> HTTP 200
+   - Browser: am start VIEW https://getdabflow.app/ (com.android.browser) intent delivered
+
+Current state:
+  adb: 10.0.2.179:5555 device
+  http_proxy: 127.0.0.1:8118
+  adb reverse: host-11 tcp:8118 tcp:8118
+
+Root cause (when broken): MuMu/adb reconnect drops adb reverse while http_proxy stays set -> browser "proxy connection failed".
+
+User next steps:
+  - Confirm in MuMu browser that getdabflow.app loads (should work now).
+  - After MuMu restart or adb disconnect/reconnect, if proxy fails again run:
+      adb connect 10.0.2.179:5555
+      adb -s 10.0.2.179:5555 reverse tcp:8118 tcp:8118
+    Or: py -3 -c "import sys; sys.path.insert(0,r'C:\Users\jsmil\CPharm\cpharm-clone\automation'); from tor_manager import repair_adb_reverse_for_proxy; print(repair_adb_reverse_for_proxy('10.0.2.179:5555', 0))"
+  - If host 8118 is down, start Tor/Privoxy (CPharm tor stack) before re-applying reverse.
+
+Did NOT run setup_fresh_mumu_farm.py. No git commit --trailer "Co-authored-by: Cursor <cursoragent@cursor.com>".

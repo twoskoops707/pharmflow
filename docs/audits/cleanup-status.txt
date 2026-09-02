@@ -1,0 +1,49 @@
+CLEANUP STATUS — 2026-06-21
+===========================
+
+## Prerequisite tasks
+
+| Task | Status |
+|------|--------|
+| Tail audit (glass+stats, 60 no-ad regen) | DONE (prior) |
+| UI/UX modernization | DONE — scroll fixes, theme, inline help, WIZARD_UX_MODERNIZATION.md |
+| Folder playlist + 3-tab tail | DONE — folder_random UI, settings tab, 0.25s waits, FOLDER_AND_TABS_PLAN.txt |
+
+## Release
+
+- Canonical exe: C:\Users\jsmil\Downloads\CPharm.exe
+- Tag: wizard-378 (build 378), size 19,023,500 bytes
+- Removed: C:\Users\jsmil\Downloads\CPharm-latest\
+
+## Files deleted (by category)
+
+| Category | Count |
+|----------|------:|
+| CPharm root stale artifacts (_spot_*, _uia_*, TAIL_LIVE_*, PUSH_STATUS, proof xml) | 8 |
+| cpharm-clone root scratch (_patch_*, _tmp_*, _e2e_reset, etc.) | 8 |
+| automation one-off live/proof scripts | 24 |
+| automation tor tmp*.cfg | 651 |
+| automation _live_smoke_screenshot png | 1 |
+| Stale sequence JSON (missing tab_glass + tab_settings tail) | 428 |
+| automation/_proof2_now.py (straggler) | 1 |
+
+## Sequences
+
+- Kept: 69 JSON files (61 in 900x1600/no-ad including demo ONE + 60 matrix; groups_config; dabflow__demo__TWO if present)
+- Deleted: 428 stale JSON (old resolutions/variants without 3-tab tail)
+- Gold reference preserved: sequences/900x1600/no-ad/dabflow__demo__ONE.json (regen with glass+stats+settings)
+
+## Kept (explicit)
+
+- automation/_run_ONE_live_direct.py, _build_*.py, _validate_*.py, test_*.py, session_notes_uia.py
+- automation/tor/data_* (Tor active — not touched)
+- cpharm-clone source tree
+
+## py_compile
+
+Passed: setup_wizard.py, wizard_theme.py, sequence_humanize.py, sequence_playlist.py, generate_dabflow_gold_matrix.py, dabflow_layout.py
+
+## git status (cpharm-clone)
+
+Modified: wizard/setup_wizard.py, wizard/wizard_theme.py, wizard/sequence_humanize.py, automation/recordings/desktop_prefs.json
+Not pushed (per user request).

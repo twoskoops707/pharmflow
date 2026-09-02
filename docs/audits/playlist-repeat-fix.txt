@@ -1,0 +1,97 @@
+PLAYLIST REPEAT FIX — root cause and configuration
+=================================================
+
+ROOT CAUSE
+----------
+Three interacting defaults caused "one cycle then stop" behavior:
+
+1. Group repeat=1, repeat_forever=false
+   dashboard.py _run_group() exits after one iteration when repeat is 1.
+
+2. sequence_playlist_mode=ordered (default)
+   sequence_playlist.py resolve_steps() picks ONE playlist file per group
+   iteration (round-robin via iteration % len). With repeat=1 only the first
+   file runs.
+
+3. Identity reset after every iteration
+   dashboard.py called tor_manager.full_identity_reset() after each single-file
+   run, so users saw location/identity change then the group stopped.
+
+Tor does NOT stop when a group finishes. Tor processes keep running unless you
+explicitly call Turn off Tor (/api/proxy/teardown) or close the wizard (which
+calls wiz_clear_phone_proxies_best_effort). Identity rotation (NEWNYM) is not
+the same as stopping Tor.
+
+FILES CHANGED
+-------------
+- automation/sequence_playlist.py
+    playlist_cycle_length(), is_playlist_cycle_end()
+- automation/dashboard.py
+    Auto-bump group repeat to cover full playlist cycle; defer identity reset
+    to end of playlist cycle (not between ordered slots)
+- wizard/setup_wizard.py
+    Default playlist mode series for new phones; clarify ordered UI label
+- tools/setup_fresh_mumu_farm.py
+    Default playlist mode series
+- automation/test_sequence_playlist_paths.py
+    Tests for cycle helpers
+- wizard/test_sequence_footer_visibility.py
+    Updated default mode expectation
+
+HOW TO CONFIGURE groups_config.json FOR CONTINUOUS FILMING
+----------------------------------------------------------
+
+Option A — chain every sequence file, one identity reset per full pass (recommended):
+
+  "sequence_playlist_mode": "series"
+  "repeat": 1
+  "repeat_forever": true
+
+  series runs ALL files in sequence_playlist then sequence_playlist_secondary
+  back-to-back each iteration. With repeat_forever the group loops indefinitely.
+
+Option B — keep ordered round-robin (one file per iteration):
+
+  "sequence_playlist_mode": "ordered"
+  "repeat": 1          // dashboard now auto-bumps to playlist length
+  "repeat_forever": true
+
+  Code now bumps repeat to max(len(set A), len(set B)) when needed and only
+  resets identity after the last file in the cycle.
+
+Option C — explicit repeat count without forever:
+
+  "sequence_playlist_mode": "series"
+  "repeat": 5
+  "repeat_forever": false
+
+  Runs the full chained playlist 5 times, then stops. Tor stays up.
+
+CURRENT USER CONFIG (groups_config.json) — recommended edits
+------------------------------------------------------------
+Your Group 1 has repeat=1, repeat_forever=false, mode=ordered, 4–19 playlist
+files per phone. After this fix ordered mode will auto-run all files once, but
+will still STOP after one full pass.
+
+For continuous filming set:
+
+  "repeat_forever": true
+
+and preferably:
+
+  "sequence_playlist_mode": "series"
+
+on each phone entry.
+
+CODE PATH (Groups → Start automation)
+------------------------------------
+1. wizard LaunchPage._start_automation_one_click()
+2. POST /api/groups/load then POST /api/groups/run
+3. dashboard _start_groups_pipeline → Tor warm → _run_group per group
+4. _effective_group_repeat() bumps repeat if playlist longer than repeat
+5. while forever or iteration < repeat:
+       _run_one_phone(serial, iteration)
+         resolve_steps(ent, iteration, serial)  // one file (ordered) or chain (series)
+         _run_steps_adb()
+         if is_playlist_cycle_end: full_identity_reset()
+6. Group logs "Done ✓" — Tor processes remain running

@@ -1,0 +1,54 @@
+Timer fix — investigation result
+==================================
+timestamp_utc: 2026-06-22
+
+ROOT CAUSE (two issues)
+-----------------------
+1. Dashboard group phone 10.0.2.69:5555 had intentional "doesn't finish" backup steps:
+   - wait 43.5s, checkpoint "doesnt_finish" (half cool-down only)
+   - playlist referenced missing 900x1600/doesnt-finish/*.json files
+   - sequence_playlist.py falls back to inline steps when playlist files are missing
+   → automation closed the browser ~47s before full timer + completion animation + modal
+
+2. Human-variation could shorten timer waits in older paths:
+   - cpharm-ci-temp/automation/dashboard.py scaled ALL waits (no timer_complete guard)
+   - cpharm-ci-temp/wizard/sequence_humanize.py scaled timer_complete JSON waits ~±8%
+   - With HUMAN_VARIATION_FORCE=True (default), 90.5s could become ~83.3s at runtime
+   - cpharm-clone dashboard already had cp != timer_complete guard; defense now centralized
+
+demo ONE JSON was already correct (90.5s); live run with HV=0 had PASS (DEMO_RUN_RESULT.txt).
+
+FIX APPLIED
+-----------
+Code (cpharm-clone + cpharm-ci-temp):
+  - sequence_normalize.py: step_is_timer_complete_wait(); merge_consecutive_waits skips timer_complete
+  - human_variation.py: scaled_wait_seconds(..., checkpoint=) never scales timer_complete
+  - dashboard.py: uses step_is_timer_complete_wait + checkpoint-aware scaling
+  - wizard/sequence_humanize.py: timer_complete waits unchanged (ci-temp synced)
+  - automation/test_timer_complete_wait.py: unit tests
+
+Data:
+  - groups_config.json phone 10.0.2.69:5555 inline backup replaced with demo ONE tail
+    (timer_complete 90.5s + popup/tabs/identity); removed doesnt-finish playlist entries;
+    added dabflow__demo__ONE.json as first playlist slot
+  - dabflow__demo__ONE.json: NOT regen'd (already 90.5s)
+
+BEFORE / AFTER wait seconds (demo ONE, ceramic/distillate/propane)
+------------------------------------------------------------------
+  JSON timer_complete:     90.5s → 90.5s (unchanged)
+  groups 10.0.2.69 inline: 43.5s doesnt_finish → 90.5s timer_complete
+  HV=1 scaled runtime:     could be ~83.3s → 90.5s (fixed)
+  HV=0 live wall (prior):  ~91.1s PASS
+  HV=1 live wall (timer step only, 10.0.2.69): 90.6s PASS
+
+VALIDATION
+----------
+  py -3 automation/_validate_timer_formula.py → OK
+  py -3 -m unittest automation/test_timer_complete_wait.py → 6 tests OK
+
+RECOMMENDED wait seconds for demo ONE
+-------------------------------------
+  90.5s  (= UI total 84s + completion animation 5.5s + modal buffer 1.0s)
+  Formula: calculateTimings(ceramic, distillate, propane) → heat 20, cool 64, total 84
+
+NOT PUSHED (per instructions).

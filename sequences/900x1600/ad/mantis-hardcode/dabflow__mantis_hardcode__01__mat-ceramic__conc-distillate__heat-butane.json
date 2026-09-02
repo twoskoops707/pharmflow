@@ -1,0 +1,409 @@
+{
+  "steps": [
+    {
+      "type": "clear_cookies",
+      "phase": "pre_site_fast"
+    },
+    {
+      "type": "wait",
+      "seconds": 0.23433814840720948,
+      "phase": "pre_site_fast"
+    },
+    {
+      "type": "open_url",
+      "url": "https://getdabflow.app",
+      "post_wait_secs": 0.7738372216851627,
+      "phase": "pre_site_fast",
+      "checkpoint": "loaded"
+    },
+    {
+      "type": "wait",
+      "seconds": 0.2370310079122916,
+      "phase": "pre_site_fast"
+    },
+    {
+      "type": "tap",
+      "x": 460,
+      "y": 907,
+      "base_w": 900,
+      "base_h": 1600,
+      "retries": 5,
+      "jitter": 5,
+      "pre_wait_ms": 114.66571957741682,
+      "age_verification": true,
+      "checkpoint": "age_verification",
+      "phase": "pre_site_fast"
+    },
+    {
+      "type": "wait",
+      "seconds": 0.18
+    },
+    {
+      "type": "tap",
+      "x": 666,
+      "y": 487,
+      "base_w": 900,
+      "base_h": 1600,
+      "retries": 2,
+      "jitter": 22,
+      "pre_wait_ms": 147.01856780911916
+    },
+    {
+      "type": "wait",
+      "seconds": 0.20409709216750768
+    },
+    {
+      "type": "tap",
+      "x": 384,
+      "y": 602,
+      "base_w": 900,
+      "base_h": 1600,
+      "retries": 2,
+      "jitter": 22,
+      "pre_wait_ms": 202.22469203598044
+    },
+    {
+      "type": "wait",
+      "seconds": 0.25654316983984543
+    },
+    {
+      "type": "tap",
+      "x": 253,
+      "y": 677,
+      "base_w": 900,
+      "base_h": 1600,
+      "retries": 3,
+      "jitter": 25,
+      "pre_wait_ms": 101.88538565284566
+    },
+    {
+      "type": "wait",
+      "seconds": 0.22118759209820948,
+      "checkpoint": "selections_done"
+    },
+    {
+      "type": "swipe",
+      "x1": 450,
+      "y1": 1150,
+      "x2": 450,
+      "y2": 700,
+      "ms": 686,
+      "base_w": 900,
+      "base_h": 1600
+    },
+    {
+      "type": "wait",
+      "seconds": 0.10384094520510707
+    },
+    {
+      "type": "swipe",
+      "x1": 450,
+      "y1": 1200,
+      "x2": 450,
+      "y2": 750,
+      "ms": 649,
+      "base_w": 900,
+      "base_h": 1600,
+      "checkpoint": "scroll_to_start_dab"
+    },
+    {
+      "type": "wait",
+      "seconds": 0.14894643636242436
+    },
+    {
+      "type": "tap",
+      "x": 457,
+      "y": 1091,
+      "base_w": 900,
+      "base_h": 1600,
+      "retries": 5,
+      "jitter": 25,
+      "pre_wait_ms": 431.8118020382686,
+      "checkpoint": "timer_started"
+    },
+    {
+      "type": "wait",
+      "seconds": 94.5,
+      "checkpoint": "timer_complete"
+    },
+    {
+      "type": "tap",
+      "x": 274,
+      "y": 963,
+      "base_w": 900,
+      "base_h": 1600,
+      "retries": 4,
+      "jitter": 21,
+      "pre_wait_ms": 102.62936729696948,
+      "checkpoint": "popup_dismiss",
+      "verify_dismiss": true
+    },
+    {
+      "type": "wait",
+      "seconds": 0.6991927178870512,
+      "checkpoint": "popup_dismissed",
+      "until_session_notes_gone": true
+    },
+    {
+      "type": "tap",
+      "x": 628,
+      "y": 1548,
+      "base_w": 900,
+      "base_h": 1600,
+      "retries": 4,
+      "jitter": 21,
+      "pre_wait_ms": 141.03895626921724,
+      "checkpoint": "tab_glass",
+      "bottom_nav": true
+    },
+    {
+      "type": "wait",
+      "seconds": 2.633841903010335
+    },
+    {
+      "type": "swipe",
+      "x1": 450,
+      "y1": 899,
+      "x2": 444,
+      "y2": 604,
+      "ms": 973,
+      "base_w": 900,
+      "base_h": 1600
+    },
+    {
+      "type": "swipe",
+      "x1": 443,
+      "y1": 848,
+      "x2": 454,
+      "y2": 502,
+      "ms": 985,
+      "base_w": 900,
+      "base_h": 1600,
+      "checkpoint": "tab_glass_scrolled_bottom"
+    },
+    {
+      "type": "wait",
+      "seconds": 3.6685539142145855
+    },
+    {
+      "type": "tap",
+      "x": 824,
+      "y": 1558,
+      "base_w": 900,
+      "base_h": 1600,
+      "retries": 3,
+      "jitter": 25,
+      "pre_wait_ms": 158.0487229887348,
+      "checkpoint": "tab_settings",
+      "bottom_nav": true
+    },
+    {
+      "type": "wait",
+      "seconds": 2.4581098572365567
+    },
+    {
+      "type": "swipe",
+      "x1": 455,
+      "y1": 940,
+      "x2": 454,
+      "y2": 659,
+      "ms": 995,
+      "base_w": 900,
+      "base_h": 1600
+    },
+    {
+      "type": "swipe",
+      "x1": 449,
+      "y1": 896,
+      "x2": 457,
+      "y2": 551,
+      "ms": 893,
+      "base_w": 900,
+      "base_h": 1600
+    },
+    {
+      "type": "swipe",
+      "x1": 455,
+      "y1": 847,
+      "x2": 446,
+      "y2": 446,
+      "ms": 621,
+      "base_w": 900,
+      "base_h": 1600,
+      "checkpoint": "tab_settings_scrolled_bottom"
+    },
+    {
+      "type": "wait",
+      "seconds": 3.4853748716757997
+    },
+    {
+      "type": "tap",
+      "x": 470,
+      "y": 1553,
+      "base_w": 900,
+      "base_h": 1600,
+      "retries": 4,
+      "jitter": 16,
+      "pre_wait_ms": 156.88981342281295,
+      "checkpoint": "tab_stats",
+      "bottom_nav": true
+    },
+    {
+      "type": "wait",
+      "seconds": 2.047843208160358
+    },
+    {
+      "type": "swipe",
+      "x1": 458,
+      "y1": 959,
+      "x2": 453,
+      "y2": 649,
+      "ms": 920,
+      "base_w": 900,
+      "base_h": 1600
+    },
+    {
+      "type": "swipe",
+      "x1": 444,
+      "y1": 903,
+      "x2": 454,
+      "y2": 541,
+      "ms": 794,
+      "base_w": 900,
+      "base_h": 1600,
+      "checkpoint": "tab_scrolled_bottom"
+    },
+    {
+      "type": "wait",
+      "seconds": 3.218364638551089
+    },
+    {
+      "type": "open_url",
+      "url": "https://www.mantisadnetwork.com/?utm_source=mantis&utm_medium=6950d5527c56c6494f189e46&utm_campaign=mantis-hardcode",
+      "post_wait_secs": 3.146544124556795,
+      "checkpoint": "ad_stats",
+      "ad_selected": true,
+      "mantis_hardcode": true
+    },
+    {
+      "type": "wait",
+      "seconds": 2.743278585679594
+    },
+    {
+      "type": "swipe",
+      "x1": 472,
+      "y1": 1242,
+      "x2": 486,
+      "y2": 932,
+      "ms": 469,
+      "base_w": 900,
+      "base_h": 1600
+    },
+    {
+      "type": "swipe",
+      "x1": 417,
+      "y1": 943,
+      "x2": 425,
+      "y2": 693,
+      "ms": 566,
+      "base_w": 900,
+      "base_h": 1600
+    },
+    {
+      "type": "swipe",
+      "x1": 423,
+      "y1": 687,
+      "x2": 420,
+      "y2": 423,
+      "ms": 1096,
+      "base_w": 900,
+      "base_h": 1600
+    },
+    {
+      "type": "swipe",
+      "x1": 482,
+      "y1": 454,
+      "x2": 480,
+      "y2": 280,
+      "ms": 840,
+      "base_w": 900,
+      "base_h": 1600
+    },
+    {
+      "type": "swipe",
+      "x1": 464,
+      "y1": 320,
+      "x2": 455,
+      "y2": 280,
+      "ms": 917,
+      "base_w": 900,
+      "base_h": 1600
+    },
+    {
+      "type": "wait",
+      "seconds": 37.891842303690154,
+      "checkpoint": "ad_dwell",
+      "ad_read": true
+    },
+    {
+      "type": "close_app",
+      "phase": "post_browser_fast",
+      "checkpoint": "browser_closed"
+    },
+    {
+      "type": "wait",
+      "seconds": 0.32187834129312254,
+      "phase": "post_browser_fast"
+    },
+    {
+      "type": "rotate_identity",
+      "phase": "post_browser_fast",
+      "checkpoint": "identity_rotated"
+    },
+    {
+      "type": "wait",
+      "seconds": 0.16989245432499747,
+      "phase": "post_browser_fast"
+    },
+    {
+      "type": "full_reset",
+      "phase": "post_browser_fast",
+      "checkpoint": "session_reset"
+    }
+  ],
+  "meta": {
+    "flow": "mantis-hardcode",
+    "dabflow_material": "ceramic",
+    "dabflow_concentrate": "distillate",
+    "dabflow_heater": "butane",
+    "timer_cycles": 1,
+    "baseline_wh": "900x1600",
+    "base_w": 900,
+    "base_h": 1600,
+    "humanization": "snowflake_v1",
+    "description": "Mantis hardcode: combo timer, tab tour, open_url to Mantis landing (Scramble browse mode), \u226530s dwell, identity tail",
+    "browse_proxy_mode": "scramble",
+    "timer_heat_sec": 20,
+    "timer_cool_sec": 68,
+    "timer_total_sec": 88,
+    "timer_wait_seconds": 94.5,
+    "completion_animation_sec": 5.5,
+    "modal_render_buffer_sec": 1.0,
+    "timer_wait_formula": "ui_total(88)+COMPLETION_ANIMATION(5.5)+MODAL_BUFFER(1.0)=94.5",
+    "identity_tail": true,
+    "start_dab_coords": "(450,1075)",
+    "ad_min_dwell_sec": 30.0,
+    "ad_max_dwell_sec": 45.0,
+    "mantis_hardcode": true,
+    "mantis_ad_url": "https://www.mantisadnetwork.com/?utm_source=mantis&utm_medium=6950d5527c56c6494f189e46&utm_campaign=mantis-hardcode",
+    "mantis_ad_tab": "stats",
+    "mantis_ad_checkpoint": "ad_stats",
+    "human_bucket": "566",
+    "mantis_zone": "zone-five",
+    "humanize_seed": 256679766,
+    "browser_tag": "farmbrowser",
+    "browser_label": "FarmBrowser"
+  },
+  "label": "DabFlow mantis-hardcode #01 ceramic/distillate/butane \u2192 stats (zone-five)",
+  "preferred_browser": "com.farmbrowser.stealth.debug"
+}

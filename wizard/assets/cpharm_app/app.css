@@ -1,0 +1,851 @@
+/* CPharm — 9-step wizard (extends shared MuMuSetup theme) */
+
+/* Scrollbars — standard browser scrollbars only (no fake bubble rails) */
+.content-area,
+.step-nav,
+.checklist,
+.prereq-list,
+.log-terminal,
+.groups-list,
+.view-body,
+.panel-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(62, 207, 176, 0.55) rgba(255, 255, 255, 0.05);
+}
+
+.content-area ::-webkit-scrollbar,
+.step-nav::-webkit-scrollbar,
+.checklist::-webkit-scrollbar,
+.prereq-list::-webkit-scrollbar,
+.log-terminal::-webkit-scrollbar,
+.groups-list::-webkit-scrollbar,
+.view-body::-webkit-scrollbar,
+.panel-scroll::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.content-area ::-webkit-scrollbar-track,
+.step-nav::-webkit-scrollbar-track,
+.checklist::-webkit-scrollbar-track,
+.prereq-list::-webkit-scrollbar-track,
+.log-terminal::-webkit-scrollbar-track,
+.groups-list::-webkit-scrollbar-track,
+.view-body::-webkit-scrollbar-track,
+.panel-scroll::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 10px;
+}
+
+.content-area ::-webkit-scrollbar-thumb,
+.step-nav::-webkit-scrollbar-thumb,
+.checklist::-webkit-scrollbar-thumb,
+.prereq-list::-webkit-scrollbar-thumb,
+.log-terminal::-webkit-scrollbar-thumb,
+.groups-list::-webkit-scrollbar-thumb,
+.view-body::-webkit-scrollbar-thumb,
+.panel-scroll::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, rgba(62, 207, 176, 0.75), rgba(155, 140, 248, 0.5));
+  border-radius: 10px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.app-shell {
+  height: 100vh;
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr);
+  gap: 16px;
+}
+
+#backend-error {
+  display: none;
+  margin-bottom: 8px;
+  padding: 10px 14px;
+  border-radius: var(--radius-sm);
+  background: rgba(232, 136, 136, 0.12);
+  border: 1px solid rgba(232, 136, 136, 0.45);
+  color: #f5c4c4;
+  font-size: 13px;
+  line-height: 1.45;
+  flex-shrink: 0;
+}
+
+#backend-error.visible {
+  display: block;
+}
+
+.nav-subtitle {
+  font-size: 11px;
+  color: var(--t3);
+  margin: -6px 10px 10px;
+  line-height: 1.35;
+}
+
+.step-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+  padding-right: 2px;
+}
+
+.step-nav-phase {
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--t3);
+  padding: 10px 8px 4px;
+  margin-top: 4px;
+}
+
+.step-nav-phase:first-child {
+  margin-top: 0;
+  padding-top: 4px;
+}
+
+.roadmap-list li {
+  margin-bottom: 10px;
+}
+
+.step-nav-item {
+  display: grid;
+  grid-template-columns: 28px 1fr;
+  gap: 8px;
+  align-items: start;
+  text-align: left;
+  padding: 8px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  cursor: pointer;
+  font-family: var(--font);
+  color: var(--t2);
+  transition: background 0.2s, border-color 0.2s;
+}
+
+.step-nav-item:hover {
+  background: rgba(155, 140, 248, 0.08);
+}
+
+.step-nav-item.active {
+  border-color: rgba(155, 140, 248, 0.45);
+  background: rgba(155, 140, 248, 0.12);
+  color: var(--accent-glow);
+}
+
+.step-nav-item.done .step-num {
+  background: linear-gradient(135deg, #3ecfb0, #22c55e);
+  border-color: transparent;
+  color: #04120e;
+}
+
+.step-num {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 800;
+  background: rgba(155, 140, 248, 0.15);
+  border: 1px solid rgba(155, 140, 248, 0.35);
+  color: var(--accent-glow);
+}
+
+.step-title {
+  display: block;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.step-desc {
+  display: block;
+  font-size: 10px;
+  color: var(--t3);
+  line-height: 1.3;
+  margin-top: 1px;
+}
+
+.nav-foot-note {
+  font-size: 10px;
+  color: var(--t3);
+  line-height: 1.4;
+  margin: 0;
+}
+
+.content-area {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.content-area > #backend-error {
+  flex-shrink: 0;
+}
+
+.content-area > .view.active {
+  flex: 1;
+  min-height: 0;
+}
+
+.view {
+  display: none;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  flex: 1;
+  overflow: hidden;
+  padding: 2px 2px 0;
+}
+
+.view.active {
+  display: flex;
+}
+
+.view-hero {
+  flex-shrink: 0;
+  animation: fadeUp 0.5s ease both;
+}
+
+.view-hero h1 {
+  margin: 0 0 6px;
+  font-size: clamp(22px, 2.8vw, 30px);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  background: linear-gradient(135deg, var(--t1) 0%, var(--accent-glow) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.view-hero .subtitle {
+  margin: 0;
+  max-width: none;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--t2);
+}
+
+/* Body scrolls when content is tall — panels never clip buttons */
+.view-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  animation: fadeUp 0.5s 0.05s ease both;
+}
+
+.view-body-scroll {
+  overflow-x: hidden;
+  overflow-y: auto;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.phones-main-grid {
+  min-height: min-content;
+}
+
+.phones-main-grid .phones-log-panel {
+  min-height: 160px;
+  max-height: none;
+}
+
+.phones-main-grid .phones-log-panel .log-terminal {
+  min-height: 120px;
+  max-height: 28vh;
+}
+
+.phones-actions {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 8px;
+  flex-shrink: 0;
+  padding-top: 8px;
+}
+
+.view-body .main-grid {
+  flex: 1 1 auto;
+  min-height: 280px;
+  overflow: visible;
+  align-items: stretch;
+}
+
+.view-body .panel {
+  min-height: 0;
+  overflow: visible;
+}
+
+.view-body .panel.panel-scroll,
+.view-body .panel.panel-instructions,
+.view-body .panel.panel-run-actions,
+.view-body .panel.panel-instructions-boot {
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.view-body .log-panel {
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-height: 200px;
+}
+
+.instruction-list-compact {
+  margin: 0 0 12px;
+  padding-left: 1.15rem;
+}
+
+.instruction-list-compact li {
+  margin-bottom: 8px;
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+/* ── Phones step (step 4) ── */
+.phones-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr);
+  grid-template-rows: minmax(0, 1fr) auto auto;
+  gap: 12px;
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+}
+
+.phones-layout .panel-instructions {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.phones-layout .checklist-panel {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.phones-actions-bar {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 4px 2px;
+  flex-shrink: 0;
+}
+
+.phones-layout .phones-log-panel {
+  grid-column: 1 / -1;
+  grid-row: 3;
+  max-height: 18vh;
+  min-height: 64px;
+}
+
+.phones-actions {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.phones-actions .btn-go-compact {
+  flex: 1 1 160px;
+  padding: 8px 12px;
+  font-size: 13px;
+  min-height: 38px;
+  max-height: 44px;
+}
+
+.phones-actions .btn-chrome-compact {
+  flex: 1 1 140px;
+  padding: 8px 12px;
+  font-size: 12px;
+  white-space: normal;
+  text-align: center;
+  line-height: 1.35;
+  min-height: 44px;
+}
+
+.browser-picker {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  flex: 1 1 100%;
+  min-height: 38px;
+}
+
+.browser-picker-label {
+  font-size: 12px;
+  color: var(--t2, #9fb4c8);
+  white-space: nowrap;
+}
+
+.browser-select {
+  flex: 1 1 180px;
+  max-width: 260px;
+  min-height: 38px;
+  padding: 6px 10px;
+  font-size: 13px;
+  font-family: var(--font, inherit);
+  color: var(--t1, #e8f1f7);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(62, 207, 176, 0.35);
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.browser-select.phone-select {
+  flex: 0 1 200px;
+  min-width: 150px;
+  max-width: 240px;
+}
+
+.browser-picker .btn-chrome-compact {
+  flex: 0 1 auto;
+  min-width: 96px;
+}
+
+.browser-select:focus {
+  outline: none;
+  border-color: rgba(62, 207, 176, 0.8);
+  box-shadow: 0 0 0 2px rgba(62, 207, 176, 0.18);
+}
+
+.browser-select:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.phones-log-panel .log-terminal {
+  min-height: 100px;
+  flex: 1;
+}
+
+.checklist-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.checklist-panel .checklist {
+  flex: 1 1 auto;
+  min-height: 120px;
+  max-height: none;
+  overflow-y: auto;
+}
+
+.checklist-scroll {
+  flex: 1 1 auto;
+  min-height: 100px;
+  max-height: 42vh;
+  overflow-y: auto;
+  margin: 0 0 10px;
+  padding-right: 4px;
+}
+
+.checklist-panel .check-item {
+  grid-template-columns: auto 1fr minmax(80px, 100px);
+  align-items: center;
+}
+
+.checklist-panel .check-body h3 {
+  font-size: 14px;
+  line-height: 1.35;
+  color: var(--t1);
+}
+
+.checklist-panel .check-body p {
+  font-size: 13px;
+  color: var(--t2);
+  line-height: 1.5;
+}
+
+.checklist-panel .btn-fix {
+  white-space: normal;
+  line-height: 1.25;
+  text-align: center;
+  padding: 7px 8px;
+  font-size: 11px;
+  max-width: 100px;
+}
+
+.phones-found-title {
+  margin: 6px 0 4px;
+  font-size: 12px;
+}
+
+/* Phones found list must never push the action buttons or log panel off-screen */
+.phones-wrap {
+  min-height: 0;
+  max-height: 24vh;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 4px;
+}
+
+.phone-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.phones-instructions {
+  margin-bottom: 0;
+}
+
+/* ── Android AVD (optional, step 3 only) ── */
+.avd-details-android {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.avd-details-android summary {
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  list-style: none;
+}
+
+.avd-details-android summary::-webkit-details-marker {
+  display: none;
+}
+
+/* ── Run step (step 9) ── */
+.main-grid-run {
+  min-height: 320px;
+}
+
+.panel-run-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.advanced-block {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.advanced-block .panel-title {
+  margin-bottom: 10px;
+}
+
+.advanced-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.advanced-actions .btn-ghost {
+  flex: 1 1 200px;
+  min-height: 44px;
+  white-space: normal;
+  text-align: center;
+  line-height: 1.3;
+}
+
+.prereq-list {
+  flex: 1 1 auto;
+  min-height: 80px;
+  max-height: none;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.instruction-list {
+  max-height: none;
+}
+
+.panel-note {
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--t2);
+  margin: 0;
+}
+
+.panel-note strong {
+  color: var(--t1);
+}
+
+.instruction-list {
+  margin: 0 0 12px;
+  padding-left: 1.25rem;
+  color: var(--t2);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.instruction-list li {
+  margin-bottom: 10px;
+}
+
+.instruction-list li:last-child {
+  margin-bottom: 0;
+}
+
+.setup-hint {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: rgba(212, 165, 116, 0.12);
+  border: 1px solid rgba(212, 165, 116, 0.35);
+}
+
+.setup-hint[hidden] {
+  display: none !important;
+}
+
+.status-line {
+  font-size: 14px;
+  color: var(--t2);
+  margin: 0;
+  line-height: 1.5;
+}
+
+.status-line + .status-line {
+  margin-top: 6px;
+  color: var(--t3);
+  font-size: 13px;
+}
+
+.action-row {
+  margin-top: 14px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: stretch;
+}
+
+.action-row:first-child {
+  margin-top: 0;
+}
+
+.action-row .btn-go {
+  flex: 1 1 180px;
+  min-height: 48px;
+}
+
+.action-row .btn-mini,
+.action-row .btn-ghost {
+  flex: 0 1 auto;
+  min-height: 40px;
+}
+
+.action-row-big .btn-go {
+  min-height: 52px;
+}
+
+.btn-go-secondary {
+  background: linear-gradient(135deg, #22c55e, #16a34a) !important;
+}
+
+.count-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 12px 0;
+}
+
+.count-picker button {
+  min-width: 40px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--glass-border);
+  background: var(--bg2);
+  color: var(--t1);
+  font-weight: 700;
+  cursor: pointer;
+  font-family: var(--font);
+}
+
+.count-picker button.selected {
+  border-color: var(--accent);
+  background: rgba(155, 140, 248, 0.2);
+}
+
+.panel-actions-footer {
+  margin-top: auto;
+  padding-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.view-footer-nav {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.view-footer-nav .btn-mini,
+.view-footer-nav .btn-ghost {
+  min-width: 120px;
+}
+
+.log-panel .log-terminal {
+  flex: 1;
+  min-height: 140px;
+}
+
+.groups-list {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: none;
+  overflow-y: auto;
+}
+
+.groups-list li {
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  font-size: 14px;
+  color: var(--t2);
+}
+
+.groups-list li strong {
+  color: var(--t1);
+}
+
+.groups-list-empty {
+  font-size: 13px;
+  color: var(--t3);
+  font-style: italic;
+  padding: 8px 0;
+}
+
+.site-url-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin: 8px 0 4px;
+}
+
+.site-url-input {
+  flex: 1 1 220px;
+  min-width: 200px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--glass-border);
+  background: rgba(7, 9, 15, 0.85);
+  color: var(--t1);
+  font-family: var(--font);
+  font-size: 14px;
+}
+
+.site-url-input:focus {
+  outline: none;
+  border-color: rgba(155, 140, 248, 0.55);
+}
+
+.app-toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  color: #fff;
+  font-size: 0.95rem;
+  font-weight: 600;
+  padding: 12px 20px;
+  border-radius: 12px;
+  background: rgba(30, 38, 51, 0.95);
+  border: 1px solid rgba(155, 140, 248, 0.35);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+  z-index: 9999;
+}
+
+.view.flow-in .view-hero,
+.view.flow-in .view-body {
+  animation: viewSlideIn 0.35s ease both;
+}
+
+@keyframes viewSlideIn {
+  from {
+    opacity: 0;
+    transform: translateX(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@media (max-width: 900px) {
+  .phones-layout {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto auto auto minmax(120px, 22vh);
+  }
+
+  .phones-layout .panel-instructions,
+  .phones-layout .checklist-panel,
+  .phones-layout .phones-actions-bar,
+  .phones-layout .phones-log-panel {
+    grid-column: 1;
+  }
+
+  .phones-layout .panel-instructions {
+    grid-row: 1;
+  }
+
+  .phones-layout .checklist-panel {
+    grid-row: 2;
+  }
+
+  .phones-layout .phones-actions-bar {
+    grid-row: 3;
+  }
+
+  .phones-layout .phones-log-panel {
+    grid-row: 4;
+  }
+}
+
+@media (max-height: 760px) {
+  .view-body-phones {
+    overflow-y: auto;
+  }
+
+  .phones-layout {
+    grid-template-rows: auto auto auto minmax(120px, 26vh);
+    gap: 10px;
+  }
+
+  .panel {
+    padding: 12px;
+  }
+}
+
+@media (max-width: 780px) {
+  .view {
+    padding: 0;
+  }
+}

@@ -1,0 +1,81 @@
+# Sequence Humanization Notes (Generated)
+
+Deterministic seeds were applied per file; consecutive `wait` chains were collapsed before timing normalization.
+## `open_getdabflow_app__w6s__tap_consent_strip__tap_age_modal__tap_landing_hero__w3s__su.json`
+- Seed: `2510`
+- No consecutive wait chain found.
+- `S001` wait `6.00s` -> `5.81s` (micro-variance for realism, seed-locked).
+- `S002` tap pre-wait `220ms` -> `222ms` (reduced cadence regularity).
+- `S004` tap pre-wait `280ms` -> `270ms` (reduced cadence regularity).
+- `S005` wait `1.20s` -> `1.26s` (micro-variance for realism, seed-locked).
+- `S006` tap pre-wait `450ms` -> `464ms` (reduced cadence regularity).
+- `S007` wait `2.50s` -> `2.56s` (micro-variance for realism, seed-locked).
+- `S008` swipe duration `450ms` -> `420ms` (human-like gesture tempo drift).
+- `S009` wait `2.00s` -> `2.15s` (micro-variance for realism, seed-locked).
+- `S010` tap pre-wait `300ms` -> `305ms` (reduced cadence regularity).
+- `S011` wait `3.00s` -> `3.23s` (micro-variance for realism, seed-locked).
+
+## `google_com__tap_serp__getdabflow_funnel__cleanup.json`
+- Seed: `3917`
+- No consecutive wait chain found.
+- `S003` wait `5.00s` -> `5.17s` (micro-variance for realism, seed-locked).
+- `S004` tap pre-wait `450ms` -> `435ms` (reduced cadence regularity).
+- `S005` wait `6.00s` -> `5.76s` (micro-variance for realism, seed-locked).
+- `S006` tap pre-wait `220ms` -> `217ms` (reduced cadence regularity).
+- `S008` tap pre-wait `280ms` -> `289ms` (reduced cadence regularity).
+- `S009` wait `1.20s` -> `1.14s` (micro-variance for realism, seed-locked).
+- `S010` tap pre-wait `500ms` -> `472ms` (reduced cadence regularity).
+- `S011` wait `2.80s` -> `2.60s` (micro-variance for realism, seed-locked).
+- `S012` tap pre-wait `320ms` -> `336ms` (reduced cadence regularity).
+- `S014` tap pre-wait `280ms` -> `281ms` (reduced cadence regularity).
+- `S016` tap pre-wait `260ms` -> `267ms` (reduced cadence regularity).
+- `S017` wait `2.00s` -> `2.14s` (micro-variance for realism, seed-locked).
+- `S018` swipe duration `720ms` -> `711ms` (human-like gesture tempo drift).
+- `S019` wait `2.00s` -> `1.89s` (micro-variance for realism, seed-locked).
+- `S020` tap pre-wait `400ms` -> `392ms` (reduced cadence regularity).
+- `S021` wait `4.00s` -> `3.90s` (micro-variance for realism, seed-locked).
+- `S022` tap pre-wait `380ms` -> `392ms` (reduced cadence regularity).
+- `S023` wait `2.00s` -> `1.86s` (micro-variance for realism, seed-locked).
+- `S024` tap pre-wait `420ms` -> `441ms` (reduced cadence regularity).
+- `S025` wait `3.00s` -> `2.91s` (micro-variance for realism, seed-locked).
+- `S026` swipe duration `520ms` -> `539ms` (human-like gesture tempo drift).
+- `S031` wait `1.60s` -> `1.50s` (micro-variance for realism, seed-locked).
+- `S033` wait `2.00s` -> `1.91s` (micro-variance for realism, seed-locked).
+
+## `open_getdabflow__timer_extended_scroll_x15__cleanup.json`
+- Seed: `3880`
+- No consecutive wait chain found.
+- `S004` tap pre-wait `220ms` -> `215ms` (reduced cadence regularity).
+- `S005` wait `1.00s` -> `1.08s` (micro-variance for realism, seed-locked).
+- `S006` tap pre-wait `280ms` -> `281ms` (reduced cadence regularity).
+- `S007` wait `1.20s` -> `1.12s` (micro-variance for realism, seed-locked).
+- `S008` tap pre-wait `500ms` -> `495ms` (reduced cadence regularity).
+- `S009` wait `2.50s` -> `2.62s` (micro-variance for realism, seed-locked).
+- `S010` swipe duration `2200ms` -> `1988ms` (human-like gesture tempo drift).
+- `S011` wait `1.40s` -> `1.47s` (micro-variance for realism, seed-locked).
+- `S012` swipe duration `2600ms` -> `2835ms` (human-like gesture tempo drift).
+- `S014` swipe duration `3200ms` -> `2945ms` (human-like gesture tempo drift).
+- `S015` wait `1.60s` -> `1.52s` (micro-variance for realism, seed-locked).
+- `S016` swipe duration `900ms` -> `980ms` (human-like gesture tempo drift).
+- `S017` wait `72.00s` -> `75.37s` (micro-variance for realism, seed-locked).
+- `S018` swipe duration `2100ms` -> `2053ms` (human-like gesture tempo drift).
+- `S019` wait `2.00s` -> `1.87s` (micro-variance for realism, seed-locked).
+- `S020` swipe duration `2200ms` -> `2219ms` (human-like gesture tempo drift).
+- `S021` wait `1.40s` -> `1.49s` (micro-variance for realism, seed-locked).
+- `S022` swipe duration `2600ms` -> `2487ms` (human-like gesture tempo drift).
+- `S023` wait `1.40s` -> `1.46s` (micro-variance for realism, seed-locked).
+- `S024` swipe duration `3200ms` -> `3243ms` (human-like gesture tempo drift).
+- `S025` wait `1.60s` -> `1.67s` (micro-variance for realism, seed-locked).
+- `S026` swipe duration `900ms` -> `897ms` (human-like gesture tempo drift).
+- `S027` wait `72.00s` -> `70.37s` (micro-variance for realism, seed-locked).
+- `S028` swipe duration `2100ms` -> `2127ms` (human-like gesture tempo drift).
+- `S030` swipe duration `2200ms` -> `2082ms` (human-like gesture tempo drift).
+- `S032` swipe duration `2600ms` -> `2808ms` (human-like gesture tempo drift).
+- `S033` wait `1.40s` -> `1.32s` (micro-variance for realism, seed-locked).
+- `S034` swipe duration `3200ms` -> `3123ms` (human-like gesture tempo drift).
+- `S035` wait `1.60s` -> `1.48s` (micro-variance for realism, seed-locked).
+- `S036` swipe duration `900ms` -> `873ms` (human-like gesture tempo drift).
+- `S037` wait `72.00s` -> `75.88s` (micro-variance for realism, seed-locked).
+- `S038` swipe duration `2100ms` -> `2254ms` (human-like gesture tempo drift).
+- `S039` wait `2.00s` -> `2.11s` (micro-variance for realism, seed-locked).
+- `S045` wait `2.00s` -> `2.11s` (micro-variance for realism, seed-locked).

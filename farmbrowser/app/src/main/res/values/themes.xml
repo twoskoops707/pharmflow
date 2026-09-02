@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.FarmBrowser" parent="android:Theme.Material.NoActionBar">
+        <item name="android:colorPrimary">#FF44FF88</item>
+        <item name="android:colorPrimaryDark">#FF16213E</item>
+        <item name="android:colorAccent">#FF44FF88</item>
+        <item name="android:windowBackground">#FF1A1A2E</item>
+        <item name="android:statusBarColor">#FF0F0F23</item>
+        <item name="android:navigationBarColor">#FF0F0F23</item>
+        <item name="android:textColorPrimary">#FFFFFFFF</item>
+        <item name="android:textColorSecondary">#CCFFFFFF</item>
+    </style>
+</resources>

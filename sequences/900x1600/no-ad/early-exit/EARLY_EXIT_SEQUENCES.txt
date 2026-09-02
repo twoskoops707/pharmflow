@@ -1,0 +1,53 @@
+DabFlow early-exit sequences (900x1600, no-ad)
+Flow: clear_cookies -> open_url -> age -> 3 picks -> scroll -> start dab ->
+      ONE wait (heat + cool/2) -> close_app com.android.browser
+No skip modal, stats tab, rotate_identity, or full_reset.
+
+File: dabflow__early_exit__mat-ceramic__conc-distillate__heat-propane.json
+  Combo: ceramic / distillate / propane (baseline / demo ONE combo)
+  heat_sec=20 cool_sec=64 total_sec=84
+  wait formula: heat + cool/2
+  wait seconds: 52.0
+  steps: 17
+
+File: dabflow__early_exit__mat-quartz__conc-distillate__heat-propane.json
+  Combo: quartz / distillate / propane (shortest-ish early-exit wait)
+  heat_sec=18 cool_sec=51 total_sec=69
+  wait formula: heat + cool/2
+  wait seconds: 43.5
+  steps: 17
+
+File: dabflow__early_exit__mat-ceramic__conc-diamonds__heat-butane.json
+  Combo: ceramic / diamonds / butane (longest-ish early-exit wait)
+  heat_sec=20 cool_sec=85 total_sec=105
+  wait formula: heat + cool/2
+  wait seconds: 62.5
+  steps: 17
+
+File: dabflow__early_exit__mat-titanium__conc-wax__heat-propane.json
+  Combo: titanium / wax / propane (titanium + wax)
+  heat_sec=15 cool_sec=62 total_sec=77
+  wait formula: heat + cool/2
+  wait seconds: 46.0
+  steps: 17
+
+File: dabflow__early_exit__mat-ceramic__conc-shatter__heat-propane.json
+  Combo: ceramic / shatter / propane (ceramic + shatter)
+  heat_sec=20 cool_sec=71 total_sec=91
+  wait formula: heat + cool/2
+  wait seconds: 55.5
+  steps: 17
+
+File: dabflow__early_exit__mat-quartz__conc-hash-rosin__heat-propane.json
+  Combo: quartz / hash-rosin / propane (quartz + hash-rosin)
+  heat_sec=18 cool_sec=64 total_sec=82
+  wait formula: heat + cool/2
+  wait seconds: 50.0
+  steps: 17
+
+File: dabflow__early_exit__mat-titanium__conc-diamonds__heat-propane.json
+  Combo: titanium / diamonds / propane (titanium + diamonds)
+  heat_sec=15 cool_sec=76 total_sec=91
+  wait formula: heat + cool/2
+  wait seconds: 53.0
+  steps: 17

@@ -1,0 +1,63 @@
+USER TAP ANALYSIS — DabFlow MuMu demo session
+==============================================================
+Source: C:\Users\jsmil\CPharm\USER_TAP_LOG.txt
+Format: UTF-16 getevent -l via MuMu (REL_X/REL_Y carry screen coords, not ABS_MT)
+SYN frames parsed: 1866
+Jump-end tap candidates (gap>=0.35s): 21
+Dwell clusters (hold>=8): 4
+WebView inset (dashboard taps): +192px on Y | age gate: screen=page
+
+INTER-TAP TIMING (frame-estimated @ 16ms; log has no timestamps)
+  Fast drag bursts: 0.02–0.08s (scroll through option rows)
+  Deliberate pauses between actions: 0.48–2.05s (includes scroll + aim)
+  Selection-phase median when isolated: ~0.28–0.42s
+  Applied human_pace waits in JSON: 0.28s (0.38s post-age)
+
+MATCHED FLOW TAPS → dabflow__demo__ONE.json (page coords)
+  1. age_verification   page( 460, 907) screen( 461, 931) gap=—
+      layout(359,912) | Age Yes (#age-yes-btn) | nearest prior ABS_MT + log frame 643
+  2. mat_ceramic        page( 660, 501) screen( 660, 693) gap=~0.28s est
+      layout(737,445) | Material row | prior ABS_MT (REL log drag-heavy here)
+  3. conc_distillate    page( 366, 587) screen( 366, 779) gap=~0.28s est
+      layout(327,592) | Concentrate distillate | prior ABS_MT
+  4. heat_propane       page( 593, 663) screen( 593, 855) gap=~0.28s est
+      layout(665,682) | Heater row | prior ABS_MT
+  5. timer_started      page( 528,1068) screen( 528,1260) gap=~0.28s est
+      layout(450,1231) | Start Dab (#start-dab-btn) | 219-frame dwell cluster
+  6. popup_dismiss      page( 184,1230) screen( 184,1422) gap=84s+ timer
+      layout(337,1266) | Session notes Skip | 23-frame dwell left of layout center
+  7. tab_stats          page( 450,1566) screen( 450,1566) gap=0.25s
+      layout(450,1566) | Stats nav tab | layout (no clean stats tap in REL log)
+
+INFERRED START DAB
+  Page (JSON): (528, 1068)
+  Screen: (528, 1260)
+  Layout Playwright center: (450, 1231)
+  User taps 163px ABOVE layout center on MuMu WebView — matches prior (501,1080)
+
+KEY DWELL CLUSTERS (long hold = likely intentional tap target)
+  frame     0  screen(528,1260) page(528,1068) hold=219  → Start Dab / timer CTA
+  frame   481  screen(184,1422) page(184,1230) hold=23   → Session Skip area
+  frame   526  screen(181,1411) page(181,1219) hold=34   → Session Skip area
+  frame   782  screen(303,1065) page(303,873)  hold=34   → mid-screen (scroll band)
+
+NOTABLE JUMP-END TAPS (first pass, gap>=0.35s)
+  frame   220  screen(526,1247) page(526,1055) gap=—
+  frame   474  screen(130,1234) page(130,1042) gap=3.06s
+  frame   505  screen(183,1396) page(183,1204) gap=0.50s  → Skip/modal
+  frame   820  screen(326,1114) page(326,922)  gap=1.04s → age-band
+  frame   910  screen(496,868)  page(496,868)  gap=1.44s → heater/conc band
+
+JSON CHANGES APPLIED (dabflow__demo__ONE.json)
+  - timer_started: (501,1080) -> (528,1068) from 219-frame dwell at screen (528,1260)
+  - popup_dismiss: (337,1015) -> (184,1230) from skip dwell cluster
+  - age/mat/conc/heat: kept validated USER_COORDS_RECORDED page coords (REL log drag-noisy)
+  - tab_stats: kept layout (450,1566) — log hit (93,1512) was Home nav, not Stats
+  - waits: 1.0/0.5/0.45/0.4/0.6 -> 0.38 post-age, 0.28 between selections (fast vibe)
+  - pre_wait_ms: trimmed to 280ms on all taps
+
+dabflow_layout.py
+  - START_DAB note: MuMu user demo page Y≈1068 (screen≈1260); Playwright center 1231
+
+Screenshot: C:\Users\jsmil\CPharm\USER_DEMO_FINAL.png
+Updated JSON: C:\Users\jsmil\CPharm\sequences\900x1600\no-ad\dabflow__demo__ONE.json

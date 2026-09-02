@@ -1,0 +1,74 @@
+﻿name: Build CPharm Farm Remote APK
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Build release APK
+        working-directory: scorecard-android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon --stacktrace
+
+      - name: Package APK
+        run: |
+          mkdir -p scorecard-android/dist
+          cp scorecard-android/app/build/outputs/apk/release/app-release.apk \
+            scorecard-android/dist/CPharmFarmRemote.apk \
+            || cp scorecard-android/app/build/outputs/apk/release/app-release-unsigned.apk \
+            scorecard-android/dist/CPharmFarmRemote.apk
+          cp scorecard-android/dist/CPharmFarmRemote.apk \
+            scorecard-android/dist/CPharmScorecard.apk
+          ls -la scorecard-android/dist/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: scorecard-${{ github.run_number }}
+          name: "Farm Remote APK (build ${{ github.run_number }})"
+          body: |
+            ## Farm Remote (Android)
+
+            **CPharmFarmRemote.apk** — simple phone controller for your laptop farm.
+
+            Big buttons: Find phones, GO!, STOP, Tor, New faces, See money $.
+
+            Same Wi‑Fi as laptop, `CPHARM_BIND=0.0.0.0`, port 8080.
+
+            Legacy name **CPharmScorecard.apk** included (same build).
+          files: |
+            scorecard-android/dist/CPharmFarmRemote.apk
+            scorecard-android/dist/CPharmScorecard.apk
+          draft: false
+          prerelease: false
+
+      # Actions artifact storage is quota-limited — Release asset is the primary deliverable.
+      - name: Upload Actions artifact (after Release)
+        if: success()
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: CPharmFarmRemote
+          path: scorecard-android/dist/CPharmFarmRemote.apk

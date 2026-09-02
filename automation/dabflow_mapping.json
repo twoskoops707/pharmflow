@@ -1,0 +1,133 @@
+{
+  "source": "getdabflow.app",
+  "source_note": "Re-mapped 2026-07-24 on vm0 900x1600 WITH Mantis ads injected. Selection rows: MATERIAL y=885, CONCENTRATE y=1030/1126/1220/1314, HEATER y=1462 (all on the unscrolled home). Mantis creatives render as right-column iframes centered x=675; tab ads paint at the bottom (~y1480) and move up on scroll — runner taps them live via ad_slot_pick. Start requires scroll-into-view then tap (runner uses ensure_start_perfect_dab). Nav is HOME/TIMER/STATS/GLASS/SETTINGS y=1535.",
+  "base_w": 900,
+  "base_h": 1600,
+  "url": "https://getdabflow.app",
+  "timer": {
+    "heat_seconds_default": 20,
+    "cool_seconds_min": 60,
+    "total_seconds_typical": 80,
+    "halfway_seconds": 55
+  },
+  "selectors": {
+    "age_gate_yes": "[data-testid='age-gate-yes'], button:contains('Yes, I am 21+')",
+    "material": "[data-material]",
+    "concentrate": "[data-concentrate]",
+    "heater": "[data-heater]",
+    "start_dab": "#start-dab-btn",
+    "session_notes_skip": "button:contains('Skip')"
+  },
+  "screens": {
+    "age_gate": {
+      "consent_button": {"x": 270, "y": 1020, "label": "Yes, I am 21+"},
+      "decline_button": {"x": 634, "y": 1001, "label": "No"}
+    },
+    "home_material": {
+      "quartz": {"x": 172, "y": 885, "selector": "[data-material='quartz']"},
+      "titanium": {"x": 450, "y": 885, "selector": "[data-material='titanium']"},
+      "ceramic": {"x": 728, "y": 885, "selector": "[data-material='ceramic']"}
+    },
+    "concentration": {
+      "shatter": {"x": 172, "y": 1032},
+      "wax": {"x": 450, "y": 1028},
+      "live_resin": {"x": 728, "y": 1032},
+      "rosin": {"x": 172, "y": 1126},
+      "diamonds": {"x": 450, "y": 1126},
+      "crumble": {"x": 728, "y": 1126},
+      "budder": {"x": 172, "y": 1220},
+      "sauce": {"x": 450, "y": 1220},
+      "hash_rosin": {"x": 728, "y": 1220, "label": "Hash Rosin"},
+      "distillate": {"x": 172, "y": 1314}
+    },
+    "heating_element": {
+      "butane": {"x": 241, "y": 1462, "selector": "[data-heater='butane']"},
+      "propane": {"x": 659, "y": 1462, "selector": "[data-heater='propane']"}
+    },
+    "timer": {
+      "start": {"x": 449, "y": 1281, "label": "Start Perfect Dab", "resource_id": "start-dab-btn"},
+      "start_reveal_scroll": {
+        "x1": 450,
+        "y1": 1150,
+        "x2": 450,
+        "y2": 550,
+        "duration_ms": 420
+      },
+      "session_notes_skip": {"x": 229, "y": 1201, "label": "Session notes Skip"},
+      "pause": {"x": 300, "y": 1050},
+      "reset": {"x": 600, "y": 1050},
+      "display": {"x": 450, "y": 850}
+    },
+    "tabs": {
+      "home": {"x": 90, "y": 1535, "label": "Home"},
+      "timer": {"x": 270, "y": 1535, "label": "Timer"},
+      "stats": {"x": 449, "y": 1535, "label": "Stats"},
+      "glass_art": {"x": 629, "y": 1535, "label": "Glass"},
+      "settings": {"x": 809, "y": 1535, "label": "Settings"}
+    },
+    "ads": {
+      "_note": "All mobile Mantis zones active. Authored coords are fallbacks — Path3 uses human_ad_click (random tab + live pick). Home zone-one below Start; timer/stats/glass/settings zones paint per-tab.",
+      "home_slots": [
+        {"index": 0, "scrolls_before": 1, "x": 675, "y": 811, "label": "home ad ordinal 0 (shallow)", "zone": "zone-one"},
+        {"index": 1, "scrolls_before": 2, "x": 675, "y": 811, "label": "home ad ordinal 1", "zone": "zone-one"},
+        {"index": 2, "scrolls_before": 3, "x": 675, "y": 811, "label": "home ad ordinal 2", "zone": "zone-one"},
+        {"index": 3, "scrolls_before": 4, "x": 675, "y": 811, "label": "home ad ordinal 3 (deep)", "zone": "zone-one"}
+      ],
+      "tab_slots": {
+        "timer": [
+          {"index": 0, "scrolls_before": 0, "x": 450, "y": 900, "slot_id": "ad-slot-2", "zone": "zone-two"},
+          {"index": 1, "scrolls_before": 1, "x": 450, "y": 1100, "slot_id": "ad-slot-3", "zone": "zone-three"}
+        ],
+        "stats": [
+          {"index": 0, "scrolls_before": 1, "x": 675, "y": 1100, "slot_id": "ad-slot-4", "zone": "zone-five"},
+          {"index": 1, "scrolls_before": 2, "x": 675, "y": 1100, "slot_id": "ad-slot-5", "zone": "zone-six"},
+          {"index": 2, "scrolls_before": 3, "x": 675, "y": 1100, "slot_id": "ad-slot-6", "zone": "zone-seven"}
+        ],
+        "glass_art": [
+          {"index": 0, "scrolls_before": 1, "x": 675, "y": 1100, "slot_id": "ad-slot-8", "zone": "zone-eight"},
+          {"index": 1, "scrolls_before": 2, "x": 675, "y": 1100, "slot_id": "ad-slot-9", "zone": "zone-nine"},
+          {"index": 2, "scrolls_before": 3, "x": 675, "y": 1100, "slot_id": "ad-slot-10", "zone": "zone-ten"}
+        ],
+        "settings": [
+          {"index": 0, "scrolls_before": 1, "x": 675, "y": 1100, "slot_id": "ad-slot-12", "zone": "zone-twelve"},
+          {"index": 1, "scrolls_before": 2, "x": 675, "y": 1100, "slot_id": "ad-slot-13", "zone": "zone-thirteen"},
+          {"index": 2, "scrolls_before": 3, "x": 675, "y": 1100, "slot_id": "ad-slot-14", "zone": "zone-fourteen"}
+        ]
+      },
+      "home_banner": {"x": 675, "y": 811, "zone": "zone-one"},
+      "home_ad_scroll": {"x1": 450, "y1": 1150, "x2": 450, "y2": 500, "duration_ms": 450},
+      "post_timer": {"x": 675, "y": 1100, "zone": "zone-two"},
+      "interstitial_close": {"x": 820, "y": 280}
+    },
+    "scroll": {
+      "content_start": {"x": 450, "y": 1150},
+      "content_end": {"x": 450, "y": 550}
+    },
+    "idle_tap_zones": [
+      {"x": 160, "y": 720},
+      {"x": 740, "y": 880},
+      {"x": 450, "y": 1050}
+    ]
+  },
+  "options": {
+    "materials": ["quartz", "titanium", "ceramic"],
+    "concentrates": [
+      "shatter",
+      "wax",
+      "live_resin",
+      "rosin",
+      "diamonds",
+      "crumble",
+      "budder",
+      "sauce",
+      "hash_rosin",
+      "distillate"
+    ],
+    "heaters": ["butane", "propane"],
+    "browse_tabs": ["stats", "glass_art", "settings"],
+    "tabs": ["home", "timer", "stats", "glass_art", "settings"],
+    "sequence_types": ["complete", "halfway", "ad"],
+    "home_ad_slot_count": 4,
+    "tab_ad_slot_count": 2
+  }
+}

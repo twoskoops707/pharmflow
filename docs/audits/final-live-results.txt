@@ -1,0 +1,20 @@
+generated_at=2026-06-22T05:29:59.171546+00:00
+adb_devices=10.0.2.168:5555,10.0.2.204:5555,10.0.2.69:5555
+primary_serial=10.0.2.69:5555
+
+prerequisites:
+  PER_COMBO_TIMER_AUDIT.txt: OK
+  NO_DOUBLE_COMMANDS_AUDIT.txt: MISSING
+  TIMER_FIX_RESULT.txt: OK
+note=proceeded with best available sequences; some agent audits incomplete
+
+summary_table:
+serial|sequence|timer_wait_sec|wall_sec|overall|fail_reason|checkpoints
+10.0.2.69:5555|dabflow__demo__ONE.json|90.5|179.84|PASS||loaded,age_verification,selections_done,scroll_to_start_dab,timer_started,timer_complete,popup_dismiss,popup_dismissed,tab_glass,tab_glass_scrolled_bottom,tab_stats,tab_scrolled_bottom,tab_settings,tab_settings_scrolled_bottom,browser_closed,identity_rotated,session_reset
+10.0.2.69:5555|dabflow__no_ads__mat-quartz__conc-distillate__heat-propane.json|75.5|192.75|FAIL|TimeoutExpired: Command '['C:\\Users\\jsmil\\AppData\\Local\\Android\\Sdk\\platform-tools\\adb.exe', '-s', '10.0.2.69:5555', 'shell', 'uiautomator', 'dump', '/sdcard/window_dump.xml']' timed out after 60 seconds|loaded,age_verification,selections_done,scroll_to_start_dab,timer_started,timer_complete,popup_dismiss
+10.0.2.69:5555|dabflow__no_ads__mat-ceramic__conc-diamonds__heat-butane.json|111.5|181.7|PASS||loaded,age_verification,selections_done,scroll_to_start_dab,timer_started,timer_complete,popup_dismiss,popup_dismissed,tab_glass,tab_glass_scrolled_bottom,tab_stats,tab_scrolled_bottom,tab_settings,tab_settings_scrolled_bottom,browser_closed,identity_rotated,session_reset
+10.0.2.69:5555|dabflow__demo__TWO.json|90.5|177.49|PASS||loaded,age_verification,selections_done,scroll_to_start_dab,timer_started,timer_complete,popup_dismiss,popup_dismissed,tab_stats,ad_tapped,ad_read_30s,browser_closed
+
+runs=4
+pass=3
+fail=1

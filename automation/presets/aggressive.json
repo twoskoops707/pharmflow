@@ -1,0 +1,13 @@
+{
+  "name": "aggressive",
+  "humanize": {
+    "timing_variation": 0.18,
+    "coordinate_tolerance": 12,
+    "random_actions": true,
+    "random_action_chance": 0.18,
+    "scroll_duration_ms": {
+      "min": 260,
+      "max": 420
+    }
+  }
+}

@@ -1,0 +1,39 @@
+DabFlow combo matrix regeneration — 2026-06-21
+================================================
+
+Generator: cpharm-clone/automation/generate_dabflow_gold_matrix.py
+Output:   C:\Users\jsmil\CPharm\sequences
+
+Files written
+-------------
+  Matrix JSON:     480  (60 combos × 4 resolutions × 2 ad variants)
+  Demo preserved:  dabflow__demo__ONE.json (unchanged — start dab 450,1075 pre_wait_ms 450)
+  Total dabflow:   482  (includes demo ONE + summary)
+
+Resolutions: 540x960, 720x1280, 900x1600, 1080x1920
+Folders:     ad/, no-ad/
+
+Timer range (timer_wait_seconds from dabflow_timer.py / app.js CONFIG)
+----------------------------------------------------------------------
+  Min: 75.5s  — quartz / distillate / propane
+  Max: 111.5s — ceramic / diamonds / butane
+
+Spot-check (900x1600/no-ad)
+---------------------------
+  min combo (quartz/distillate/propane): timer 75.5s, start_dab (450,1075) OK
+  max combo (ceramic/diamonds/butane):   timer 111.5s, start_dab (450,1075) OK
+  demo combo (ceramic/distillate/propane): timer 90.5s (not 100s demo-specific), start_dab OK
+
+Key coords preserved from demo ONE
+----------------------------------
+  Age:       (359, 912)
+  Skip:      (276, 984)
+  Start dab: (450, 1075) pre_wait_ms 450, scroll swipes unchanged
+  Stats nav: (450, 1566) bottom_nav=true
+  Identity:  close_app → wait → rotate_identity → wait → full_reset
+
+Validation
+----------
+  test_sequence_wait_duplicates.py: PASS (no consecutive wait steps across all 482 files)
+
+Live start-dab proof: NOT RUN (optional; device 10.0.2.69:5555 available)

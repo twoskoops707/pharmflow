@@ -1,0 +1,17 @@
+{
+  "label": "fixture minimal no-ad combo",
+  "meta": {"flow": "no-ads", "baseline_wh": "900x1600"},
+  "steps": [
+    {"type": "open_url", "url": "https://getdabflow.app", "post_wait_secs": 8},
+    {"type": "wait", "seconds": 2.0},
+    {"type": "tap", "x": 630, "y": 1565, "base_w": 900, "base_h": 1600, "retries": 2, "jitter": 20, "pre_wait_ms": 300},
+    {"type": "wait", "seconds": 1.0},
+    {"type": "swipe", "x1": 450, "y1": 1200, "x2": 450, "y2": 400, "ms": 800, "base_w": 900, "base_h": 1600},
+    {"type": "wait", "seconds": 0.5},
+    {"type": "close_app"},
+    {"type": "wait", "seconds": 0.5},
+    {"type": "rotate_identity"},
+    {"type": "wait", "seconds": 2.0},
+    {"type": "full_reset"}
+  ]
+}

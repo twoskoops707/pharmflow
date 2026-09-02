@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.CPharmScorecard" parent="Theme.MaterialComponents.Light.NoActionBar">
+        <item name="colorPrimary">@color/teal_primary</item>
+        <item name="colorPrimaryVariant">@color/teal_primary</item>
+        <item name="colorOnPrimary">#ffffff</item>
+        <item name="android:statusBarColor">@color/bg_cream</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:navigationBarColor">@color/bg_cream</item>
+    </style>
+
+    <style name="FarmBigButton" parent="Widget.MaterialComponents.Button">
+        <item name="android:textSize">22sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:textColor">#FFFFFF</item>
+        <item name="cornerRadius">20dp</item>
+        <item name="android:insetTop">0dp</item>
+        <item name="android:insetBottom">0dp</item>
+    </style>
+
+    <style name="FarmHalfButton" parent="Widget.MaterialComponents.Button">
+        <item name="android:textSize">14sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:textColor">#FFFFFF</item>
+        <item name="cornerRadius">16dp</item>
+    </style>
+
+    <style name="FarmActionButton" parent="Widget.MaterialComponents.Button">
+        <item name="android:textSize">16sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="cornerRadius">14dp</item>
+    </style>
+</resources>

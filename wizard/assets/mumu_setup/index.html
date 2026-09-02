@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CPharm — Phone Setup</title>
+    <link rel="stylesheet" href="app.css" />
+  </head>
+  <body>
+    <div class="bg-scene" aria-hidden="true">
+      <div class="orb orb-a"></div>
+      <div class="orb orb-b"></div>
+      <div class="orb orb-c"></div>
+      <div class="grid-overlay"></div>
+    </div>
+
+    <div class="app">
+      <header class="hero">
+        <div class="badge"><span class="badge-dot"></span> Built into CPharm</div>
+        <h1>Phone Setup</h1>
+        <p class="subtitle">
+          Plain steps below. <strong>GO</strong> runs in phases: MuMu profile → <strong>you cold-boot phones</strong> →
+          browser + hide emulator look + <strong>DabFlow ad-zone fix</strong> → save settings → open CPharm.
+          Tor and daily runs happen inside CPharm.
+        </p>
+      </header>
+
+      <div class="main-grid">
+        <section class="panel checklist-panel">
+          <div class="panel-head">
+            <h2 class="panel-title">Before you click GO</h2>
+            <button type="button" class="btn-mini" id="btn-refresh">Refresh checks</button>
+          </div>
+          <ul class="checklist" id="checklist"></ul>
+          <div class="phones-wrap">
+            <h2 class="panel-title">Phones found</h2>
+            <div id="phones-empty" class="phones-empty">
+              <strong>None yet</strong>
+              Finish steps 4–5 above, then Refresh
+            </div>
+            <div id="phone-chips" class="phone-chips" hidden></div>
+          </div>
+        </section>
+
+        <section class="panel log-panel">
+          <div class="log-header">
+            <h2 class="panel-title" style="margin: 0">What happened</h2>
+            <div class="log-status">
+              <span class="status-led" id="status-led"></span>
+              <span id="status-text">Ready</span>
+            </div>
+          </div>
+          <ol class="steps compact" id="steps">
+            <li class="step" data-step="0">
+              <div class="step-icon">1</div>
+              <div class="step-body"><h3>Find phones</h3></div>
+            </li>
+            <li class="step" data-step="1">
+              <div class="step-icon">2</div>
+              <div class="step-body"><h3>Browser + ads + hide emulator look</h3></div>
+            </li>
+            <li class="step" data-step="2">
+              <div class="step-icon">3</div>
+              <div class="step-body"><h3>Save &amp; open CPharm</h3></div>
+            </li>
+          </ol>
+          <div class="log-terminal" id="log" role="log" aria-live="polite"></div>
+          <div class="alert" id="alert-cpharm"></div>
+        </section>
+      </div>
+
+      <footer class="footer">
+        <button type="button" class="btn-go" id="btn-go">GO — fix phones and open CPharm</button>
+        <div class="footer-side">
+          <button type="button" class="btn-chrome" id="btn-chrome" title="Download ChromePublic.apk and adb install on every phone">
+            Install Chromium on all phones
+          </button>
+          <button type="button" class="btn-ghost" id="btn-cpharm">Open CPharm only</button>
+        </div>
+      </footer>
+    </div>
+
+    <script src="app.js"></script>
+  </body>
+</html>

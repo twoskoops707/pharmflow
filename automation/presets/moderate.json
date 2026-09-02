@@ -1,0 +1,13 @@
+{
+  "name": "moderate",
+  "humanize": {
+    "timing_variation": 0.12,
+    "coordinate_tolerance": 8,
+    "random_actions": false,
+    "random_action_chance": 0.0,
+    "scroll_duration_ms": {
+      "min": 300,
+      "max": 480
+    }
+  }
+}

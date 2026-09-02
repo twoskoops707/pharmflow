@@ -1,0 +1,97 @@
+{
+  "schema_version": 2,
+  "slug": "loansflow",
+  "display_name": "LoansFlow",
+  "target_kind": "website",
+  "adapter": "loansflow",
+  "url": "https://twoskoops707.github.io/loansflow/",
+  "package": "",
+  "gates": [],
+  "core": {
+    "kind": "tap",
+    "description": "Launch calculators CTA",
+    "x": 180,
+    "y": 1509,
+    "scroll_before": false,
+    "confirm_wait_s": 2.5
+  },
+  "browse_paths": [
+    {
+      "name": "sba_card",
+      "x": 450,
+      "y": 494,
+      "scroll_to_bottom": true,
+      "scroll_swipes": 3
+    },
+    {
+      "name": "mortgage_card",
+      "x": 450,
+      "y": 1022,
+      "scroll_to_bottom": true,
+      "scroll_swipes": 3
+    },
+    {
+      "name": "tools_sba_tab",
+      "x": 126,
+      "y": 136,
+      "scroll_to_bottom": true,
+      "scroll_swipes": 4
+    },
+    {
+      "name": "tools_loc_tab",
+      "x": 549,
+      "y": 136,
+      "scroll_to_bottom": true,
+      "scroll_swipes": 3
+    },
+    {
+      "name": "tools_mortgage_tab",
+      "x": 735,
+      "y": 136,
+      "scroll_to_bottom": true,
+      "scroll_swipes": 4
+    }
+  ],
+  "ads": [
+    {
+      "name": "home_sponsored",
+      "x": 450,
+      "y": 345,
+      "max_per_hour": 1,
+      "scroll_swipes": null
+    },
+    {
+      "name": "tools_incontent",
+      "x": 440,
+      "y": 977,
+      "max_per_hour": 1,
+      "scroll_swipes": null
+    },
+    {
+      "name": "tools_anchor",
+      "x": 450,
+      "y": 1552,
+      "max_per_hour": 1,
+      "scroll_swipes": null
+    }
+  ],
+  "humanize": {
+    "preset": "moderate",
+    "concurrent_unique_sequences": true
+  },
+  "farm": {
+    "phone_count": 4,
+    "seqs_per_hour": 0,
+    "hours": 0.0,
+    "allow_ads": true,
+    "ads_per_hour": 0,
+    "daily_visits_csv": "120,100,90,80",
+    "daily_ads_csv": "3,2,2,2",
+    "impressions_per_visit": 12.0,
+    "ntfy_topic": "twskoops",
+    "ntfy_hourly": true,
+    "ntfy_interval_s": 7200,
+    "startup_spread_minutes": 22
+  },
+  "notes": "LoansFlow calculator suite. FREE live URL: GitHub Pages. Optional cheap custom domain later (see loansflow docs/DOMAIN.md). Ads placeholders until AdSense/Ezoic approve \u2014 farm warms traffic/SEO first."
+}

@@ -1,0 +1,25 @@
+﻿groups_config.json updated for filming phone (900x1600 profile)
+Date: 2026-06-20
+
+Phone serial (unchanged from config): 10.0.2.179:5555
+sequence_profile_key: 900x1600
+sequence_base_w x sequence_base_h: 900 x 1600
+
+REMOVED from active playlist (human/matrix):
+  - 900x1600/ad/dabflow__ad__mat-ceramic__conc-distillate__heat-propane__timer1x__human080.json
+  - 900x1600/ad/dabflow__ad__mat-ceramic__conc-hash-rosin__heat-propane__timer2x__human593.json
+  - 900x1600/no-ad/dabflow__no_ads__mat-quartz__conc-wax__heat-butane__timer1x__human746.json
+  - 900x1600/no-ad/dabflow__no_ads__mat-titanium__conc-rosin__heat-butane__timer1x__human002.json
+
+ACTIVE sequence_playlist (set A — runs first in ordered mode):
+  C:\Users\jsmil\CPharm\sequences\900x1600\no-ad\dabflow__demo__ONE.json
+  (relative: 900x1600/no-ad/dabflow__demo__ONE.json)
+
+ACTIVE sequence_playlist_secondary (set B — runs second):
+  C:\Users\jsmil\CPharm\sequences\900x1600\ad\dabflow__demo__TWO.json
+  (relative: 900x1600/ad/dabflow__demo__TWO.json)
+
+mode: ordered | shuffle: none
+
+Did NOT run setup_fresh_mumu_farm.py
+Did NOT commit

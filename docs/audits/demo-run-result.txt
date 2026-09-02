@@ -1,0 +1,35 @@
+﻿DabFlow demo ONE — live run result
+===================================
+timestamp_utc_start: 2026-06-22T05:07:38.868236+00:00
+timestamp_utc_end:   2026-06-22T05:10:16.231337+00:00
+serial: 10.0.2.69:5555
+duration_sec: 157.36
+sequence: C:\Users\jsmil\CPharm\sequences\900x1600\no-ad\dabflow__demo__ONE.json
+runner: cpharm-clone\automation\_run_ONE_live_direct.py
+env: CPHARM_HUMAN_VARIATION=0, CPHARM_SKIP_TOR_WAIT=1, proxy adb reverse tcp:8120
+
+Checkpoints (40 steps executed):
+  loaded                      PASS  (step 2/40 open_url)
+  age_verification            PASS  (step 3/40 tap)
+  selections_done             PASS  (step 10/40 wait)
+  scroll_to_start_dab         PASS  (step 13/40 swipe)
+  timer_started               PASS  (step 15/40 tap)
+  timer_complete              PASS  (step 16/40 wait; timer_wait_sec=90.5, wall ~91.1s)
+  popup_dismiss               PASS  (step 17/40 tap; session notes skipped per sequence)
+  popup_dismissed             PASS  (step 18/40 wait)
+  tab_glass                   PASS  (step 19/40 tap)
+  tab_glass_scrolled_bottom   PASS  (step 23/40 swipe)
+  tab_stats                   PASS  (step 24/40 tap)
+  tab_scrolled_bottom         PASS  (step 28/40 swipe)
+  tab_settings                PASS  (step 29/40 tap)
+  tab_settings_scrolled_bottom PASS (step 35/40 swipe)
+  close_app / browser_closed  PASS  (step 36/40 close_app)
+  identity_rotated            PASS  (step 38/40 rotate_identity)
+  session_reset               PASS  (step 40/40 full_reset)
+
+OVERALL: PASS
+
+Notes:
+- adb devices at start: 10.0.2.168:5555, 10.0.2.204:5555, 10.0.2.69:5555 (used 10.0.2.69:5555; 10.0.2.179 not online)
+- Non-fatal subprocess UnicodeDecodeError in log reader thread during step 17→18 (cp1252); run continued and completed PASS
+- Evidence: C:\Users\jsmil\CPharm\FULL_FLOW_LIVE.txt, C:\Users\jsmil\CPharm\DEMO_RUN_LOG.txt

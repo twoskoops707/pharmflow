@@ -1,0 +1,16 @@
+﻿Live ADB view (no scrcpy on PATH)
+
+Device serial: 10.0.2.69:5555
+
+Watch live:
+  Refresh this file every ~1.5s (background loop):
+  C:\Users\jsmil\CPharm\live_adb\frame_latest.png
+
+  In Explorer: open live_adb folder and enable Preview pane, or open frame_latest.png in Photos and re-open when modified.
+  In VS Code/Cursor: open frame_latest.png; use file watcher or manual refresh.
+
+Checkpoints during demo:
+  C:\Users\jsmil\CPharm\live_adb\checkpoint_*.png
+
+Demo log:
+  C:\Users\jsmil\CPharm\live_adb\demo_ONE_stdout.log

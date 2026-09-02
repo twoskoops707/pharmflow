@@ -1,0 +1,81 @@
+RANDOM STAGGER FIX — human-like gaps between launches
+======================================================
+
+PROBLEM
+-------
+Group runs used fixed delays:
+- ``stagger_secs`` (often 30s) applied identically between phones when human variation was off
+- ``series`` playlists chained all JSON files with zero gap between sequence starts
+- Repeat iterations started immediately after the previous pass (no breathing room)
+- Only ±15% stagger jitter when ``CPHARM_HUMAN_VARIATION=1``
+
+Timer waits **inside** a sequence are unchanged.
+
+FILES CHANGED
+-------------
+- automation/human_variation.py
+    ``sequence_start_gap_seconds``, ``playlist_cycle_pause_seconds``, ``group_stagger_seconds``
+    Constants: SEQUENCE_START_GAP 0.8–3.5s, PLAYLIST_CYCLE_PAUSE 2–8s, GROUP_STAGGER_JITTER ±40%
+- automation/sequence_playlist.py
+    ``resolve_step_chunks()`` — series mode returns one chunk per file for inter-sequence gaps
+- automation/dashboard.py
+    Random gaps between series files, between group iterations, and between phones
+- wizard/setup_wizard.py
+    ``_ensure_group_defaults()`` preserves ``stagger_min`` / ``stagger_max`` / ``human_stagger``
+- automation/test_random_stagger.py
+    Unit tests that delays are in range and not constant
+
+DELAY RANGES (defaults)
+-----------------------
+| Between | Seconds | When |
+|---------|---------|------|
+| Sequence starts (same phone, series) | 0.8 – 3.5 | Before each playlist file after the first |
+| Group iteration (ordered slot) | 0.8 – 3.5 | Before next file in round-robin cycle |
+| Full playlist repeat | 2.0 – 8.0 | Before next cycle (series repeat or ordered wrap) |
+| Phones in group | stagger_secs × 0.6–1.4 | Default ``human_stagger: true`` on 30s base → 18–42s |
+
+RECOMMENDED groups_config.json
+------------------------------
+Continuous filming with varied timing (builds on playlist fix ac4dfb5):
+
+```json
+{
+  "name": "Group 1",
+  "stagger_secs": 30,
+  "human_stagger": true,
+  "repeat_forever": true,
+  "phones": {
+    "10.0.2.66:5555": {
+      "sequence_playlist_mode": "series",
+      "sequence_playlist": ["900x1600/no-ad/seq_a.json", "900x1600/no-ad/seq_b.json"]
+    }
+  }
+}
+```
+
+Tighter phone spread (explicit range overrides ``stagger_secs`` jitter):
+
+```json
+{
+  "stagger_min": 8,
+  "stagger_max": 22,
+  "human_stagger": true
+}
+```
+
+Legacy fixed 30s between phones (opt out of jitter):
+
+```json
+{
+  "stagger_secs": 30,
+  "human_stagger": false
+}
+```
+
+SCHEMA NOTES
+------------
+- ``stagger_secs`` (int): base seconds between phone starts; jittered when ``human_stagger`` true
+- ``stagger_min`` / ``stagger_max`` (int): optional uniform random range; takes priority over ``stagger_secs``
+- ``human_stagger`` (bool, default true): false = fixed ``stagger_secs`` (old behavior)
+
+Tunables in ``automation/human_variation.py``: ``SEQUENCE_START_GAP_*``, ``PLAYLIST_CYCLE_PAUSE_*``, ``GROUP_STAGGER_JITTER_FRAC``.

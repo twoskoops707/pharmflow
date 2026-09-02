@@ -1,0 +1,688 @@
+{
+  "steps": [
+    {
+      "type": "clear_cookies",
+      "phase": "pre_site_fast"
+    },
+    {
+      "type": "wait",
+      "seconds": 0.24102661695477334,
+      "phase": "pre_site_fast"
+    },
+    {
+      "type": "open_url",
+      "url": "https://getdabflow.app",
+      "post_wait_secs": 1.1061528396740579,
+      "phase": "pre_site_fast"
+    },
+    {
+      "type": "wait",
+      "seconds": 0.23455763284870312,
+      "phase": "pre_site_fast"
+    },
+    {
+      "type": "tap",
+      "x": 460,
+      "y": 907,
+      "base_w": 900,
+      "base_h": 1600,
+      "retries": 5,
+      "jitter": 6,
+      "pre_wait_ms": 117.19827412692744,
+      "age_verification": true,
+      "checkpoint": "age_verification",
+      "phase": "pre_site_fast"
+    },
+    {
+      "type": "wait",
+      "seconds": 0.18
+    },
+    {
+      "type": "tap",
+      "x": 282,
+      "y": 262,
+      "base_w": 540,
+      "base_h": 960,
+      "retries": 3,
+      "jitter": 22,
+      "pre_wait_ms": 120.62954408011194,
+      "phase": "on_site_human"
+    },
+    {
+      "type": "wait",
+      "seconds": 0.22553243300072257
+    },
+    {
+      "type": "tap",
+      "x": 126,
+      "y": 350,
+      "base_w": 540,
+      "base_h": 960,
+      "retries": 2,
+      "jitter": 20,
+      "pre_wait_ms": 94.33907811186994,
+      "phase": "on_site_human"
+    },
+    {
+      "type": "wait",
+      "seconds": 0.10593219919688797
+    },
+    {
+      "type": "tap",
+      "x": 140,
+      "y": 410,
+      "base_w": 540,
+      "base_h": 960,
+      "retries": 3,
+      "jitter": 16,
+      "pre_wait_ms": 116.86006392361945,
+      "phase": "on_site_human"
+    },
+    {
+      "type": "wait",
+      "seconds": 0.17371712794393704,
+      "checkpoint": "selections_done"
+    },
+    {
+      "type": "swipe",
+      "x1": 270,
+      "y1": 690,
+      "x2": 270,
+      "y2": 420,
+      "ms": 808,
+      "base_w": 540,
+      "base_h": 960
+    },
+    {
+      "type": "wait",
+      "seconds": 0.09738571849698996
+    },
+    {
+      "type": "swipe",
+      "x1": 270,
+      "y1": 720,
+      "x2": 270,
+      "y2": 450,
+      "ms": 767,
+      "base_w": 540,
+      "base_h": 960,
+      "checkpoint": "scroll_to_start_dab"
+    },
+    {
+      "type": "wait",
+      "seconds": 0.15077642998934968
+    },
+    {
+      "type": "tap",
+      "x": 275,
+      "y": 631,
+      "base_w": 540,
+      "base_h": 960,
+      "retries": 2,
+      "jitter": 19,
+      "pre_wait_ms": 119.05856505661127,
+      "checkpoint": "timer_started"
+    },
+    {
+      "type": "wait",
+      "seconds": 100.5,
+      "checkpoint": "timer_complete"
+    },
+    {
+      "type": "tap",
+      "x": 160,
+      "y": 595,
+      "base_w": 540,
+      "base_h": 960,
+      "retries": 4,
+      "jitter": 26,
+      "pre_wait_ms": 481.24808980345,
+      "checkpoint": "popup_dismiss",
+      "verify_dismiss": true
+    },
+    {
+      "type": "wait",
+      "seconds": 0.5101090166406793,
+      "checkpoint": "popup_dismissed",
+      "until_session_notes_gone": true
+    },
+    {
+      "type": "swipe",
+      "x1": 270,
+      "y1": 690,
+      "x2": 270,
+      "y2": 420,
+      "ms": 761,
+      "base_w": 540,
+      "base_h": 960
+    },
+    {
+      "type": "wait",
+      "seconds": 0.16932482066168295
+    },
+    {
+      "type": "swipe",
+      "x1": 270,
+      "y1": 720,
+      "x2": 270,
+      "y2": 450,
+      "ms": 758,
+      "base_w": 540,
+      "base_h": 960,
+      "checkpoint": "scroll_to_start_dab"
+    },
+    {
+      "type": "wait",
+      "seconds": 0.1199526529750107
+    },
+    {
+      "type": "tap",
+      "x": 258,
+      "y": 656,
+      "base_w": 540,
+      "base_h": 960,
+      "retries": 3,
+      "jitter": 27,
+      "pre_wait_ms": 116.18677628304799,
+      "checkpoint": "timer_started"
+    },
+    {
+      "type": "wait",
+      "seconds": 100.5,
+      "checkpoint": "timer_complete"
+    },
+    {
+      "type": "tap",
+      "x": 164,
+      "y": 589,
+      "base_w": 540,
+      "base_h": 960,
+      "retries": 4,
+      "jitter": 26,
+      "pre_wait_ms": 522.9837811020351,
+      "checkpoint": "popup_dismiss",
+      "verify_dismiss": true
+    },
+    {
+      "type": "wait",
+      "seconds": 0.8271522301397273,
+      "checkpoint": "popup_dismissed",
+      "until_session_notes_gone": true
+    },
+    {
+      "type": "tap",
+      "x": 371,
+      "y": 952,
+      "base_w": 540,
+      "base_h": 960,
+      "retries": 2,
+      "jitter": 21,
+      "pre_wait_ms": 155.4733635382335
+    },
+    {
+      "type": "wait",
+      "seconds": 1.0142871610450026
+    },
+    {
+      "type": "tap",
+      "x": 162,
+      "y": 208,
+      "base_w": 540,
+      "base_h": 960,
+      "retries": 3,
+      "jitter": 15,
+      "pre_wait_ms": 141.2218761427745
+    },
+    {
+      "type": "wait",
+      "seconds": 0.9381371501712056
+    },
+    {
+      "type": "keyevent",
+      "key": "4"
+    },
+    {
+      "type": "wait",
+      "seconds": 1.201163883215652
+    },
+    {
+      "type": "tap",
+      "x": 65,
+      "y": 937,
+      "base_w": 540,
+      "base_h": 960,
+      "retries": 2,
+      "jitter": 19,
+      "pre_wait_ms": 150.77792953627855
+    },
+    {
+      "type": "wait",
+      "seconds": 2.165920576306242
+    },
+    {
+      "type": "tap",
+      "x": 484,
+      "y": 930,
+      "base_w": 540,
+      "base_h": 960,
+      "retries": 3,
+      "jitter": 15,
+      "pre_wait_ms": 154.22158570563303
+    },
+    {
+      "type": "wait",
+      "seconds": 1.2297060397128299
+    },
+    {
+      "type": "tap",
+      "x": 169,
+      "y": 947,
+      "base_w": 540,
+      "base_h": 960,
+      "retries": 3,
+      "jitter": 24,
+      "pre_wait_ms": 108.5214755380531
+    },
+    {
+      "type": "wait",
+      "seconds": 1.8619838053300026
+    },
+    {
+      "type": "tap",
+      "x": 53,
+      "y": 949,
+      "base_w": 540,
+      "base_h": 960,
+      "retries": 2,
+      "jitter": 20,
+      "pre_wait_ms": 117.36180130358697
+    },
+    {
+      "type": "wait",
+      "seconds": 1.6741037918373114
+    },
+    {
+      "type": "tap",
+      "x": 262,
+      "y": 947,
+      "base_w": 540,
+      "base_h": 960,
+      "retries": 2,
+      "jitter": 15,
+      "pre_wait_ms": 184.78269954030978
+    },
+    {
+      "type": "wait",
+      "seconds": 0.7663323890799415
+    },
+    {
+      "type": "swipe",
+      "x1": 249,
+      "y1": 851,
+      "x2": 250,
+      "y2": 668,
+      "ms": 1474,
+      "base_w": 540,
+      "base_h": 960
+    },
+    {
+      "type": "wait",
+      "seconds": 0.5931490648951714
+    },
+    {
+      "type": "swipe",
+      "x1": 266,
+      "y1": 716,
+      "x2": 265,
+      "y2": 755,
+      "ms": 316,
+      "base_w": 540,
+      "base_h": 960
+    },
+    {
+      "type": "wait",
+      "seconds": 0.27009280472800823
+    },
+    {
+      "type": "swipe",
+      "x1": 255,
+      "y1": 649,
+      "x2": 250,
+      "y2": 524,
+      "ms": 743,
+      "base_w": 540,
+      "base_h": 960
+    },
+    {
+      "type": "wait",
+      "seconds": 0.3169385944909962
+    },
+    {
+      "type": "swipe",
+      "x1": 253,
+      "y1": 527,
+      "x2": 254,
+      "y2": 437,
+      "ms": 763,
+      "base_w": 540,
+      "base_h": 960
+    },
+    {
+      "type": "wait",
+      "seconds": 0.16680109922239658
+    },
+    {
+      "type": "swipe",
+      "x1": 260,
+      "y1": 485,
+      "x2": 259,
+      "y2": 526,
+      "ms": 540,
+      "base_w": 540,
+      "base_h": 960
+    },
+    {
+      "type": "wait",
+      "seconds": 0.15519917513122383
+    },
+    {
+      "type": "swipe",
+      "x1": 255,
+      "y1": 448,
+      "x2": 255,
+      "y2": 269,
+      "ms": 673,
+      "base_w": 540,
+      "base_h": 960
+    },
+    {
+      "type": "wait",
+      "seconds": 0.4736459835926195
+    },
+    {
+      "type": "swipe",
+      "x1": 267,
+      "y1": 280,
+      "x2": 280,
+      "y2": 228,
+      "ms": 484,
+      "base_w": 540,
+      "base_h": 960
+    },
+    {
+      "type": "wait",
+      "seconds": 2.5540293908287786
+    },
+    {
+      "type": "swipe",
+      "x1": 265,
+      "y1": 232,
+      "x2": 278,
+      "y2": 228,
+      "ms": 936,
+      "base_w": 540,
+      "base_h": 960
+    },
+    {
+      "type": "wait",
+      "seconds": 3.1146829923849335
+    },
+    {
+      "type": "swipe",
+      "x1": 278,
+      "y1": 248,
+      "x2": 277,
+      "y2": 228,
+      "ms": 844,
+      "base_w": 540,
+      "base_h": 960
+    },
+    {
+      "type": "wait",
+      "seconds": 0.40193890259503234
+    },
+    {
+      "type": "swipe",
+      "x1": 232,
+      "y1": 214,
+      "x2": 244,
+      "y2": 228,
+      "ms": 696,
+      "base_w": 540,
+      "base_h": 960
+    },
+    {
+      "type": "wait",
+      "seconds": 0.28455773005401475
+    },
+    {
+      "type": "swipe",
+      "x1": 265,
+      "y1": 209,
+      "x2": 267,
+      "y2": 228,
+      "ms": 813,
+      "base_w": 540,
+      "base_h": 960
+    },
+    {
+      "type": "wait",
+      "seconds": 0.23755319135592753
+    },
+    {
+      "type": "swipe",
+      "x1": 277,
+      "y1": 217,
+      "x2": 284,
+      "y2": 228,
+      "ms": 515,
+      "base_w": 540,
+      "base_h": 960
+    },
+    {
+      "type": "wait",
+      "seconds": 0.3093747193965241
+    },
+    {
+      "type": "swipe",
+      "x1": 278,
+      "y1": 206,
+      "x2": 277,
+      "y2": 228,
+      "ms": 313,
+      "base_w": 540,
+      "base_h": 960
+    },
+    {
+      "type": "wait",
+      "seconds": 0.11486136370468086
+    },
+    {
+      "type": "swipe",
+      "x1": 270,
+      "y1": 239,
+      "x2": 262,
+      "y2": 228,
+      "ms": 1400,
+      "base_w": 540,
+      "base_h": 960
+    },
+    {
+      "type": "wait",
+      "seconds": 0.5230876829469621
+    },
+    {
+      "type": "swipe",
+      "x1": 284,
+      "y1": 212,
+      "x2": 286,
+      "y2": 228,
+      "ms": 311,
+      "base_w": 540,
+      "base_h": 960
+    },
+    {
+      "type": "wait",
+      "seconds": 0.33589692821953043
+    },
+    {
+      "type": "swipe",
+      "x1": 284,
+      "y1": 236,
+      "x2": 286,
+      "y2": 228,
+      "ms": 489,
+      "base_w": 540,
+      "base_h": 960
+    },
+    {
+      "type": "wait",
+      "seconds": 0.3863882522666744
+    },
+    {
+      "type": "swipe",
+      "x1": 242,
+      "y1": 817,
+      "x2": 241,
+      "y2": 679,
+      "ms": 604,
+      "base_w": 540,
+      "base_h": 960
+    },
+    {
+      "type": "wait",
+      "seconds": 0.1977751593173056
+    },
+    {
+      "type": "swipe",
+      "x1": 255,
+      "y1": 674,
+      "x2": 249,
+      "y2": 472,
+      "ms": 567,
+      "base_w": 540,
+      "base_h": 960
+    },
+    {
+      "type": "wait",
+      "seconds": 0.5732739099797531
+    },
+    {
+      "type": "swipe",
+      "x1": 269,
+      "y1": 480,
+      "x2": 277,
+      "y2": 273,
+      "ms": 824,
+      "base_w": 540,
+      "base_h": 960
+    },
+    {
+      "type": "wait",
+      "seconds": 0.4366942980793853
+    },
+    {
+      "type": "swipe",
+      "x1": 267,
+      "y1": 284,
+      "x2": 256,
+      "y2": 168,
+      "ms": 493,
+      "base_w": 540,
+      "base_h": 960
+    },
+    {
+      "type": "wait",
+      "seconds": 0.561123386867965
+    },
+    {
+      "type": "swipe",
+      "x1": 285,
+      "y1": 192,
+      "x2": 286,
+      "y2": 168,
+      "ms": 1054,
+      "base_w": 540,
+      "base_h": 960
+    },
+    {
+      "type": "wait",
+      "seconds": 0.20976220677018415
+    },
+    {
+      "type": "swipe",
+      "x1": 272,
+      "y1": 192,
+      "x2": 274,
+      "y2": 168,
+      "ms": 1221,
+      "base_w": 540,
+      "base_h": 960
+    },
+    {
+      "type": "wait",
+      "seconds": 0.38524938518193436
+    },
+    {
+      "type": "swipe",
+      "x1": 274,
+      "y1": 192,
+      "x2": 284,
+      "y2": 168,
+      "ms": 789,
+      "base_w": 540,
+      "base_h": 960
+    },
+    {
+      "type": "wait",
+      "seconds": 0.5637847817914309
+    },
+    {
+      "type": "close_app",
+      "phase": "post_browser_fast"
+    },
+    {
+      "type": "wait",
+      "seconds": 0.34870161058282173,
+      "phase": "post_browser_fast"
+    },
+    {
+      "type": "rotate_identity",
+      "phase": "post_browser_fast"
+    },
+    {
+      "type": "wait",
+      "seconds": 0.5180984397665874,
+      "phase": "post_browser_fast"
+    },
+    {
+      "type": "full_reset",
+      "phase": "post_browser_fast"
+    }
+  ],
+  "meta": {
+    "dabflow_material": "titanium",
+    "dabflow_concentrate": "hash-rosin",
+    "dabflow_heater": "butane",
+    "timer_cycles": 2,
+    "flow": "no-ads",
+    "baseline_wh": "900x1600",
+    "humanization": "gaussian_waits_human_pace_v7",
+    "timing_phases": [
+      "pre_site_fast",
+      "on_site_human",
+      "post_browser_fast"
+    ],
+    "tab_excursion": "glass_select_exit_home",
+    "ad_min_dwell_sec": null,
+    "ad_max_dwell_sec": null,
+    "base_w": 540,
+    "base_h": 960,
+    "humanize_seed": 2541483010,
+    "browser_tag": "farmbrowser",
+    "browser_label": "FarmBrowser"
+  },
+  "label": "DabFlow no-ads titanium__hash-rosin__butane",
+  "baseline_wh": "540x960",
+  "preferred_browser": "com.farmbrowser.stealth.debug"
+}

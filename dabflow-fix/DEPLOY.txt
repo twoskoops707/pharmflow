@@ -1,0 +1,19 @@
+DabFlow Mantis fix — deploy to Cloudflare Pages
+================================================
+
+1. In your DabFlow repo (StudioProjects/DabFlow, branch web):
+   Replace www/js/app.js with this file (dabflow-fix/app.js).
+
+2. git commit && git push origin web
+
+3. Cloudflare Pages redeploys getdabflow.app automatically.
+
+4. Verify: python3 automation/audit_dabflow_live.py  → OK
+
+Patches applied:
+  - fixed screenZoneMap trailing-dash zone typos
+  - inject cooldown-video-ad display on cool phase
+
+Until deployed, CPharm injects a runtime fix via CDP after each open_url
+(CPHARM_DABFLOW_MANTIS_PATCH=1, default on).
+

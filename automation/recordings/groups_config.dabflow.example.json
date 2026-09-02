@@ -1,0 +1,32 @@
+{
+  "_example": "Per phone: no-ad demo + variant (Set A) shuffled with ad demo + variant (Set B) — 50/50. Run CPharmMuMuSetup.exe GO after phones connect.",
+  "groups": [
+    {
+      "name": "DabFlow farm",
+      "stagger_secs": 30,
+      "repeat": 1,
+      "repeat_forever": false,
+      "human_stagger": true,
+      "phones": {
+        "10.0.2.144:5555": {
+          "steps": [],
+          "hits_per_day": 720,
+          "use_default_template": true,
+          "sequence_base_w": 900,
+          "sequence_base_h": 1600,
+          "sequence_profile_key": "900x1600",
+          "sequence_playlist": [
+            "900x1600/no-ad/dabflow__demo__ONE.json",
+            "900x1600/no-ad/dabflow__no_ads__mat-quartz__conc-shatter__heat-butane.json"
+          ],
+          "sequence_playlist_secondary": [
+            "900x1600/ad/dabflow__demo__TWO.json",
+            "900x1600/ad/dabflow__ad__mat-quartz__conc-shatter__heat-butane.json"
+          ],
+          "sequence_playlist_mode": "random",
+          "sequence_playlist_shuffle": "combined"
+        }
+      }
+    }
+  ]
+}

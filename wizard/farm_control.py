@@ -1,0 +1,639 @@
+"""Start/stop the multi-phone farm from the EXE (any Site Profile)."""
+
+from __future__ import annotations
+
+import json
+import os
+import runpy
+import shutil
+import subprocess
+import sys
+import threading
+import time
+from pathlib import Path
+from typing import Any, Callable
+
+import automation.no_window  # noqa: F401  — CREATE_NO_WINDOW for farm/helper children
+from automation.site_profile import SiteProfile, load_profile
+from automation.mantis_farm_math import apply_plan_to_environ, plan_for_phones
+from automation.cpharm_farm_config import apply_farm_env, purge_legacy_override_files
+from automation.cpharm_exe_owned import (
+    clear_exe_owned,
+    exe_owns_farm,
+    mark_exe_owned,
+)
+from automation.farm_visit_caps import MULTI_BROWSER, PATH3_BROWSERS, enforce_multi_browser
+from automation.win_subprocess import hidden_run_kwargs
+from scripts.farm_hourly_ntfy import run_reporter
+from wizard.wizard_paths import app_data_root, bundle_root, load_config, sequences_dir
+
+
+_farm_proc: subprocess.Popen[Any] | None = None
+_farm_thread: threading.Thread | None = None
+_digest_thread: threading.Thread | None = None
+_digest_stop = threading.Event()
+_farm_lock = threading.RLock()
+_PHONE_NAMES = tuple(f"vm{i}.gmadoa" for i in range(12))
+_TABLET_PHONE = "vm4.gmadoa"
+_STICKY_OVERRIDES = Path(r"C:\CPharm\logs\farm_runtime_overrides.json")
+_EXTERNAL_FARM_NEEDLES = (
+    "run_farm_354.py",
+    "run_farm_cycles.py",
+)
+# Unison supervisor owns farm + stealth + watchdog. Dash only helper besides unison.
+_HELPER_SPECS: tuple[tuple[str, tuple[str, ...], str], ...] = (
+    ("suppress_console_flash.py", (), "suppress_console_flash.py"),
+    ("farm_operator_dash.py", (), "farm_operator_dash.py"),
+    ("cpharm_unison_supervisor.py", (), "cpharm_unison_supervisor.py"),
+)
+_helper_procs: dict[str, subprocess.Popen[Any]] = {}
+_helper_threads: dict[str, threading.Thread] = {}
+
+
+def _inject_span() -> str:
+    """Inject listener count from CPharm-live VMs (vmN → N+1 ports)."""
+    try:
+        from automation.farm_phone_discover import inject_listener_count
+
+        return str(max(1, int(inject_listener_count())))
+    except Exception:
+        return "11"
+
+
+def _helper_script_path(name: str) -> Path | None:
+    root = bundle_root()
+    script = root / "scripts" / name
+    if script.is_file():
+        return script
+    alt = Path(__file__).resolve().parents[1] / "scripts" / name
+    return alt if alt.is_file() else None
+
+
+def _resolve_helper_python() -> str | None:
+    """Return a real python/pythonw for helper processes.
+
+    Frozen CPharm.exe cannot re-exec ``CPharm.exe -u script.py`` as a headless
+    worker. Prefer system pythonw; None means fall back to in-process threads.
+    """
+    if not getattr(sys, "frozen", False):
+        exe = sys.executable
+        if os.name == "nt" and exe.lower().endswith("python.exe"):
+            pyw = exe[:-10] + "pythonw.exe"
+            if Path(pyw).is_file():
+                return pyw
+        return exe
+
+    local = Path(os.environ.get("LOCALAPPDATA", ""))
+    candidates = [
+        local / "Python" / "pythoncore-3.14-64" / "pythonw.exe",
+        local / "Python" / "pythoncore-3.13-64" / "pythonw.exe",
+        local / "Python" / "pythoncore-3.12-64" / "pythonw.exe",
+        local / "Programs" / "Python" / "Python312" / "pythonw.exe",
+        local / "Programs" / "Python" / "Python311" / "pythonw.exe",
+        Path(r"C:\Python312\pythonw.exe"),
+        Path(r"C:\Python311\pythonw.exe"),
+    ]
+    for cand in candidates:
+        if cand.is_file() and "CPharm" not in str(cand):
+            return str(cand)
+    for name in ("pythonw", "python"):
+        found = shutil.which(name)
+        if found and "CPharm" not in found:
+            return found
+    return None
+
+
+def _helper_already_alive(needle: str) -> bool:
+    try:
+        import psutil
+    except ImportError:
+        thr = _helper_threads.get(needle)
+        return bool(thr and thr.is_alive())
+    self_pid = os.getpid()
+    for proc in psutil.process_iter(["pid", "cmdline"]):
+        try:
+            pid = int(proc.info.get("pid") or 0)
+            if pid in {0, self_pid}:
+                continue
+            cmd = " ".join(str(x) for x in (proc.info.get("cmdline") or []))
+            if needle in cmd:
+                return True
+        except (psutil.Error, TypeError, ValueError):
+            continue
+    thr = _helper_threads.get(needle)
+    return bool(thr and thr.is_alive())
+
+
+def _spawn_helper_thread(
+    name: str,
+    script: Path,
+    argv_extra: tuple[str, ...],
+    *,
+    log: Callable[[str, str], None] | None,
+) -> None:
+    """Run a long-lived helper inside the EXE when no system python exists."""
+
+    def _log(msg: str, level: str = "ok") -> None:
+        if log:
+            log(msg, level)
+
+    def target() -> None:
+        old_argv = list(sys.argv)
+        try:
+            sys.argv = [str(script), *argv_extra]
+            runpy.run_path(str(script), run_name="__main__")
+        except SystemExit as exc:
+            code = exc.code if isinstance(exc.code, int) else 0
+            _log(f"helper {name} exited (code={code})", "ok" if code == 0 else "warn")
+        except Exception as exc:  # noqa: BLE001 — keep EXE farm up
+            _log(f"helper {name} crashed: {exc}", "err")
+        finally:
+            sys.argv = old_argv
+
+    t = threading.Thread(target=target, name=f"cpharm-{Path(name).stem}", daemon=True)
+    _helper_threads[name] = t
+    t.start()
+    _log(f"spawned {name} in-process thread={t.name}", "ok")
+
+
+def ensure_operator_stack(*, log: Callable[[str, str], None] | None = None) -> list[str]:
+    """Bring up remediator, dash, keepalive, ensure, inject, hunter, watch_ads.
+
+    Start Farm must own the FIX + money path — not leave operators on a separate
+    python babysit stack. Frozen EXE prefers system pythonw for true processes;
+    otherwise helpers run as daemon threads via runpy (same pattern as farm).
+    """
+    notes: list[str] = []
+
+    def _log(msg: str, level: str = "ok") -> None:
+        if log:
+            log(msg, level)
+        notes.append(f"{level}:{msg}")
+
+    root = bundle_root()
+    spawn_kw = hidden_run_kwargs()
+    helper_py = _resolve_helper_python()
+    if helper_py:
+        _log(f"operator helpers via {helper_py}", "ok")
+    else:
+        _log("no system pythonw — helpers run in-process threads", "warn")
+
+    for name, argv_extra, needle in _HELPER_SPECS:
+        if name == "run_mantis_inject_proxies.py":
+            argv_extra = ("--phones", str(_inject_span()))
+        if _helper_already_alive(needle):
+            _log(f"operator stack already up: {name}", "ok")
+            continue
+        script = _helper_script_path(name)
+        if script is None:
+            _log(f"operator stack missing: {name}", "err")
+            continue
+        env = os.environ.copy()
+        env["PYTHONPATH"] = str(root) + os.pathsep + env.get("PYTHONPATH", "")
+        env.setdefault("CPHARM_FARM_STOP", "0")
+        if helper_py:
+            try:
+                proc = subprocess.Popen(
+                    [helper_py, "-u", str(script), *argv_extra],
+                    cwd=str(root if (root / "automation").is_dir() else script.parent.parent),
+                    env=env,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    **spawn_kw,
+                )
+                _helper_procs[name] = proc
+                _log(f"spawned {name} pid={proc.pid}", "ok")
+            except OSError as exc:
+                _log(f"spawn {name} failed: {exc} — trying in-process", "warn")
+                _spawn_helper_thread(name, script, argv_extra, log=log)
+        else:
+            _spawn_helper_thread(name, script, argv_extra, log=log)
+    return notes
+
+
+OPERATOR_DASH_URL = "http://127.0.0.1:8091/"
+_dash_browser_opened = False
+
+
+def open_operator_dashboard(
+    *,
+    log: Callable[[str, str], None] | None = None,
+    wait_s: float = 25.0,
+    open_browser: bool = False,
+) -> bool:
+    """Ensure operator dash is listening on :8091.
+
+    Does **not** open a browser tab by default — repeated Start farm / agent
+    restarts were spawning dash tabs forever. Pass ``open_browser=True`` only
+    for the explicit UI button.
+    """
+    import urllib.error
+    import urllib.request
+
+    global _dash_browser_opened
+
+    def _log(msg: str, level: str = "ok") -> None:
+        if log:
+            log(msg, level)
+
+    ensure_operator_stack(log=log)
+    deadline = time.time() + max(1.0, float(wait_s))
+    up = False
+    while time.time() < deadline:
+        try:
+            with urllib.request.urlopen(OPERATOR_DASH_URL, timeout=2) as resp:
+                if int(getattr(resp, "status", 200) or 200) == 200:
+                    up = True
+                    break
+        except (urllib.error.URLError, OSError, TimeoutError, ValueError):
+            time.sleep(0.4)
+    if up:
+        _log("Farm Operator dash :8091 UP", "ok")
+    else:
+        _log("Dash :8091 still starting", "warn")
+    if open_browser and not _dash_browser_opened:
+        import webbrowser
+
+        webbrowser.open(OPERATOR_DASH_URL)
+        _dash_browser_opened = True
+        _log("Opened Farm Operator dash once in browser", "ok")
+    return up
+
+
+def external_python_farm_running() -> bool:
+    """True when FamFlow python money-path farm/cycles are already alive."""
+    try:
+        import psutil
+    except ImportError:
+        return False
+    self_pid = os.getpid()
+    for proc in psutil.process_iter(["pid", "cmdline"]):
+        try:
+            pid = int(proc.info.get("pid") or 0)
+            if pid in {0, self_pid}:
+                continue
+            cmd = " ".join(str(x) for x in (proc.info.get("cmdline") or [])).lower()
+            if any(needle in cmd for needle in _EXTERNAL_FARM_NEEDLES):
+                return True
+        except (psutil.Error, TypeError, ValueError):
+            continue
+    return False
+
+
+def stop_external_python_farm(
+    *,
+    log: Callable[[str, str], None] | None = None,
+) -> list[int]:
+    """Kill external run_farm_354 / run_farm_cycles so CPharm can own the path."""
+
+    def _log(msg: str, level: str = "ok") -> None:
+        if log:
+            log(msg, level)
+
+    killed: list[int] = []
+    try:
+        import psutil
+    except ImportError:
+        _log("psutil missing — cannot stop external farm", "err")
+        return killed
+    self_pid = os.getpid()
+    for proc in psutil.process_iter(["pid", "cmdline"]):
+        try:
+            pid = int(proc.info.get("pid") or 0)
+            if pid in {0, self_pid}:
+                continue
+            cmd = " ".join(str(x) for x in (proc.info.get("cmdline") or [])).lower()
+            if not any(needle in cmd for needle in _EXTERNAL_FARM_NEEDLES):
+                continue
+            proc.kill()
+            killed.append(pid)
+        except (psutil.Error, TypeError, ValueError, OSError):
+            continue
+    if killed:
+        _log(f"took over — stopped external farm pids={killed}", "ok")
+        time.sleep(1.5)
+    else:
+        _log("no external farm/cycles to stop", "ok")
+    return killed
+
+
+def farm_running() -> bool:
+    """True if unison supervisor or farm worker is alive."""
+    with _farm_lock:
+        if _farm_proc is not None and _farm_proc.poll() is None:
+            return True
+        if _farm_thread is not None and _farm_thread.is_alive():
+            return True
+    try:
+        from automation.cpharm_unison_dedupe import pids_for_script
+
+        if pids_for_script("cpharm_unison_supervisor.py"):
+            return True
+    except ImportError:
+        pass
+    return external_python_farm_running()
+
+
+def _apply_sticky_overrides() -> None:
+    """SSOT from code — no farm_runtime_overrides.json."""
+    purge_legacy_override_files()
+    apply_farm_env()
+
+
+def _persist_multi_browser_sticky() -> None:
+    """No-op — browsers pinned in cpharm_farm_config.py."""
+    return
+
+
+def apply_profile_farm_env(profile: SiteProfile | None) -> None:
+    """Map SiteProfile farm prefs onto CPHARM_FARM_* env for the runner.
+
+    Sticky overrides win. Money-day defaults: scramble + FORCE_DIRECT=0 + FALLBACK=0.
+    """
+    _apply_sticky_overrides()
+    os.environ["CPHARM_ALLOW_SEQUENCE_RUNS"] = "1"
+    # Keep Mantis zone refresh on so ads paint on Path1/2/3 (Path3 only clicks).
+    os.environ["CPHARM_SKIP_MANTIS_PATCH"] = "0"
+    os.environ.setdefault("CPHARM_DABFLOW_MANTIS_PATCH", "1")
+    os.environ.setdefault("CPHARM_EMULATOR_AD_FILL_WAIT", "4")
+    os.environ.setdefault("CPHARM_EMULATOR_AD_MODE", "1")
+    # Money-day rails (sticky may already set these).
+    os.environ.setdefault("CPHARM_EMULATOR_AD_FORCE_DIRECT", "0")
+    os.environ.setdefault("CPHARM_EMULATOR_AD_FALLBACK", "0")
+    os.environ.setdefault("CPHARM_BROWSE_PROXY_MODE", "scramble")
+    os.environ["CPHARM_REQUIRE_UNIQUE_EXIT_IP"] = "1"
+    os.environ["CPHARM_NEVER_SHARE_EXIT_IP"] = "1"
+    os.environ.setdefault("CPHARM_FARM_PATHS", "1,2,3")
+    os.environ.setdefault("CPHARM_FARM_PATH3", "1")
+    os.environ.setdefault("CPHARM_PATH3", "1")
+    os.environ.setdefault("CPHARM_FARM_ALLOW_ADS", "1")
+    os.environ.setdefault("CPHARM_FARM_UNIQUE_SEQ", "1")
+    # Unique-seq Path1/2 needs dedicated stems per browser — sticky must not lock chromium-only.
+    os.environ["CPHARM_FARM_CHROMIUM_ONLY"] = "0"
+    os.environ["CPHARM_FARM_BROWSERS"] = MULTI_BROWSER
+    os.environ["CPHARM_FARM_PATH3_BROWSERS"] = PATH3_BROWSERS
+    _persist_multi_browser_sticky()
+    os.environ.setdefault("CPHARM_SITE_SLUG", "dabflow")
+    os.environ.setdefault("CPHARM_SKIP_SEQUENCE_ISOLATION", "0")
+    # MITM inject: billing_direct + prefer-paying (no house fallback) live in
+    # automation.mantis_inject_proxy / dabflow_mantis_client_patch — keep ON.
+    os.environ.setdefault("CPHARM_MANTIS_INJECT_PROXY", "1")
+    os.environ.setdefault("CPHARM_MANTIS_INJECT_MITM", "1")
+    os.environ.setdefault("CPHARM_MANTIS_BILLING_DIRECT", "1")
+    # AP DOWN by default so EXE Start cannot fight sticky Path3/ads.
+    os.environ.setdefault("CPHARM_AUTOPILOT_PAUSE", "1")
+    os.environ.setdefault("CPHARM_GEO_TIME_WINDOW", "1")
+    os.environ.setdefault("CPHARM_GEO_WINDOW_START", "09:30")
+    os.environ.setdefault("CPHARM_GEO_WINDOW_END", "00:00")
+    if profile is None:
+        # Plan fills gaps only — sticky CPHARM_* already applied above.
+        plan = plan_for_phones(int(os.environ.get("CPHARM_FARM_PHONE_COUNT") or 4))
+        _apply_plan_gaps(plan)
+        return
+    f = profile.farm
+    phone_count = max(1, min(len(_PHONE_NAMES), int(f.phone_count)))
+    if os.environ.get("CPHARM_FARM_PHONE_COUNT"):
+        try:
+            phone_count = max(1, min(len(_PHONE_NAMES), int(os.environ["CPHARM_FARM_PHONE_COUNT"])))
+        except ValueError:
+            pass
+    plan = plan_for_phones(
+        phone_count,
+        visits_csv=str(
+            os.environ.get("CPHARM_FARM_DAILY_VISITS")
+            or getattr(f, "daily_visits_csv", "")
+            or ""
+        ),
+        ads_csv=str(
+            os.environ.get("CPHARM_FARM_DAILY_ADS")
+            or getattr(f, "daily_ads_csv", "")
+            or ""
+        ),
+        impressions_per_visit=float(
+            os.environ.get("CPHARM_FARM_IMPRESSIONS_PER_VISIT")
+            or getattr(f, "impressions_per_visit", 22.0)
+            or 22.0
+        ),
+    )
+    _apply_plan_gaps(plan)
+    os.environ.setdefault("CPHARM_FARM_ALLOW_ADS", "1" if f.allow_ads else "0")
+    os.environ.setdefault(
+        "CPHARM_NTFY_INTERVAL_S", str(max(300, int(f.ntfy_interval_s)))
+    )
+    # Money-day short stagger only. Sticky already applied above (force).
+    # Never invent profile 30-min spreads (1800/306) — that stagnated actives.
+    os.environ.setdefault("CPHARM_FARM_START_STAGGER_WINDOW", "120")
+    os.environ.setdefault("CPHARM_FARM_START_STAGGER_BAND", "120")
+    os.environ.setdefault("CPHARM_FARM_START_STAGGER_MIN_GAP", "15")
+    os.environ.setdefault("CPHARM_FARM_START_STAGGER_JITTER", "40")
+    # If a long profile-era value leaked into process env (not sticky), snap it.
+    try:
+        win_now = float(os.environ.get("CPHARM_FARM_START_STAGGER_WINDOW") or "0")
+    except ValueError:
+        win_now = 0.0
+    if win_now > 300.0:
+        os.environ["CPHARM_FARM_START_STAGGER_WINDOW"] = "120"
+        os.environ["CPHARM_FARM_START_STAGGER_BAND"] = "120"
+        os.environ["CPHARM_FARM_START_STAGGER_MIN_GAP"] = "15"
+        os.environ["CPHARM_FARM_START_STAGGER_JITTER"] = "40"
+    os.environ.setdefault("CPHARM_FARM_PHONE_COUNT", str(phone_count))
+    os.environ.setdefault("CPHARM_SITE_SLUG", profile.slug)
+    if profile.adapter == "dabflow":
+        os.environ.pop("CPHARM_FARM_SEQUENCE_ROOT", None)
+    else:
+        os.environ.setdefault(
+            "CPHARM_FARM_SEQUENCE_ROOT", str(sequences_dir() / profile.slug)
+        )
+    if f.ntfy_topic:
+        os.environ.setdefault("CPHARM_NTFY_TOPIC", f.ntfy_topic)
+    if profile.humanize.concurrent_unique_sequences:
+        os.environ["CPHARM_FARM_UNIQUE_SEQ"] = "1"
+    else:
+        os.environ.setdefault("CPHARM_FARM_UNIQUE_SEQ", "0")
+
+
+def _apply_plan_gaps(plan: Any) -> None:
+    """Apply mantis plan env only where sticky/env has no value yet."""
+    before = {k: v for k, v in os.environ.items() if k.startswith("CPHARM_")}
+    apply_plan_to_environ(plan)
+    for key, old in before.items():
+        os.environ[key] = old
+
+
+def _farm_args(script: Path, hours: float, profile: SiteProfile | None) -> list[str]:
+    """Hours only — live ADB phones are discovered inside run_farm_354 via CPharm."""
+    return [str(script), "--hours", str(hours)]
+
+
+def _farm_script() -> Path:
+    root = bundle_root()
+    cand = root / "scripts" / "run_farm_354.py"
+    if cand.is_file():
+        return cand
+    alt = Path(__file__).resolve().parent.parent / "scripts" / "run_farm_354.py"
+    if alt.is_file():
+        return alt
+    return cand
+
+
+def _run_farm_in_thread(
+    script: Path,
+    hours: float,
+    profile: SiteProfile | None,
+    log: Callable[[str, str], None] | None,
+) -> None:
+    global _farm_thread
+
+    def _log(msg: str, level: str = "ok") -> None:
+        if log:
+            log(msg, level)
+
+    def target() -> None:
+        old_argv = list(sys.argv)
+        try:
+            sys.argv = _farm_args(script, hours, profile)
+            runpy.run_path(str(script), run_name="__main__")
+        except SystemExit as exc:
+            code = exc.code if isinstance(exc.code, int) else 0
+            _log(f"Farm exited (code={code})", "ok" if code == 0 else "warn")
+        except Exception as exc:
+            _log(f"Farm crashed: {exc}", "err")
+        finally:
+            sys.argv = old_argv
+            _digest_stop.set()
+
+    t = threading.Thread(target=target, name="cpharm-farm", daemon=True)
+    _farm_thread = t
+    t.start()
+    _log(
+        f"Farm started in-process (thread={t.name}, hours={hours}, "
+        f"unique-seq={'on' if os.environ.get('CPHARM_FARM_UNIQUE_SEQ') == '1' else 'off'})",
+        "ok",
+    )
+
+
+def _start_digest(profile: SiteProfile | None, log: Callable[[str, str], None] | None) -> None:
+    global _digest_thread
+
+    if profile is None or not profile.farm.ntfy_hourly or not profile.farm.ntfy_topic:
+        return
+    if _digest_thread is not None and _digest_thread.is_alive():
+        return
+    _digest_stop.clear()
+    interval_s = max(300, int(profile.farm.ntfy_interval_s))
+
+    def target() -> None:
+        run_reporter(
+            interval_s=interval_s,
+            baseline=False,
+            wait_for_start=False,
+            stop_event=_digest_stop,
+        )
+
+    _digest_thread = threading.Thread(target=target, name="cpharm-ntfy-digest", daemon=True)
+    _digest_thread.start()
+    if log:
+        log(f"ntfy digest started (every {interval_s // 60} minutes)", "ok")
+
+
+def _stop_digest_when_process_exits(proc: subprocess.Popen[Any]) -> None:
+    def target() -> None:
+        proc.wait()
+        _digest_stop.set()
+
+    threading.Thread(target=target, name="cpharm-farm-monitor", daemon=True).start()
+
+
+def start_farm(
+    *,
+    profile: SiteProfile | None = None,
+    hours: float | None = None,
+    log: Callable[[str, str], None] | None = None,
+    takeover: bool = True,
+) -> bool:
+    """Spawn farm runner + operator stack. Returns True if started.
+
+    When ``takeover`` is True (default), any external python farm/cycles are
+    stopped so CPharm owns the money path independently.
+    """
+    global _farm_proc
+
+    def _log(msg: str, level: str = "ok") -> None:
+        if log:
+            log(msg, level)
+
+    with _farm_lock:
+        if farm_running():
+            _log("Farm already running", "warn")
+            return False
+        if external_python_farm_running():
+            if not takeover:
+                _log(
+                    "External python farm/cycles already UP — refuse duplicate start",
+                    "warn",
+                )
+                return False
+            stop_external_python_farm(log=log)
+        apply_profile_farm_env(profile)
+        os.environ["CPHARM_FARM_STOP"] = "0"
+        helper_py = _resolve_helper_python()
+        # Prefer real pythonw workers; only use in-process farm when frozen w/o python.
+        in_process = bool(getattr(sys, "frozen", False) and not helper_py)
+        mark_exe_owned(in_process=in_process)
+        os.environ["CPHARM_UNISON_MODE"] = "1"
+        # Unison owns farm + stealth + watchdog — do not also spawn run_farm_354 here.
+        ensure_operator_stack(log=log)
+        _log("Farm unison stack armed (farm/stealth/watchdog)", "ok")
+        _start_digest(profile, log)
+        threading.Thread(
+            target=lambda: open_operator_dashboard(log=log),
+            name="cpharm-open-dash",
+            daemon=True,
+        ).start()
+        return True
+
+
+def stop_farm(*, log: Callable[[str, str], None] | None = None) -> bool:
+    global _farm_proc, _farm_thread
+
+    def _log(msg: str, level: str = "ok") -> None:
+        if log:
+            log(msg, level)
+
+    with _farm_lock:
+        _digest_stop.set()
+        stopped = False
+        if _farm_proc is not None and _farm_proc.poll() is None:
+            pid = _farm_proc.pid
+            try:
+                _farm_proc.terminate()
+                try:
+                    _farm_proc.wait(timeout=8)
+                except subprocess.TimeoutExpired:
+                    _farm_proc.kill()
+            except OSError as exc:
+                _log(f"Farm stop error: {exc}", "err")
+                return False
+            _farm_proc = None
+            _log(f"Farm stopped (was pid={pid})", "ok")
+            stopped = True
+        if _farm_thread is not None and _farm_thread.is_alive():
+            os.environ["CPHARM_FARM_STOP"] = "1"
+            _log("Farm stop requested (in-process thread will exit on next cycle)", "warn")
+            stopped = True
+        clear_exe_owned()
+        if not stopped:
+            _log("Farm was not running", "warn")
+        return stopped
+
+
+def load_active_profile(slug: str | None) -> SiteProfile | None:
+    if not slug:
+        cfg = load_config()
+        slug = str(cfg.get("active_site_slug") or "").strip() or None
+    if not slug:
+        return None
+    try:
+        return load_profile(app_data_root(), slug)
+    except (OSError, ValueError, TypeError, KeyError):
+        return None

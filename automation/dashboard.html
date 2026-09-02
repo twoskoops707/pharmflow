@@ -1,0 +1,1579 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>CPharm</title>
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#00e676">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=IBM+Plex+Mono:wght@400;600&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --g:#00e676;--g2:#00c853;--g-dim:#00e67618;--g-glow:#00e67640;
+  --s:#14B8A6;--s2:#0d9488;--s-dim:#14B8A618;--s-glow:#14B8A640;
+  --r:#f43f5e;--y:#f59e0b;--b:#3b82f6;
+  --bg0:#070a0d;--bg1:#0c1118;--bg2:#111822;--bg3:#18222e;
+  --bd:#1e2d3d;--bd2:#263447;
+  --t0:#e2e8f0;--t1:#94a3b8;--t2:#475569;
+  --font-head:'Syne',sans-serif;
+  --font-mono:'IBM Plex Mono',monospace;
+  --font-body:'DM Sans',sans-serif;
+  --rad:12px;--rad-sm:8px;
+  --shadow:0 8px 32px #00000060;
+  --scroll-track:var(--bg0);
+  --scroll-thumb:rgba(0,230,118,.42);
+  --scroll-thumb-subtle:rgba(0,230,118,.18);
+  --scroll-thumb-hover:var(--g2);
+  --scroll-thumb-active:var(--b);
+}
+html{
+  font-size:16px;scroll-behavior:smooth;
+  color-scheme:dark;
+  scrollbar-color:var(--scroll-thumb) var(--scroll-track);
+  scrollbar-width:thin;
+}
+body{
+  background:var(--bg0);color:var(--t0);
+  font-family:var(--font-body);
+  min-height:100vh;min-height:100dvh;
+  overflow-x:hidden;overflow-y:auto;
+  scrollbar-color:var(--scroll-thumb) var(--scroll-track);
+  scrollbar-width:thin;
+}
+body::before{
+  content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)' opacity='0.025'/%3E%3C/svg%3E");
+  opacity:.7;
+}
+#app{
+  position:relative;z-index:1;
+  min-height:100vh;min-height:100dvh;
+  overflow-y:visible;
+  padding-bottom:max(100px,env(safe-area-inset-bottom,0px));
+}
+
+header{
+  position:sticky;top:0;z-index:100;
+  background:#070a0dcc;backdrop-filter:blur(20px) saturate(180%);
+  border-bottom:1px solid var(--bd);
+  height:56px;padding:0 16px;
+  display:flex;align-items:center;justify-content:space-between;
+}
+.logo{
+  font-family:var(--font-head);font-size:1.1rem;font-weight:800;
+  color:var(--g);letter-spacing:.04em;
+  display:flex;align-items:center;gap:10px;
+}
+.logo-dot{
+  width:8px;height:8px;border-radius:50%;background:var(--g);
+  box-shadow:0 0 8px var(--g);animation:pulse-dot 2s ease infinite;
+}
+@keyframes pulse-dot{
+  0%,100%{box-shadow:0 0 6px var(--g)}
+  50%{box-shadow:0 0 16px var(--g),0 0 28px var(--g-glow)}
+}
+.header-r{display:flex;align-items:center;gap:8px}
+.ip-chip{
+  font-family:var(--font-mono);font-size:.68rem;color:var(--t1);
+  background:var(--bg2);border:1px solid var(--bd);border-radius:6px;
+  padding:4px 10px;cursor:pointer;transition:all .15s;
+}
+.ip-chip:hover{border-color:var(--g);color:var(--g)}
+.ws-dot{width:7px;height:7px;border-radius:50%;background:var(--t2);transition:background .3s}
+.ws-dot.connected{background:var(--g);box-shadow:0 0 6px var(--g)}
+.ws-dot.error{background:var(--r)}
+
+#stats{
+  display:grid;grid-template-columns:repeat(4,1fr);
+  gap:1px;background:var(--bd);border-bottom:1px solid var(--bd);
+}
+.stat{background:var(--bg1);padding:12px 14px;display:flex;flex-direction:column;gap:3px}
+.stat-n{
+  font-family:var(--font-mono);font-size:1.4rem;font-weight:600;
+  color:var(--t0);line-height:1;transition:color .3s;
+}
+.stat-n.green{color:var(--g)}.stat-n.yellow{color:var(--y)}
+.stat-lbl{font-size:.68rem;color:var(--t1);text-transform:uppercase;letter-spacing:.08em;font-family:var(--font-mono)}
+
+.section{padding:14px;border-bottom:1px solid var(--bd)}
+.section-title{
+  font-family:var(--font-mono);font-size:.68rem;font-weight:600;
+  color:var(--t1);text-transform:uppercase;letter-spacing:.1em;margin-bottom:10px;
+}
+
+button{
+  font-family:var(--font-body);font-size:.82rem;font-weight:600;
+  border:none;border-radius:var(--rad-sm);padding:10px 16px;cursor:pointer;
+  display:inline-flex;align-items:center;gap:6px;
+  transition:filter .15s,transform .1s,box-shadow .15s;white-space:nowrap;
+}
+button:active{transform:scale(.96)}
+button:disabled{opacity:.45;cursor:not-allowed;transform:none!important;filter:saturate(.7)}
+.btn-g{background:var(--g);color:#041208;font-weight:700}
+.btn-g:hover{filter:brightness(1.12);box-shadow:0 0 20px var(--g-glow)}
+.btn-s{background:var(--s);color:#041208;font-weight:700}
+.btn-s:hover{filter:brightness(1.12);box-shadow:0 0 20px var(--s-glow)}
+.btn-s:disabled{opacity:.5;cursor:not-allowed}
+.btn-r{background:var(--r);color:#fff;font-weight:600}.btn-r:hover{filter:brightness(1.12)}
+.btn-b{background:var(--b);color:#fff;font-weight:600}
+.btn-b:hover{filter:brightness(1.12);box-shadow:0 0 18px #3b82f640}
+.btn-ghost{background:var(--bg2);color:var(--t0);border:1px solid var(--bd2)}
+.btn-ghost:hover{border-color:var(--g);background:var(--bg3);color:var(--t0)}
+.btn-sm{padding:7px 12px;font-size:.75rem;border-radius:7px}
+
+#controls{
+  display:flex;gap:8px;flex-wrap:wrap;
+  padding:12px 14px;border-bottom:1px solid var(--bd);background:var(--bg1);
+}
+
+#grid{
+  padding:14px;
+  display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px;
+}
+.card{
+  background:var(--bg2);border:1px solid var(--bd);border-radius:var(--rad);
+  overflow:hidden;animation:slideUp .3s ease both;
+  transition:border-color .25s,box-shadow .25s;
+}
+.card.on{border-color:#00e67628;box-shadow:0 0 0 1px #00e67610,inset 0 1px 0 #00e67618}
+.card:hover{border-color:var(--bd2)}
+.card-head{padding:14px;display:flex;align-items:center;gap:12px}
+.phone-icon{
+  width:32px;height:32px;flex-shrink:0;display:flex;align-items:center;justify-content:center;
+  background:var(--bg3);border:1px solid var(--bd);border-radius:8px;
+}
+.phone-icon svg{width:16px;height:16px;color:var(--t1);transition:color .3s}
+.card.on .phone-icon svg{color:var(--g)}
+.card-info{flex:1;min-width:0}
+.card-name{
+  font-family:var(--font-mono);font-size:.85rem;font-weight:600;
+  color:var(--t0);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.card-status{
+  font-size:.68rem;color:var(--t2);margin-top:2px;
+  font-family:var(--font-mono);display:flex;align-items:center;gap:5px;
+}
+.card.on .card-status{color:var(--g)}
+.status-ring{width:6px;height:6px;border-radius:50%;background:var(--t2);flex-shrink:0}
+.card.on .status-ring{background:var(--g);animation:ring-pulse 2s ease infinite}
+@keyframes ring-pulse{
+  0%{box-shadow:0 0 0 0 var(--g-glow)}70%{box-shadow:0 0 0 6px transparent}100%{box-shadow:0 0 0 0 transparent}
+}
+.card-foot{padding:0 14px 12px;display:flex;gap:6px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+.app-chip,.status-chip{
+  font-family:var(--font-mono);font-size:.68rem;font-weight:600;
+  background:var(--bg3);color:var(--t1);border:1px solid var(--bd2);
+  border-radius:6px;padding:3px 8px;max-width:180px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  letter-spacing:.02em;
+}
+.app-chip.has-app{background:var(--g-dim);color:var(--g);border-color:#00e67645}
+.status-chip.on{background:#00e67614;color:var(--g);border-color:#00e67640}
+.status-chip.off{background:var(--bg3);color:var(--t1);border-color:var(--bd2)}
+
+#drop-zone{
+  border:2px dashed var(--bd2);border-radius:var(--rad);padding:20px;
+  text-align:center;cursor:pointer;background:var(--bg1);
+  transition:border-color .2s,background .2s;
+}
+#drop-zone:hover,.drag-over{border-color:var(--g)!important;background:var(--g-dim)!important}
+#drop-zone p{font-size:.82rem;color:var(--t1);line-height:1.6}
+#drop-zone span{font-size:.7rem;color:var(--t2)}
+#apk-list{margin-top:10px;display:flex;flex-direction:column;gap:6px}
+.apk-row{
+  background:var(--bg2);border:1px solid var(--bd);border-radius:var(--rad-sm);
+  padding:10px 12px;display:flex;align-items:center;gap:10px;
+}
+.apk-info{flex:1;min-width:0}
+.apk-name{font-family:var(--font-mono);font-size:.78rem;color:var(--t0);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.apk-meta{font-size:.65rem;color:var(--t2);margin-top:1px;font-family:var(--font-mono)}
+
+.progress-wrap{margin-top:8px;display:none}
+.progress-track{height:4px;background:var(--bg3);border-radius:2px;overflow:hidden}
+.progress-fill{height:100%;background:var(--g);border-radius:2px;width:0%;transition:width .4s ease}
+.progress-lbl{font-family:var(--font-mono);font-size:.65rem;color:var(--t2);margin-top:4px}
+
+.url-row{display:flex;gap:8px;align-items:stretch}
+.url-row input{
+  flex:1;background:var(--bg2);border:1px solid var(--bd);border-radius:var(--rad-sm);
+  padding:10px 12px;color:var(--t0);font-family:var(--font-mono);font-size:.82rem;
+  outline:none;transition:border-color .2s;
+}
+.url-row input:focus{border-color:var(--b)}
+.url-row input::placeholder{color:var(--t2)}
+.stagger-row{margin-top:10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.stagger-lbl{font-size:.72rem;color:var(--t2);font-family:var(--font-mono);white-space:nowrap}
+.stagger-opts{display:flex;gap:4px;flex-wrap:wrap}
+.stagger-opt{
+  font-family:var(--font-mono);font-size:.68rem;padding:4px 10px;border-radius:5px;
+  cursor:pointer;background:var(--bg3);color:var(--t1);border:1px solid var(--bd);
+  transition:all .15s;user-select:none;
+}
+.stagger-opt.active{background:var(--g-dim);color:var(--g);border-color:#00e67640}
+.stagger-custom{display:none;margin-top:8px;gap:8px;align-items:center}
+.stagger-custom input{
+  width:80px;background:var(--bg2);border:1px solid var(--bd);border-radius:6px;
+  padding:6px 10px;color:var(--t0);font-family:var(--font-mono);font-size:.78rem;
+  outline:none;text-align:center;
+}
+.stagger-custom input:focus{border-color:var(--b)}
+
+.teach-card{background:var(--bg2);border:1px solid var(--bd);border-radius:var(--rad);padding:14px}
+.teach-steps{display:flex;gap:6px;margin-bottom:12px;counter-reset:step}
+.teach-step{
+  flex:1;background:var(--bg3);border:1px solid var(--bd);border-radius:var(--rad-sm);
+  padding:10px;text-align:center;position:relative;transition:all .2s;
+}
+.teach-step::before{
+  counter-increment:step;content:counter(step);
+  font-family:var(--font-mono);font-size:.6rem;color:var(--t2);display:block;margin-bottom:4px;
+}
+.teach-step-icon{font-size:1.2rem;display:block;margin-bottom:4px}
+.teach-step-lbl{font-size:.68rem;color:var(--t1);line-height:1.4}
+.teach-step.active{border-color:var(--r);background:#f43f5e10}
+.teach-step.done{border-color:var(--g);background:var(--g-dim)}
+.rec-dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--r);margin-right:5px}
+.teach-controls{display:flex;gap:8px;flex-wrap:wrap}
+.delay-row{
+  margin-top:10px;display:flex;align-items:center;gap:8px;
+  font-size:.72rem;color:var(--t2);font-family:var(--font-mono);
+}
+.delay-row input{
+  width:70px;background:var(--bg2);border:1px solid var(--bd);border-radius:6px;
+  padding:5px 8px;color:var(--t0);font-family:var(--font-mono);font-size:.78rem;
+  outline:none;text-align:center;
+}
+.delay-row input:focus{border-color:var(--g)}
+
+.tor-card{background:var(--bg2);border:1px solid var(--bd);border-radius:var(--rad);padding:14px}
+.tor-head{display:flex;align-items:flex-start;gap:12px}
+.tor-icon{
+  width:40px;height:40px;flex-shrink:0;background:var(--bg3);border:1px solid var(--bd);
+  border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:1.3rem;
+}
+.tor-text h3{font-family:var(--font-body);font-weight:600;font-size:.9rem;color:var(--t0);margin-bottom:3px}
+.tor-text p{font-size:.75rem;color:var(--t1);line-height:1.6}
+.tor-status{margin-top:10px;display:flex;flex-direction:column;gap:4px;max-height:100px;overflow-y:auto}
+.tor-row{font-family:var(--font-mono);font-size:.65rem;color:var(--t2);padding:3px 0;border-bottom:1px solid var(--bd)}
+.tor-row:last-child{border-bottom:none}
+
+#log-feed{
+  margin:16px 14px max(28px,env(safe-area-inset-bottom,0px)) 14px;
+  background:var(--bg2);border:1px solid var(--bd2);border-radius:var(--rad);
+  overflow:hidden;box-shadow:0 6px 28px #00000050;
+  border-left:3px solid var(--g);
+}
+.log-head{
+  padding:12px 14px;border-bottom:1px solid var(--bd);
+  background:var(--bg3);
+  font-family:var(--font-mono);font-size:.72rem;font-weight:600;color:var(--t0);
+  text-transform:uppercase;letter-spacing:.12em;display:flex;justify-content:space-between;align-items:center;
+}
+.log-head span:first-child{display:flex;align-items:center;gap:8px}
+.log-head span:first-child::before{
+  content:'';width:7px;height:7px;border-radius:50%;background:var(--g);
+  box-shadow:0 0 8px var(--g-glow);flex-shrink:0;
+}
+#log-clear{color:var(--t2);font-size:.65rem;padding:4px 8px;border-radius:5px;border:1px solid transparent;transition:color .15s,border-color .15s}
+#log-clear:hover{color:var(--g);border-color:#00e67635}
+#log-lines{padding:12px 14px;max-height:200px;min-height:72px;overflow-y:auto;display:flex;flex-direction:column-reverse;gap:4px}
+.log-line{font-family:var(--font-mono);font-size:.78rem;color:var(--t2);line-height:1.7;word-break:break-word;animation:fadeIn .2s ease both}
+.log-ts{color:var(--t2);margin-right:8px;flex-shrink:0;opacity:.85}
+.log-msg{color:var(--t0);word-break:break-word}
+.log-line.ok .log-msg{color:var(--g)}
+.log-line.warn .log-msg{color:var(--y)}
+.log-line.err .log-msg{color:var(--r)}
+.grp-card{
+  background:var(--bg3);border-radius:var(--rad-sm);padding:12px 14px;
+  display:flex;align-items:center;justify-content:space-between;gap:12px;
+  border:1px solid var(--bd);border-left-width:3px;
+}
+.grp-card-info{display:flex;flex-direction:column;gap:4px;min-width:0}
+.grp-card-name{font-weight:700;color:var(--t0);font-size:.85rem}
+.grp-card-meta{font-size:.72rem;color:var(--t2);font-family:var(--font-mono);line-height:1.45}
+
+#empty{
+  display:none;padding:48px 16px;text-align:center;color:var(--t2);
+  flex-direction:column;align-items:center;gap:10px;
+}
+#empty svg{opacity:.3;width:48px;height:48px}
+#empty h3{font-size:.95rem;color:var(--t1)}
+#empty p{font-size:.78rem;line-height:1.6}
+
+#toasts{
+  position:fixed;bottom:24px;left:50%;transform:translateX(-50%);
+  display:flex;flex-direction:column;gap:7px;z-index:500;pointer-events:none;
+  width:min(340px,calc(100vw - 32px));
+}
+.toast{
+  background:var(--bg3);border:1px solid var(--bd);border-radius:10px;
+  padding:10px 14px;font-size:.82rem;color:var(--t0);
+  display:flex;align-items:center;gap:9px;box-shadow:var(--shadow);
+  animation:toastIn .2s ease both;pointer-events:all;
+}
+.toast.ok{border-color:#00e67650}.toast.err{border-color:#f43f5e60}
+.toast-pip{width:7px;height:7px;border-radius:50%;background:var(--t2);flex-shrink:0}
+.toast.ok .toast-pip{background:var(--g);box-shadow:0 0 6px var(--g)}
+.toast.err .toast-pip{background:var(--r)}
+
+#fab{
+  position:fixed;bottom:24px;right:20px;width:50px;height:50px;border-radius:50%;
+  background:var(--g);color:#000;font-size:1.5rem;font-weight:300;
+  display:flex;align-items:center;justify-content:center;padding:0;
+  box-shadow:0 4px 20px var(--g-glow);border:none;cursor:pointer;
+  transition:transform .2s,box-shadow .2s;z-index:200;
+}
+#fab:hover{transform:scale(1.08);box-shadow:0 6px 28px #00e67660}
+
+@keyframes slideUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+@keyframes toastIn{from{opacity:0;transform:translateY(6px) scale(.97)}to{opacity:1;transform:translateY(0) scale(1)}}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.2}}
+
+*,*::before,*::after{
+  scrollbar-color:var(--scroll-thumb) var(--scroll-track);
+  scrollbar-width:thin;
+}
+*::-webkit-scrollbar{width:5px;height:5px}
+*::-webkit-scrollbar-track{background:transparent}
+*::-webkit-scrollbar-thumb{
+  background:var(--scroll-thumb-subtle);
+  border-radius:999px;
+  border:none;
+  min-height:18px;
+}
+body:hover *::-webkit-scrollbar-thumb{background:var(--scroll-thumb)}
+*::-webkit-scrollbar-thumb:hover{background:var(--scroll-thumb-hover)}
+*::-webkit-scrollbar-thumb:active{background:var(--scroll-thumb-active)}
+*::-webkit-scrollbar-corner{background:transparent}
+
+/* Explicit nested scrollers (some WebView builds ignore inherited * scrollbar rules) */
+.tor-status,#log-lines{
+  color-scheme:dark;
+  scrollbar-color:var(--scroll-thumb) var(--scroll-track);
+  scrollbar-width:thin;
+}
+.tor-status::-webkit-scrollbar,#log-lines::-webkit-scrollbar{width:8px;height:8px}
+.tor-status::-webkit-scrollbar-track,#log-lines::-webkit-scrollbar-track{background:var(--scroll-track)}
+.tor-status::-webkit-scrollbar-thumb,#log-lines::-webkit-scrollbar-thumb{
+  background:linear-gradient(180deg,var(--scroll-thumb),#143d32);
+  border-radius:6px;
+  border:2px solid var(--scroll-track);
+  min-height:28px;
+}
+.tor-status::-webkit-scrollbar-thumb:hover,#log-lines::-webkit-scrollbar-thumb:hover{background:var(--scroll-thumb-hover);border-color:var(--scroll-track)}
+.tor-status::-webkit-scrollbar-thumb:active,#log-lines::-webkit-scrollbar-thumb:active{background:var(--scroll-thumb-active)}
+.tor-status::-webkit-scrollbar-corner,#log-lines::-webkit-scrollbar-corner{background:var(--scroll-track)}
+
+@media(max-width:900px){
+  #controls{flex-direction:column;align-items:stretch}
+  #controls button,#controls a button{width:100%;white-space:normal;text-align:center;justify-content:center;line-height:1.35}
+  .section{padding:12px}
+  #log-feed{margin-left:10px;margin-right:10px}
+  .url-row{flex-direction:column}
+  .url-row .btn-b{width:100%;justify-content:center}
+  .apk-row{flex-wrap:wrap}
+  .apk-row .apk-info{flex:1 1 100%}
+  .apk-row button{margin-top:4px}
+  .stagger-row{align-items:flex-start}
+  .teach-steps{flex-direction:column}
+  .grp-card{flex-direction:column;align-items:stretch}
+  .grp-card button{width:100%;justify-content:center}
+  .groups-ctrl{flex-direction:column;align-items:stretch}
+  .groups-ctrl button{width:100%;justify-content:center}
+}
+@media(max-width:380px){
+  #stats{grid-template-columns:repeat(2,1fr)}
+  .stat-n{font-size:1.2rem}
+  #grid{grid-template-columns:1fr}
+  #connect-bar{flex-direction:column;align-items:stretch}
+  #connect-bar input{min-width:0;width:100%}
+  #log-lines{max-height:160px;font-size:.75rem}
+}
+</style>
+</head>
+<body>
+<div id="app">
+
+<header>
+  <div class="logo"><div class="logo-dot"></div>C·PHARM</div>
+  <div class="header-r">
+    <div class="ip-chip" id="ip-chip">—.—.—.—</div>
+    <div class="ws-dot" id="ws-dot"></div>
+  </div>
+</header>
+
+<div id="stats">
+  <div class="stat"><span class="stat-n" id="s-total">—</span><span class="stat-lbl">Phones</span></div>
+  <div class="stat"><span class="stat-n green" id="s-on">—</span><span class="stat-lbl">On</span></div>
+  <div class="stat"><span class="stat-n" id="s-off">—</span><span class="stat-lbl">Off</span></div>
+  <div class="stat"><span class="stat-n yellow" id="s-ram">—</span><span class="stat-lbl">Memory</span></div>
+</div>
+
+<div id="controls">
+  <button class="btn-g" id="btn-start-all">
+    <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+    Find Phones
+  </button>
+  <button class="btn-r" id="btn-stop-all">
+    <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12"/></svg>
+    Stop All
+  </button>
+  <button class="btn-ghost" id="btn-connect" style="gap:6px">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+    Add Phone
+  </button>
+</div>
+<div id="connect-bar" style="display:none;gap:8px;padding:10px 14px;border-bottom:1px solid var(--bd);background:var(--bg1);align-items:center;flex-wrap:wrap">
+  <input type="text" id="connect-addr" placeholder="192.168.x.x:5555  or  localhost:5555" style="flex:1;min-width:200px;background:var(--bg2);border:1px solid var(--bd);border-radius:var(--rad-sm);padding:8px 12px;color:var(--t0);font-family:var(--font-mono);font-size:.8rem;outline:none">
+  <button class="btn-g btn-sm" id="btn-connect-do">Connect</button>
+  <button class="btn-ghost btn-sm" id="btn-connect-cancel">Cancel</button>
+  <span style="font-size:.7rem;color:var(--t2);font-family:var(--font-mono)">BlueStacks · Waydroid · real phone on WiFi · any emulator</span>
+</div>
+
+<div id="grid"></div>
+<div id="empty" style="display:flex">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+    <rect x="5" y="2" width="14" height="20" rx="2"/>
+    <line x1="12" y1="18" x2="12.01" y2="18"/>
+  </svg>
+  <h3>No phones yet</h3>
+  <p>Click <strong>Add Phone</strong> or <strong>Find Phones</strong> to get started.</p>
+</div>
+
+<div class="section">
+  <div class="section-title">Install an App</div>
+  <div id="drop-zone">
+    <p>Drop your app file here</p>
+    <span>or tap to pick a file · .apk</span>
+  </div>
+  <input type="file" id="apk-input" accept=".apk" style="display:none">
+  <div id="apk-list"></div>
+  <div class="progress-wrap" id="install-progress">
+    <div class="progress-track"><div class="progress-fill" id="progress-fill"></div></div>
+    <div class="progress-lbl" id="progress-lbl">Installing…</div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="section-title">Open a Website on All Phones</div>
+  <div class="url-row">
+    <input type="url" id="url-input" placeholder="Paste a web address…" autocomplete="off" autocorrect="off" spellcheck="false">
+    <button class="btn-b" id="btn-open-url">Open</button>
+  </div>
+  <div class="stagger-row">
+    <span class="stagger-lbl">Delay between phones:</span>
+    <div class="stagger-opts">
+      <div class="stagger-opt active" data-val="0">All at once</div>
+      <div class="stagger-opt" data-val="60">1 min</div>
+      <div class="stagger-opt" data-val="300">5 min</div>
+      <div class="stagger-opt" data-val="custom">Custom</div>
+    </div>
+  </div>
+  <div class="stagger-custom" id="stagger-custom">
+    <span class="stagger-lbl">Every</span>
+    <input type="number" id="custom-delay" value="10" min="1" max="3600">
+    <span class="stagger-lbl">minutes</span>
+  </div>
+  <div class="stagger-row" style="margin-top:.5rem;gap:.75rem;align-items:center">
+    <label style="display:flex;align-items:center;gap:.4rem;font-size:.8rem;color:var(--t2);cursor:pointer">
+      <input type="checkbox" id="auto-rotate-toggle" style="width:1rem;height:1rem">
+      Auto-rotate identity after session
+    </label>
+    <span id="dwell-wrap" style="display:none;align-items:center;gap:.4rem;font-size:.8rem;color:var(--t2)">
+      · dwell
+      <input type="number" id="dwell-secs" value="30" min="5" max="3600" style="width:4rem;padding:.2rem .4rem;background:var(--bg2);border:1px solid var(--bd);border-radius:4px;color:var(--t1);font-size:.8rem">
+      sec then rotate
+    </span>
+  </div>
+</div>
+
+<div class="section" id="groups-section">
+  <div class="section-title">Phone Groups — Different Phones, Different Tasks</div>
+  <div id="kpi-strip" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin-bottom:10px">
+    <div class="kpi-card" style="background:var(--bg2);border:1px solid var(--bd);border-radius:var(--rad);padding:10px 12px;position:relative;overflow:hidden"><div class="kpi-val" id="kpi-phones" style="font-size:1.5rem;font-weight:800;line-height:1.1">–</div><div class="kpi-lbl" style="font-size:.7rem;color:var(--t2)">Phones online</div></div>
+    <div class="kpi-card" style="background:var(--bg2);border:1px solid var(--bd);border-radius:var(--rad);padding:10px 12px;position:relative;overflow:hidden"><div class="kpi-val" id="kpi-groups" style="font-size:1.5rem;font-weight:800;line-height:1.1">–</div><div class="kpi-lbl" style="font-size:.7rem;color:var(--t2)">Groups running</div></div>
+    <div class="kpi-card" style="background:var(--bg2);border:1px solid var(--bd);border-radius:var(--rad);padding:10px 12px;position:relative;overflow:hidden"><div class="kpi-val" id="kpi-containers" style="font-size:1.5rem;font-weight:800;line-height:1.1">–</div><div class="kpi-lbl" style="font-size:.7rem;color:var(--t2)">Containers up</div></div>
+    <div class="kpi-card" style="background:var(--bg2);border:1px solid var(--bd);border-radius:var(--rad);padding:10px 12px;position:relative;overflow:hidden"><div class="kpi-val" id="kpi-adb" style="font-size:1.5rem;font-weight:800;line-height:1.1">–</div><div class="kpi-lbl" style="font-size:.7rem;color:var(--t2)">Docker ADB online</div></div>
+    <div class="kpi-card" style="background:linear-gradient(135deg,var(--grad-a,transparent),transparent 60%),var(--bg2);border:1px solid var(--bd);border-radius:var(--rad);padding:10px 12px;position:relative;overflow:hidden"><div class="kpi-val" id="kpi-rev" style="font-size:1.5rem;font-weight:800;line-height:1.1">$–</div><div class="kpi-lbl" style="font-size:.7rem;color:var(--t2)">Revenue today</div></div>
+    <div class="kpi-card" style="background:var(--bg2);border:1px solid var(--bd);border-radius:var(--rad);padding:10px 12px;position:relative;overflow:hidden"><div class="kpi-val" id="kpi-impr" style="font-size:1.5rem;font-weight:800;line-height:1.1">–</div><div class="kpi-lbl" style="font-size:.7rem;color:var(--t2)">Impressions</div></div>
+    <div class="kpi-card" style="background:var(--bg2);border:1px solid var(--bd);border-radius:var(--rad);padding:10px 12px;position:relative;overflow:hidden"><div class="kpi-val" id="kpi-net" style="font-size:1.5rem;font-weight:800;line-height:1.1">$–</div><div class="kpi-lbl" style="font-size:.7rem;color:var(--t2)">Proj. daily net</div></div>
+  </div>
+  <div class="trend-card" style="background:var(--bg2);border:1px solid var(--bd);border-radius:var(--rad);padding:14px;margin-bottom:10px">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px">
+      <span style="font-size:.82rem;font-weight:700;color:var(--t1)">Revenue & impressions trend</span>
+      <span style="font-size:.68rem;color:var(--t2)" id="trend-asof"></span>
+    </div>
+    <canvas id="trend-chart" height="150" style="width:100%"></canvas>
+  </div>
+  <div style="background:var(--bg2);border:1px solid var(--bd);border-radius:var(--rad);padding:14px">
+    <p style="font-size:.78rem;color:var(--t1);line-height:1.6;margin-bottom:10px">
+      Run different sequences on different sets of phones at the same time.<br>
+      Build your groups in <strong>CPharm</strong>, then load them here and click Run All.
+    </p>
+    <div class="groups-ctrl" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+      <button class="btn-b btn-sm" id="btn-groups-load">Load Saved Groups</button>
+      <button class="btn-g" id="btn-groups-run" disabled>▶ Run All Groups</button>
+      <button class="btn-r btn-sm" id="btn-groups-stop" disabled>Stop All</button>
+    </div>
+    <div id="groups-list" style="display:flex;flex-direction:column;gap:8px"></div>
+    <div id="groups-empty" style="font-size:.75rem;color:var(--t2);margin-top:4px">
+      No groups loaded yet. Use CPharm to create groups, then click Load Saved Groups.
+    </div>
+    <div id="farm-status" style="display:none;margin-top:14px">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+        <span style="font-size:.78rem;color:var(--t1)">Live Farm Status</span>
+        <span id="farm-status-badge" class="grp-card-meta" style="font-size:.7rem"></span>
+      </div>
+      <div style="background:var(--bg1);border:1px solid var(--bd);border-radius:var(--rad);overflow:auto">
+        <table style="width:100%;border-collapse:collapse;font-size:.74rem">
+          <thead><tr><th style="text-align:left;padding:5px 8px;border-bottom:1px solid var(--bd)">Group</th><th style="text-align:left;padding:5px 8px;border-bottom:1px solid var(--bd)">Phone</th><th style="text-align:left;padding:5px 8px;border-bottom:1px solid var(--bd)">State</th><th style="text-align:left;padding:5px 8px;border-bottom:1px solid var(--bd)">Run #</th><th style="text-align:left;padding:5px 8px;border-bottom:1px solid var(--bd)">Result</th><th style="text-align:left;padding:5px 8px;border-bottom:1px solid var(--bd)">APK</th></tr></thead>
+          <tbody id="farm-status-body"></tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+    <div class="section" id="stealth-sec">
+      <div class="section-title">Stealth Status — Every Phone, Live</div>
+      <div style="background:var(--bg2);border:1px solid var(--bd);border-radius:var(--rad);padding:14px">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px;flex-wrap:wrap">
+          <span style="font-size:.72rem;color:var(--t2)" id="stealth-asof">Refreshing…</span>
+          <span id="stealth-unique-badge" class="grp-card-meta" style="font-size:.7rem"></span>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+          <button class="btn-ghost btn-sm" id="btn-stealth-rotate">↻ Every-sequence rotation: loading…</button>
+          <button class="btn-ghost btn-sm" id="btn-stealth-unique">🌐 Unique exit IPs: loading…</button>
+        </div>
+        <div style="background:var(--bg1);border:1px solid var(--bd);border-radius:var(--rad);overflow:auto">
+          <table style="width:100%;border-collapse:collapse;font-size:.74rem;min-width:660px">
+            <thead><tr>
+              <th style="text-align:left;padding:5px 8px;border-bottom:1px solid var(--bd)">Phone</th>
+              <th style="text-align:left;padding:5px 8px;border-bottom:1px solid var(--bd)">Exit IP</th>
+              <th style="text-align:left;padding:5px 8px;border-bottom:1px solid var(--bd)">Disguise</th>
+              <th style="text-align:left;padding:5px 8px;border-bottom:1px solid var(--bd)">Fingerprint</th>
+              <th style="text-align:left;padding:5px 8px;border-bottom:1px solid var(--bd)">Rotations</th>
+            </tr></thead>
+            <tbody id="stealth-body"></tbody>
+          </table>
+        </div>
+        <div id="stealth-empty" style="font-size:.72rem;color:var(--t2);margin-top:6px">No phones online yet.</div>
+      </div>
+    </div>
+
+    <div id="docker-status" style="display:none;margin-top:14px">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+        <span style="font-size:.78rem;color:var(--t1)">Docker Phones — Control & Monitor</span>
+        <span id="docker-status-badge" class="grp-card-meta" style="font-size:.7rem"></span>
+      </div>
+      <div style="background:var(--bg1);border:1px solid var(--bd);border-radius:var(--rad);overflow:auto">
+        <table style="width:100%;border-collapse:collapse;font-size:.74rem">
+          <thead><tr>
+            <th style="text-align:left;padding:5px 8px;border-bottom:1px solid var(--bd)">Container</th>
+            <th style="text-align:left;padding:5px 8px;border-bottom:1px solid var(--bd)">State</th>
+            <th style="text-align:left;padding:5px 8px;border-bottom:1px solid var(--bd)">ADB</th>
+            <th style="text-align:left;padding:5px 8px;border-bottom:1px solid var(--bd)">Port</th>
+            <th style="text-align:left;padding:5px 8px;border-bottom:1px solid var(--bd)">Recent Log</th>
+            <th style="text-align:left;padding:5px 8px;border-bottom:1px solid var(--bd)">Control</th>
+          </tr></thead>
+          <tbody id="docker-status-body"></tbody>
+        </table>
+      </div>
+    </div>
+
+<div class="section">
+  <div class="section-title">Teach Mode — Show It Once</div>
+  <div class="teach-card">
+    <div class="teach-steps">
+      <div class="teach-step" id="step-1">
+        <span class="teach-step-icon">📱</span>
+        <span class="teach-step-lbl">Open Phone 1 and get ready</span>
+      </div>
+      <div class="teach-step" id="step-2">
+        <span class="teach-step-icon">⏺</span>
+        <span class="teach-step-lbl">Record your steps</span>
+      </div>
+      <div class="teach-step" id="step-3">
+        <span class="teach-step-icon">▶</span>
+        <span class="teach-step-lbl">Play on all other phones</span>
+      </div>
+    </div>
+    <div class="teach-controls">
+      <button class="btn-r btn-sm" id="btn-record">
+        <span class="rec-dot" id="rec-dot"></span>Start Recording
+      </button>
+      <button class="btn-ghost btn-sm" id="btn-stop-rec" disabled>■ Stop</button>
+      <button class="btn-g btn-sm" id="btn-play-teach" disabled>▶ Play on All Phones</button>
+    </div>
+    <div class="delay-row">
+      <span>Wait</span>
+      <input type="number" id="teach-delay" value="60" min="0">
+      <span>seconds between each phone</span>
+    </div>
+    <div id="teach-status" style="margin-top:8px;font-family:var(--font-mono);font-size:.68rem;color:var(--t2)"></div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="section-title">Make Each Phone Look Different</div>
+  <div class="tor-card">
+    <div class="tor-head">
+      <div class="tor-icon">🌍</div>
+      <div class="tor-text">
+        <h3>Different location for each phone</h3>
+        <p>Each phone gets its own internet address so websites see separate people in different places. This is set up automatically.</p>
+      </div>
+    </div>
+    <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn-ghost btn-sm" id="btn-tor">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15 15 0 0 1 0 20M12 2a15 15 0 0 0 0 20"/>
+        </svg>
+        Set Up Now
+      </button>
+      <button class="btn-ghost btn-sm" id="btn-tor-off">Turn Off</button>
+      <button class="btn-ghost btn-sm" id="btn-tor-rotate">↻ Rotate IDs</button>
+    </div>
+    <div class="tor-status" id="tor-status"></div>
+  </div>
+</div>
+
+<div id="log-feed">
+  <div class="log-head">
+    <span>Activity Log</span>
+    <span id="log-clear" style="cursor:pointer">Clear</span>
+  </div>
+  <div id="log-lines"></div>
+</div>
+
+</div>
+
+<button id="fab" title="New Phone">+</button>
+<div id="toasts"></div>
+
+<script>
+'use strict';
+
+// ── Safety: escape any string before putting in DOM ────────────────
+function esc(str) {
+  return String(str)
+    .replace(/&/g,'&amp;')
+    .replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;')
+    .replace(/'/g,'&#39;');
+}
+
+// ── State ──────────────────────────────────────────────────────────
+let phones      = [];
+let staggerSecs = 0;
+let teachFile   = null;
+let apkFiles    = [];
+let installDone = 0;
+
+// ── WebSocket ──────────────────────────────────────────────────────
+const WS_URL = `ws://${location.hostname}:8081`;
+let ws, wsRetry = 0;
+
+function connectWS() {
+  ws = new WebSocket(WS_URL);
+  ws.onopen = () => {
+    wsRetry = 0;
+    document.getElementById('ws-dot').className = 'ws-dot connected';
+  };
+  ws.onmessage = ({ data }) => {
+    const msg = JSON.parse(data);
+    if (msg.type === 'phones_update')    onPhonesUpdate(msg.phones);
+    if (msg.type === 'install_progress') onInstallProgress(msg);
+    if (msg.type === 'teach_status')     onTeachStatus(msg);
+    if (msg.type === 'log')              addLog(msg.msg);
+    if (msg.type === 'groups_status')    onWsMessage(msg);
+  };
+  ws.onclose = () => {
+    document.getElementById('ws-dot').className = 'ws-dot error';
+    setTimeout(connectWS, Math.min(1000 * 2 ** wsRetry++, 15000));
+  };
+  ws.onerror = () => ws.close();
+}
+
+// ── API ────────────────────────────────────────────────────────────
+async function api(path, method = 'GET', body = null) {
+  const opts = { method, headers: {} };
+  if (body) { opts.body = JSON.stringify(body); opts.headers['Content-Type'] = 'application/json'; }
+  const r = await fetch(path, opts);
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  return r.json();
+}
+
+// ── Phones ─────────────────────────────────────────────────────────
+function onPhonesUpdate(data) {
+  phones = data;
+  renderPhones();
+  updateStats();
+}
+
+function updateStats() {
+  const on = phones.filter(p => p.running).length;
+  setText('s-total', phones.length || '0');
+  setText('s-on', on);
+  setText('s-off', phones.length - on);
+  setText('s-ram', on ? (on * 1.5).toFixed(1) + 'G' : '0G');
+}
+
+function setText(id, val) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = val;
+}
+
+function renderPhones() {
+  const grid  = document.getElementById('grid');
+  const empty = document.getElementById('empty');
+  if (!phones.length) {
+    grid.style.display = 'none'; empty.style.display = 'flex'; return;
+  }
+  grid.style.display = ''; empty.style.display = 'none';
+
+  const cardId = s => 'card-' + s.replace(/[^a-zA-Z0-9]/g, '_');
+
+  // Remove cards that no longer exist
+  const existing = new Set(phones.map(p => cardId(p.serial)));
+  Array.from(grid.children).forEach(c => { if (!existing.has(c.id)) c.remove(); });
+
+  phones.forEach((p, i) => {
+    const cid = cardId(p.serial);
+    let card = document.getElementById(cid);
+    if (!card) {
+      card = document.createElement('div');
+      card.id = cid;
+      card.style.animationDelay = (i * 35) + 'ms';
+      grid.appendChild(card);
+    }
+
+    const hasApp = !!(p.app && p.app.package);
+    card.className = 'card' + (p.running ? ' on' : '');
+    card.textContent = '';
+
+    const head = document.createElement('div');
+    head.className = 'card-head';
+
+    const icon = document.createElement('div');
+    icon.className = 'phone-icon';
+    icon.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="5" y="2" width="14" height="20" rx="2"/><line x1="12" y1="18" x2="12.01" y2="18" stroke-width="2"/></svg>';
+
+    const info = document.createElement('div');
+    info.className = 'card-info';
+    const nameEl = document.createElement('div');
+    nameEl.className = 'card-name';
+    nameEl.textContent = p.name;
+    const statusEl = document.createElement('div');
+    statusEl.className = 'card-status';
+    const ring = document.createElement('div');
+    ring.className = 'status-ring';
+    statusEl.appendChild(ring);
+    const typeLabel = p.type === 'wifi' ? 'WiFi' : p.type === 'real' ? 'USB' : 'Emulator';
+    statusEl.append(' ' + (p.running ? 'Connected' : 'Offline') + ' · ' + typeLabel);
+    info.appendChild(nameEl);
+    info.appendChild(statusEl);
+
+    const actBtn = document.createElement('button');
+    if (p.running) {
+      actBtn.className = 'btn-r btn-sm';
+      actBtn.textContent = 'Stop';
+      actBtn.addEventListener('click', () => stopPhone(p.serial));
+    } else {
+      actBtn.className = 'btn-ghost btn-sm';
+      actBtn.textContent = 'Not running';
+      actBtn.disabled = true;
+      actBtn.title = 'Start the phone in MuMu or tap Find Phones';
+    }
+
+    head.appendChild(icon);
+    head.appendChild(info);
+    head.appendChild(actBtn);
+
+    const foot = document.createElement('div');
+    foot.className = 'card-foot';
+    const chip = document.createElement('div');
+    chip.className = 'app-chip' + (hasApp ? ' has-app' : '');
+    chip.textContent = hasApp
+      ? p.app.package.split('.').pop() + ' · v' + p.app.version
+      : 'No app installed';
+    chip.title = hasApp ? p.app.package : '';
+
+    const statusChip = document.createElement('div');
+    statusChip.className = 'status-chip ' + (p.running ? 'on' : 'off');
+    statusChip.textContent = p.running ? 'Connected' : 'Offline';
+
+    const pip = document.createElement('div');
+    pip.id = 'pip-' + cid;
+    pip.style.cssText = 'width:7px;height:7px;border-radius:50%;background:var(--bd);flex-shrink:0;display:none';
+
+    foot.appendChild(chip);
+    foot.appendChild(statusChip);
+    foot.appendChild(pip);
+
+    card.appendChild(head);
+    card.appendChild(foot);
+  });
+}
+
+async function stopPhone(serial) {
+  try {
+    await api('/api/phone/stop', 'POST', { serial });
+    toast('Stopping ' + serial, 'ok');
+  } catch(e) { toast('Something went wrong', 'err'); }
+}
+
+async function connectDevice(addr) {
+  try {
+    const r = await api('/api/devices/connect', 'POST', { address: addr });
+    toast('Phone connected', 'ok');
+  } catch(e) { toast('Could not connect phone', 'err'); }
+}
+
+// ── APK ─────────────────────────────────────────────────────────────
+async function loadServerApks() {
+  try {
+    const files = await api('/api/apks');
+    files.forEach(f => {
+      if (!apkFiles.find(a => a.name === f.name))
+        apkFiles.push({ name: f.name, size: f.size_mb * 1024 * 1024, uploaded: true });
+    });
+    renderApkList();
+  } catch(e) {}
+}
+
+function handleDrop(e) {
+  e.preventDefault();
+  document.getElementById('drop-zone').classList.remove('drag-over');
+  const file = e.dataTransfer.files[0];
+  if (file && file.name.endsWith('.apk')) queueApk(file);
+  else toast('Please drop an APK file', 'err');
+}
+
+document.getElementById('apk-input').addEventListener('change', function() {
+  if (this.files[0]) queueApk(this.files[0]);
+  this.value = '';
+});
+
+function queueApk(file) {
+  if (apkFiles.find(f => f.name === file.name)) { toast('File already added', 'err'); return; }
+  apkFiles.push(file);
+  renderApkList();
+}
+
+function renderApkList() {
+  const el = document.getElementById('apk-list');
+  el.textContent = '';
+  apkFiles.forEach((f, i) => {
+    const row = document.createElement('div');
+    row.className = 'apk-row';
+
+    const emoji = document.createElement('span');
+    emoji.textContent = '📦';
+    emoji.style.fontSize = '1.1rem';
+
+    const info = document.createElement('div');
+    info.className = 'apk-info';
+    const nameEl = document.createElement('div');
+    nameEl.className = 'apk-name';
+    nameEl.textContent = f.name;
+    const meta = document.createElement('div');
+    meta.className = 'apk-meta';
+    meta.textContent = f.uploaded
+      ? (f.size / 1024 / 1024).toFixed(1) + ' MB · on server'
+      : (f.size / 1024 / 1024).toFixed(1) + ' MB · ready to upload';
+    info.appendChild(nameEl);
+    info.appendChild(meta);
+
+    const installBtn = document.createElement('button');
+    installBtn.className = 'btn-g btn-sm';
+    installBtn.textContent = 'Install All';
+    installBtn.addEventListener('click', () => installApk(i));
+
+    const removeBtn = document.createElement('button');
+    removeBtn.className = 'btn-ghost btn-sm';
+    removeBtn.textContent = '✕';
+    removeBtn.style.padding = '7px';
+    removeBtn.addEventListener('click', () => { apkFiles.splice(i, 1); renderApkList(); });
+
+    row.appendChild(emoji);
+    row.appendChild(info);
+    row.appendChild(installBtn);
+    row.appendChild(removeBtn);
+    el.appendChild(row);
+  });
+}
+
+async function uploadAndInstall(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const bytes = new Uint8Array(reader.result);
+      let bin = '';
+      for (let i = 0; i < bytes.length; i += 8192) bin += String.fromCharCode(...bytes.subarray(i, i + 8192));
+      const b64 = btoa(bin);
+      try {
+        await api('/api/upload', 'POST', { name: file.name, data: b64 });
+        resolve();
+      } catch(e) { reject(e); }
+    };
+    reader.onerror = reject;
+    reader.readAsArrayBuffer(file);
+  });
+}
+
+async function installApk(i) {
+  const file = apkFiles[i];
+  if (!file) return;
+  const prog = document.getElementById('install-progress');
+  prog.style.display = 'block';
+  document.getElementById('progress-fill').style.width = '5%';
+  installDone = 0;
+
+  try {
+    if (!file.uploaded) {
+      setText('progress-lbl', 'Uploading ' + file.name + '…');
+      await uploadAndInstall(file);
+      file.uploaded = true;
+      renderApkList();
+    }
+    setText('progress-lbl', 'Installing ' + file.name + ' on all phones…');
+    await api('/api/install', 'POST', { apk: file.name });
+    toast('Installing ' + file.name, 'ok');
+  } catch(e) {
+    toast('Install failed', 'err');
+    prog.style.display = 'none';
+  }
+}
+
+function onInstallProgress(msg) {
+  const pipId = 'pip-card-' + (msg.serial || '').replace(/[^a-zA-Z0-9]/g, '_');
+  if (msg.status === 'done') {
+    installDone++;
+    const runningCount = phones.filter(p => p.running).length;
+    const pct = Math.round((installDone / Math.max(runningCount, 1)) * 100);
+    document.getElementById('progress-fill').style.width = pct + '%';
+    setText('progress-lbl', 'Installed on ' + installDone + ' of ' + runningCount + ' phones');
+    if (installDone >= runningCount) {
+      setTimeout(() => { document.getElementById('install-progress').style.display = 'none'; toast('App installed on all phones!', 'ok'); }, 800);
+    }
+    const pip = document.getElementById(pipId);
+    if (pip) { pip.style.display = 'block'; pip.style.background = 'var(--g)'; }
+  }
+  if (msg.status === 'installing') {
+    const pip = document.getElementById(pipId);
+    if (pip) { pip.style.display = 'block'; pip.style.background = 'var(--y)'; }
+  }
+}
+
+// ── URL launcher ────────────────────────────────────────────────────
+document.querySelectorAll('.stagger-opt').forEach(opt => {
+  opt.addEventListener('click', () => {
+    document.querySelectorAll('.stagger-opt').forEach(o => o.classList.remove('active'));
+    opt.classList.add('active');
+    const custom = document.getElementById('stagger-custom');
+    if (opt.dataset.val === 'custom') {
+      custom.style.display = 'flex'; staggerSecs = -1;
+    } else {
+      custom.style.display = 'none'; staggerSecs = +opt.dataset.val;
+    }
+  });
+});
+
+document.getElementById('auto-rotate-toggle').addEventListener('change', function() {
+  document.getElementById('dwell-wrap').style.display = this.checked ? 'flex' : 'none';
+});
+
+async function launchUrl() {
+  const url = document.getElementById('url-input').value.trim();
+  if (!url) { toast('Paste a web address first', 'err'); return; }
+  let secs = staggerSecs;
+  if (secs === -1) secs = (+document.getElementById('custom-delay').value || 5) * 60;
+  const autoRotate = document.getElementById('auto-rotate-toggle').checked;
+  const dwellSecs  = +document.getElementById('dwell-secs').value || 30;
+  try {
+    await api('/api/open_url', 'POST', { url, stagger_secs: secs, auto_rotate: autoRotate, dwell_secs: dwellSecs });
+    let msg = secs ? 'Opening on each phone, ' + secs + 's apart' : 'Opening on all phones';
+    if (autoRotate) msg += ' · identity rotates after ' + dwellSecs + 's';
+    toast(msg, 'ok');
+  } catch(e) { toast('Could not open web address', 'err'); }
+}
+
+// ── Teach ────────────────────────────────────────────────────────────
+async function teachRecord() {
+  try { await api('/api/teach/start', 'POST'); }
+  catch(e) { toast('Could not start recording', 'err'); }
+}
+async function teachStop() {
+  try { await api('/api/teach/stop', 'POST'); }
+  catch(e) { toast('Could not stop recording', 'err'); }
+}
+async function teachPlay() {
+  const delay = +document.getElementById('teach-delay').value || 60;
+  try { await api('/api/teach/play', 'POST', { delay_secs: delay }); toast('Playing on all phones…', 'ok'); }
+  catch(e) { toast('Could not play sequence', 'err'); }
+}
+
+function onTeachStatus(msg) {
+  teachFile = msg.file;
+  const s1 = document.getElementById('step-1');
+  const s2 = document.getElementById('step-2');
+  const s3 = document.getElementById('step-3');
+  const btnRec  = document.getElementById('btn-record');
+  const btnStop = document.getElementById('btn-stop-rec');
+  const btnPlay = document.getElementById('btn-play-teach');
+  const dot     = document.getElementById('rec-dot');
+  const statusEl = document.getElementById('teach-status');
+
+  btnRec.disabled  = msg.state !== 'idle';
+  btnStop.disabled = msg.state !== 'recording';
+  btnPlay.disabled = msg.state !== 'idle' || !teachFile;
+
+  s1.className = 'teach-step' + (msg.state !== 'idle' ? ' done' : '');
+  s2.className = 'teach-step' + (msg.state === 'recording' ? ' active' : msg.state !== 'idle' ? ' done' : '');
+  s3.className = 'teach-step' + (msg.state === 'playing' ? ' active' : '');
+
+  dot.style.animation = msg.state === 'recording' ? 'blink .8s ease infinite' : 'none';
+  statusEl.textContent = msg.state === 'recording' ? '● Recording — do your steps on Phone 1'
+    : msg.state === 'playing' ? '▶ Playing on all phones…'
+    : teachFile ? 'Recording ready — tap Play on All Phones' : '';
+}
+
+// ── Tor ──────────────────────────────────────────────────────────────
+async function setupTor() {
+  const btn = document.getElementById('btn-tor');
+  btn.disabled = true;
+  btn.textContent = 'Setting up…';
+  try {
+    await api('/api/proxy/setup', 'POST');
+    toast('Setting up different locations for each phone…', 'ok');
+  } catch(e) {
+    toast('Could not set up locations', 'err');
+    btn.disabled = false;
+    btn.textContent = 'Set Up Now';
+  }
+}
+
+// ── Log ───────────────────────────────────────────────────────────────
+function addLog(msg) {
+  const ts = new Date().toLocaleTimeString('en-US', { hour12:false, hour:'2-digit', minute:'2-digit', second:'2-digit' });
+  const el  = document.getElementById('log-lines');
+  const row = document.createElement('div');
+  const lower = String(msg).toLowerCase();
+  let tone = '';
+  if (/\b(error|fail|could not|unable)\b/.test(lower)) tone = 'err';
+  else if (/\b(warn|warning|wait)\b/.test(lower)) tone = 'warn';
+  else if (/\b(ok|done|ready|connected|installed|success)\b/.test(lower)) tone = 'ok';
+  row.className = 'log-line' + (tone ? ' ' + tone : '');
+  const tsSpan = document.createElement('span');
+  tsSpan.className = 'log-ts';
+  tsSpan.textContent = ts;
+  const msgSpan = document.createElement('span');
+  msgSpan.className = 'log-msg';
+  msgSpan.textContent = msg;
+  row.appendChild(tsSpan);
+  row.appendChild(msgSpan);
+  el.prepend(row);
+  if (el.children.length > 80) el.lastChild.remove();
+
+  // Mirror to Tor status if it's a location message
+  if (msg.toLowerCase().includes('phone') && msg.toLowerCase().includes('ready')) {
+    const torEl = document.getElementById('tor-status');
+    const torRow = document.createElement('div');
+    torRow.className = 'tor-row';
+    torRow.textContent = msg;
+    torEl.appendChild(torRow);
+  }
+}
+
+// ── Toast ──────────────────────────────────────────────────────────────
+function toast(msg, type = '') {
+  const wrap = document.getElementById('toasts');
+  const el   = document.createElement('div');
+  el.className = 'toast ' + type;
+  const pip = document.createElement('div');
+  pip.className = 'toast-pip';
+  const txt = document.createElement('span');
+  txt.textContent = msg;
+  el.appendChild(pip);
+  el.appendChild(txt);
+  wrap.appendChild(el);
+  setTimeout(() => el.remove(), 3000);
+}
+
+// ── IP ─────────────────────────────────────────────────────────────────
+async function initIp() {
+  const chip = document.getElementById('ip-chip');
+  try {
+    const r = await api('/api/ip');
+    chip.textContent = r.ip + ':8080';
+    chip.title = 'Tap to copy';
+    chip.addEventListener('click', () => {
+      navigator.clipboard?.writeText(r.url ?? `http://${r.ip}:8080`).then(() => toast('Address copied', 'ok'));
+    });
+  } catch { chip.textContent = location.host; }
+}
+
+// ── Drop zone ──────────────────────────────────────────────────────────
+const dropZone = document.getElementById('drop-zone');
+dropZone.addEventListener('click', () => document.getElementById('apk-input').click());
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+dropZone.addEventListener('drop', handleDrop);
+
+// ── Button wiring ──────────────────────────────────────────────────────
+document.getElementById('btn-start-all').addEventListener('click', () =>
+  api('/api/devices/refresh','POST').then(() => toast('Finding phones…','ok')).catch(() => toast('Something went wrong','err')));
+document.getElementById('btn-stop-all').addEventListener('click', () =>
+  api('/api/stop_all','POST').then(() => toast('Stopping all phones','ok')).catch(() => toast('Something went wrong','err')));
+
+// Connect device bar
+document.getElementById('btn-connect').addEventListener('click', () => {
+  const bar = document.getElementById('connect-bar');
+  bar.style.display = bar.style.display === 'none' ? 'flex' : 'none';
+});
+document.getElementById('btn-connect-cancel').addEventListener('click', () => {
+  document.getElementById('connect-bar').style.display = 'none';
+});
+document.getElementById('btn-connect-do').addEventListener('click', async () => {
+  const addr = document.getElementById('connect-addr').value.trim();
+  if (!addr) return;
+  try {
+    const r = await api('/api/devices/connect', 'POST', { address: addr });
+    toast('Connected: ' + (r.result || addr), 'ok');
+    document.getElementById('connect-bar').style.display = 'none';
+    document.getElementById('connect-addr').value = '';
+  } catch(e) { toast('Could not connect phone', 'err'); }
+});
+document.getElementById('connect-addr').addEventListener('keydown', e => {
+  if (e.key === 'Enter') document.getElementById('btn-connect-do').click();
+});
+// ── Groups ────────────────────────────────────────────────────────────────
+let loadedGroups = [];
+
+async function loadGroups() {
+  try {
+    const d = await api('/api/groups/load');
+    loadedGroups = d.groups || [];
+    refreshFarmStatus();
+    renderGroups();
+    document.getElementById('btn-groups-run').disabled = loadedGroups.length === 0;
+    toast(`Loaded ${loadedGroups.length} group(s)`, 'ok');
+  } catch(e) { toast('No saved groups found — run the CPharm wizard first', 'err'); }
+}
+
+function renderGroups() {
+  const list  = document.getElementById('groups-list');
+  const empty = document.getElementById('groups-empty');
+  list.innerHTML = '';
+  if (!loadedGroups.length) { empty.style.display = 'block'; return; }
+  empty.style.display = 'none';
+  const COLORS = ['#58a6ff','#3fb950','#d29922','#f85149','#8b949e'];
+  loadedGroups.forEach((g, i) => {
+    const card = document.createElement('div');
+    card.className = 'grp-card';
+    card.style.borderLeftColor = COLORS[i % 5];
+    const info = document.createElement('div');
+    info.className = 'grp-card-info';
+    const nameEl = document.createElement('div');
+    nameEl.className = 'grp-card-name';
+    nameEl.textContent = g.name;
+    const metaEl = document.createElement('div');
+    metaEl.className = 'grp-card-meta';
+    metaEl.textContent = `${(g.phones||[]).length} phone(s) · ${(g.steps||[]).length} steps · repeat ${g.repeat_forever?'forever':g.repeat+'×'} · stagger ${g.stagger_secs}s`;
+    info.appendChild(nameEl);
+    info.appendChild(metaEl);
+    const stopBtn = document.createElement('button');
+    stopBtn.textContent = 'Stop';
+    stopBtn.className = 'btn-r btn-sm';
+    stopBtn.id = `grp-stop-${i}`;
+    stopBtn.disabled = true;
+    stopBtn.onclick = () => api('/api/groups/stop','POST',{name:g.name}).catch(()=>{});
+    card.appendChild(info);
+    card.appendChild(stopBtn);
+    list.appendChild(card);
+  });
+}
+
+let _farmTimer = null;
+const _FARM_STATE_DOT = { running: '#3fb950', idle: '#8b949e', error: '#f85149', done: '#d29922' };
+async function refreshFarmStatus() {
+  let data;
+  try { data = await api('/api/groups/status', 'GET', {}); } catch (e) { return; }
+  const box = document.getElementById('farm-status');
+  if (!box) return;
+  const groups = (data && data.groups) || [];
+  if (!groups.length) { box.style.display = 'none'; return; }
+  box.style.display = 'block';
+  const running = (data.running) || [];
+  const badge = document.getElementById('farm-status-badge');
+  badge.textContent = running.length ? `● Running: ${running.length}/${groups.length} group(s)` : `Idle · ${groups.length} group(s) loaded`;
+  const body = document.getElementById('farm-status-body');
+  body.innerHTML = '';
+  groups.forEach(g => {
+    const phones = g.phones || [];
+    if (!phones.length) {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td style="padding:5px 8px;border-top:1px solid var(--bd)">${esc(g.name)}</td>`
+        + `<td colspan="5" style="padding:5px 8px;border-top:1px solid var(--bd);color:var(--t2)">no phones</td>`;
+      body.appendChild(tr); return;
+    }
+    phones.forEach((ph, pi) => {
+      const state = (ph.state || 'idle').toLowerCase();
+      const dot = _FARM_STATE_DOT[state] || _FARM_STATE_DOT.idle;
+      const tr = document.createElement('tr');
+      const cells = [
+        (pi === 0 ? `<td style="padding:5px 8px;border-top:1px solid var(--bd)">${esc(g.name)}</td>` : `<td style="padding:5px 8px;border-top:1px solid var(--bd)"></td>`),
+        `<td style="padding:5px 8px;border-top:1px solid var(--bd)">${esc(ph.name || ph.serial)}</td>`,
+        `<td style="padding:5px 8px;border-top:1px solid var(--bd)"><span style="color:${dot}">●</span> ${state}</td>`,
+        `<td style="padding:5px 8px;border-top:1px solid var(--bd)">${(ph.iteration || 0) + 1}</td>`,
+        `<td style="padding:5px 8px;border-top:1px solid var(--bd);color:${state === 'error' ? 'var(--rd, #f85149)' : 'var(--t1)'}">${esc(ph.result || '')}</td>`,
+        `<td style="padding:5px 8px;border-top:1px solid var(--bd)">${esc(g.apk || '')}</td>`,
+      ];
+      tr.innerHTML = cells.join('');
+      body.appendChild(tr);
+    });
+  });
+  if (running.length) {
+    if (!_farmTimer) _farmTimer = setInterval(refreshFarmStatus, 2000);
+  } else if (_farmTimer) { clearInterval(_farmTimer); _farmTimer = null; }
+}
+
+// Docker (redroid) phone control + monitoring — read what Docker is doing
+let _dockerTimer = null;
+const _DOCK_STATE_C = { running: '#3fb950', stopped: '#f85149', other: '#8b949e' };
+const _DOCK_ADB_C   = { online: '#3fb950', listen: '#d29922', dead: '#8b949e' };
+
+async function dockerAction(name, action) {
+  try {
+    await api('/api/docker/action', 'POST', { name, action });
+    toast((action[0].toUpperCase() + action.slice(1)) + ' ' + name, 'ok');
+  } catch (e) { toast('Docker action failed', 'err'); }
+  refreshDockerStatus();
+}
+
+async function refreshDockerStatus() {
+  let data;
+  try { data = await api('/api/docker/status', 'GET', {}); } catch (e) { return; }
+  const box = document.getElementById('docker-status');
+  if (!box) return;
+  const conts = (data && data.containers) || [];
+  if (!conts.length) {
+    box.style.display = 'none';
+    if (_dockerTimer) { clearInterval(_dockerTimer); _dockerTimer = null; }
+    return;
+  }
+  box.style.display = 'block';
+  const badge = document.getElementById('docker-status-badge');
+  const up = conts.filter(c => c.state === 'running').length;
+  const online = conts.filter(c => c.adb_state === 'online').length;
+  badge.textContent = `Docker: ${up}/${conts.length} up · ${online} adb online`;
+  const body = document.getElementById('docker-status-body');
+  body.innerHTML = '';
+  conts.forEach(c => {
+    const st = c.state || 'other', adb = c.adb_state || 'dead';
+    const stc = _DOCK_STATE_C[st] || _DOCK_STATE_C.other;
+    const adbc = _DOCK_ADB_C[adb] || _DOCK_ADB_C.dead;
+    const tr = document.createElement('tr');
+    const btns = `<button class="btn btn-sm" onclick="dockerAction('${esc(c.name)}','start')">Start</button>`
+      + ` <button class="btn btn-sm" onclick="dockerAction('${esc(c.name)}','stop')">Stop</button>`        + ` <button class="btn btn-sm" onclick="dockerAction('${esc(c.name)}','restart')">Restart</button>`
+        + ` <button class="btn btn-sm" onclick="dockRotate('${esc(c.serial || '')}')">Rotate ID</button>`;
+    tr.innerHTML =
+      `<td style="padding:5px 8px;border-top:1px solid var(--bd)">${esc(c.name)}</td>`
+      + `<td style="padding:5px 8px;border-top:1px solid var(--bd)"><span style="color:${stc}">●</span> ${esc(st)}</td>`
+      + `<td style="padding:5px 8px;border-top:1px solid var(--bd)"><span style="color:${adbc}">●</span> ${esc(adb)}</td>`
+      + `<td style="padding:5px 8px;border-top:1px solid var(--bd)">${c.adb_port ?? '-'}</td>`
+      + `<td style="padding:5px 8px;border-top:1px solid var(--bd);font-family:monospace;font-size:.68rem;max-width:280px;overflow:auto;white-space:pre-wrap">${esc(c.log_tail || '')}</td>`
+      + `<td style="padding:5px 8px;border-top:1px solid var(--bd)">${btns}</td>`;
+    body.appendChild(tr);
+  });
+  if (!_dockerTimer) _dockerTimer = setInterval(refreshDockerStatus, 4000);
+}
+window.addEventListener('load', () => setTimeout(refreshDockerStatus, 100));
+
+// ── Stealth status panel — live exit IP / disguise / fingerprint / rotations ──────────
+async function refreshStealth() {
+  let data;
+  try { data = await api('/api/stealth', 'GET', {}); } catch (e) { return; }
+  const phones = (data && Array.isArray(data.phones)) ? data.phones : [];
+  const body = document.getElementById('stealth-body');
+  if (!body) return;
+  const empty = document.getElementById('stealth-empty');
+  const badge = document.getElementById('stealth-unique-badge');
+  const asof = document.getElementById('stealth-asof');
+  if (!phones.length) {
+    if (empty) empty.style.display = 'block';
+    body.innerHTML = '';
+    if (badge) badge.textContent = '';
+    if (asof) asof.textContent = 'No phones online';
+    return;
+  }
+  if (empty) empty.style.display = 'none';
+  const ips = phones.filter(p => p.ip_online).map(p => p.exit_ip);
+  const uniq = new Set(ips).size;
+  const dupe = ips.length > uniq;
+  if (badge) {
+    badge.textContent = dupe
+      ? `● ${uniq}/${ips.length} unique exit IPs — rotating duplicates`
+      : (uniq ? `✓ ${uniq} unique exit IPs` : 'no exit IPs yet');
+    badge.style.color = dupe ? 'var(--rd, #d29922)' : 'var(--g, #3fb950)';
+  }
+  if (asof) asof.textContent = 'Updated ' + new Date((data.updated_utc || Date.now()) * 1000).toLocaleTimeString();
+  body.innerHTML = '';
+  phones.forEach(p => {
+    const fp = (p.fp_state || '').toLowerCase();
+    const fpColor = fp === 'clean' ? 'var(--g, #3fb950)' : (fp === 'leaking' ? 'var(--rd, #f85149)' : 'var(--t2)');
+    const ipCell = p.exit_ip
+      ? `<span style="color:var(--g, #3fb950)">${esc(p.exit_ip)}</span>`
+      : `<span style="color:var(--t2)">fetching…</span>`;
+    const fpLabel = p.fp_state === 'leaking' ? `${p.fp_state} (${p.leak_count})` : (p.fp_state || 'not-assessed');
+    const tr = document.createElement('tr');
+    tr.innerHTML = [
+      `<td style="padding:5px 8px;border-top:1px solid var(--bd)">${esc(p.name || p.serial)}</td>`,
+      `<td style="padding:5px 8px;border-top:1px solid var(--bd)">${ipCell}</td>`,
+      `<td style="padding:5px 8px;border-top:1px solid var(--bd)">${esc(p.disguise || '—')}</td>`,
+      `<td style="padding:5px 8px;border-top:1px solid var(--bd);color:${fpColor}">${esc(fpLabel)}</td>`,
+      `<td style="padding:5px 8px;border-top:1px solid var(--bd)">${p.rotation_count || 0}</td>`,
+    ].join('');
+    body.appendChild(tr);
+  });
+}
+async function syncStealthToggles() {
+  let cfg;
+  try { cfg = await api('/api/config', 'GET', {}); } catch (e) { return; }
+  const rotate = (cfg && cfg.rotate_every_sequence !== undefined) ? cfg.rotate_every_sequence : true;
+  const unique = (cfg && cfg.unique_exit_ips !== undefined) ? cfg.unique_exit_ips : true;
+  setBtn('btn-stealth-rotate', `↻ Every-sequence rotation: ${rotate ? 'on' : 'off'}`, rotate);
+  setBtn('btn-stealth-unique', `🌐 Unique exit IPs: ${unique ? 'on' : 'off'}`, unique);
+}
+function setBtn(id, label, on) {
+  const b = document.getElementById(id);
+  if (!b) return;
+  b.textContent = label;
+  b.style.borderColor = on ? 'var(--g, #3fb950)' : 'var(--bd, #444)';
+  b.style.color = on ? 'var(--g, #3fb950)' : 'var(--t2)';
+}
+async function toggleStealth(field) {
+  const cfg = (await api('/api/config', 'GET', {}).catch(() => ({}))) || {};
+  const cur = field === 'rotate_every_sequence'
+    ? (cfg.rotate_every_sequence !== undefined ? cfg.rotate_every_sequence : true)
+    : (cfg.unique_exit_ips !== undefined ? cfg.unique_exit_ips : true);
+  await api('/api/stealth/settings', 'POST', { [field]: !cur }).catch(() => {});
+  syncStealthToggles();
+}
+(async () => {
+  await syncStealthToggles();
+  const br = document.getElementById('btn-stealth-rotate');
+  const bu = document.getElementById('btn-stealth-unique');
+  if (br) br.onclick = () => toggleStealth('rotate_every_sequence');
+  if (bu) bu.onclick = () => toggleStealth('unique_exit_ips');
+})();
+
+setInterval(refreshStealth, 4000);
+refreshStealth();
+
+// Ember-style KPI strip — live farm numbers from the [/]api/phones + docker + groups endpoints
+function setKpi(id, val) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = String(val);
+}
+async function refreshKpi() {
+  let phones = [], dk = null, grp = null, money = null;
+  try { phones = await api('/api/phones', 'GET', {}); } catch (e) {}
+  try { dk = await api('/api/docker/status', 'GET', {}); } catch (e) {}
+  try { grp = await api('/api/groups/status', 'GET', {}); } catch (e) {}
+  try { money = await api('/api/money/status', 'GET', {}); } catch (e) {}
+  setKpi('kpi-phones',      (Array.isArray(phones) ? phones.length : 0));
+  setKpi('kpi-groups',      (grp && grp.running) ? (grp.running).length : 0);
+  setKpi('kpi-containers',  (dk && dk.containers) ? dk.containers.filter(c => c.state === 'running').length : 0);
+  setKpi('kpi-adb',         (dk && dk.containers) ? dk.containers.filter(c => c.adb_state === 'online').length : 0);
+  if (money) {
+    setKpi('kpi-rev',  money.revenue_today_usd ? '$' + money.revenue_today_usd.toFixed(2) : '$0.00');
+    setKpi('kpi-impr', (money.impressions || 0).toLocaleString());
+    setKpi('kpi-net',  money.projected && money.projected.daily_net_usd ? '$' + money.projected.daily_net_usd.toFixed(2) : '$0.00');
+  } else {
+    setKpi('kpi-rev', '–'); setKpi('kpi-impr', '–'); setKpi('kpi-net', '–');
+  }
+}
+setInterval(refreshKpi, 3000);
+setTimeout(refreshKpi, 150);
+
+// ── Revenue / impressions trend chart (dependency-free) ──────────────
+function drawTrendChart(days) {
+  const cv = document.getElementById('trend-chart');
+  if (!cv || !days || !days.length) { if (cv) drawTrendEmpty(cv); return; }
+  const dpr = window.devicePixelRatio || 1;
+  const w = cv.clientWidth || 640, h = 150;
+  cv.width = w * dpr; cv.height = h * dpr;
+  const ctx = cv.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const padL = 44, padR = 12, padT = 12, padB = 26;
+  const iw = w - padL - padR, ih = h - padT - padB;
+  const rev = days.map(d => +(d.revenue_usd || 0));
+  const impr = days.map(d => +(d.impressions || 0));
+  const maxRev = Math.max(1, ...rev);
+  const maxImp = Math.max(1, ...impr);
+  const revBg = '#14B8A6', impBg = '#8B7CF7';
+
+  // y-axes
+  for (let i = 0; i <= 4; i++) {
+    const y = padT + (i / 4) * ih;
+    ctx.strokeStyle = 'rgba(128,128,128,0.12)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(w - padR, y); ctx.stroke();
+    ctx.fillStyle = '#9aa0ac'; ctx.font = '10px DM Sans, sans-serif'; ctx.textAlign = 'right';
+    ctx.fillText('$' + (maxRev * (4 - i) / 4).toFixed(maxRev >= 100 ? 0 : 2), padL - 6, y + 3);
+    ctx.textAlign = 'left';
+    ctx.fillText((maxImp * (4 - i) / 4).toLocaleString(), w - padR + 2, y + 3);
+  }
+
+  function line(series, max, color, filled) {
+    ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.beginPath();
+    series.forEach((v, i) => {
+      const x = padL + (days.length === 1 ? iw / 2 : i / (days.length - 1) * iw);
+      const y = padT + ih - (v / max) * ih;
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    });
+    if (filled && series.length > 1) {
+      ctx.lineTo(padL + iw, padT + ih); ctx.lineTo(padL, padT + ih); ctx.closePath();
+      ctx.globalAlpha = 0.10; ctx.fillStyle = color; ctx.fill(); ctx.globalAlpha = 1;
+    }
+    ctx.stroke();
+  }
+
+  line(rev, maxRev, revBg, true);
+  line(impr, maxImp, impBg, false);
+
+  // x labels (fewest non-overlapping)
+  ctx.fillStyle = '#9aa0ac'; ctx.font = '10px DM Sans, sans-serif'; ctx.textAlign = 'center';
+  const step = Math.ceil(days.length / 8);
+  days.forEach((d, i) => { if (i % step === 0 || i === days.length - 1) {
+    const x = padL + (days.length === 1 ? iw / 2 : i / (days.length - 1) * iw);
+    ctx.fillText(String(d.date || '').slice(5), x, h - 8);
+  }});
+
+  // legend
+  ctx.textAlign = 'left'; ctx.font = '10px DM Sans, sans-serif';
+  ctx.fillStyle = revBg; ctx.fillRect(w - padR - 210, padT - 2, 8, 8); ctx.fillStyle = '#fff';
+  ctx.fillText('Revenue $', w - padR - 198, padT + 6);
+  ctx.fillStyle = impBg; ctx.fillRect(w - padR - 130, padT - 2, 8, 8); ctx.fillStyle = '#fff';
+  ctx.fillText('Impressions', w - padR - 118, padT + 6);
+}
+
+function drawTrendEmpty(cv) {
+  const dpr = window.devicePixelRatio || 1;
+  const w = cv.clientWidth || 640, h = 150;
+  cv.width = w * dpr; cv.height = h * dpr;
+  const ctx = cv.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+  ctx.fillStyle = '#9aa0ac'; ctx.font = '12px DM Sans, sans-serif'; ctx.textAlign = 'center';
+  ctx.fillText('No revenue history yet — this fills as phones report scorecard data.', w / 2, h / 2);
+}
+
+async function refreshTrend() {
+  try {
+    const r = await api('/api/money/history', 'GET', {});
+    const days = (r && r.days) || [];
+    drawTrendChart(days);
+    const asof = document.getElementById('trend-asof');
+    if (asof && days.length) asof.textContent = 'as of ' + (days[days.length - 1].date || '');
+  } catch (e) {}
+}
+setInterval(refreshTrend, 15000);
+setTimeout(refreshTrend, 400);
+setTimeout(() => { if (window.addEventListener) window.addEventListener('resize', refreshTrend); }, 0);
+
+async function runAllGroups() {
+  if (!loadedGroups.length) { toast('Load saved groups first','err'); return; }
+  try {
+    await api('/api/groups/run','POST',{groups: loadedGroups});
+    document.getElementById('btn-groups-run').disabled = true;
+    document.getElementById('btn-groups-stop').disabled = false;
+    loadedGroups.forEach((_,i) => {
+      const b = document.getElementById(`grp-stop-${i}`);
+      if (b) b.disabled = false;
+    });
+    toast(`Running ${loadedGroups.length} group(s) in parallel`, 'ok');
+    refreshFarmStatus();
+  } catch(e) { toast('Could not start groups', 'err'); }
+}
+
+async function stopAllGroups() {
+  await api('/api/groups/stop','POST',{}).catch(()=>{});
+  document.getElementById('btn-groups-run').disabled = false;
+  document.getElementById('btn-groups-stop').disabled = true;
+  loadedGroups.forEach((_,i) => {
+    const b = document.getElementById(`grp-stop-${i}`);
+    if (b) b.disabled = true;
+  });
+  toast('Stopping all groups','ok');
+}
+
+function onWsMessage(msg) {
+  if (msg.type === 'groups_status') {
+    const running = msg.running || [];
+    loadedGroups.forEach((g,i) => {
+      const b = document.getElementById(`grp-stop-${i}`);
+      if (b) b.disabled = !running.includes(g.name);
+    });
+    if (!running.length) {
+      document.getElementById('btn-groups-run').disabled = false;
+      document.getElementById('btn-groups-stop').disabled = true;
+    }
+  }
+}
+
+document.getElementById('btn-groups-load').addEventListener('click', loadGroups);
+document.getElementById('btn-groups-run').addEventListener('click', runAllGroups);
+document.getElementById('btn-groups-stop').addEventListener('click', stopAllGroups);
+
+document.getElementById('btn-open-url').addEventListener('click', launchUrl);
+document.getElementById('btn-record').addEventListener('click', teachRecord);
+document.getElementById('btn-stop-rec').addEventListener('click', teachStop);
+document.getElementById('btn-play-teach').addEventListener('click', teachPlay);
+document.getElementById('btn-tor').addEventListener('click', setupTor);
+document.getElementById('btn-tor-rotate').addEventListener('click', async () => {
+  try { await api('/api/proxy/rotate', 'POST'); toast('Rotating identities on all phones…', 'ok'); }
+  catch (e) { toast('Rotate identities failed', 'err'); }
+});
+function dockRotate(serial) {
+  if (!serial) return;
+  api('/api/identity/reset', 'POST', { serial }).catch(() => {});
+  toast('Rotating ID ' + serial, 'ok');
+  setTimeout(refreshDockerStatus, 500);
+}
+document.getElementById('btn-tor-off').addEventListener('click', async () => {
+  try {
+    await api('/api/proxy/teardown', 'POST');
+    document.getElementById('tor-status').textContent = '';
+    document.getElementById('btn-tor').disabled = false;
+    document.getElementById('btn-tor').textContent = 'Set Up Now';
+    toast('Turned off', 'ok');
+  } catch(e) {
+    toast('Could not turn off — If browsers stay broken, use wizard Launch → Fix phone browsers (clear proxy).', 'err');
+  }
+});
+document.getElementById('log-clear').addEventListener('click', () =>
+  document.getElementById('log-lines').textContent = '');
+document.getElementById('fab').addEventListener('click', () => {
+  document.getElementById('connect-bar').style.display = 'flex';
+  document.getElementById('connect-addr').focus();
+});
+
+// ── PWA ────────────────────────────────────────────────────────────────
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
+
+// ── Boot ────────────────────────────────────────────────────────────────
+connectWS();
+initIp();
+loadServerApks();
+api('/api/phones').then(d => { if (!phones.length) onPhonesUpdate(d); }).catch(() => {});
+</script>
+</body>
+</html>

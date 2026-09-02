@@ -1,0 +1,36 @@
+﻿FINAL LIVE DEMO — watch emulators
+=================================
+Updated: 2026-06-21T22:34:25.0808578-07:00
+
+ADB devices (MuMu):
+List of devices attached 10.0.2.168:5555	device 10.0.2.204:5555	device 10.0.2.69:5555	device 
+
+Primary run device: 10.0.2.69:5555 (preferred; 10.0.2.179 not online)
+Also online: 10.0.2.168:5555, 10.0.2.204:5555
+
+Live frames (scrcpy not on PATH — ADB screencap loop running):
+  C:\Users\jsmil\CPharm\live_adb\frame_latest_10.0.2.69_5555.png
+  C:\Users\jsmil\CPharm\live_adb\frame_latest_10.0.2.168_5555.png
+  C:\Users\jsmil\CPharm\live_adb\frame_latest_10.0.2.204_5555.png
+
+How to watch:
+  1. Open a frame PNG in a viewer that reloads on change (or re-open periodically).
+  2. PowerShell refresh hint:
+     while ($true) { Get-Item C:\Users\jsmil\CPharm\live_adb\frame_latest_10.0.2.69_5555.png | Select LastWriteTime; Start-Sleep 1 }
+  3. Restart frames: python C:\Users\jsmil\CPharm\live_adb\frame_loop.py
+
+Sequences executed LIVE on 10.0.2.69:5555 (CPHARM_HUMAN_VARIATION=0, CPHARM_SKIP_TOR_WAIT=1):
+  PASS  dabflow__demo__ONE.json (timer 90.5s, wall 179.84s)
+  FAIL  dabflow__no_ads__mat-quartz__conc-distillate__heat-propane.json (timer 75.5s) — uiautomator dump timeout after timer_complete
+  PASS  dabflow__no_ads__mat-ceramic__conc-diamonds__heat-butane.json (timer 111.5s, wall 181.7s)
+  PASS  dabflow__demo__TWO.json (ad, timer 90.5s, wall 177.49s)
+
+Full table: C:\Users\jsmil\CPharm\FINAL_LIVE_RESULTS.txt
+JSONL log: C:\Users\jsmil\CPharm\FINAL_LIVE_RUN_LOG.jsonl
+
+Agent prerequisites:
+  PER_COMBO_TIMER_AUDIT.txt — OK
+  NO_DOUBLE_COMMANDS_AUDIT.txt — MISSING at start; still missing after run
+  TIMER_FIX_RESULT.txt — OK (appeared during live run)
+
+Runner: C:\Users\jsmil\CPharm\cpharm-clone\automation\run_final_live.py

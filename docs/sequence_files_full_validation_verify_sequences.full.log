@@ -1,0 +1,39 @@
+=== CAPTURED 2026-05-06T21:51:47.820391-07:00 ===
+STDOUT:
+OK: validated 1299 JSON file(s); checked 1300 step collections
+WARN: 1300 age-verification anomaly(s) detected
+- sequence:open_getdabflow__gate7__timer96s__back_ad_center_w45__back_exit_rx__su__clear_close_rotate_reset.json: missing age verification marker (age_verification/age_gate/checkpoint)
+- sequence:open_getdabflow__gate7__timer96s__back_exit_main_rx__su__clear_close_rotate_reset.json: missing age verification marker (age_verification/age_gate/checkpoint)
+- sequence:default_sequence_test2_improved.json: missing age verification marker (age_verification/age_gate/checkpoint)
+- sequence:sequence_alt_taps.json: missing age verification marker (age_verification/age_gate/checkpoint)
+- sequence:sequence_combo_entry-direct_footer-center_hero-off_bottom-center_timer-none.json: missing age verification marker (age_verification/age_gate/checkpoint)
+- sequence:sequence_combo_entry-direct_footer-center_hero-off_bottom-center_timer-single96.json: missing age verification marker (age_verification/age_gate/checkpoint)
+- sequence:sequence_combo_entry-direct_footer-center_hero-off_bottom-center_timer-stacked.json: missing age verification marker (age_verification/age_gate/checkpoint)
+- sequence:sequence_combo_entry-direct_footer-center_hero-off_bottom-left_timer-none.json: missing age verification marker (age_verification/age_gate/checkpoint)
+- sequence:sequence_combo_entry-direct_footer-center_hero-off_bottom-left_timer-single96.json: missing age verification marker (age_verification/age_gate/checkpoint)
+- sequence:sequence_combo_entry-direct_footer-center_hero-off_bottom-left_timer-stacked.json: missing age verification marker (age_verification/age_gate/checkpoint)
+- sequence:sequence_combo_entry-direct_footer-center_hero-off_bottom-right_timer-none.json: missing age verification marker (age_verification/age_gate/checkpoint)
+- sequence:sequence_combo_entry-direct_footer-center_hero-off_bottom-right_timer-single96.json: missing age verification marker (age_verification/age_gate/checkpoint)
+- sequence:sequence_combo_entry-direct_footer-center_hero-off_bottom-right_timer-stacked.json: missing age verification marker (age_verification/age_gate/checkpoint)
+- sequence:sequence_combo_entry-direct_footer-center_hero-on_bottom-center_timer-none.json: missing age verification marker (age_verification/age_gate/checkpoint)
+- sequence:sequence_combo_entry-direct_footer-center_hero-on_bottom-center_timer-single96.json: missing age verification marker (age_verification/age_gate/checkpoint)
+- sequence:sequence_combo_entry-direct_footer-center_hero-on_bottom-center_timer-stacked.json: missing age verification marker (age_verification/age_gate/checkpoint)
+- sequence:sequence_combo_entry-direct_footer-center_hero-on_bottom-left_timer-none.json: missing age verification marker (age_verification/age_gate/checkpoint)
+- sequence:sequence_combo_entry-direct_footer-center_hero-on_bottom-left_timer-single96.json: missing age verification marker (age_verification/age_gate/checkpoint)
+- sequence:sequence_combo_entry-direct_footer-center_hero-on_bottom-left_timer-stacked.json: missing age verification marker (age_verification/age_gate/checkpoint)
+- sequence:sequence_combo_entry-direct_footer-center_hero-on_bottom-right_timer-none.json: missing age verification marker (age_verification/age_gate/checkpoint)
+- sequence:sequence_combo_entry-direct_footer-center_hero-on_bottom-right_timer-single96.json: missing age verification marker (age_verification/age_gate/checkpoint)
+- sequence:sequence_combo_entry-direct_footer-center_hero-on_bottom-right_timer-stacked.json: missing age verification marker (age_verification/age_gate/checkpoint)
+- sequence:sequence_combo_entry-direct_footer-left_hero-off_bottom-center_timer-none.json: missing age verification marker (age_verification/age_gate/checkpoint)
+- sequence:sequence_combo_entry-direct_footer-left_hero-off_bottom-center_timer-single96.json: missing age verification marker (age_verification/age_gate/checkpoint)
+- sequence:sequence_combo_entry-direct_footer-left_hero-off_bottom-center_timer-stacked.json: missing age verification marker (age_verification/age_gate/checkpoint)
+- sequence:sequence_combo_entry-direct_footer-left_hero-off_bottom-left_timer-none.json: missing age verification marker (age_verification/age_gate/checkpoint)
+- sequence:sequence_combo_entry-direct_footer-left_hero-off_bottom-left_timer-single96.json: missing age verification marker (age_verification/age_gate/checkpoint)
+- sequence:sequence_combo_entry-direct_footer-left_hero-off_bottom-left_timer-stacked.json: missing age verification marker (age_verification/age_gate/checkpoint)
+- sequence:sequence_combo_entry-direct_footer-left_hero-off_bottom-right_timer-none.json: missing age verification marker (age_verification/age_gate/checkpoint)
+- sequence:sequence_combo_entry-direct_footer-left_hero-off_bottom-right_timer-single96.json: missing age verification marker (age_verification/age_gate/checkpoint)
+- ... 1270 more
+
+STDERR:
+
+EXIT_CODE=0

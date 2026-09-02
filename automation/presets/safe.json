@@ -1,0 +1,13 @@
+{
+  "name": "safe",
+  "humanize": {
+    "timing_variation": 0.08,
+    "coordinate_tolerance": 5,
+    "random_actions": false,
+    "random_action_chance": 0.0,
+    "scroll_duration_ms": {
+      "min": 360,
+      "max": 560
+    }
+  }
+}

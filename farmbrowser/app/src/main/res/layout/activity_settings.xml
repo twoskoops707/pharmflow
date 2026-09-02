@@ -1,0 +1,229 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#FF1A1A2E"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="16dp">
+
+        <!-- Header -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/settings_title"
+            android:textColor="#FFFFFFFF"
+            android:textSize="22sp"
+            android:textStyle="bold"
+            android:layout_marginBottom="16dp" />
+
+        <!-- Proxy Section -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Proxy Settings"
+            android:textColor="#FF44FF88"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            android:layout_marginBottom="8dp" />
+
+        <CheckBox
+            android:id="@+id/proxy_enabled"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Enable Proxy"
+            android:textColor="#CCFFFFFF"
+            android:textSize="14sp"
+            android:checked="false" />
+
+        <Spinner
+            android:id="@+id/proxy_type"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:layout_marginTop="8dp"
+            android:background="@drawable/url_bar_bg"
+            android:padding="8dp" />
+
+        <EditText
+            android:id="@+id/proxy_host"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:layout_marginTop="8dp"
+            android:background="@drawable/url_bar_bg"
+            android:hint="Proxy Host (e.g. 127.0.0.1)"
+            android:textColorHint="#60FFFFFF"
+            android:textColor="#FFFFFFFF"
+            android:textSize="14sp"
+            android:singleLine="true"
+            android:inputType="text"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp" />
+
+        <EditText
+            android:id="@+id/proxy_port"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:layout_marginTop="8dp"
+            android:background="@drawable/url_bar_bg"
+            android:hint="Port (e.g. 8118)"
+            android:textColorHint="#60FFFFFF"
+            android:textColor="#FFFFFFFF"
+            android:textSize="14sp"
+            android:singleLine="true"
+            android:inputType="number"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp" />
+
+        <EditText
+            android:id="@+id/proxy_user"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:layout_marginTop="8dp"
+            android:background="@drawable/url_bar_bg"
+            android:hint="Username (optional)"
+            android:textColorHint="#60FFFFFF"
+            android:textColor="#FFFFFFFF"
+            android:textSize="14sp"
+            android:singleLine="true"
+            android:inputType="text"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp" />
+
+        <EditText
+            android:id="@+id/proxy_pass"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:layout_marginTop="8dp"
+            android:background="@drawable/url_bar_bg"
+            android:hint="Password (optional)"
+            android:textColorHint="#60FFFFFF"
+            android:textColor="#FFFFFFFF"
+            android:textSize="14sp"
+            android:singleLine="true"
+            android:inputType="textPassword"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp" />
+
+        <CheckBox
+            android:id="@+id/auto_detect_tor"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="Auto-detect Tor (host 127.0.0.1:8118+)"
+            android:textColor="#CCFFFFFF"
+            android:textSize="14sp"
+            android:checked="true" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginTop="12dp">
+
+            <Button
+                android:id="@+id/btn_apply_proxy"
+                android:layout_width="0dp"
+                android:layout_height="48dp"
+                android:layout_weight="1"
+                android:layout_marginEnd="4dp"
+                android:text="Apply"
+                android:textColor="#FF1A1A2E"
+                android:backgroundTint="#FF44FF88" />
+
+            <Button
+                android:id="@+id/btn_clear_proxy"
+                android:layout_width="0dp"
+                android:layout_height="48dp"
+                android:layout_weight="1"
+                android:layout_marginStart="4dp"
+                android:text="Clear"
+                android:textColor="#FFFFFFFF"
+                android:backgroundTint="#FF555577" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/proxy_status"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:textColor="#80FFFFFF"
+            android:textSize="12sp"
+            android:fontFamily="monospace"
+            android:text="" />
+
+        <!-- Stealth Section -->
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="#30FFFFFF"
+            android:layout_marginTop="16dp"
+            android:layout_marginBottom="16dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Stealth Profile"
+            android:textColor="#FF44FF88"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            android:layout_marginBottom="8dp" />
+
+        <Spinner
+            android:id="@+id/profile_spinner"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:background="@drawable/url_bar_bg"
+            android:padding="8dp" />
+
+        <TextView
+            android:id="@+id/profile_info"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:textColor="#80FFFFFF"
+            android:textSize="12sp"
+            android:fontFamily="monospace"
+            android:text="" />
+
+        <!-- CPharm Integration Section -->
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="#30FFFFFF"
+            android:layout_marginTop="16dp"
+            android:layout_marginBottom="16dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="CPharm Integration"
+            android:textColor="#FF44FF88"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            android:layout_marginBottom="8dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="JS Interface: FarmBrowser.openUrl(url)\nFarmBrowser.setProxy(host, port, type)\nFarmBrowser.clearProxy()\nFarmBrowser.stealthReload()"
+            android:textColor="#60FFFFFF"
+            android:textSize="12sp"
+            android:fontFamily="monospace"
+            android:background="@drawable/url_bar_bg"
+            android:padding="8dp" />
+
+        <Button
+            android:id="@+id/btn_test_proxy"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:layout_marginTop="12dp"
+            android:text="Test Proxy Connection"
+            android:textColor="#FFFFFFFF"
+            android:backgroundTint="#FF335577" />
+
+    </LinearLayout>
+</ScrollView>

@@ -1,0 +1,27 @@
+{
+  "option_sha256": "05e848980f98a95cf23a2a30fb73b07010a2785604e03ea511717fc3c916d629",
+  "timer1x_files": 384,
+  "timer2x_files": 96,
+  "no_ads_files": 240,
+  "ad_files": 240,
+  "total_json": 480,
+  "output_root": "C:\\CPharm\\cpharm-main\\sequences",
+  "resolutions": [
+    "540x960",
+    "720x1280",
+    "900x1600",
+    "1080x1920"
+  ],
+  "timer2x_fraction_expected": 0.2,
+  "ad_min_dwell_sec": 30.0,
+  "ad_max_dwell_sec": 45.0,
+  "humanization": [
+    "human_pace_v8: pre_site_fast (\u22642s post_wait+settle to age gate) + fast funnel taps + post_browser_fast",
+    "Mandatory Glass tab \u2192 select \u2192 BACK \u2192 Home after timer",
+    "Ad path: scroll-to-bottom \u2192 hesitate \u2192 ad tap (ad_selected) \u2192 read dwell 30-45s",
+    "No-ad path: optional scroll-to-bottom before identity tail",
+    "On-site: Gaussian waits, jitter taps, segmented stats scroll",
+    "identity tail: close_app \u2192 rotate_identity \u2192 full_reset (\u22640.5s gaps)"
+  ],
+  "preferred_browser": "com.farmbrowser.stealth.debug"
+}

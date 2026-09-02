@@ -1,0 +1,33 @@
+﻿PUSH_STATUS — 2026-06-21 22:42:28 local
+Repo: C:\Users\jsmil\CPharm\cpharm-clone
+Remote: https://github.com/twoskoops707/cpharm.git
+Branch: main
+Push success: YES
+
+Remote HEAD SHA: 48bd0a6bbb88800599a57d114446963a28e28733
+
+Commits pushed (40e18c5..48bd0a6):
+  c68e2a0 Fix DabFlow tail: glass+stats tab tour with scroll-to-bottom after session-notes skip.
+  129b74c Fix wizard scroll clipping on sequence and form pages.
+  533a652 Add folder playlist mode and three-tab post-skip tail with shorter waits.
+  12e4be2 Remove tracked proof script and ignore local scratch artifacts.
+  4b09f7c Delete tracked _proof_demo_ONE_live.py scratch script.
+  48bd0a6 fix(automation): preserve timer_complete waits; dedupe audit and tests
+
+New commit on push: 48bd0a6 (timer/dedupe, gitignore tor/scratch, wizard theme tweaks)
+
+Workflow: Build CPharm (.exe)
+  Run ID: 27932023387
+  Status: success
+  URL: https://github.com/twoskoops707/cpharm/actions/runs/27932023387
+
+Release: wizard-379 (build 379)
+  URL: https://github.com/twoskoops707/cpharm/releases/tag/wizard-379
+
+Local not committed (intentional):
+  automation/recordings/desktop_prefs.json (local phone IPs)
+  automation/session_notes_uia.py (untracked WIP)
+  automation/recordings/GROUPS_CONFIG_UPDATED.txt
+  tor data_*, tmp*.cfg, scratch _audit/_build scripts (gitignored)
+
+Git status after push: branch up to date with origin/main; only desktop_prefs.json modified locally.

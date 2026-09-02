@@ -1,0 +1,181 @@
+/* Shared CPharm glass UI — used by Phone Setup and main app */
+@import url("../mumu_setup/app.css");
+
+.app-shell {
+  position: relative;
+  z-index: 1;
+  flex: 1;
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr);
+  gap: 16px;
+  padding: 16px 20px;
+  min-height: 0;
+  overflow: hidden;
+  max-width: 1180px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+@media (max-width: 860px) {
+  .app-shell {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto 1fr;
+  }
+}
+
+.nav-rail {
+  background: var(--glass);
+  backdrop-filter: blur(24px) saturate(1.4);
+  -webkit-backdrop-filter: blur(24px) saturate(1.4);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 16px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 0;
+}
+
+.nav-brand {
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  background: linear-gradient(135deg, var(--t1) 0%, var(--accent-glow) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  padding: 4px 10px 12px;
+}
+
+.nav-item {
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  padding: 11px 12px;
+  font-family: var(--font);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--t2);
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.2s, border-color 0.2s, color 0.2s;
+}
+
+.nav-item:hover {
+  background: rgba(155, 140, 248, 0.08);
+  color: var(--t1);
+}
+
+.nav-item.active {
+  border-color: rgba(155, 140, 248, 0.45);
+  background: rgba(155, 140, 248, 0.12);
+  color: var(--accent-glow);
+}
+
+.nav-foot {
+  margin-top: auto;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.content-area {
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* view layout lives in cpharm_app/app.css */
+
+.prereq-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.prereq-item {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.prereq-item.ok {
+  border-color: rgba(62, 207, 176, 0.28);
+}
+
+.prereq-item.pending {
+  border-color: rgba(212, 165, 116, 0.35);
+}
+
+.prereq-status {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--t3);
+}
+
+.prereq-item.ok .prereq-status {
+  color: var(--green);
+}
+
+.action-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: stretch;
+}
+
+.btn-accent {
+  border: 1px solid rgba(155, 140, 248, 0.35);
+  border-radius: var(--radius);
+  padding: 12px 18px;
+  font-family: var(--font);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--accent-glow);
+  background: rgba(155, 140, 248, 0.12);
+  cursor: pointer;
+}
+
+.btn-accent:hover:not(:disabled) {
+  background: rgba(155, 140, 248, 0.2);
+}
+
+.btn-accent:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.progress-bar {
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  overflow: hidden;
+}
+
+.progress-bar > span {
+  display: block;
+  height: 100%;
+  width: 0%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--accent), var(--green));
+  transition: width 0.35s ease;
+}
+
+.select-mode {
+  border: 1px solid rgba(155, 140, 248, 0.35);
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+  font-family: var(--font);
+  font-size: 13px;
+  color: var(--t1);
+  background: rgba(7, 9, 15, 0.85);
+}

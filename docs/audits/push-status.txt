@@ -1,0 +1,71 @@
+﻿PUSH_STATUS.txt
+generated_utc=2026-06-21T22:52:06.1363305-07:00
+repo=https://github.com/twoskoops707/cpharm
+branch=main
+origin_main_sha=370b26f9578fe3cf8f7f495b8004c90a1f6a9cc7
+commits_this_session=
+  - 1513888 Add audit docs and sync CPharm notes with latest fixes (pushed by prior agent before this run)
+  - 370b26f Sync all CPharm associated notes, sequences, and fixes (this run)
+ci_run=https://github.com/twoskoops707/cpharm/actions/runs/27932235053
+ci_conclusion=success (headSha=370b26f9578fe3cf8f7f495b8004c90a1f6a9cc7)
+latest_release=CPharm (build 381 expected after CI; check gh release list)
+
+=== PUSHED (on origin/main) ===
+
+[docs/audits] (24 files) — consolidated from C:\Users\jsmil\CPharm root *.txt/*.md and sequences notes:
+docs/audits/cleanup-status.txt
+docs/audits/demo-run-log.txt
+docs/audits/demo-run-result.txt
+docs/audits/download-status.txt
+docs/audits/final-live-demo.txt
+docs/audits/final-live-results.txt
+docs/audits/final-live-run-log.jsonl
+docs/audits/folder-and-tabs-plan.txt
+docs/audits/full-automation-audit.txt
+docs/audits/full-flow-live.txt
+docs/audits/groups-config-updated-note.txt
+docs/audits/groups-config-updated.txt
+docs/audits/live-adb-demo.txt
+docs/audits/live-adb-view.txt
+docs/audits/matrix-regen-status.txt
+docs/audits/no-double-commands-audit.txt
+docs/audits/per-combo-timer-audit.txt
+docs/audits/playlist-repeat-fix.txt
+docs/audits/push-status-previous.txt
+docs/audits/random-stagger-fix.txt
+docs/audits/sequence-tail-audit.txt
+docs/audits/timer-fix-result.txt
+docs/audits/wizard-ux-modernization.md
+docs/audits/wizard-ux-scroll-audit.txt
+
+[sequences/] (75 paths) — full mirror from C:\Users\jsmil\CPharm\sequences:
+  - 70x *.json under 900x1600/ (ad, no-ad, early-exit)
+  - README.md, _dabflow_matrix_summary.json
+  - MATRIX_REGEN_STATUS.txt, NO_DOUBLE_COMMANDS_AUDIT.txt (also copied into docs/audits as no-double-commands-audit.txt)
+  - doesnt-finish/README.txt, early-exit/EARLY_EXIT_SEQUENCES.txt
+
+[wizard/] 43 tracked Python/UI modules (unchanged this push; already on main)
+
+[automation/] 79 tracked files including session_notes_uia.py (added 1513888)
+
+[other] CI workflows, README, .gitignore, fixtures, etc.
+
+=== THIS COMMIT (370b26f) ADDED ===
+80 files: 5 new docs/audits + 75 under sequences/
+
+=== NOT PUSHED (excluded by policy / .gitignore) ===
+- automation/recordings/groups_config.json — gitignored (machine-local groups); summary in docs/audits/groups-config-updated.txt + groups-config-updated-note.txt
+- automation/recordings/GROUPS_CONFIG_UPDATED.txt — duplicate note left untracked in recordings/ (content in docs/audits/groups-config-updated-note.txt)
+- .env, secrets, credentials, Tor automation/tor/data_*, tmp*.cfg, control_auth_cookie
+- live_adb/*.png, _uia_*.xml, *.rec session recordings, __pycache__, *.pyc
+- CPharm.exe binary (built by CI → GitHub Release, not in git tree)
+- Root C:\Users\jsmil\CPharm\*.png, SKIP_*_FIX.txt, USER_FINAL_TAP_LOG*, RANDOM_FIVE_LIVE*, scratch _proof_/_tmp_ scripts
+- FOLDER_PLAYLIST.txt — not found on disk (folder-and-tabs-plan.txt + playlist-repeat-fix.txt pushed instead)
+
+=== LOCAL-ONLY ROOT FILES (content already in repo under docs/audits) ===
+CLEANUP_STATUS.txt, DEMO_RUN_*, DOWNLOAD_STATUS.txt, FINAL_LIVE_*, FOLDER_AND_TABS_PLAN.txt,
+FULL_FLOW_LIVE.txt, LIVE_ADB_*, PER_COMBO_TIMER_AUDIT.txt, SEQUENCE_TAIL_AUDIT.txt,
+TIMER_FIX_RESULT.txt, WIZARD_UX_MODERNIZATION.md, PUSH_STATUS.txt (this file stays local; repo has push-status-previous.txt)
+
+=== COORDINATION ===
+No active git push from agents 1b26bc6c/3c5899c2 observed; resumed after partial state (1513888 on origin, sequences pending).

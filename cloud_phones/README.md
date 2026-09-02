@@ -1,0 +1,86 @@
+# CPharm Cloud Emulator Tools
+
+Unified tooling for local or hosted Android emulator instances (Redroid), including connection checks, backend recovery, and controlled phone-farm operations.
+
+## Quick Start
+
+The primary Windows operator interface is `CPharm.exe`. The release also includes `CPharmAgent.exe` for project diagnostics and `CPharmWatchdog.exe` for Docker/ADB/emulator health checks. Keep all three EXEs in the same folder; run the main CPharm GUI first. The complete operator guide is [../docs/EXE_QUICK_START.md](../docs/EXE_QUICK_START.md).
+
+The focused watchdog can repair only known Docker/ADB connection failures and does not touch unrelated processes.
+
+### 1. Build the EXE
+```batch
+cd C:\CPharm
+cloud_phones\build.bat
+```
+
+### 2. Deploy to Oracle Cloud
+```bash
+# On your Oracle Cloud ARM instance:
+bash cloud_phones/setup-oracle-cloud.sh
+```
+
+### 3. Connect & Apply Stealth
+```batch
+REM One command does everything:
+CloudPhones.exe setup --host 100.x.x.x
+
+REM Watch local backend and ADB connections:
+python tools\project_agent.py watchdog -- --apply --repair-docker
+
+REM Or step by step:
+CloudPhones.exe connect --host 100.x.x.x
+CloudPhones.exe stealth --host 100.x.x.x
+CloudPhones.exe tor --host 100.x.x.x --verify
+```
+
+## Commands
+
+| Command | Description |
+|---------|-------------|
+| `connect` | Connect to cloud instances via ADB |
+| `stealth` | Apply fingerprint, IMEI, browser identity |
+| `tor` | Set up Tor proxy per device |
+| `setup` | Run all three steps |
+| `status` | Show connected devices |
+
+## Options
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--host` | (required) | Cloud instance IP |
+| `--count` | 8 | Number of instances |
+| `--start-port` | 5555 | First ADB port |
+| `--verify` | false | Verify Tor exit IPs |
+
+## Stealth Protocols
+
+Each cloud device gets unique:
+
+- **Device fingerprint** (brand/model/build) - Samsung, Pixel, OnePlus, etc.
+- **IMEI** - Valid with Luhn check digit
+- **Android ID** - Random 16-char hex
+- **Serial number** - Unique per device
+- **Browser user-agent** - Matches device fingerprint
+- **MAC address** - Unique per device
+- **Tor proxy** - Own exit IP per device
+
+## Files
+
+| File | Purpose |
+|------|---------|
+| `cloud_phones_cli.py` | Main CLI entry point |
+| `connect-cloud-phones.py` | ADB connection logic |
+| `stealth-setup.py` | Fingerprint/IMEI stealth |
+| `tor-proxy-setup.py` | Tor proxy setup |
+| `docker-compose.redroid.yml` | Docker config for redroid instances |
+| `setup-oracle-cloud.sh` | Server-side setup script |
+| `build.bat` | Build CloudPhones.exe |
+| `build_cloud_phones.py` | PyInstaller build script |
+
+## Requirements
+
+- Windows with ADB (bundled or system)
+- Oracle Cloud ARM instance (free tier)
+- Docker installed on cloud instance
+- Tor (optional, for unique exit IPs)

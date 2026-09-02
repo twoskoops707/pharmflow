@@ -1,0 +1,156 @@
+═══════════════════════════════════════════════════════════
+  CPHARM.EXE DEBUG & RECOVERY GUIDE
+═══════════════════════════════════════════════════════════
+
+✓ COMPLETED: Emergency cleanup (killed stale processes, cleared port locks, restarted ADB)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📋 ISSUES DETECTED & FIXES:
+
+1. ⚠️ ADB TIMEOUTS (phones not responding)
+   ROOT CAUSE: Bundled adb.exe server hung/stale
+   FIX: ✓ Already done (EMERGENCY_CLEANUP.ps1)
+   VERIFY: Open PowerShell → adb devices
+           Should show all phones as "device" (not offline)
+
+2. ⚠️ TOR CIRCUITS DOWN (0/10 alive)
+   ROOT CAUSE: Tor may not be running or injector crashed
+   FIX: 1. Start CPharm.exe
+        2. Go to Launch step → "Set up Tor"
+        3. Click "Connect" and wait for READY status
+   TEST: Dashboard → check "Tor: 10/10" in top bar
+
+3. ⚠️ STUCK PHONES (Lawnchair, ANR, mCurrentFocus=null)
+   ROOT CAUSE: Emulators unresponsive
+   FIX: 1. Launch MuMu Multi-instance manager
+        2. Right-click each phone → COLD BOOT (not regular start)
+        3. Wait 2–3 min for each phone to fully boot
+        4. ADB will auto-detect when ready
+
+4. ⚠️ DASHBOARD DOESN'T START
+   ROOT CAUSE: Port 8080 or 8091 in use
+   FIX: ✓ Cleanup script freed all ports
+   TEST: Open http://localhost:8080 in browser
+        Should load CPharm dashboard (may take 30s)
+
+5. ⚠️ UI MENUS NOT LOADING / OLD STYLE
+   ROOT CAUSE: Cache corruption or old compiled code
+   FIX: 1. Close CPharm.exe completely
+        2. Delete: C:\CPharm\gui\__pycache__ (if exists)
+        3. Delete: %APPDATA%\CPharm (browser cache)
+        4. Restart CPharm.exe
+   NOTE: First load takes 10–15s after cleanup
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🔧 RECOMMENDED RECOVERY STEPS (IN ORDER):
+
+1. START MUMU
+   ├─ Open MuMu Multi-instance manager
+   ├─ Cold boot ALL phones (not regular start)
+   └─ Wait for all phones to show green ✓ status
+
+2. VERIFY ADB CONNECTION
+   ├─ Open PowerShell as Admin
+   ├─ Run: adb devices -l
+   ├─ Expected: all phones listed as "device"
+   └─ If offline: cold boot MuMu again
+
+3. START CPHARM.EXE
+   ├─ Double-click C:\CPharm\CPharm.exe
+   ├─ Wait 20–30s for GUI to load (first boot is slow)
+   ├─ If UI is frozen: wait another 30s
+   └─ If still frozen: see ADVANCED RECOVERY below
+
+4. RUN LAUNCH WIZARD (Step 9)
+   ├─ Click "Launch" in left sidebar
+   ├─ Step through the checks:
+   │  ├─ Check preflight
+   │  ├─ Set up Tor (WAIT for "READY" status)
+   │  ├─ Fix phone browsers (clear proxy)
+   │  ├─ Start server
+   │  └─ Go (start farm)
+   └─ Dashboard should now load at http://localhost:8080
+
+5. MONITOR LOGS
+   ├─ Dashboard top bar should show:
+   │  ├─ Devices: 10/10 (or your count)
+   │  ├─ Inject: 10/10
+   │  ├─ Tor: 10/10 (wait 2–3 min if starting)
+   │  └─ No red alerts
+   └─ If problems persist, see ADVANCED RECOVERY
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🛠️ ADVANCED RECOVERY (if still stuck):
+
+A. DASHBOARD STILL WON'T LOAD
+   1. Run cleanup again: powershell -ExecutionPolicy Bypass C:\CPharm\EMERGENCY_CLEANUP.ps1
+   2. Check if port is truly free: netstat -ano | findstr :8080
+   3. If process listed, note PID and: taskkill /PID <PID> /F
+   4. Restart CPharm.exe
+
+B. ADB DEVICES STILL SHOW OFFLINE
+   1. Fully restart MuMu:
+      - Close Multi-instance manager
+      - Close all MuMu.exe processes: taskkill /IM MuMu.exe /F
+      - Restart Multi-instance manager
+      - Start first phone (wait 1 min)
+      - Check: adb devices
+   2. If still offline, MuMu may not be configured for ARM:
+      - Download MuMu for ARM (not x64): mumuglobal.com/download
+      - Reinstall
+
+C. CPHARM FREEZES ON STARTUP
+   1. Clear cache: rmdir /s /q %APPDATA%\CPharm
+   2. Clear Python cache: rmdir /s /q C:\CPharm\gui\__pycache__
+   3. Open Task Manager, kill all python.exe processes
+   4. Restart CPharm.exe
+   5. If still freezes: check System Event Viewer for Python errors
+
+D. TOR NEVER REACHES 10/10 CIRCUITS
+   1. Check if Tor.exe is running: tasklist | findstr tor.exe
+   2. If not running:
+      a. Open CPharm → Launch → "Set up Tor"
+      b. Choose "Tor Browser" or "Expert Bundle" option
+      c. If Tor Browser: make sure it's installed (download from torproject.org)
+      d. If Expert Bundle: extract to C:\CPharm\automation\tor\
+   3. Wait 3–5 min for circuits to bootstrap (normal)
+   4. Check logs: tail -f C:\CPharm\logs\farm_watchdog.log
+
+E. SPECIFIC PHONE WON'T CONNECT
+   1. Get phone ID: adb devices
+   2. Test reboot: adb -s <ID> reboot
+   3. Wait 2 min, then: adb devices (should reconnect)
+   4. If still stuck:
+      a. MuMu Multi-instance → right-click phone → STOP
+      b. Wait 10s
+      c. Right-click → START (cold boot)
+      d. Wait 2 min, check adb
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📊 LOGS TO CHECK:
+
+1. Real-time farm status: tail -f C:\CPharm\logs\farm_watchdog.log
+2. ADB/phone events:     C:\CPharm\logs\farm_master.log
+3. Dashboard errors:     C:\CPharm\logs\cpharm.log
+4. UI/web errors:        C:\CPharm\logs\dash_trace.log
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+✅ SUCCESS CHECKLIST:
+
+After recovery, you should see:
+ □ All phones showing in MuMu as green ✓
+ □ adb devices -l shows all phones as "device"
+ □ CPharm.exe GUI loads without freezing
+ □ Dashboard at http://localhost:8080 loads
+ □ Top bar shows: Devices 10/10, Inject 10/10, Tor 10/10
+ □ No red error banners
+ □ Recent logs in C:\CPharm\logs\farm_watchdog.log show activity
+
+If you still have issues, check logs first:
+  • tail -f C:\CPharm\logs\farm_watchdog.log
+  • grep ERROR C:\CPharm\logs\cpharm.log

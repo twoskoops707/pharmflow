@@ -1,0 +1,163 @@
+"""Launch a single MuMu Player ARM VM by index (no mass restart)."""
+from __future__ import annotations
+
+import json
+import logging
+import os
+import re
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+logger = logging.getLogger(__name__)
+
+_NAME_IDX = re.compile(r"^vm(\d+)", re.I)
+_SHELL = Path(r"C:\Program Files\Netease\MuMuPlayerARM\shell\nemux-shell-winui.exe")
+_HCS_TOOL = Path(r"C:\Program Files\Netease\MuMuPlayerARM\shell\nemu-hcs-tool.exe")
+_LAUNCH_CACHE = Path(r"C:\CPharm\logs\mumu_launch_cache.json")
+_VM_IDX = re.compile(r"--VmIndex (\d+).*--ThumbnailName (\S+).*--T ([A-Za-z0-9+/=]+)")
+
+
+def phone_vm_index(name: str, fallback: int = 0) -> int:
+    m = _NAME_IDX.match((name or "").split(".")[0].strip())
+    if not m:
+        return int(fallback)
+    return int(m.group(1))
+
+
+def _shell_exe() -> Path | None:
+    env = Path(os.environ.get("CPHARM_MUMU_ROOT") or "")
+    candidates = [
+        _SHELL,
+        env / "shell" / "nemux-shell-winui.exe" if env else None,
+    ]
+    for path in candidates:
+        if path is not None and path.is_file():
+            return path
+    return None
+
+
+def instance_shell_running(idx: int) -> bool:
+    try:
+        import psutil
+    except ImportError:
+        return False
+    needle = f"--VmIndex {int(idx)}"
+    for proc in psutil.process_iter(["name", "cmdline"]):
+        try:
+            name = str(proc.info.get("name") or "").lower()
+            if "nemux-shell-winui" not in name:
+                continue
+            cmd = " ".join(str(x) for x in (proc.info.get("cmdline") or []))
+            if needle in cmd:
+                return True
+        except (psutil.Error, TypeError, ValueError):
+            continue
+    return False
+
+
+def harvest_launch_cache() -> dict[str, dict[str, str | int]]:
+    """Persist full nemux launch args (needs MuMu auth ``--T`` token) from running shells."""
+    cache: dict[str, dict[str, str | int]] = {}
+    if _LAUNCH_CACHE.is_file():
+        try:
+            raw = json.loads(_LAUNCH_CACHE.read_text(encoding="utf-8-sig"))
+            if isinstance(raw, dict):
+                cache = {str(k): v for k, v in raw.items() if isinstance(v, dict)}
+        except (OSError, json.JSONDecodeError, TypeError, ValueError):
+            cache = {}
+    try:
+        import psutil
+    except ImportError:
+        return cache
+    for proc in psutil.process_iter(["name", "cmdline"]):
+        try:
+            name = str(proc.info.get("name") or "").lower()
+            if "nemux-shell-winui" not in name:
+                continue
+            cmd = " ".join(str(x) for x in (proc.info.get("cmdline") or []))
+            m = _VM_IDX.search(cmd)
+            if not m:
+                continue
+            key = str(int(m.group(1)))
+            cache[key] = {
+                "idx": int(key),
+                "thumb": m.group(2),
+                "t": m.group(3),
+            }
+        except (psutil.Error, TypeError, ValueError):
+            continue
+    try:
+        _LAUNCH_CACHE.parent.mkdir(parents=True, exist_ok=True)
+        _LAUNCH_CACHE.write_text(json.dumps(cache, indent=2) + "\n", encoding="utf-8")
+    except OSError as exc:
+        logger.warning("mumu launch cache write failed: %s", exc)
+    return cache
+
+
+def hcs_compute_present(vm_name: str) -> bool | None:
+    """Return True when ``vmN.gmadoa`` exists in MuMu HCS; None if tool unavailable."""
+    tool = _HCS_TOOL if _HCS_TOOL.is_file() else None
+    if tool is None:
+        return None
+    try:
+        r = subprocess.run(
+            [str(tool), "--list", "computesystems"],
+            capture_output=True,
+            text=True,
+            timeout=20,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    blob = (r.stdout or "") + (r.stderr or "")
+    return vm_name in blob
+
+
+def launch_instance_index(idx: int, timeout: float = 120.0) -> tuple[bool, str]:
+    """Start MuMu ARM instance ``idx`` if its shell is not already running."""
+    idx = int(idx)
+    if instance_shell_running(idx):
+        return True, f"already_running idx={idx}"
+    vm_name = f"vm{idx}.gmadoa"
+    hcs = hcs_compute_present(vm_name)
+    if hcs is False:
+        return (
+            False,
+            f"hcs_missing {vm_name} — start/restart from MuMu Multi-instance UI (F6)",
+        )
+    exe = _shell_exe()
+    if exe is None:
+        return False, "nemux-shell-winui.exe missing"
+    cache = harvest_launch_cache()
+    entry = cache.get(str(idx)) or {}
+    thumb = str(entry.get("thumb") or "").strip()
+    token = str(entry.get("t") or "").strip()
+    if thumb and token:
+        arg = f"--VmIndex {idx} --ThumbnailName {thumb} --T {token}"
+    elif thumb:
+        arg = f"--VmIndex {idx} --ThumbnailName {thumb}"
+    else:
+        arg = f"--VmIndex {idx}"
+    flags = 0
+    if sys.platform == "win32":
+        flags = int(getattr(subprocess, "DETACHED_PROCESS", 0) or 0)
+    try:
+        subprocess.Popen(
+            [str(exe), arg],
+            cwd=str(exe.parent),
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=flags,
+            close_fds=True,
+        )
+    except OSError as exc:
+        return False, f"launch_fail:{exc}"
+    deadline = time.monotonic() + max(8.0, float(timeout))
+    while time.monotonic() < deadline:
+        if instance_shell_running(idx):
+            harvest_launch_cache()
+            return True, f"launched idx={idx}"
+        time.sleep(1.0)
+    return False, f"launch_timeout idx={idx} (need MuMu UI restart if hcs_missing)"

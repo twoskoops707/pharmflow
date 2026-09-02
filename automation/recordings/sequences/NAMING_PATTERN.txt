@@ -1,0 +1,16 @@
+Event-chain basenames for hardcoded sequence JSON (filesystem-safe, Windows-valid).
+
+Separators: use "__" between major phases (preferred) or "-" inside a token.
+Max length: stay under ~200 characters including ".json".
+
+Segments (ordered, high-level):
+  - Harness: close_chrome, open_<host> (hostname only, dots -> _), post-load waits folded into next phase
+  - Waits: omit micro-waits; name long dwells as w<seconds>s or timer96s / w45s when user-meaningful
+  - Taps: tap_<xband>_<yband> with bands L/C/R and top/umid/lmid/lbot from 900x1600 grid, OR semantic hints from docs (web_ads_left_hero_footer)
+  - swipe_up = finger moves up (scroll document down)
+  - keyevent 4 = back
+  - Tail: clear_cookies, close_chrome, rotate_identity, full_reset often abbreviated cleanup / cleanup_tail
+
+If two flows would collide, append "__h<6 hex chars>" from SHA256 of canonical JSON content.
+
+Remaining legacy filenames: rename incrementally using this pattern when touching a file.

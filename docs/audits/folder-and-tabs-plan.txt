@@ -1,0 +1,51 @@
+FOLDER PLAYLIST + 3-TAB TAIL — 2026-06-21
+==========================================
+
+## Folder playlist (`sequence_playlist.py` + wizard UI)
+
+### Runtime (`automation/sequence_playlist.py`)
+- Modes: `folder` | `folder_random` (plus existing ordered/random/series)
+- `sequence_folder`: relative path under `~/CPharm/sequences` (e.g. `900x1600/no-ad`)
+- Globs `*.json`, chains as series each iteration; `folder_random` shuffles per `(adb_serial, iteration)`
+- Strips per-file identity tail, appends single `_enforce_ip_id_tail` at end
+
+### Wizard (`wizard/setup_wizard.py` — PerPhoneSequenceEditor)
+- Radio: Folder / Folder (random)
+- Path entry + Browse folder… (sets relative path via `_rel_to_sequences_root`)
+- Folder mode hides Set A/B lists; saves `sequence_folder`, clears manual playlists
+- `_sync_folder_mode_ui()` toggles manual vs folder panels
+
+## 3-tab tail (Glass → Stats → Settings)
+
+### DOM source (DabFlow `www/index.html` @ origin/web)
+- Bottom nav: `[data-screen="glass"|"stats"|"settings"]` @ y≈1566 (900×1600)
+- Scroll: `#glass-screen main`, `#stats-screen main`, `#settings-screen main`
+
+### Layout (`automation/dabflow_layout.py`)
+- `TAB_GLASS` (630,1566), `TAB_STATS` (450,1566), `TAB_SETTINGS` (810,1566)
+- `GLASS_SCROLL_BOTTOM_SWIPES`, `STATS_SCROLL_BOTTOM_SWIPES`, `SETTINGS_SCROLL_BOTTOM_SWIPES` (3 swipes for long settings page)
+- `scroll_bottom_swipes(screen)` dispatches per tab
+
+### Generator (`automation/generate_dabflow_gold_matrix.py`)
+- `bottom_nav_tab_tour_steps()` — glass → stats → settings, checkpoints `tab_*` + `tab_*_scrolled_bottom`
+- `TAB_TOUR_POST_TAB_WAIT_SEC = 0.25`, `TAB_TOUR_SWIPE_WAIT_SEC = 0.25` (was 0.5s)
+- `glass_stats_tab_tour_steps()` alias for backward compatibility
+
+### Regenerated sequences
+- `sequences/900x1600/no-ad/` — 60 combo matrix files + `dabflow__demo__ONE.json` (gold reference)
+- Checkpoints required: `tab_glass`, `tab_glass_scrolled_bottom`, `tab_stats`, `tab_scrolled_bottom`, `tab_settings`, `tab_settings_scrolled_bottom`
+
+## Tail wait shortening
+- Tab tour waits: 0.25s (safe; live spot tests passed at 0.5s previously)
+- `sequence_humanize.py`: skip spread on `checkpoint=timer_complete` waits
+
+## Repo cleanup (scratch)
+- Delete `automation/_proof_*.py`, `_diag_*.py`, `_tmp_*.py`, one-off `_live_*` proof scripts
+- Keep: `_run_ONE_live_direct.py`, `_build_*.py`, `_validate_*.py`, `test_*.py`, `session_notes_uia.py`
+- Delete `automation/tor/tmp*.cfg` (NOT `data_*` dirs while Tor running)
+- Delete cpharm-clone root `_patch_*.py`, `_fix_test.py`, `_e2e_reset.json`, `_tmp_*.py`
+
+## Stale sequence rule
+- KEEP: `900x1600/no-ad/` (fresh 60 + demo ONE)
+- KEEP: `dabflow__demo__TWO.json` in ad folder if present
+- DELETE: other resolution/variant JSON lacking `tab_glass` + `tab_settings` checkpoints in tail

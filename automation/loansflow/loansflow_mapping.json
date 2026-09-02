@@ -1,0 +1,194 @@
+{
+  "source": "https://twoskoops707.github.io/loansflow",
+  "base_w": 900,
+  "base_h": 1600,
+  "url": "https://twoskoops707.github.io/loansflow/",
+  "mapped_at": "2026-07-29T23:54:43.393Z",
+  "screens": {
+    "home": {
+      "brand": {
+        "x": 118,
+        "y": 37,
+        "w": 163,
+        "h": 23
+      },
+      "cta_launch": {
+        "x": 810,
+        "y": 37,
+        "w": 107,
+        "h": 37
+      },
+      "cta_browse": {
+        "x": 323,
+        "y": 1509,
+        "w": 171,
+        "h": 53
+      },
+      "tools_section": {
+        "x": 450,
+        "y": 2351,
+        "w": 900,
+        "h": 1501
+      },
+      "ad_top": {
+        "x": 450,
+        "y": 1896,
+        "w": 828,
+        "h": 90
+      },
+      "tool_links": {
+        "SBA & Commercial": {
+          "x": 450,
+          "y": 2045,
+          "href": "tools/?step=0"
+        },
+        "Commercial Amortization": {
+          "x": 450,
+          "y": 2221,
+          "href": "tools/?step=1"
+        },
+        "Line of Credit": {
+          "x": 450,
+          "y": 2397,
+          "href": "tools/?step=2"
+        },
+        "Mortgage Payment": {
+          "x": 450,
+          "y": 2573,
+          "href": "tools/?step=3"
+        },
+        "Amortization Ledger": {
+          "x": 450,
+          "y": 2749,
+          "href": "tools/?step=5"
+        },
+        "Refinance & Affordability": {
+          "x": 450,
+          "y": 2925,
+          "href": "tools/?step=6"
+        }
+      }
+    },
+    "home_scrolled": {
+      "ad_top": {
+        "x": 450,
+        "y": 345,
+        "w": 828,
+        "h": 90
+      },
+      "tool_sba": {
+        "x": 450,
+        "y": 494,
+        "w": 828,
+        "h": 160
+      },
+      "tool_mortgage": {
+        "x": 450,
+        "y": 1022,
+        "w": 828,
+        "h": 160
+      }
+    },
+    "tools": {
+      "brand_home": {
+        "x": 450,
+        "y": 52,
+        "w": 867,
+        "h": 68
+      },
+      "steps": {
+        "SBA & Commercial Loan": {
+          "index": 0,
+          "x": 126,
+          "y": 136
+        },
+        "Commercial Amortization": {
+          "index": 1,
+          "x": 355,
+          "y": 136
+        },
+        "Line of Credit": {
+          "index": 2,
+          "x": 549,
+          "y": 136
+        },
+        "Mortgage: Loan Details": {
+          "index": 3,
+          "x": 735,
+          "y": 136
+        },
+        "Mortgage: Payment Breakdown": {
+          "index": 4,
+          "x": 982,
+          "y": 136
+        },
+        "Mortgage: Amortization Ledger": {
+          "index": 5,
+          "x": 1257,
+          "y": 136
+        },
+        "Mortgage: Refinance Comparison": {
+          "index": 6,
+          "x": 1541,
+          "y": 136
+        },
+        "Mortgage: Affordability": {
+          "index": 7,
+          "x": 1796,
+          "y": 136
+        },
+        "Market News & Rates": {
+          "index": 8,
+          "x": 2008,
+          "y": 136
+        }
+      },
+      "primary_cta": {
+        "x": 697,
+        "y": 1879,
+        "w": 271,
+        "h": 48
+      },
+      "ad_slots": [
+        {
+          "index": 0,
+          "x": 440,
+          "y": 1777,
+          "scrolls_before": 0
+        },
+        {
+          "index": 1,
+          "x": 450,
+          "y": 1552,
+          "scrolls_before": 1
+        }
+      ],
+      "anchor_ad": {
+        "x": 450,
+        "y": 1552,
+        "w": 868,
+        "h": 74
+      }
+    },
+    "tools_scrolled": {
+      "ad_slots": [
+        {
+          "index": 0,
+          "x": 440,
+          "y": 977
+        },
+        {
+          "index": 1,
+          "x": 450,
+          "y": 1552
+        }
+      ],
+      "primary_cta": {
+        "x": 697,
+        "y": 1079,
+        "w": 271,
+        "h": 48
+      }
+    }
+  }
+}

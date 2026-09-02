@@ -1,0 +1,201 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:fillViewport="true"
+    android:background="@color/bg_cream">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="16dp">
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnBack"
+            style="@style/Widget.MaterialComponents.Button.TextButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/back_to_farm" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/money_title"
+            android:textSize="22sp"
+            android:textStyle="bold"
+            android:textColor="@color/text_primary"
+            android:paddingBottom="8dp" />
+
+        <EditText
+            android:id="@+id/farmUrl"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="@string/laptop_hint"
+            android:inputType="textUri"
+            android:importantForAutofill="no" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/btnFetch"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/fetch_live" />
+
+            <Button
+                android:id="@+id/btnSaveMantis"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/save_to_laptop" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/liveStatus"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingTop="4dp"
+            android:textSize="13sp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/mantis_today"
+            android:textStyle="bold"
+            android:paddingTop="16dp" />
+
+        <EditText
+            android:id="@+id/farmVisits"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="@string/hint_visits"
+            android:inputType="number"
+            android:importantForAutofill="no" />
+
+        <EditText
+            android:id="@+id/impressions"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="@string/hint_impressions"
+            android:inputType="number"
+            android:importantForAutofill="no" />
+
+        <EditText
+            android:id="@+id/clicks"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="@string/hint_clicks"
+            android:inputType="number"
+            android:importantForAutofill="no" />
+
+        <EditText
+            android:id="@+id/payout"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="@string/hint_payout"
+            android:inputType="numberDecimal"
+            android:importantForAutofill="no" />
+
+        <EditText
+            android:id="@+id/ecpm"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="@string/hint_ecpm"
+            android:inputType="numberDecimal"
+            android:importantForAutofill="no" />
+
+        <EditText
+            android:id="@+id/evcpm"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="@string/hint_evcpm"
+            android:inputType="numberDecimal"
+            android:importantForAutofill="no" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/scale_and_costs"
+            android:textStyle="bold"
+            android:paddingTop="12dp" />
+
+        <EditText
+            android:id="@+id/phoneCount"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="@string/hint_phones"
+            android:inputType="number"
+            android:importantForAutofill="no" />
+
+        <EditText
+            android:id="@+id/aiCostMonth"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="@string/hint_ai_cost"
+            android:inputType="numberDecimal"
+            android:importantForAutofill="no" />
+
+        <EditText
+            android:id="@+id/powerCostMonth"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="@string/hint_power_cost"
+            android:inputType="numberDecimal"
+            android:importantForAutofill="no" />
+
+        <Button
+            android:id="@+id/btnRecalc"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/calculate" />
+
+        <TextView
+            android:id="@+id/results"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingTop="8dp"
+            android:textSize="14sp"
+            android:lineSpacingExtra="4dp" />
+
+        <TextView
+            android:id="@+id/statusBadge"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingTop="8dp"
+            android:textSize="16sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/scalingLimits"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingTop="8dp"
+            android:textSize="13sp" />
+
+        <TextView
+            android:id="@+id/profitability"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingTop="8dp"
+            android:textSize="13sp" />
+
+        <TextView
+            android:id="@+id/incrementalScaling"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingTop="8dp"
+            android:textSize="12sp" />
+
+        <TextView
+            android:id="@+id/humanizeRef"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingTop="8dp"
+            android:textSize="12sp" />
+    </LinearLayout>
+</ScrollView>
