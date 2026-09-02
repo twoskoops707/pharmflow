@@ -1028,17 +1028,85 @@ def _combined_tool_path(rel: str) -> str:
     return str(Path(__file__).resolve().parent.parent / rel)
 
 
+def _ensure_console() -> None:
+    """Give the frozen windowed EXE a stdout when a caller runs it in CLI mode.
+
+    PyInstaller ``console=False`` builds have ``sys.stdout is None``; argparse
+    ``--help``/``--version`` and tool prints would crash on ``None.write``.
+    When launched from a console we attach to the parent console so output and
+    exit codes behave; otherwise we fall back to ``os.devnull`` (headless runs
+    such as a scheduled watchdog keep their own log redirects).
+    """
+    if sys.stdout is not None:
+        return
+    try:
+        if sys.platform == "win32":
+            import ctypes
+
+            kernel32 = ctypes.windll.kernel32
+            ATTACH_PARENT_PROCESS = -1
+            if kernel32.AttachConsole(ATTACH_PARENT_PROCESS):
+                sys.stdout = open("CONOUT$", "w", encoding="utf-8", errors="replace")
+                sys.stderr = open("CONOUT$", "w", encoding="utf-8", errors="replace")
+                return
+    except Exception:
+        pass
+    if sys.stdout is None:
+        import os as _os
+
+        sys.stdout = open(_os.devnull, "w", encoding="utf-8", errors="replace")
+        if sys.stderr is None:
+            sys.stderr = open(_os.devnull, "w", encoding="utf-8", errors="replace")
+
+
+def _exec_tool_module(script: str, target: list[str]) -> int:
+    """Execute a bundled tools/*.py in-process (frozen onefile world)."""
+    import importlib.util
+
+    _ensure_console()
+    spec = importlib.util.spec_from_file_location("_cpharm_combined_tool", script)
+    if spec is None or spec.loader is None:
+        print(f"Combined tool not loadable: {script}", file=sys.stderr)
+        return 1
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = mod
+    try:
+        spec.loader.exec_module(mod)
+    except Exception as exc:  # noqa: BLE001 - report and fail loudly
+        print(f"Combined tool import failed ({script}): {exc}", file=sys.stderr)
+        return 1
+    if not callable(getattr(mod, "main", None)):
+        return 0
+    old_argv = list(sys.argv)
+    sys.argv = [script, *target]
+    try:
+        rc = mod.main()
+        return int(rc) if rc is not None else 0
+    except SystemExit as exc:  # argparse --help/--version exits via SystemExit
+        code = exc.code
+        if code is None:
+            return 0
+        return int(code) if isinstance(code, int) else 1
+    finally:
+        sys.argv = old_argv
+
+
 def run_combined_tool(flag: str, rel: str) -> int | None:
-    """If ``flag`` is in argv, run the bundled tool script as a subprocess and
-    return its exit code; otherwise return None (not in combined mode).
-    The script is invoked via ``python`` so the GUI EXE stays windowed and the
-    tool's own argparse/stdout behaviour is preserved."""
+    """If ``flag`` is in argv, run the bundled tool and return its exit code;
+    otherwise return None (not in combined mode).
+
+    From source, the tool script is spawned with the current interpreter so the
+    GUI stays windowed. Frozen, there is no interpreter to spawn a bare ``.py``
+    with, so the bundled script (``_MEIPASS/tools/*.py``) is executed
+    in-process instead — same module, same argparse behaviour."""
     if flag not in sys.argv:
         return None
     script = _combined_tool_path(rel)
     argv = list(sys.argv)
     i = argv.index(flag)
     target = [*argv[i + 1:]]
+    if getattr(sys, "frozen", False):
+        return _exec_tool_module(script, target)
     cmd = [sys.executable, script, *target]
     flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if sys.platform == "win32" else 0
     try:
@@ -1050,6 +1118,7 @@ def run_combined_tool(flag: str, rel: str) -> int | None:
 
 
 def main() -> None:
+    _ensure_console()
     if "--version" in sys.argv:
         import cpharm_version as ver
         print(ver.display_version())
