@@ -1,9 +1,9 @@
 $ErrorActionPreference = "Stop"
 
+# Single-EXE pipeline: one binary (CPharm.exe) bundles the GUI wizard plus the
+# agent (--agent) and watchdog (--watchdog) combined-mode entrypoints.
 $files = @(
-  "wizard/dist/CPharm.exe",
-  "dist/CPharmAgent.exe",
-  "dist/CPharmWatchdog.exe"
+  "wizard/dist/CPharm.exe"
 )
 foreach ($file in $files) {
   if (!(Test-Path -LiteralPath $file)) { throw "Missing build artifact: $file" }
@@ -16,13 +16,15 @@ function Invoke-ExeText([string]$path, [string[]]$arguments) {
   return $output
 }
 
-$agentVersion = Invoke-ExeText ".\dist\CPharmAgent.exe" @("--version")
-if ($agentVersion -notmatch "CPharmAgent") { throw "CPharmAgent --version failed: $agentVersion" }
-$watchdogVersion = Invoke-ExeText ".\dist\CPharmWatchdog.exe" @("--version")
-if ($watchdogVersion -notmatch "CPharmWatchdog") { throw "CPharmWatchdog --version failed: $watchdogVersion" }
-$agentHelp = Invoke-ExeText ".\dist\CPharmAgent.exe" @("--help")
-if ($agentHelp -notmatch "agent-plan") { throw "CPharmAgent --help failed" }
-$watchdogHelp = Invoke-ExeText ".\dist\CPharmWatchdog.exe" @("--help")
-if ($watchdogHelp -notmatch "repair-docker") { throw "CPharmWatchdog --help failed" }
+$exe = ".\wizard\dist\CPharm.exe"
 
-Write-Host "All three CPharm EXE artifacts passed release smoke checks."
+$appVersion = Invoke-ExeText $exe @("--version")
+if ($appVersion -notmatch "CPharm") { throw "CPharm.exe --version failed: $appVersion" }
+
+$watchdogHelp = Invoke-ExeText $exe @("--watchdog", "--help")
+if ($watchdogHelp -notmatch "repair-docker") { throw "CPharm.exe --watchdog --help failed" }
+
+$agentVersion = Invoke-ExeText $exe @("--agent", "--version")
+if ($agentVersion -notmatch "CPharmAgent") { throw "CPharm.exe --agent --version failed: $agentVersion" }
+
+Write-Host "CPharm.exe (single EXE with bundled agent + watchdog) passed release smoke checks."
