@@ -26,6 +26,7 @@ id_ed25519
 apks/*.apk
 user-downloads/
 **/bundled/*.apk
+!bundled/farmbrowser-debug.apk
 **/bundled/_chromium_android.zip
 
 # Legacy emulator backup files (optional local installs)

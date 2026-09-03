@@ -76,10 +76,15 @@ _APK_ALIASES: dict[str, tuple[str, ...]] = {
 
 
 def _browser_apk_path(apk_name: str) -> Path | None:
-    """Resolve a browser APK under <root>/apks, honoring aliases."""
-    from wizard_paths import cpharm_default_install_root
+    """Resolve a browser APK: embedded in the EXE first, then <root>/apks."""
+    from wizard_paths import cpharm_default_install_root, meipass_dir
 
     root = cpharm_default_install_root()
+    embedded = meipass_dir()
+    for base in ((embedded,) if embedded is not None else ()) + (root,):
+        p = base / "bundled" / "apks" / apk_name
+        if p.is_file():
+            return p
     for name in (_APK_ALIASES.get(apk_name) or (apk_name,)):
         path = root / "apks" / name
         if path.is_file():
@@ -341,6 +346,10 @@ class MuMuSetupApi:
                             log(f"    -> {pkg} confirmed on {ser}")
                         else:
                             note = "installed but package not confirmed"
+                    if installed_ok:
+                        removed = browser_setup.remove_lawnchair(ser, log)
+                        if removed:
+                            log(f"    Lawnchair deleted on {ser}: {', '.join(removed)}")
                     results.append({"serial": ser, "ok": bool(installed_ok), "note": note})
                 ok = all(r["ok"] for r in results)
                 msg = (

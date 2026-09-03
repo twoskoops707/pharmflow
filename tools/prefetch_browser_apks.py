@@ -96,6 +96,9 @@ def _download_spec(spec, dest: Path) -> Path:
         "duckduckgo": (resolve_duckduckgo_apk_url,),
         "opera": (resolve_opera_apk_url,),
     }
+    if spec.tag == "farmbrowser":
+        return _copy_farmbrowser(dest)
+
     chain = resolvers.get(spec.tag)
     if not chain:
         raise RuntimeError(f"no resolver for {spec.tag}")
@@ -110,6 +113,27 @@ def _download_spec(spec, dest: Path) -> Path:
             last_exc = exc
             print(f"      mirror failed: {exc}")
     raise RuntimeError(f"all mirrors failed for {spec.tag}: {last_exc}")
+
+
+def _copy_farmbrowser(dest: Path) -> Path:
+    """Embed the prebuilt FarmBrowser APK (no public mirror exists for it)."""
+    import shutil
+
+    sources = [
+        _ROOT / "bundled" / "farmbrowser-debug.apk",
+        Path(r"C:\CPharm\apks\farmbrowser-debug.apk"),
+        _ROOT / "farmbrowser" / "app" / "build" / "outputs" / "apk" / "debug" / "app-debug.apk",
+        _ROOT / "farmbrowser" / "app" / "build" / "outputs" / "apk" / "release" / "app-release.apk",
+    ]
+    for s in sources:
+        if s.is_file() and s.stat().st_size > 100_000:
+            shutil.copy2(s, dest)
+            print(f"      embedded local FarmBrowser build: {s}")
+            return dest
+    raise RuntimeError(
+        "FarmBrowser APK not found locally (C:\\CPharm\\apks or farmbrowser build output); "
+        "not embedded this build"
+    )
 
 
 if __name__ == "__main__":

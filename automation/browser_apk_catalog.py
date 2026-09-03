@@ -29,6 +29,7 @@ from automation.config import (
     BROWSER_BRAVE,
     BROWSER_CHROMIUM,
     BROWSER_DUCKDUCKGO,
+    BROWSER_FARMBROWSER,
     BROWSER_FIREFOX,
     BROWSER_OPERA,
     CHROMIUM_DOWNLOAD_URL,
@@ -45,6 +46,7 @@ APK_FILENAMES: dict[str, str] = {
     BROWSER_BRAVE: "brave-android-arm64.apk",
     BROWSER_DUCKDUCKGO: "duckduckgo-android.apk",
     BROWSER_OPERA: "opera-android-arm64.apk",
+    BROWSER_FARMBROWSER: "farmbrowser-debug.apk",
 }
 
 MOZILLA_FENIX_RELEASES = "https://ftp.mozilla.org/pub/fenix/releases/"
@@ -131,6 +133,18 @@ BROWSER_APK_SPECS: tuple[BrowserApkSpec, ...] = (
         notes=(
             "Opera ARM64 (arm8) APK from get.geo.opera.com public FTP. "
             "Package verified via aapt: com.opera.browser. No account required."
+        ),
+    ),
+    BrowserApkSpec(
+        tag="farmbrowser",
+        package=BROWSER_FARMBROWSER,
+        label="FarmBrowser (stealth)",
+        filename=APK_FILENAMES[BROWSER_FARMBROWSER],
+        path12=True,
+        path3=False,
+        notes=(
+            "Custom stealth money browser built from farmbrowser/ (gradle). "
+            "No public download — ships built-in with the EXE."
         ),
     ),
 )
@@ -332,6 +346,31 @@ def find_embedded_apk(spec: BrowserApkSpec) -> Path | None:
     return None
 
 
+def _resolve_farmbrowser_apk(dest: Path) -> Path:
+    """FarmBrowser is a prebuilt APK — there is no public download URL.
+
+    Sources, in order: embedded inside the EXE, the APK cache dir, then the
+    gradle build output. Never hits the network.
+    """
+    embedded = find_embedded_apk(spec_for_package(BROWSER_FARMBROWSER))
+    if embedded is not None:
+        return embedded
+    if dest.is_file() and dest.stat().st_size > 100_000:
+        return dest
+    root = Path(__file__).resolve().parents[1]
+    for rel in (
+        "farmbrowser/app/build/outputs/apk/debug/app-debug.apk",
+        "farmbrowser/app/build/outputs/apk/release/app-release.apk",
+    ):
+        p = root / rel
+        if p.is_file() and p.stat().st_size > 100_000:
+            return p
+    raise RuntimeError(
+        "FarmBrowser APK not found. Build it (farmbrowser/gradlew.bat assembleDebug) "
+        "or drop farmbrowser-debug.apk into the apks folder, then retry."
+    )
+
+
 def download_browser_apk(
     spec: BrowserApkSpec,
     *,
@@ -350,6 +389,9 @@ def download_browser_apk(
     if embedded is not None:
         logger.info("Using built-in APK %s", embedded)
         return embedded
+
+    if spec.package == BROWSER_FARMBROWSER:
+        return _resolve_farmbrowser_apk(dest)
 
     if spec.package == BROWSER_FIREFOX:
         url = resolve_firefox_apk_url()

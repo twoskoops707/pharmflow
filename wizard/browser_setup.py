@@ -326,6 +326,66 @@ def install_apk(serial: str, apk: Path, log: LogFn | None = None) -> tuple[bool,
     return ok, out
 
 
+LAWNCHAIR_PKGS = (
+    "app.lawnchair",
+    "ch.deletescape.lawnchair",
+    "com.google.android.apps.nexuslauncher",
+)
+
+
+def remove_lawnchair(serial: str, log: LogFn | None = None) -> list[str]:
+    """Delete the Lawnchair launcher apps (and its variants) from a phone.
+
+    Best effort: force-stops, then uninstalls per-user so system copies can be
+    restored later if ever needed. Returns the list of packages removed.
+    """
+    log = log or (lambda _m: None)
+    exe = _adb_exe()
+    removed: list[str] = []
+    for pkg in LAWNCHAIR_PKGS:
+        try:
+            chk = subprocess.run(
+                [exe, "-s", serial, "shell", "pm", "list", "packages", pkg],
+                capture_output=True,
+                text=True,
+                timeout=15,
+                creationflags=_SUBPROC_FLAGS,
+            )
+        except subprocess.TimeoutExpired:
+            continue
+        if pkg not in ((chk.stdout or "") + (chk.stderr or "")):
+            continue  # not present — nothing to delete
+        log(f"    Removing Lawnchair ({pkg}) on {serial}…")
+        try:
+            subprocess.run(
+                [exe, "-s", serial, "shell", "am", "force-stop", pkg],
+                capture_output=True,
+                text=True,
+                timeout=15,
+                creationflags=_SUBPROC_FLAGS,
+            )
+        except subprocess.TimeoutExpired:
+            pass
+        for args in (("pm", "uninstall", "--user", "0", pkg), ("pm", "uninstall", pkg)):
+            try:
+                r = subprocess.run(
+                    [exe, "-s", serial, "shell", *args],
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                    creationflags=_SUBPROC_FLAGS,
+                )
+            except subprocess.TimeoutExpired:
+                continue
+            if "Success" in ((r.stdout or "") + (r.stderr or "")):
+                removed.append(pkg)
+                log(f"    -> {pkg} deleted ✓")
+                break
+        else:
+            log(f"    -> {pkg} could not be uninstalled (system app?)")
+    return removed
+
+
 def resolve_chromium_apk(serial: str, log: LogFn | None = None) -> Path | None:
     """Pick or download the ChromePublic.apk matching ``serial`` device ABI."""
     log = log or (lambda _m: None)
