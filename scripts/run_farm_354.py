@@ -405,6 +405,33 @@ def _lock_boot_ready(farm: MuMuFarmOps) -> bool:
     return matched >= expect
 
 
+def _running_shell_indexes() -> set[int]:
+    """Indexes of MuMu VMs whose emulator shell is actually running.
+
+    Keeps the discovery connect pass bounded: only live shells are probed,
+    never the full configured VM list (40+ dead guests wedge on adb timeouts).
+    """
+    import re as _re
+    import psutil
+
+    out: set[int] = set()
+    try:
+        for proc in psutil.process_iter(["name", "cmdline"]):
+            try:
+                name = str(proc.info.get("name") or "").lower()
+                if "nemux-shell-winui" not in name:
+                    continue
+                cmd = " ".join(str(x) for x in (proc.info.get("cmdline") or []))
+                m = _re.search(r"--VmIndex (\d+)", cmd)
+                if m:
+                    out.add(int(m.group(1)))
+            except (psutil.Error, TypeError, ValueError):
+                continue
+    except Exception:
+        pass
+    return out
+
+
 def _discover_available_phones(
     farm: MuMuFarmOps,
     *,
@@ -440,11 +467,22 @@ def _discover_available_phones(
         except Exception:
             any_live = True  # probe when the ADB bus is uncertain
         if any_live:
+            # Devices are already on the ADB bus. Do NOT walk every configured
+            # VM with adb connect — each dead guest costs a TCP timeout and the
+            # full pass wedges the farm lane for minutes (observed: one live
+            # phone + stale multi-phone lock froze discovery for 10+ min). Only
+            # probe emulators whose shell process is actually running.
+            running_idxs = _running_shell_indexes()
             for inst in instances:
                 try:
-                    farm.connect_adb(inst.name)
-                except Exception:
-                    pass
+                    idx = int(getattr(inst, "index", -1) or -1)
+                except (TypeError, ValueError):
+                    idx = -1
+                if idx in running_idxs:
+                    try:
+                        farm.connect_adb(inst.name)
+                    except Exception:
+                        pass
             try:
                 farm.list_instances()
             except Exception:
