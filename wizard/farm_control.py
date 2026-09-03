@@ -84,7 +84,19 @@ def _resolve_helper_python() -> str | None:
         return exe
 
     local = Path(os.environ.get("LOCALAPPDATA", ""))
+    candidates: list[Path] = []
+    # The frozen bundle extracts .pyd extensions compiled for the SAME CPython
+    # that built it (sys.version_info). Helper lanes run under a real pythonw
+    # with the bundle on sys.path, so a version mismatch kills every lane with
+    # "Module use of pythonXXX.dll conflicts with this version of Python".
+    # Prefer a pythonw matching the build version before anything else.
+    maj, minor = sys.version_info[:2]
     candidates = [
+        local / "Python" / f"pythoncore-{maj}.{minor}-64" / "pythonw.exe",
+        local / "Programs" / "Python" / f"Python{maj}{minor}" / "pythonw.exe",
+        Path(f"C:\\Python{maj}{minor}\\pythonw.exe"),
+    ]
+    candidates += [
         local / "Python" / "pythoncore-3.14-64" / "pythonw.exe",
         local / "Python" / "pythoncore-3.13-64" / "pythonw.exe",
         local / "Python" / "pythoncore-3.12-64" / "pythonw.exe",

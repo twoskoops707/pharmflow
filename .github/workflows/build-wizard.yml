@@ -19,10 +19,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Python 3.11
+      - name: Set up Python 3.14
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          # MUST match the pythonw version the farm helpers run under on the
+          # operator box (pythoncore-3.14-64). A mismatched bundle extracts
+          # .pyd files compiled for another CPython, and helper lanes then die
+          # with "Module use of pythonXXX.dll conflicts with this version".
+          python-version: "3.14"
 
       - name: Install dependencies
         run: |
