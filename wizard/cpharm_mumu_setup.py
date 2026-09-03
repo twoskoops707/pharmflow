@@ -40,14 +40,14 @@ class MuMuSetupTkFallback(tk.Tk):
     def __init__(self, *, skip_launch_cpharm: bool = False) -> None:
         super().__init__()
         self._skip_launch_cpharm = skip_launch_cpharm
-        self.title("CPharm — Phone Setup")
+        self.title("PharmFlow — Phone Setup")
         self.configure(bg=BG)
         self.minsize(640, 520)
         self.geometry("720x580")
 
         tk.Label(
             self,
-            text="CPharm Phone Setup",
+            text="PharmFlow Phone Setup",
             font=("Segoe UI", 22, "bold"),
             bg=BG,
             fg=T1,
@@ -98,7 +98,7 @@ class MuMuSetupTkFallback(tk.Tk):
 
         self._cpharm_only_btn = tk.Button(
             btn_row,
-            text="Open CPharm only",
+            text="Open PharmFlow only",
             font=("Segoe UI", 10),
             bg=BG2,
             fg=T1,
@@ -142,7 +142,7 @@ class MuMuSetupTkFallback(tk.Tk):
             self._log_write("\nSetup complete — return to the main CPharm window.\n")
             messagebox.showinfo(
                 "Phone Setup",
-                "Setup complete.\n\nReturn to the main CPharm window to continue.",
+                "Setup complete.\n\nReturn to the main PharmFlow window to continue.",
             )
             return
         ok, msg = core.launch_cpharm()

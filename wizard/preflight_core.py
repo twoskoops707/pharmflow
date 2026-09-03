@@ -115,16 +115,24 @@ def _legacy_find_mumu_install() -> Path | None:
 
 
 def cpharm_exe_beside_setup() -> tuple[bool, Path]:
-    """True when PharmFlow is available — unified exe counts as ready."""
+    """True when PharmFlow is available — the running app counts as ready.
+
+    The unified PharmFlow.exe (formerly CPharm.exe) runs phone setup in-process
+    (``--phone-setup``), so when this code runs the app is already available.
+    """
     if getattr(sys, "frozen", False):
         exe = Path(sys.executable).resolve()
-        if exe.stem.lower() == "cpharm":
+        stem = exe.stem.lower()
+        if stem in ("pharmflow", "cpharm"):
             return True, exe
-        folder = exe.parent
-        cpharm = folder / "CPharm.exe"
-        return cpharm.is_file(), cpharm
-    folder = Path(__file__).resolve().parent
-    return True, folder / "CPharm.exe"
+        # Legacy standalone helper exe: look for the main app beside it.
+        for name in ("PharmFlow.exe", "CPharm.exe"):
+            sibling = exe.parent / name
+            if sibling.is_file():
+                return True, sibling
+        return False, exe.parent / "PharmFlow.exe"
+    # Running from source inside the app — the app is live.
+    return True, Path(__file__).resolve().parent / "cpharm_desktop.py"
 
 
 def setup_marker_path(data_root: Path) -> Path:
@@ -375,7 +383,7 @@ def build_checklist(data_root: Path) -> list[dict]:
         {
             "id": "folder",
             "title": "PharmFlow is ready",
-            "help": "One CPharm.exe does everything — wizard, phone setup, and dashboard.",
+            "help": "One PharmFlow.exe does everything — wizard, phone setup, dashboard, and watchdog.",
             "status": "pass" if exe_ok else "fail",
             "action": None if exe_ok else "download_cpharm",
         },

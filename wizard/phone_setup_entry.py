@@ -13,13 +13,17 @@ if str(_wizard_dir) not in sys.path:
 
 
 def is_unified_cpharm(argv: list[str] | None = None) -> bool:
-    """True when the running process is the single shipped CPharm.exe."""
+    """True when the running process is the single shipped app exe.
+
+    PharmFlow.exe is the unified app (formerly CPharm.exe); both names count
+    so older installs keep working after the rebrand.
+    """
     if not getattr(sys, "frozen", False):
         return False
     args = list(argv if argv is not None else sys.argv)
     if "--phone-setup" in args:
         return True
-    return Path(sys.executable).stem.lower() == "cpharm"
+    return Path(sys.executable).stem.lower() in ("pharmflow", "cpharm")
 
 
 def is_phone_setup_mode(argv: list[str] | None = None) -> bool:

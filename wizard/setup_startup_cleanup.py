@@ -1,10 +1,10 @@
 """
-Close stale MuMu, adb, and CPharm processes before CPharmMuMuSetup opens.
+Close stale MuMu, adb, and PharmFlow processes before phone setup opens.
 
-Runs automatically when **CPharmMuMuSetup.exe** starts (before the UI). On the
-**first setup** (``mumu_setup_complete`` not yet set), also closes MuMu so you
-start from a clean slate. After setup is done, re-opening setup only clears
-duplicate CPharm / adb / setup instances — not running MuMu phones.
+Runs automatically when the app starts in phone-setup mode (before the UI). On
+the **first setup** (``mumu_setup_complete`` not yet set), also closes MuMu so
+you start from a clean slate. After setup is done, re-opening setup only clears
+duplicate PharmFlow / adb / setup instances — not running MuMu phones.
 
 Skip: ``CPHARM_SKIP_STARTUP_CLEANUP=1``
 Force MuMu kill even after setup: ``CPHARM_FORCE_STARTUP_CLEANUP=1``
@@ -42,6 +42,7 @@ MUMU_PROCESS_BASENAMES = frozenset(
 
 CPHARM_EXE_BASENAMES = frozenset(
     {
+        "pharmflow.exe",
         "cpharmmumusetup.exe",
         "cpharm.exe",
     }

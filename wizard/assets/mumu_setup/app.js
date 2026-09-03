@@ -16,7 +16,7 @@
 
   let busy = false;
   let pyApi = null;
-  const GO_LABEL_DEFAULT = "GO — fix phones and open CPharm";
+  const GO_LABEL_DEFAULT = "GO — Set up my phones";
   const GO_LABEL_REBOOT = "GO — continue after phone reboot";
 
   function applyGoLabel(label) {
@@ -147,7 +147,7 @@
 
   function actionLabel(action) {
     if (action === "download_mumu") return "Get MuMu";
-    if (action === "download_cpharm") return "Get CPharm";
+    if (action === "download_cpharm") return "Get PharmFlow";
     if (action === "install_adb") return "Fix";
     if (action === "refresh") return "Refresh";
     if (action === "fix_tablet") return "Fix Pad→Phone";
@@ -180,7 +180,7 @@
       if (item.phones && item.phones.length) {
         const extra = document.createElement("p");
         extra.textContent = "Seen: " + item.phones.join(", ");
-        extra.style.color = "#3ecfb0";
+        extra.style.color = "#3ecf8e";
         extra.style.marginTop = "4px";
         body.appendChild(extra);
       }
@@ -215,11 +215,8 @@
       if (phonesItem && phonesItem.phones) {
         setPhones(phonesItem.phones);
       }
-      if (state && !state.cpharm_found) {
-        showCpharmAlert(
-          "Download CPharm.exe from GitHub Releases into the same folder as this program."
-        );
-      }
+      // Unified PharmFlow.exe runs phone setup in-process, so the app is
+      // always available — nothing to download or open externally.
       if (state && state.go_label) {
         applyGoLabel(state.go_label);
       }
@@ -273,7 +270,7 @@
       setStep(1, "error");
       statusText.textContent = "Cold boot phones, then GO again";
       showCpharmAlert(
-        "Stop each MuMu phone, start it again, then click GO. CPharm opens only when phones pass the check."
+        "Stop each MuMu phone, start it again, then click GO. PharmFlow continues only when every phone passes the check."
       );
       refreshChecklist();
     }
@@ -306,8 +303,8 @@
         if (n > 0) {
           appendLog(
             (sc.first_time
-              ? "First-time setup — closed " + n + " stale process(es) (MuMu/adb/CPharm).\n"
-              : "Closed " + n + " stale CPharm/adb process(es).\n") +
+              ? "First-time setup — closed " + n + " stale process(es) (MuMu/adb/PharmFlow).\n"
+              : "Closed " + n + " stale PharmFlow/adb process(es).\n") +
               "Open MuMu Player and start phones before GO.\n"
           );
         } else if (sc.skipped && sc.skipped.indexOf("env") < 0 && sc.skipped.indexOf("platform") < 0) {
@@ -354,8 +351,8 @@
       try {
         const res = await pyApi.launch_cpharm_only();
         if (res && !res.ok) {
-          appendLog("\n" + (res.message || "Could not open CPharm."));
-          showCpharmAlert(res.message || "CPharm.exe missing.");
+          appendLog("\n" + (res.message || "Could not open PharmFlow."));
+          showCpharmAlert(res.message || "PharmFlow.exe missing.");
         } else if (res && res.ok) {
           appendLog("\nOpened: " + res.message);
         }

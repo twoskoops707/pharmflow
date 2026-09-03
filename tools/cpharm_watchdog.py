@@ -69,7 +69,7 @@ VERSION = "1.4.3"
 _FAMFLOW = Path(r"C:\Users\jsmil\FamFlow")
 
 _HTTP_PORT = int(os.environ.get("CPHARM_PORT", "8080").strip() or "8080")
-CPHARM_EXE_NAMES = ("CPharm.exe", "CPharmMuMuSetup.exe")
+CPHARM_EXE_NAMES = ("PharmFlow.exe", "CPharm.exe", "CPharmMuMuSetup.exe")
 
 
 def _redirect_stdout_when_hidden() -> None:
@@ -177,7 +177,7 @@ def process_table() -> list[dict]:
     """
     if sys.platform == "win32":
         ps = (
-            "$names = 'python.exe','pythonw.exe','tor.exe','adb.exe','CPharm.exe','CPharmWatchdog.exe'; "
+            "$names = 'python.exe','pythonw.exe','tor.exe','adb.exe','PharmFlow.exe','CPharm.exe','CPharmWatchdog.exe'; "
             "$rows = Get-CimInstance Win32_Process | Where-Object { $names -contains $_.Name } | "
             "ForEach-Object { [PSCustomObject]@{ pid=$_.ProcessId; ppid=$_.ParentProcessId; "
             "name=$_.Name; started=$_.CreationDate.ToString('o'); cmdline=[string]$_.CommandLine } } | "
@@ -406,7 +406,7 @@ def check_main_process() -> dict:
     for name in CPHARM_EXE_NAMES:
         if _proc(name) == 0:
             return {"ok": True, "name": name}
-    return {"ok": False, "name": "CPharm.exe not running"}
+    return {"ok": False, "name": "PharmFlow.exe not running"}
 
 
 def _http_alive(timeout: float = 1.0) -> bool:

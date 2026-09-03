@@ -73,7 +73,12 @@ def data_root() -> Path:
 
 
 def cpharm_exe_path() -> Path:
-    return exe_dir() / "CPharm.exe"
+    """Primary app exe beside this program — PharmFlow.exe, else legacy CPharm.exe."""
+    folder = exe_dir()
+    primary = folder / "PharmFlow.exe"
+    if primary.is_file():
+        return primary
+    return folder / "CPharm.exe"
 
 
 def launch_env() -> dict[str, str]:
@@ -248,7 +253,11 @@ def launch_cpharm() -> tuple[bool, str]:
             )
     cpharm = cpharm_exe_path()
     if not cpharm.is_file():
-        return False, f"CPharm.exe not found:\n{cpharm.parent}"
+        return False, (
+            "PharmFlow.exe not found next to this program:\n"
+            f"  {cpharm.parent}\n"
+            "Download PharmFlow.exe from the GitHub release into that folder."
+        )
     flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if sys.platform == "win32" else 0
     subprocess.Popen(
         [str(cpharm)],
