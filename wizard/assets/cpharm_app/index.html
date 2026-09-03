@@ -49,7 +49,7 @@
       </header>
 
       <nav class="step-pipeline" id="step-nav" aria-label="Wizard steps"></nav>
-      <p class="pipeline-note">Steps 1–9 in order. <span class="ok">Green = done</span> · <span class="current-hint">bright = current</span>.</p>
+      <p class="pipeline-note">Steps 1–10 in order. <span class="ok">Green = done</span> · <span class="current-hint">bright = current</span>.</p>
 
       <div id="backend-error" role="alert" hidden></div>
 
@@ -57,9 +57,9 @@
         <!-- 0 Start -->
         <section class="view" id="view-start" data-view="start">
           <header class="view-hero">
-            <div class="kicker"><span class="badge-dot"></span> STEP 1 OF 9 · SETUP</div>
+            <div class="kicker"><span class="badge-dot"></span> STEP 1 OF 10 · SETUP</div>
             <h1>Welcome</h1>
-            <p class="subtitle">Nine steps between you and a running farm. Work them in order — the deck tracks where you are.</p>
+            <p class="subtitle">Ten steps between you and a running farm. Work them in order — the deck tracks where you are.</p>
           </header>
           <div class="view-body">
             <div class="main-grid">
@@ -68,8 +68,8 @@
                 <ol class="instruction-list roadmap-list">
                   <li><strong>Part 1 · 01–03</strong> Set up this PC, then Android tools.</li>
                   <li><strong>Part 2 · 04</strong> Connect and set up phones.</li>
-                  <li><strong>Part 3 · 05–08</strong> Test your site, steps, groups.</li>
-                  <li><strong>Part 4 · 09</strong> Run the farm.</li>
+                  <li><strong>Part 3 · 05–09</strong> Test your site, map it, steps, groups.</li>
+                  <li><strong>Part 4 · 10</strong> Run the farm.</li>
                 </ol>
               </section>
               <section class="panel">
@@ -87,7 +87,7 @@
         <!-- 1 Install -->
         <section class="view" id="view-install" data-view="install">
           <header class="view-hero">
-            <div class="kicker"><span class="badge-dot"></span> STEP 2 OF 9 · SETUP</div>
+            <div class="kicker"><span class="badge-dot"></span> STEP 2 OF 10 · SETUP</div>
             <h1>Install</h1>
             <p class="subtitle">Set up this PC first: dependencies, tools, and the Android bridge.</p>
           </header>
@@ -128,7 +128,7 @@
         <!-- 2 Android -->
         <section class="view" id="view-android" data-view="android">
           <header class="view-hero">
-            <div class="kicker"><span class="badge-dot"></span> STEP 3 OF 9 · SETUP</div>
+            <div class="kicker"><span class="badge-dot"></span> STEP 3 OF 10 · SETUP</div>
             <h1>Android</h1>
             <p class="subtitle">Android tools and emulator support.</p>
           </header>
@@ -182,7 +182,7 @@
         <!-- 3 Phones -->
         <section class="view" id="view-phones" data-view="phones">
           <header class="view-hero">
-            <div class="kicker"><span class="badge-dot"></span> STEP 4 OF 9 · SETUP</div>
+            <div class="kicker"><span class="badge-dot"></span> STEP 4 OF 10 · SETUP</div>
             <h1>Phones</h1>
             <p class="subtitle">Connect your phones. PharmFlow installs the browser, hides the emulator look, and applies the ad-zone fix for you.</p>
           </header>
@@ -256,7 +256,7 @@
         <!-- 4 Boot -->
         <section class="view" id="view-boot" data-view="boot">
           <header class="view-hero">
-            <div class="kicker"><span class="badge-dot"></span> STEP 5 OF 9 · TEST</div>
+            <div class="kicker"><span class="badge-dot"></span> STEP 5 OF 10 · TEST</div>
             <h1>Test</h1>
             <p class="subtitle">Confirm your site opens on the phones, with ads visible.</p>
           </header>
@@ -298,14 +298,60 @@
           </div>
           <footer class="view-footer-nav">
             <button type="button" class="btn-ghost btn-prev-step" data-prev="phones">← Phones</button>
+            <button type="button" class="btn-go btn-next-step" data-next="map">Next: Site Map →</button>
+          </footer>
+        </section>
+
+        <!-- 5 Site Map -->
+        <section class="view" id="view-map" data-view="map">
+          <header class="view-hero">
+            <div class="kicker"><span class="badge-dot"></span> STEP 6 OF 10 · TEST</div>
+            <h1>Site Map</h1>
+            <p class="subtitle">Scan any website the farm will use — map its pages, forms and buttons, then generate a starter sequence to refine.</p>
+          </header>
+          <div class="view-body view-body-scroll">
+            <div class="main-grid main-grid-map">
+              <section class="panel">
+                <h2 class="panel-title">What to do</h2>
+                <ol class="instruction-list instruction-list-compact">
+                  <li>Enter the site URL (pre-filled from <strong>Test</strong>).</li>
+                  <li>Click <strong>Scan site</strong> — PharmFlow maps its pages, links, forms and buttons.</li>
+                  <li>Click <strong>Generate starter sequence</strong> — a draft becomes your default sequence.</li>
+                  <li>Refine taps and timing in <strong>Steps</strong> or <strong>Builder</strong>.</li>
+                </ol>
+                <h2 class="panel-title">Site URL</h2>
+                <div class="site-url-row">
+                  <input type="url" class="site-url-input" id="map-url-input" placeholder="https://example.com" autocomplete="url" />
+                  <button type="button" class="btn-mini" id="btn-map-scan">Scan site</button>
+                </div>
+                <p class="status-line" id="map-status">Not scanned yet.</p>
+                <div class="action-row">
+                  <button type="button" class="btn-go" id="btn-map-generate">Generate starter sequence</button>
+                </div>
+              </section>
+              <section class="panel log-panel">
+                <div class="log-header">
+                  <h2 class="panel-title">Scan log</h2>
+                  <div class="log-status">
+                    <span class="status-led" id="map-led"></span>
+                    <span id="map-status-label">Ready</span>
+                  </div>
+                </div>
+                <div class="log-terminal" id="map-log" role="log"></div>
+              </section>
+            </div>
+            <div class="map-results" id="map-results"></div>
+          </div>
+          <footer class="view-footer-nav">
+            <button type="button" class="btn-ghost btn-prev-step" data-prev="boot">← Test</button>
             <button type="button" class="btn-go btn-next-step" data-next="steps">Next: Steps →</button>
           </footer>
         </section>
 
-        <!-- 5 Steps -->
+        <!-- 6 Steps -->
         <section class="view" id="view-steps" data-view="steps">
           <header class="view-hero">
-            <div class="kicker"><span class="badge-dot"></span> STEP 6 OF 9 · TEST</div>
+            <div class="kicker"><span class="badge-dot"></span> STEP 7 OF 10 · TEST</div>
             <h1>Steps</h1>
             <p class="subtitle">The default tap sequence new phones run.</p>
           </header>
@@ -332,7 +378,7 @@
             </div>
           </div>
           <footer class="view-footer-nav">
-            <button type="button" class="btn-ghost btn-prev-step" data-prev="boot">← Test</button>
+            <button type="button" class="btn-ghost btn-prev-step" data-prev="map">← Site Map</button>
             <button type="button" class="btn-go btn-next-step" data-next="builder">Next: Builder →</button>
           </footer>
         </section>
@@ -340,7 +386,7 @@
         <!-- 6 Builder -->
         <section class="view" id="view-builder" data-view="builder">
           <header class="view-hero">
-            <div class="kicker"><span class="badge-dot"></span> STEP 7 OF 9 · TEST</div>
+            <div class="kicker"><span class="badge-dot"></span> STEP 8 OF 10 · TEST</div>
             <h1>Builder</h1>
             <p class="subtitle">Optional: build a custom sequence.</p>
           </header>
@@ -371,7 +417,7 @@
         <!-- 7 Groups -->
         <section class="view" id="view-teams" data-view="teams">
           <header class="view-hero">
-            <div class="kicker"><span class="badge-dot"></span> STEP 8 OF 9 · TEST</div>
+            <div class="kicker"><span class="badge-dot"></span> STEP 9 OF 10 · TEST</div>
             <h1>Groups</h1>
             <p class="subtitle">Organize phones into groups with natural timing.</p>
           </header>
@@ -412,7 +458,7 @@
         <!-- 8 Go -->
         <section class="view" id="view-go" data-view="go">
           <header class="view-hero">
-            <div class="kicker"><span class="badge-dot"></span> STEP 9 OF 9 · RUN</div>
+            <div class="kicker"><span class="badge-dot"></span> STEP 10 OF 10 · RUN</div>
             <h1>Run</h1>
             <p class="subtitle">Launch the farm. Service plus all groups, from one button.</p>
           </header>

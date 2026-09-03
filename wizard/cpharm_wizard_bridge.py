@@ -58,6 +58,14 @@ WIZARD_STEPS: list[dict[str, Any]] = [
     },
     {
         "index": 5,
+        "id": "map",
+        "name": "Site Map",
+        "phase": "Part 3 — Check & configure",
+        "subtitle": "Scan a site into steps",
+        "hint": "Map any website's pages, forms and buttons, then generate a starter sequence draft.",
+    },
+    {
+        "index": 6,
         "id": "steps",
         "name": "Steps",
         "phase": "Part 3 — Check & configure",
@@ -65,7 +73,7 @@ WIZARD_STEPS: list[dict[str, Any]] = [
         "hint": "Usually already set in Phones — edit only if needed.",
     },
     {
-        "index": 6,
+        "index": 7,
         "id": "builder",
         "name": "Builder",
         "phase": "Part 3 — Check & configure",
@@ -73,7 +81,7 @@ WIZARD_STEPS: list[dict[str, Any]] = [
         "hint": "Skip if shipped defaults are fine.",
     },
     {
-        "index": 7,
+        "index": 8,
         "id": "teams",
         "name": "Groups",
         "phase": "Part 3 — Check & configure",
@@ -81,7 +89,7 @@ WIZARD_STEPS: list[dict[str, Any]] = [
         "hint": "Assign playlists and runs per day.",
     },
     {
-        "index": 8,
+        "index": 9,
         "id": "go",
         "name": "Run",
         "phase": "Part 4 — Automate",
@@ -1119,6 +1127,60 @@ def save_site_url(url: str) -> dict:
         return {"ok": True, "url": u, "host": site_display_host(u)}
 
     return _run_on_tk(work)
+
+
+def scan_site(url: str = "") -> dict:
+    """Crawl a website and return its map (pages, forms, buttons, links)."""
+    try:
+        from site_mapper import scan_site as _scan
+
+        return _scan(url or "")
+    except Exception as exc:  # noqa: BLE001 — surface as error dict
+        return {"ok": False, "error": str(exc)[:300]}
+
+
+def apply_site_sequence(url: str = "") -> dict:
+    """Scan a site, generate a starter sequence draft, save it, and make it
+    the default sequence (the same state the Steps step reads)."""
+
+    def commit(steps: list, path: str, draft: dict) -> dict:
+        from setup_wizard import (
+            _apply_default_steps_to_template_phones,
+            _groups_have_assigned_phones,
+            _persist_groups_config,
+            state,
+        )
+
+        state["default_steps"] = steps
+        _apply_default_steps_to_template_phones()
+        # Persist to disk only when groups already have phones — otherwise
+        # _persist_groups_config() triggers ADB discovery which can hang
+        # with zero devices. The draft JSON is always saved regardless.
+        if _groups_have_assigned_phones():
+            _persist_groups_config()
+        return {
+            "ok": True,
+            "steps": len(steps),
+            "path": path,
+            "note": draft["note"],
+            "pages_mapped": draft["pages_mapped"],
+        }
+
+    try:
+        from site_mapper import build_starter_sequence, normalize_url, save_sequence
+        from wizard_paths import app_data_root
+
+        target = normalize_url(url or "")
+        if not target:
+            return {"ok": False, "error": "Enter a valid URL like https://example.com"}
+        draft = build_starter_sequence(target)
+        steps = draft["steps"]
+        host = target.split("//", 1)[-1].split("/", 1)[0]
+        out_dir = app_data_root() / "sequences" / "site_scans"
+        path = save_sequence(steps, host, output_dir=out_dir)
+        return _run_on_tk(lambda: commit(steps, str(path), draft))
+    except Exception as exc:  # noqa: BLE001 — surface as error dict
+        return {"ok": False, "error": str(exc)[:300]}
 
 
 def _reload_persisted_wizard_state() -> None:

@@ -179,6 +179,16 @@ class CPharmAppApi:
 
         return bridge.save_site_url(url)
 
+    def scan_site(self, url: str = "") -> dict:
+        import cpharm_wizard_bridge as bridge
+
+        return bridge.scan_site(url)
+
+    def apply_site_sequence(self, url: str = "") -> dict:
+        import cpharm_wizard_bridge as bridge
+
+        return bridge.apply_site_sequence(url)
+
     def get_automation_info(self) -> dict:
         import cpharm_wizard_bridge as bridge
 

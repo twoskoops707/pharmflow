@@ -7,6 +7,7 @@
     "android",
     "phones",
     "boot",
+    "map",
     "steps",
     "builder",
     "teams",
@@ -263,6 +264,7 @@
     android: refreshAndroid,
     phones: refreshSetup,
     boot: refreshBoot,
+    map: refreshMap,
     steps: refreshSteps,
     teams: refreshTeams,
     go: refreshGo,
@@ -622,6 +624,182 @@
       }
     } catch (_e) {
       /* optional */
+    }
+  }
+
+  async function refreshMap() {
+    wireMapStep();
+    const a = api();
+    if (!a || !a.get_site_settings) return;
+    const input = document.getElementById("map-url-input");
+    try {
+      const s = await a.get_site_settings();
+      if (input && s.url && !input.value.trim()) input.value = s.url;
+    } catch (_e) {
+      /* optional */
+    }
+  }
+
+  function escHtml(s) {
+    return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
+  }
+
+  function renderMapResults(mapData) {
+    const el = document.getElementById("map-results");
+    if (!el) return;
+    if (!mapData || !mapData.pages || !mapData.pages.length) {
+      el.innerHTML = "";
+      return;
+    }
+    let html =
+      '<div class="map-summary">' +
+      "<span><strong>" + mapData.pages_scanned + "</strong> pages</span>" +
+      "<span><strong>" + mapData.total_internal_links + "</strong> internal links</span>" +
+      "<span><strong>" + mapData.total_forms + "</strong> " + (mapData.total_forms === 1 ? "form" : "forms") + "</span>" +
+      "<span class=\"map-slow\">scanned in " + (mapData.duration_ms / 1000).toFixed(1) + "s</span>" +
+      "</div>";
+    html += '<div class="map-page-grid">';
+    (mapData.pages || []).forEach(function (pg) {
+      const forms = (pg.forms || [])
+        .map(function (f) {
+          const inputs = (f.inputs || [])
+            .map(function (i) {
+              return "<code>" + escHtml(i.name || i.type || "input") + "</code>";
+            })
+            .join(" ");
+          return (
+            "<li><strong>" + escHtml(f.method) + "</strong> " + escHtml(f.action) +
+            (inputs ? '<div class="map-inputs">' + inputs + "</div>" : "") +
+            "</li>"
+          );
+        })
+        .join("");
+      const buttons = (pg.buttons || [])
+        .slice(0, 8)
+        .map(function (b) {
+          return "<code>" + escHtml(b) + "</code>";
+        })
+        .join(" ");
+      const links = (pg.links || [])
+        .slice(0, 8)
+        .map(function (l) {
+          return (
+            '<li><a href="' + escHtml(l.url) + '" target="_blank" rel="noopener">' +
+            escHtml(l.text || l.url) +
+            "</a></li>"
+          );
+        })
+        .join("");
+      html +=
+        '<div class="map-page">' +
+        '<h3 class="map-page-title">' + escHtml(pg.title || pg.url) + "</h3>" +
+        '<p class="map-page-url">' + escHtml(pg.url) + "</p>" +
+        (pg.headings && pg.headings.length
+          ? '<div class="map-block"><span class="map-block-label">Headings</span><ul class="map-chips">' +
+            pg.headings
+              .slice(0, 6)
+              .map(function (h) {
+                return "<li><code>" + escHtml(h.level) + "</code> " + escHtml(h.text) + "</li>";
+              })
+              .join("") +
+            "</ul></div>"
+          : "") +
+        (forms
+          ? '<div class="map-block"><span class="map-block-label">Forms</span><ul>' + forms + "</ul></div>"
+          : "") +
+        (buttons
+          ? '<div class="map-block"><span class="map-block-label">Buttons</span><div class="map-chips">' + buttons + "</div></div>"
+          : "") +
+        (links
+          ? '<div class="map-block"><span class="map-block-label">Internal links</span><ul class="map-links">' + links + "</ul></div>"
+          : "") +
+        "</div>";
+    });
+    html += "</div>";
+    el.innerHTML = html;
+  }
+
+  function wireMapStep() {
+    if (document.getElementById("btn-map-scan") && document.getElementById("btn-map-scan").dataset.wired) return;
+    const mapLog = document.getElementById("map-log");
+    const mapStatus = document.getElementById("map-status");
+    const mapLed = document.getElementById("map-led");
+    const mapStatusLabel = document.getElementById("map-status-label");
+    const urlInput = document.getElementById("map-url-input");
+
+    function status(text, led) {
+      if (mapStatus) mapStatus.textContent = text;
+      if (mapLed) mapLed.className = "status-led " + (led || "");
+      if (mapStatusLabel) mapStatusLabel.textContent = text;
+    }
+    function logLine(text) {
+      if (mapLog) appendLog(mapLog, text);
+    }
+
+    const btnScan = document.getElementById("btn-map-scan");
+    if (btnScan && !btnScan.dataset.wired) {
+      btnScan.dataset.wired = "1";
+      btnScan.addEventListener("click", async function () {
+        const url = urlInput && urlInput.value ? urlInput.value.trim() : "";
+        if (!url) {
+          showToast("Enter a site URL first");
+          return;
+        }
+        try {
+          status("Scanning " + url + "…", "busy");
+          logLine("Scanning " + url + " (read-only, up to 20 pages)…");
+          const res = await callApi("Scan site", function (a) {
+            return a.scan_site(url);
+          });
+          if (!res || !res.ok) {
+            status(res && res.error ? res.error : "Scan failed", "bad");
+            logLine(res && res.error ? res.error : "Scan failed");
+            return;
+          }
+          renderMapResults(res);
+          status(res.pages_scanned + " page(s) mapped, " + res.total_forms + (res.total_forms === 1 ? " form" : " forms") + " found", "ok");
+          logLine("Mapped " + res.pages_scanned + " page(s) on " + res.host + " in " + (res.duration_ms / 1000).toFixed(1) + "s");
+          if (res.errors && res.errors.length) {
+            logLine(res.errors.length + " page(s) unreachable — " + res.errors[0].url + " (" + res.errors[0].error + ")");
+          }
+          const gen = document.getElementById("btn-map-generate");
+          if (gen) gen.disabled = false;
+        } catch (_e) {
+          status("Scan failed", "bad");
+        }
+      });
+    }
+
+    const btnGen = document.getElementById("btn-map-generate");
+    if (btnGen && !btnGen.dataset.wired) {
+      btnGen.dataset.wired = "1";
+      btnGen.disabled = true;
+      btnGen.addEventListener("click", async function () {
+        const url = urlInput && urlInput.value ? urlInput.value.trim() : "";
+        if (!url) {
+          showToast("Enter a site URL first");
+          return;
+        }
+        try {
+          status("Generating starter sequence…", "busy");
+          const res = await callApi("Generate sequence", function (a) {
+            return a.apply_site_sequence(url);
+          });
+          if (!res || !res.ok) {
+            status(res && res.error ? res.error : "Generate failed", "bad");
+            logLine(res && res.error ? res.error : "Generate failed");
+            return;
+          }
+          status("Saved starter sequence (" + res.steps + " steps) — refine it in Steps/Builder", "ok");
+          logLine("Saved " + res.steps + "-step starter sequence to " + res.path);
+          logLine(res.note || "");
+          showToast("Starter sequence is now your default — refine in Steps");
+        } catch (_e) {
+          status("Generate failed", "bad");
+        }
+      });
     }
   }
 
