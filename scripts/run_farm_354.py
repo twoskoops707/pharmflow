@@ -426,15 +426,31 @@ def _discover_available_phones(
     )
     if not fast_boot or not _lock_boot_ready(farm):
         instances = list(farm.list_instances())
-        for inst in instances:
+        # Zero live ADB devices (MuMu ARM guests, Studio AVD, docker, cloud all
+        # absent) must not walk 40+ VMs doing per-phone adb connect timeouts —
+        # that wedges the farm lane for minutes. Skip the connect pass and let
+        # the standby scan below re-probe as devices appear.
+        try:
+            live_now = farm.enumerate_adb_devices()
+            any_live = any(
+                d.online
+                and (d.serial.startswith("10.0.2.") or d.serial.startswith("127.0.0.1:"))
+                for d in live_now
+            )
+        except Exception:
+            any_live = True  # probe when the ADB bus is uncertain
+        if any_live:
+            for inst in instances:
+                try:
+                    farm.connect_adb(inst.name)
+                except Exception:
+                    pass
             try:
-                farm.connect_adb(inst.name)
+                farm.list_instances()
             except Exception:
                 pass
-        try:
-            farm.list_instances()
-        except Exception:
-            pass
+        else:
+            logger.info("discover: zero live ADB devices — standby scan (connect pass skipped)")
     else:
         logger.info("discover fast sticky boot — skip connect_adb/mpid rescan")
     available: list[str] = []
@@ -2765,7 +2781,10 @@ def main() -> int:
         except Exception as exc:
             logger.warning("refresh_serials failed: %s", exc)
     else:
-        farm.list_instances()
+        try:
+            farm.list_instances()
+        except Exception as exc:
+            logger.warning("list_instances failed: %s", exc)
         try:
             farm.refresh_serials()
         except Exception as exc:
@@ -2776,10 +2795,17 @@ def main() -> int:
         logger.warning("sanitized %d landscape row(s) in farm_display_resolutions.json", fixed_lock)
 
     preferred = requested_phones or _sticky_phone_preference()
-    available = _discover_available_phones(
-        farm, include_names=set(preferred) if preferred else None
-    )
-    phones = _order_phones(available, preferred=preferred)
+    try:
+        available = _discover_available_phones(
+            farm, include_names=set(preferred) if preferred else None
+        )
+        phones = _order_phones(available, preferred=preferred)
+    except Exception as exc:
+        # Discovery breakage (adb bus wedged, stale lock, no devices) must
+        # degrade to the standby scan below — never crash the farm lane.
+        logger.warning("phone discovery failed: %s", exc)
+        available = {}
+        phones = []
     if preferred:
         missing = [p for p in preferred if p not in set(available)]
         if missing:
@@ -2788,8 +2814,43 @@ def main() -> int:
                 ",".join(missing),
             )
     if not phones:
-        print("ERROR: no online farm phones (ADB). Bring MuMu VMs up and retry.")
-        return 1
+        # Zero phones is a standby state, not a crash: keep scanning ADB for
+        # any emulator/device to appear (MuMu, Android Studio AVD, docker,
+        # cloud) instead of exiting non-zero and crash-looping under unison.
+        # Bounded by CPHARM_WAIT_PHONES_MIN (default 20); exit 2 = still none.
+        try:
+            wait_min = float(os.environ.get("CPHARM_WAIT_PHONES_MIN", "20").strip() or 0)
+        except (TypeError, ValueError):
+            wait_min = 20.0
+        phone_deadline = time.time() + max(0.0, wait_min) * 60.0
+        logger.warning(
+            "no online farm phones (ADB) — scanning every 30s for devices (up to %.0f min; CPHARM_WAIT_PHONES_MIN to change)",
+            wait_min,
+        )
+        while not _stop_requested() and time.time() < phone_deadline:
+            time.sleep(30)
+            try:
+                farm.refresh_serials()
+            except Exception as exc:
+                logger.debug("phone scan refresh failed: %s", exc)
+            try:
+                available = _discover_available_phones(
+                    farm, include_names=set(preferred) if preferred else None
+                )
+            except Exception as exc:
+                logger.warning("phone scan discover failed: %s", exc)
+                continue
+            phones = _order_phones(available, preferred=preferred)
+            if phones:
+                logger.info(
+                    "phones appeared after %.0fs: %s",
+                    time.time() - (phone_deadline - wait_min * 60.0),
+                    phones,
+                )
+                break
+        if not phones:
+            logger.error("still no online farm phones after %.0fs wait — farm standing by", wait_min * 60.0)
+            return 2
     args.phones = phones
     _persist_live_phones(phones, farm)
     logger.info(

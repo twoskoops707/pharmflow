@@ -1142,6 +1142,53 @@ def run_combined_tool(flag: str, rel: str) -> int | None:
     return proc.returncode
 
 
+def _farm_cli_mode() -> bool:
+    """True when argv routes to the headless Start farm / Stop farm contract."""
+    return "--start-farm" in sys.argv or "--stop-farm" in sys.argv
+
+
+def run_farm_cli() -> int:
+    """Start or stop the unison money farm from the EXE itself.
+
+    Mirrors the GUI Start farm button (``cpharm_wizard_bridge.start_farm_from_app``)
+    so the EXE — not a python recipe — owns the money path. ``--start-farm`` is
+    long-running: it keeps the process alive while the farm runs and exits 0 when
+    the farm stops (Ctrl-C / Stop farm / Stop-Process all work).
+    """
+    import time
+
+    from wizard.farm_control import (
+        farm_running as _fr,
+        load_active_profile as _load_profile,
+        start_farm as _sf,
+        stop_farm as _stop,
+    )
+
+    _ensure_console()
+    if "--stop-farm" in sys.argv:
+        stopped = _stop()
+        print("Farm stopped" if stopped else "Farm was not running")
+        return 0
+    if _fr():
+        print("Farm already running — dashboard http://127.0.0.1:8091/")
+        return 0
+    ok = _sf(profile=_load_profile(None), hours=None, takeover=True)
+    if not ok:
+        print("Start farm refused (see farm log)", file=sys.stderr)
+        return 1
+    print("Farm started — dashboard http://127.0.0.1:8091/")
+    try:
+        while True:
+            time.sleep(5)
+            if not _fr():
+                print("Farm stopped")
+                return 0
+    except KeyboardInterrupt:
+        return 0
+    finally:
+        _bootlog("farm-cli: exit")
+
+
 def main() -> None:
     _bootlog("main: start")
     _ensure_console()
@@ -1159,6 +1206,10 @@ def main() -> None:
     watchdog_mode = run_combined_tool("--watchdog", "tools/cpharm_watchdog.py")
     if watchdog_mode is not None:
         raise SystemExit(watchdog_mode)
+
+    if _farm_cli_mode():
+        _bootlog("main: farm cli mode")
+        raise SystemExit(run_farm_cli())
 
     if "--cloud-phones-cli" in sys.argv:
         from cloud_phones.cloud_phones_cli import main as cloud_main

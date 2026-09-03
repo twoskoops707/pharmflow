@@ -5,10 +5,26 @@
 # CI: ``pyinstaller PharmFlow.spec`` from ``wizard/`` (see ``.github/workflows/build-wizard.yml``).
 #
 import os
+from pathlib import Path
 
 from PyInstaller.utils.hooks import collect_all, collect_submodules
 
 _webview_datas, _webview_binaries, _webview_hidden = collect_all("webview")
+
+# Farm helpers (run_farm_354.py, cpharm_unison_supervisor.py, farm_operator_dash.py,
+# tools/cpharm_watchdog.py) run as plain .py under an external system pythonw and do
+# ``sys.path.insert(0, <bundle root>)`` then ``import wizard.*`` (wizard_paths,
+# mumu_farm_ops, ...). Those modules must exist as source on disk in the extract, so
+# ship every wizard/*.py (skipping heavyweight dirs already excluded / bundled elsewhere).
+_wizard_py_datas: list = []
+_wizard_src = Path("..") / "wizard"
+_wizard_excluded = {"__pycache__", "build", "dist", "bundled", "docs", "assets"}
+for _py in _wizard_src.rglob("*.py"):
+    _rel = _py.relative_to(_wizard_src)
+    if _rel.parts and _rel.parts[0] in _wizard_excluded:
+        continue
+    _dest_dir = _rel.parent.as_posix()
+    _wizard_py_datas.append((str(_py), f"wizard/{_dest_dir}" if _dest_dir != "." else "wizard"))
 
 # Browser APKs fetched at build time (tools/prefetch_browser_apks.py) embed
 # inside the EXE so browser installs work offline. Absent locally/CI = no-op.
@@ -72,19 +88,20 @@ a = Analysis(
         ("assets/cpharm_app", "assets/cpharm_app"),
 
         ("../docs", "docs"),
-        ("../automation/mumu_fingerprint.py", "automation"),
-        ("../automation/dabflow_mantis_client_patch.py", "automation"),
-        ("../automation/mantis_farm_math.py", "automation"),
-        ("../automation/mantis_gauge_score.py", "automation"),
-        ("../automation/adb_paths.py", "automation"),
+        # Farm runtime payload: the frozen EXE owns Start farm, and farm_control
+        # resolves helpers from bundle_root()/scripts + bundle_root()/automation
+        # (run_farm_354.py, cpharm_unison_supervisor.py, farm_operator_dash.py,
+        # suppress_console_flash.py, and the automation package they import).
+        ("../scripts", "scripts"),
+        ("../automation", "automation"),
+        ("../sequences", "sequences"),
         ("../cloud_phones", "cloud_phones"),
-        ("../tools/cpharm_watchdog.py", "tools"),
-        ("../tools/project_agent.py", "tools"),
         ("../tools", "tools"),
         ("../docker_guard.py", "."),
     ]
     + list(_webview_datas)
-    + _browser_apk_datas,
+    + _browser_apk_datas
+    + _wizard_py_datas,
     hiddenimports=_hidden,
     hookspath=[],
     hooksconfig={},

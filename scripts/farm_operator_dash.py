@@ -2142,6 +2142,43 @@ input[type=text],input[type=number],select{width:100%;background:var(--input);bo
 pre.log{background:var(--input);border:1px solid var(--line);border-radius:4px;padding:6px;max-height:120px;overflow:auto;font-size:10px;line-height:1.3;white-space:pre-wrap;margin:0}
 .toast{position:fixed;right:10px;bottom:10px;background:var(--panel2);border:1px solid var(--line);padding:7px 10px;border-radius:4px;display:none;z-index:20;font-size:12px}
 .wizard .step{background:var(--panel2);border:1px solid var(--line);border-radius:4px;padding:7px;margin-bottom:6px;font-size:12px}
+/* ---- polish pass: uniform spacing / radius / typography (additive overrides) ---- */
+body{font-size:13.5px;line-height:1.5}
+.shell{max-width:1080px;padding:12px 16px 20px}
+.top{margin-bottom:10px;gap:10px}
+h1{font-size:17px;letter-spacing:-.01em}
+.pill{padding:3px 11px;border-radius:999px;font-size:11.5px}
+.site-bar{padding:9px 12px;border-radius:10px;gap:10px}
+.site-bar select{padding:5px 10px;border-radius:7px;font-size:12.5px}
+.metrics{gap:10px;margin:10px 0}
+.metric{padding:10px 9px;border-radius:10px}
+.metric .k{font-size:10px}
+.metric .v{font-size:17px;margin-top:3px}
+.gauge-board{gap:14px;margin:12px 0}
+.focal-stage{gap:14px}
+.gauge-hero,.gauge-grid,#phoneWrap{border-radius:12px;padding:14px 16px}
+.gauge-hero h2,.gauge-grid h2,#phoneHead{font-size:12px}
+.conj-score{font-size:54px}
+.mini-gauges{gap:10px}
+.panel{border-radius:10px}
+.btn{border-radius:8px;padding:6px 12px;font-size:11.5px}
+.tabs{gap:8px;margin-bottom:10px}
+.tab{border-radius:999px;padding:6px 14px;font-size:12px}
+.ph-card{border-radius:10px;padding:9px 11px}
+.pubrow{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin:2px 0 0}
+#publisherTabs{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.btn.pubadd{border-style:dashed;opacity:.9}
+.btn.pubadd:hover{opacity:1;border-color:var(--accent)}
+#publisherTabs .tab{padding:6px 13px;font-size:12px}
+#publisherTabs .tab .dot{display:inline-block;width:6px;height:6px;border-radius:50%;margin-left:7px;vertical-align:middle;background:var(--ok)}
+#publisherTabs .tab .dot.none{background:var(--line)}
+#publisherTabs .tab .pubdel{margin-left:7px;color:var(--muted);font-weight:700;cursor:pointer;border:0;background:none;padding:0 2px;font-size:11px}
+#publisherTabs .tab .pubdel:hover{color:var(--err)}
+#publisherTabs .tab.active .pubdel{color:var(--muted)}
+.cmdbox{border-radius:10px}
+pre.cmd{border-radius:0 0 10px 10px}
+details.more{border-radius:10px}
+.more-body{padding:10px}
 </style>
 </head>
 <body>
@@ -2165,13 +2202,25 @@ pre.log{background:var(--input);border:1px solid var(--line);border-radius:4px;p
     <button class="btn ghost" id="btnApplySite" type="button" title="Apply site profile budgets + sequence root">Apply site</button>
     <div class="site-meta" id="siteMeta">Loading site…</div>
   </div>
-  <div class="tabs" id="publisherTabs" style="margin:4px 0 2px">
-    <button class="tab active" type="button" data-pub="mantis">Mantis</button>
-    <button class="tab stub" type="button" data-pub="adsense" title="Same panels later">AdSense (later)</button>
-    <button class="tab stub" type="button" data-pub="ezoic" title="Same panels later">Ezoic (later)</button>
-    <button class="tab stub" type="button" data-pub="other" title="Same panels later">Other SSP (later)</button>
+  <style>
+    .site-bar{flex-wrap:wrap}
+    .site-meta{flex:1 1 100%;display:flex;flex-wrap:wrap;gap:6px;min-width:0;margin-top:2px}
+    .site-meta .mchip{display:inline-flex;align-items:baseline;gap:6px;background:var(--panel2);border:1px solid var(--line);border-radius:999px;padding:3px 10px;font-size:11px;line-height:1.4;color:var(--muted);white-space:nowrap}
+    .site-meta .mchip i{font-style:normal;font-size:9.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}
+    .site-meta .mchip b{color:var(--text);font-weight:600;font-variant-numeric:tabular-nums}
+    .site-meta .mchip[data-cls="ok"]{border-color:rgba(61,154,120,.45);color:var(--ok)}
+    .site-meta .mchip[data-cls="ok"] b{color:var(--ok)}
+    .site-meta .mchip[data-cls="warn"]{border-color:rgba(201,162,39,.45);color:var(--warn)}
+    .site-meta .mchip[data-cls="warn"] b{color:var(--warn)}
+  </style>
+  <div class="pubrow">
+    <div class="tabs" id="publisherTabs" style="margin:2px 0 0"></div>
+    <div class="row" style="gap:6px">
+      <button class="btn ghost" id="btnPubManual" type="button" style="display:none" title="Enter today's totals for this publisher (no account pull client yet)">✎ Enter totals</button>
+      <button class="btn ghost pubadd" id="btnAddPublisher" type="button" title="Add an ad publisher — same gauges, its own account pull">＋ Add publisher</button>
+    </div>
   </div>
-  <p class="note" id="publisherNote" style="margin:0 0 6px">Publisher: Mantis (live pull). Other publishers plug into the same gauges later.</p>
+  <p class="note" id="publisherNote" style="margin:4px 0 8px">…</p>
   <div class="metrics" id="metrics"></div>
   <div class="gauge-board" id="gaugeBoard">
     <div class="focal-stage">
@@ -2904,20 +2953,22 @@ function renderStatus(s){
     const heat = g.heat_down ? '<span class="tag">heat-down</span> · ' : '';
     const uniq = (g.unique_seq!==false && u.enabled!==false) ? '<span class="okish">unique ON</span>' : '<span class="tag">unique OFF</span>';
     const brows = g.chromium_only ? 'chromium' : (g.browsers||'?');
+    const chip=(label,val,cls)=>
+      '<span class="mchip"'+(cls?(' data-cls="'+cls+'"'):'')+'>'+
+        '<i>'+esc(label)+'</i><b>'+(val===null||val===undefined||val===''?'—':esc(String(val)))+'</b></span>';
     meta.innerHTML =
-      '<b>'+esc(site.display_name||s.active_site_slug||'?')+'</b> · '+
-      esc(site.url||'')+
-      ' · phones '+phonesN+
-      ' · seqs/hr '+esc(String(g.seqs_per_hour||'?'))+
-      ' · ipv '+esc(String(g.ipv||'?'))+
-      ' · '+esc(brows)+
-      ' · '+uniq+
-      ' · '+heat+
-      'visits '+esc(g.visits_csv||site.daily_visits_csv||'?')+(visitCap?(' (cap '+visitCap+')'):'')+
-      ' · ads '+esc(g.ads_csv||site.daily_ads_csv||'?')+(adCap?(' (cap '+adCap+')'):'')+
-      ' · pool P1/P2/P3 '+[site.path1_count||0,site.path2_count||0,site.path3_count||0].join('/')+
-      ' · live locks '+seqs+' seq / '+keys+' keys'+
-      ' · ntfy '+esc(g.ntfy_topic||site.ntfy_topic||'—');
+      chip('site', esc(site.url||''))+
+      chip('phones', phonesN)+
+      chip('seqs/hr', g.seqs_per_hour||'?')+
+      chip('ipv', g.ipv||'?')+
+      chip('browsers', brows)+
+      chip('unique', u.enabled===false?'OFF':'ON', 'ok')+
+      (g.heat_down?chip('heat','down','warn'):'')+
+      chip('visits', esc(g.visits_csv||site.daily_visits_csv||'?')+(visitCap?(' / cap '+visitCap):''))+
+      chip('ads', esc(g.ads_csv||site.daily_ads_csv||'?')+(adCap?(' / cap '+adCap):''))+
+      chip('pool P1/P2/P3', [site.path1_count||0,site.path2_count||0,site.path3_count||0].join('/'))+
+      chip('live locks', seqs+' seq / '+keys+' keys')+
+      chip('ntfy', g.ntfy_topic||site.ntfy_topic||'—');
     meta.title = 'Gameplay rundown (sticky). Metrics visit/ad caps must match these CSVs.';
   }
   const pick=document.getElementById('sitePick');
@@ -2967,8 +3018,7 @@ async function refresh(opts){
     document.getElementById('panelPath').textContent=STATE.panel_path;
     document.getElementById('overridesPath').textContent=STATE.overrides_path;
   }
-  renderStatus(STATE);
-  try{ renderGauges(STATE); } catch(_e){}
+  await renderPubView();
 }
 
 async function post(url, body){
@@ -3134,22 +3184,193 @@ document.querySelectorAll('.wizPreset').forEach(btn=>{
   };
 });
 
-document.querySelectorAll('#publisherTabs .tab').forEach(btn=>{
-  btn.addEventListener('click', ()=>{
-    const slug = btn.dataset.pub || '';
-    const stub = btn.classList.contains('stub');
-    document.querySelectorAll('#publisherTabs .tab').forEach(t=>t.classList.remove('active'));
-    btn.classList.add('active');
-    const note = document.getElementById('publisherNote');
-    if(stub){
-      if(note) note.textContent = 'Publisher '+slug+' not wired yet — same gauge panels later (PublisherProvider stub).';
-      toast(slug+' later — Mantis stays live');
-      return;
-    }
-    if(note) note.textContent = 'Publisher: Mantis (live pull via /api/mantis_pull). Other SSPs share the same panels later.';
-  });
-});
+// ================= Publisher tabs (Total + configured publishers) =================
+let PUB = { view: 'mantis' };      // 'mantis' (live core) | 'total' | <slug>
+let PUB_META = [];                  // last /api/publishers payload
 
+async function _pubFetch(url, body){
+  const opt = {method: body ? 'POST' : 'GET', cache:'no-store'};
+  if(body){ opt.headers = {'Content-Type':'application/json'}; opt.body = JSON.stringify(body); }
+  const r = await fetch(url, opt);
+  let j = null;
+  try{ j = await r.json(); }catch(_e){}
+  if(!j || j.ok === false) throw new Error((j && j.error) || ('request failed: '+url));
+  return j;
+}
+
+function _pubLabel(slug){
+  if(slug === 'total') return 'Total';
+  if(slug === 'mantis') return 'Mantis';
+  const p = PUB_META.find(x=>x.slug===slug);
+  return p ? p.display_name : slug;
+}
+
+function _pubNote(){
+  const note = document.getElementById('publisherNote');
+  if(!note) return;
+  if(PUB.view === 'total'){
+    note.textContent = 'Total across every publisher on this project (saved account totals).';
+  } else if(PUB.view === 'mantis'){
+    note.textContent = 'Publisher: Mantis — live account pull into the gauges below.';
+  } else {
+    const p = PUB_META.find(x=>x.slug===PUB.view) || {};
+    note.textContent = 'Publisher: ' + _pubLabel(PUB.view) + ' — same gauges' +
+      (p.configured ? '; totals from its account pull.' : '; enter totals with ✎ until its pull client is wired.');
+  }
+}
+
+function _syncPubActions(){
+  const b = document.getElementById('btnPubManual');
+  if(!b) return;
+  const p = PUB_META.find(x=>x.slug===PUB.view);
+  b.style.display = (PUB.view !== 'mantis' && PUB.view !== 'total' && p && !p.configured) ? '' : 'none';
+}
+
+async function fetchPublishers(){
+  try{
+    const j = await _pubFetch('/api/publishers');
+    PUB_META = (j.publishers || []).slice();
+    const known = ['total','mantis'].concat(PUB_META.map(p=>p.slug));
+    if(!known.includes(PUB.view)) PUB.view = (known.includes(j.active) ? j.active : 'mantis');
+    renderPubTabs();
+    _pubNote();
+    _syncPubActions();
+  }catch(e){ console.warn('publishers', e); }
+}
+
+function renderPubTabs(){
+  const host = document.getElementById('publisherTabs');
+  if(!host) return;
+  host.innerHTML = '';
+  const mkTab = (slug, label) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'tab' + (PUB.view === slug ? ' active' : '');
+    b.dataset.pub = slug;
+    b.title = slug === 'total'
+      ? 'Sum of every publisher on this project'
+      : ('Publisher view: ' + label);
+    b.textContent = label;
+    if(slug === 'total'){ const d = document.createElement('span'); d.className = 'dot'; b.appendChild(d); }
+    host.appendChild(b);
+    return b;
+  };
+  mkTab('total', 'Total');
+  PUB_META.forEach(p => {
+    const b = mkTab(p.slug, p.display_name || p.slug);
+    if(p.slug === 'mantis'){
+      const d = document.createElement('span'); d.className = 'dot'; b.appendChild(d);
+    } else if(p.has_totals){
+      const d = document.createElement('span'); d.className = 'dot'; b.appendChild(d);
+    }
+    if(p.slug !== 'mantis'){
+      const x = document.createElement('button');
+      x.type = 'button'; x.className = 'pubdel'; x.textContent = '✕';
+      x.title = 'Remove ' + (p.display_name || p.slug);
+      x.onclick = async ev => {
+        ev.stopPropagation(); ev.preventDefault();
+        try{
+          await _pubFetch('/api/publishers/remove', {slug: p.slug});
+          if(PUB.view === p.slug) PUB.view = 'mantis';
+          await fetchPublishers();
+          _pubNote(); _syncPubActions();
+          toast('removed ' + (p.display_name || p.slug));
+          await refresh();
+        }catch(e){ toast(String(e)); }
+      };
+      b.appendChild(x);
+    }
+  });
+  host.querySelectorAll('.tab').forEach(b => {
+    b.addEventListener('click', () => setPubView(b.dataset.pub));
+  });
+}
+
+function setPubView(slug){
+  PUB.view = slug || 'mantis';
+  document.querySelectorAll('#publisherTabs .tab').forEach(t => t.classList.toggle('active', t.dataset.pub === PUB.view));
+  try{ _pubFetch('/api/publishers/active', {slug: PUB.view}); }catch(_e){}
+  _pubNote(); _syncPubActions();
+  refresh();
+}
+
+async function pubScopedState(){
+  // STATE override whose mantis numbers come from the active publisher view.
+  if(PUB.view === 'mantis') return null;
+  const j = PUB.view === 'total'
+    ? await _pubFetch('/api/publishers/total')
+    : await _pubFetch('/api/publishers/' + PUB.view + '/totals');
+  const tt = (j && j.totals) || {};
+  const ov = Object.assign({}, STATE, {
+    mantis_today: {
+      impressions: tt.impressions || 0, clicks: tt.clicks || 0, payout_usd: tt.payout_usd || 0,
+      ecpm: tt.ecpm || 0, evcpm: tt.evcpm || 0,
+      receivable_usd: tt.receivable_usd, paid_to_date_usd: tt.paid_to_date_usd,
+      updated: tt.updated, source: tt.source || (PUB.view === 'total' ? 'sum' : 'manual')
+    },
+    totals: Object.assign({}, STATE.totals, {
+      mantis_impressions: tt.impressions || 0, mantis_clicks: tt.clicks || 0,
+      mantis_payout_usd: tt.payout_usd || 0, mantis_ecpm: tt.ecpm || 0, mantis_evcpm: tt.evcpm || 0,
+      mantis_paid_to_date_usd: tt.paid_to_date_usd, mantis_receivable_usd: tt.receivable_usd
+    })
+  });
+  return ov;
+}
+
+async function renderPubView(){
+  let ov = null;
+  try{ ov = await pubScopedState(); }catch(e){ console.warn('pub scoped state', e); }
+  if(ov){ renderStatus(ov); try{ renderGauges(ov); }catch(_e){} }
+  else { renderStatus(STATE); try{ renderGauges(STATE); }catch(_e){} }
+}
+
+async function pubManualEntry(slug){
+  const name = _pubLabel(slug);
+  try{
+    const cur = await _pubFetch('/api/publishers/' + slug + '/totals');
+    const t = (cur && cur.totals) || {};
+    const ask = (label, val) => prompt(name + ' — ' + label, (val === null || val === undefined || val === '') ? '' : String(val));
+    const impressions = ask('impressions today', t.impressions);
+    if(impressions === null) return;
+    const clicks = ask('ad clicks today', t.clicks);
+    if(clicks === null) return;
+    const payout = ask('payout $ today', t.payout_usd);
+    if(payout === null) return;
+    const ecpm = ask('eCPM $', t.ecpm);
+    if(ecpm === null) return;
+    const paid = ask('paid to date $ (lifetime — optional)', t.paid_to_date_usd == null ? '' : t.paid_to_date_usd);
+    if(paid === null) return;
+    const recv = ask('receivable $ balance (optional)', t.receivable_usd == null ? '' : t.receivable_usd);
+    if(recv === null) return;
+    await _pubFetch('/api/publishers/' + slug + '/totals', {
+      impressions: impressions, clicks: clicks, payout_usd: payout, ecpm: ecpm,
+      paid_to_date_usd: paid === '' ? '' : paid, receivable_usd: recv === '' ? '' : recv
+    });
+    toast(name + ' totals saved');
+    await fetchPublishers();
+    _pubNote(); _syncPubActions();
+    await refresh();
+  }catch(e){ toast(String(e)); }
+}
+
+document.getElementById('btnAddPublisher').onclick = async () => {
+  const name = prompt('Add an ad publisher (e.g. AdSense, Ezoic):\nSame gauges — its account pull plugs in when a client exists.');
+  if(name === null) return;
+  const clean = String(name || '').trim();
+  if(!clean) return;
+  try{
+    const j = await _pubFetch('/api/publishers/add', {name: clean});
+    const added = (j.added || {}).slug || '';
+    PUB.view = added;
+    await fetchPublishers();
+    _pubNote(); _syncPubActions();
+    toast('added ' + clean + (j.publishers && j.publishers.length ? '' : '') + ' — same gauges');
+    await refresh();
+  }catch(e){ toast(String(e)); }
+};
+document.getElementById('btnPubManual').onclick = async () => { if(PUB.view && PUB.view !== 'mantis' && PUB.view !== 'total') await pubManualEntry(PUB.view); };
+
+fetchPublishers();
 refresh();
 setInterval(refresh, 10000);
 </script>
@@ -3170,7 +3391,7 @@ def api_status():
 
 @app.get("/api/publishers")
 def api_publishers():
-    """Publisher tab payload — Mantis live; others stubbed for later plug-in."""
+    """Publisher tab payload — Mantis live pull; add more from the top bar."""
     try:
         from automation.publisher_providers import publishers_payload
 
@@ -3183,13 +3404,122 @@ def api_publishers():
                 "active": "mantis",
                 "publishers": [
                     {"slug": "mantis", "display_name": "Mantis", "configured": True, "stub": False},
-                    {"slug": "adsense", "display_name": "AdSense (later)", "configured": False, "stub": True},
-                    {"slug": "ezoic", "display_name": "Ezoic (later)", "configured": False, "stub": True},
-                    {"slug": "other", "display_name": "Other SSP (later)", "configured": False, "stub": True},
                 ],
                 "error": str(exc),
             }
         )
+
+
+@app.post("/api/publishers/add")
+def api_publishers_add():
+    """Add a publisher tab (same gauges; Mantis-style account pull when a client exists)."""
+    body = request.get_json(force=True, silent=True) or {}
+    name = str(body.get("name") or "").strip()
+    if not name:
+        return jsonify({"ok": False, "error": "publisher name required"}), 400
+    try:
+        from automation.publisher_providers import add_publisher, publishers_payload
+
+        rec = add_publisher(name)
+        if not rec:
+            return jsonify({"ok": False, "error": "could not add publisher"}), 400
+        return jsonify({"ok": True, "added": rec, **publishers_payload()})
+    except Exception as exc:
+        log.warning("api/publishers/add failed: %s", exc)
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+@app.post("/api/publishers/remove")
+def api_publishers_remove():
+    """Remove a publisher tab (Mantis is protected — the live core depends on it)."""
+    body = request.get_json(force=True, silent=True) or {}
+    slug = str(body.get("slug") or "").strip()
+    try:
+        from automation.publisher_providers import publishers_payload, remove_publisher
+
+        if not remove_publisher(slug):
+            return jsonify({"ok": False, "error": "remove failed (Mantis is protected)"}), 400
+        return jsonify({"ok": True, **publishers_payload()})
+    except Exception as exc:
+        log.warning("api/publishers/remove failed: %s", exc)
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+@app.post("/api/publishers/active")
+def api_publishers_active():
+    body = request.get_json(force=True, silent=True) or {}
+    slug = str(body.get("slug") or "").strip()
+    try:
+        from automation.publisher_providers import publishers_payload, set_active_publisher
+
+        return jsonify(set_active_publisher(slug))
+    except Exception as exc:
+        log.warning("api/publishers/active failed: %s", exc)
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+@app.get("/api/publishers/total")
+def api_publishers_total():
+    """Summed account totals across every configured publisher (the Total tab)."""
+    try:
+        from automation.publisher_providers import total_payload
+
+        return jsonify(total_payload())
+    except Exception as exc:
+        log.warning("api/publishers/total failed: %s", exc)
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+@app.get("/api/publishers/<slug>/totals")
+def api_publisher_totals(slug: str):
+    try:
+        from automation.publisher_providers import load_publisher_totals, publishers_payload
+
+        totals = load_publisher_totals(slug)
+        if not publishers_payload().get("publishers") or not any(
+            p.get("slug") == slug for p in publishers_payload().get("publishers", [])
+        ):
+            return jsonify({"ok": False, "error": "unknown publisher: " + slug}), 404
+        return jsonify({"ok": True, "slug": slug, "totals": totals})
+    except Exception as exc:
+        log.warning("api/publishers/%s/totals failed: %s", slug, exc)
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+@app.post("/api/publishers/<slug>/totals")
+def api_publisher_totals_save(slug: str):
+    """Manual totals entry for a publisher without a live pull client (Mantis: pull-only)."""
+    body = request.get_json(force=True, silent=True) or {}
+    try:
+        from automation.publisher_providers import (
+            load_publisher_totals,
+            publishers_payload,
+            save_publisher_totals,
+        )
+
+        meta = {p["slug"]: p for p in publishers_payload().get("publishers", [])}
+        if slug not in meta:
+            return jsonify({"ok": False, "error": "unknown publisher: " + slug}), 404
+        if slug == "mantis":
+            return jsonify({"ok": False, "error": "Mantis totals are pull-only"}), 403
+        saved = save_publisher_totals(slug, body)
+        return jsonify({"ok": True, "slug": slug, "totals": load_publisher_totals(slug), "saved": saved})
+    except Exception as exc:
+        log.warning("api/publishers/%s/totals save failed: %s", slug, exc)
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+@app.post("/api/publishers/<slug>/pull")
+def api_publisher_pull(slug: str):
+    """Mantis-style account pull per publisher. Only Mantis has a live client today."""
+    if slug == "mantis":
+        return api_mantis_pull()
+    return jsonify(
+        {
+            "ok": False,
+            "error": f"no account pull client configured for '{slug}' yet — enter totals manually",
+        }
+    ), 200
 
 
 @app.post("/api/save")
