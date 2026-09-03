@@ -70,7 +70,7 @@ a = Analysis(
     datas=[
         ("assets", "assets"),
         ("assets/cpharm_app", "assets/cpharm_app"),
-        ("assets/cpharm_ui", "assets/cpharm_ui"),
+
         ("../docs", "docs"),
         ("../automation/mumu_fingerprint.py", "automation"),
         ("../automation/dabflow_mantis_client_patch.py", "automation"),

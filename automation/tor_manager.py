@@ -1199,7 +1199,7 @@ BASE_PORT = _free_port_base(_CONFIGURED_SOCKS, 8)
 # HTTP CONNECT — **not** SOCKS. Open alongside SocksPort in :func:`start_tor_for_phone`.
 HTTP_TUNNEL_BASE = _free_port_base(_CONFIGURED_HTTP, 8)
 if BASE_PORT != _CONFIGURED_SOCKS or HTTP_TUNNEL_BASE != _CONFIGURED_HTTP:
-    log.info(
+    logger.info(
         "Tor port bases auto-shifted to avoid other listeners: socks %s->%s http %s->%s",
         _CONFIGURED_SOCKS, BASE_PORT, _CONFIGURED_HTTP, HTTP_TUNNEL_BASE,
     )

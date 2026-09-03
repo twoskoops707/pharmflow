@@ -4,114 +4,108 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>PharmFlow — Farm Control Deck</title>
-    <link rel="stylesheet" href="../cpharm_ui/shared.css" />
     <link rel="stylesheet" href="app.css" />
   </head>
   <body>
-    <div class="bg-scene" aria-hidden="true">
-      <div class="plotter-grid"></div>
-    </div>
-
-    <div class="app-shell">
-      <aside class="nav-rail" id="nav-rail">
-        <div class="nav-brand">
+    <div class="deck">
+      <header class="topbar">
+        <div class="brand">
           <span class="brand-mark">PF</span>
-          <span class="brand-word">PharmFlow</span>
-          <span class="brand-eyebrow">FARM CONTROL DECK</span>
+          <span class="brand-text">
+            <span class="brand-word">PharmFlow</span>
+            <span class="brand-eyebrow">FARM CONTROL DECK</span>
+          </span>
         </div>
-        <p class="nav-subtitle">Farm control console</p>
-        <nav class="step-nav" id="step-nav" aria-label="Wizard steps"></nav>
-        <div class="nav-foot">
-          <p class="nav-foot-note">Do steps 1 to 9 in order.<br />Green = complete. Amber = current.</p>
-        </div>
-      </aside>
-
-      <div class="content-area" id="content-area">
         <div class="hud" id="hud" role="status" aria-live="polite">
-          <div class="hud-cell">
-            <span class="hud-label">Farm</span>
-            <span class="hud-value"><span class="hud-lamp" id="hud-farm-lamp"></span><span id="hud-farm">—</span></span>
+          <div class="hud-tile">
+            <span class="hud-k">Farm</span>
+            <span class="hud-v"><span class="hud-lamp" id="hud-farm-lamp"></span><span id="hud-farm">—</span></span>
           </div>
-          <div class="hud-cell">
-            <span class="hud-label">Phones</span>
-            <span class="hud-value" id="hud-phones">—</span>
+          <div class="hud-tile">
+            <span class="hud-k">Phones</span>
+            <span class="hud-v" id="hud-phones">—</span>
           </div>
-          <div class="hud-cell">
-            <span class="hud-label">Today</span>
-            <span class="hud-value" id="hud-today">—</span>
+          <div class="hud-tile hud-tile-money">
+            <span class="hud-k">Today</span>
+            <span class="hud-v" id="hud-today">—</span>
           </div>
-          <div class="hud-cell">
-            <span class="hud-label">Clicks</span>
-            <span class="hud-value" id="hud-clicks">—</span>
+          <div class="hud-tile">
+            <span class="hud-k">Clicks</span>
+            <span class="hud-v" id="hud-clicks">—</span>
           </div>
-          <div class="hud-cell">
-            <span class="hud-label">Impr</span>
-            <span class="hud-value" id="hud-impr">—</span>
+          <div class="hud-tile">
+            <span class="hud-k">Impr</span>
+            <span class="hud-v" id="hud-impr">—</span>
           </div>
-          <div class="hud-cell">
-            <span class="hud-label">eCPM</span>
-            <span class="hud-value" id="hud-ecpm">—</span>
+          <div class="hud-tile">
+            <span class="hud-k">eCPM</span>
+            <span class="hud-v" id="hud-ecpm">—</span>
           </div>
-          <div class="hud-cell hud-sync">
-            <span class="hud-label">Sync</span>
-            <span class="hud-value" id="hud-sync">—</span>
+          <div class="hud-tile">
+            <span class="hud-k">Sync</span>
+            <span class="hud-v" id="hud-sync">—</span>
           </div>
         </div>
-        <div id="backend-error" role="alert" hidden></div>
+      </header>
 
+      <nav class="step-pipeline" id="step-nav" aria-label="Wizard steps"></nav>
+      <p class="pipeline-note">Steps 1–9 in order. <span class="ok">Green = done</span> · <span class="current-hint">bright = current</span>.</p>
+
+      <div id="backend-error" role="alert" hidden></div>
+
+      <main class="content" id="content-area">
         <!-- 0 Start -->
         <section class="view" id="view-start" data-view="start">
           <header class="view-hero">
-            <div class="badge"><span class="badge-dot"></span> Step 1 of 9 · Setup</div>
-            <h1>Start</h1>
-            <p class="subtitle">Follow these simple steps: set up this PC, set up phones, test your site, then run.</p>
+            <div class="kicker"><span class="badge-dot"></span> STEP 1 OF 9 · SETUP</div>
+            <h1>Welcome</h1>
+            <p class="subtitle">Nine steps between you and a running farm. Work them in order — the deck tracks where you are.</p>
           </header>
           <div class="view-body">
             <div class="main-grid">
               <section class="panel">
-                <h2 class="panel-title">Do this path</h2>
+                <h2 class="panel-title">The path</h2>
                 <ol class="instruction-list roadmap-list">
-                  <li><strong>Part 1</strong> (steps 1 to 3): Start, Install, Android</li>
-                  <li><strong>Part 2</strong> (step 4): Phones</li>
-                  <li><strong>Part 3</strong> (steps 5 to 8): Test, Steps, Builder (optional), Groups</li>
-                  <li><strong>Part 4</strong> (step 9): Run</li>
+                  <li><strong>Part 1 · 01–03</strong> Set up this PC, then Android tools.</li>
+                  <li><strong>Part 2 · 04</strong> Connect and set up phones.</li>
+                  <li><strong>Part 3 · 05–08</strong> Test your site, steps, groups.</li>
+                  <li><strong>Part 4 · 09</strong> Run the farm.</li>
                 </ol>
               </section>
               <section class="panel">
                 <h2 class="panel-title">Tip</h2>
-                <p class="panel-note">Use MuMu. After <strong>Install</strong>, go to <strong>Phones</strong> and click <strong>Set up my phones</strong>.</p>
+                <p class="panel-note">Use MuMu for phones. After <strong>Install</strong>, go to <strong>Phones</strong> and click <strong>Set up my phones</strong> — it installs the browser, hides the emulator look, and applies the ad-zone fix in one pass.</p>
               </section>
             </div>
           </div>
           <footer class="view-footer-nav">
             <span></span>
-            <button type="button" class="btn-mini btn-next-step" data-next="install">Next: Install →</button>
+            <button type="button" class="btn-go btn-next-step" data-next="install">Next: Install →</button>
           </footer>
         </section>
 
         <!-- 1 Install -->
         <section class="view" id="view-install" data-view="install">
           <header class="view-hero">
-            <div class="badge"><span class="badge-dot"></span> Step 2 of 9 · Setup</div>
+            <div class="kicker"><span class="badge-dot"></span> STEP 2 OF 9 · SETUP</div>
             <h1>Install</h1>
-            <p class="subtitle">We set up this PC first.</p>
+            <p class="subtitle">Set up this PC first: dependencies, tools, and the Android bridge.</p>
           </header>
           <div class="view-body">
             <div class="main-grid">
               <section class="panel">
-                <h2 class="panel-title">What to do</h2>
-                <ol class="instruction-list">
-                  <li>Click <strong>Install everything</strong> and wait.</li>
-                  <li>When all lines are green, go to <strong>Android</strong>.</li>
-                </ol>
                 <div class="panel-head">
                   <h2 class="panel-title">Dependencies</h2>
                   <button type="button" class="btn-mini" id="btn-refresh-prereq">Refresh</button>
                 </div>
+                <ul class="prereq-list" id="prereq-list"></ul>
                 <div class="action-row">
                   <button type="button" class="btn-go" id="btn-install-all">Install everything</button>
                 </div>
-                <ul class="prereq-list" id="prereq-list"></ul>
+                <ol class="instruction-list">
+                  <li>Click <strong>Install everything</strong> and wait for green lines.</li>
+                  <li>Then go to <strong>Android</strong>.</li>
+                </ol>
               </section>
               <section class="panel log-panel">
                 <div class="log-header">
@@ -126,25 +120,25 @@
             </div>
           </div>
           <footer class="view-footer-nav">
-            <button type="button" class="btn-ghost btn-prev-step" data-prev="start">← Start</button>
-            <button type="button" class="btn-mini btn-next-step" data-next="android">Next: Android →</button>
+            <button type="button" class="btn-ghost btn-prev-step" data-prev="start">← Welcome</button>
+            <button type="button" class="btn-go btn-next-step" data-next="android">Next: Android →</button>
           </footer>
         </section>
 
         <!-- 2 Android -->
         <section class="view" id="view-android" data-view="android">
           <header class="view-hero">
-            <div class="badge"><span class="badge-dot"></span> Step 3 of 9 · Setup</div>
+            <div class="kicker"><span class="badge-dot"></span> STEP 3 OF 9 · SETUP</div>
             <h1>Android</h1>
-            <p class="subtitle">Set up Android tools.</p>
+            <p class="subtitle">Android tools and emulator support.</p>
           </header>
           <div class="view-body">
             <div class="main-grid">
               <section class="panel">
                 <h2 class="panel-title">What to do</h2>
                 <ol class="instruction-list">
-                  <li><strong>Most people:</strong> install MuMu and make phones at <strong>900x1600 portrait</strong>.</li>
-                  <li><strong>AVD option:</strong> use Android tools if you are not using MuMu.</li>
+                  <li><strong>Most people:</strong> install MuMu and make phones at <strong>900×1600 portrait</strong>.</li>
+                  <li><strong>AVD option:</strong> use Android tools if you're not using MuMu.</li>
                 </ol>
                 <h2 class="panel-title">Android tools</h2>
                 <button type="button" class="btn-go" id="btn-android-install">Install Android tools (SDK + ADB)</button>
@@ -159,7 +153,7 @@
                     <span id="android-status-label">Ready</span>
                   </div>
                 </div>
-                <p class="panel-note">If you only use MuMu, you can skip this and go to <strong>Phones</strong>.</p>
+                <p class="panel-note">MuMu only? Skip this and go straight to <strong>Phones</strong>.</p>
                 <details class="panel avd-details avd-details-android">
                   <summary class="panel-title">Google AVD farm (optional — MuMu users skip)</summary>
                   <p class="panel-note">Creates Pixel-style virtual devices in the Android SDK. Only use this if you are not using MuMu.</p>
@@ -181,31 +175,32 @@
           </div>
           <footer class="view-footer-nav">
             <button type="button" class="btn-ghost btn-prev-step" data-prev="install">← Install</button>
-            <button type="button" class="btn-mini btn-next-step" data-next="phones">Next: Phones →</button>
+            <button type="button" class="btn-go btn-next-step" data-next="phones">Next: Phones →</button>
           </footer>
         </section>
 
         <!-- 3 Phones -->
         <section class="view" id="view-phones" data-view="phones">
           <header class="view-hero">
-            <div class="badge"><span class="badge-dot"></span> Step 4 of 9 · Setup</div>
+            <div class="kicker"><span class="badge-dot"></span> STEP 4 OF 9 · SETUP</div>
             <h1>Phones</h1>
-            <p class="subtitle">Connect phones and let PharmFlow set them up.</p>
+            <p class="subtitle">Connect your phones. PharmFlow installs the browser, hides the emulator look, and applies the ad-zone fix for you.</p>
           </header>
           <div class="view-body view-body-scroll">
-            <div class="main-grid phones-layout phones-main-grid">
+            <div class="phones-layout">
               <section class="panel panel-instructions">
-                <h2 class="panel-title">What to do</h2>
+                <h2 class="panel-title">Before you start</h2>
                 <ol class="instruction-list instruction-list-compact phones-instructions">
                   <li>Start each phone in <strong>MuMu</strong>.</li>
-                  <li>Turn on <strong>USB debugging</strong> (Settings → Developer options). <strong>Leave it on</strong> — PharmFlow needs it; websites still get disguised during setup.</li>
+                  <li>Turn on <strong>USB debugging</strong> (Settings → Developer options). Leave it on — PharmFlow needs it; the disguise still applies during setup.</li>
                   <li>If MuMu shows <strong>Root</strong>, leave it <strong>ON</strong>.</li>
                   <li>Click <strong>Check again</strong>, then <strong>Set up my phones</strong>.</li>
-                  <li>PharmFlow installs Chromium, disguises each phone, and finishes setup.</li>
-                  <li>If asked, restart phones and run setup again.</li>
+                  <li>PharmFlow installs the browser, disguises each phone, and finishes setup.</li>
+                  <li>If asked, restart the phones and run setup again.</li>
                 </ol>
                 <p class="panel-note setup-hint" id="setup-hint" hidden></p>
               </section>
+
               <section class="panel checklist-panel">
                 <div class="panel-head">
                   <h2 class="panel-title">Checklist</h2>
@@ -217,17 +212,29 @@
                   <div id="phones-empty" class="phones-empty"><strong>None yet</strong> — start MuMu, turn USB debugging ON, then click Check again</div>
                   <div id="phone-chips" class="phone-chips" hidden></div>
                 </div>
-              </section>
-              <div class="phones-actions-bar">
-                <button type="button" class="btn-go btn-go-compact" id="btn-go">Set up my phones</button>
-                <div class="browser-picker">
-                  <label class="browser-picker-label" for="browser-select">Install a browser:</label>
-                  <select id="browser-select" class="browser-select" aria-label="Choose a browser to install"></select>
-                  <label class="browser-picker-label" for="phone-select">on:</label>
-                  <select id="phone-select" class="browser-select phone-select" aria-label="Choose which phone to install on"></select>
-                  <button type="button" class="btn-chrome btn-chrome-compact" id="btn-install-browser">Install</button>
+                <div class="phones-actions-bar">
+                  <button type="button" class="btn-go btn-go-compact" id="btn-go">Set up my phones</button>
                 </div>
-              </div>
+              </section>
+
+              <section class="panel browser-panel">
+                <div class="panel-head">
+                  <h2 class="panel-title">Install browser</h2>
+                </div>
+                <div class="browser-picker">
+                  <div class="browser-field">
+                    <label class="browser-picker-label" for="browser-select">Browser</label>
+                    <select id="browser-select" class="browser-select" aria-label="Choose a browser to install"></select>
+                  </div>
+                  <div class="browser-field">
+                    <label class="browser-picker-label" for="phone-select">On</label>
+                    <select id="phone-select" class="browser-select phone-select" aria-label="Choose which phone to install on"></select>
+                  </div>
+                  <button type="button" class="btn-go btn-chrome btn-chrome-compact" id="btn-install-browser">Install</button>
+                </div>
+                <p class="panel-note">FarmBrowser is the stealth money browser — pick it to also delete Lawnchair from the phones. Other browsers come embedded in this EXE and install offline.</p>
+              </section>
+
               <section class="panel log-panel phones-log-panel">
                 <div class="log-header">
                   <h2 class="panel-title">Progress log</h2>
@@ -242,16 +249,16 @@
           </div>
           <footer class="view-footer-nav">
             <button type="button" class="btn-ghost btn-prev-step" data-prev="android">← Android</button>
-            <button type="button" class="btn-mini btn-next-step" data-next="boot">Next: Test (step 5) →</button>
+            <button type="button" class="btn-go btn-next-step" data-next="boot">Next: Test (step 5) →</button>
           </footer>
         </section>
 
         <!-- 4 Boot -->
         <section class="view" id="view-boot" data-view="boot">
           <header class="view-hero">
-            <div class="badge"><span class="badge-dot"></span> Step 5 of 9 · Test</div>
+            <div class="kicker"><span class="badge-dot"></span> STEP 5 OF 9 · TEST</div>
             <h1>Test</h1>
-            <p class="subtitle">Make sure your site opens on phones.</p>
+            <p class="subtitle">Confirm your site opens on the phones, with ads visible.</p>
           </header>
           <div class="view-body">
             <div class="main-grid">
@@ -260,8 +267,8 @@
                 <ol class="instruction-list instruction-list-compact">
                   <li>Set your site URL.</li>
                   <li>Click <strong>Open site on phones</strong>.</li>
-                  <li>Make sure the site and ads show.</li>
-                  <li>If not, go back to <strong>Phones</strong> and run setup again.</li>
+                  <li>Check the site and ads render.</li>
+                  <li>Not right? Go back to <strong>Phones</strong> and run setup again.</li>
                 </ol>
                 <h2 class="panel-title">Target site</h2>
                 <div class="site-url-row">
@@ -291,24 +298,24 @@
           </div>
           <footer class="view-footer-nav">
             <button type="button" class="btn-ghost btn-prev-step" data-prev="phones">← Phones</button>
-            <button type="button" class="btn-mini btn-next-step" data-next="steps">Next: Steps →</button>
+            <button type="button" class="btn-go btn-next-step" data-next="steps">Next: Steps →</button>
           </footer>
         </section>
 
         <!-- 5 Steps -->
         <section class="view" id="view-steps" data-view="steps">
           <header class="view-hero">
-            <div class="badge"><span class="badge-dot"></span> Step 6 of 9 · Test</div>
+            <div class="kicker"><span class="badge-dot"></span> STEP 6 OF 9 · TEST</div>
             <h1>Steps</h1>
-            <p class="subtitle">Default steps for new phones.</p>
+            <p class="subtitle">The default tap sequence new phones run.</p>
           </header>
           <div class="view-body">
             <div class="main-grid">
               <section class="panel">
                 <h2 class="panel-title">What to do</h2>
                 <ol class="instruction-list">
-                  <li>If setup already made steps, you can skip this.</li>
-                  <li>If needed, click <strong>Edit default sequence</strong>.</li>
+                  <li>Setup usually creates steps for you — if so, skip this.</li>
+                  <li>Otherwise click <strong>Edit default sequence</strong>.</li>
                 </ol>
                 <h2 class="panel-title">Default sequence</h2>
                 <p class="status-line" id="steps-summary">No default steps defined.</p>
@@ -320,28 +327,28 @@
               </section>
               <section class="panel">
                 <h2 class="panel-title">About steps</h2>
-                <p class="panel-note">A sequence is just a list of taps. New phones use this list by default.</p>
+                <p class="panel-note">A sequence is a list of taps. New phones use this list by default.</p>
               </section>
             </div>
           </div>
           <footer class="view-footer-nav">
             <button type="button" class="btn-ghost btn-prev-step" data-prev="boot">← Test</button>
-            <button type="button" class="btn-mini btn-next-step" data-next="builder">Next: Builder →</button>
+            <button type="button" class="btn-go btn-next-step" data-next="builder">Next: Builder →</button>
           </footer>
         </section>
 
         <!-- 6 Builder -->
         <section class="view" id="view-builder" data-view="builder">
           <header class="view-hero">
-            <div class="badge"><span class="badge-dot"></span> Step 7 of 9 · Test</div>
+            <div class="kicker"><span class="badge-dot"></span> STEP 7 OF 9 · TEST</div>
             <h1>Builder</h1>
-            <p class="subtitle">Optional custom steps.</p>
+            <p class="subtitle">Optional: build a custom sequence.</p>
           </header>
           <div class="view-body">
             <div class="main-grid">
               <section class="panel">
                 <h2 class="panel-title">What to do</h2>
-                <p class="panel-note">Most people skip this step.</p>
+                <p class="panel-note">Most people skip this step — the default sequence covers the money path.</p>
                 <h2 class="panel-title">Sequence builder</h2>
                 <p class="panel-note">Open the full editor only if you need custom behavior.</p>
                 <div class="action-row">
@@ -351,22 +358,22 @@
               </section>
               <section class="panel">
                 <h2 class="panel-title">Timing</h2>
-                <p class="panel-note">You can add more natural timing later from <strong>Groups</strong>.</p>
+                <p class="panel-note">Add more natural timing later from <strong>Groups</strong>.</p>
               </section>
             </div>
           </div>
           <footer class="view-footer-nav">
             <button type="button" class="btn-ghost btn-prev-step" data-prev="steps">← Steps</button>
-            <button type="button" class="btn-mini btn-next-step" data-next="teams">Next: Groups →</button>
+            <button type="button" class="btn-go btn-next-step" data-next="teams">Next: Groups →</button>
           </footer>
         </section>
 
         <!-- 7 Groups -->
         <section class="view" id="view-teams" data-view="teams">
           <header class="view-hero">
-            <div class="badge"><span class="badge-dot"></span> Step 8 of 9 · Test</div>
+            <div class="kicker"><span class="badge-dot"></span> STEP 8 OF 9 · TEST</div>
             <h1>Groups</h1>
-            <p class="subtitle">Put phones in groups.</p>
+            <p class="subtitle">Organize phones into groups with natural timing.</p>
           </header>
           <div class="view-body">
             <div class="main-grid">
@@ -389,7 +396,7 @@
               </section>
               <section class="panel">
                 <h2 class="panel-title">Dashboard</h2>
-                <p class="panel-note">Open dashboard to watch and control runs.</p>
+                <p class="panel-note">Open the dashboard to watch runs and revenue live.</p>
                 <div class="action-row">
                   <button type="button" class="btn-ghost" id="btn-open-dash-teams">Open dashboard</button>
                 </div>
@@ -398,16 +405,16 @@
           </div>
           <footer class="view-footer-nav">
             <button type="button" class="btn-ghost btn-prev-step" data-prev="builder">← Builder</button>
-            <button type="button" class="btn-mini btn-next-step" data-next="go">Next: Run (step 9) →</button>
+            <button type="button" class="btn-go btn-next-step" data-next="go">Next: Run (step 9) →</button>
           </footer>
         </section>
 
         <!-- 8 Go -->
         <section class="view" id="view-go" data-view="go">
           <header class="view-hero">
-            <div class="badge"><span class="badge-dot"></span> Step 9 of 9 · Run</div>
+            <div class="kicker"><span class="badge-dot"></span> STEP 9 OF 9 · RUN</div>
             <h1>Run</h1>
-            <p class="subtitle">Start and run automation.</p>
+            <p class="subtitle">Launch the farm. Service plus all groups, from one button.</p>
           </header>
           <div class="view-body view-body-scroll">
             <div class="main-grid main-grid-run">
@@ -415,8 +422,8 @@
                 <h2 class="panel-title">What to do</h2>
                 <ol class="instruction-list">
                   <li>Click <strong>Start automation</strong>.</li>
-                  <li>PharmFlow starts service and runs all groups for you.</li>
-                  <li>Watch MuMu windows to confirm phones are running.</li>
+                  <li>PharmFlow starts the service and runs all groups for you.</li>
+                  <li>Watch the MuMu windows to confirm phones are running.</li>
                 </ol>
                 <p class="status-line" id="launch-summary"></p>
                 <div class="action-row action-row-big">
@@ -442,7 +449,7 @@
                     <button type="button" class="btn-ghost" id="btn-cloud-agent">Run cloud agent…</button>
                     <button type="button" class="btn-ghost" id="btn-cloud-agent-settings">Agent settings…</button>
                   </div>
-                  <p class="panel-note">Cloud setup connects, disguises, and routes Tor for remote Android instances. Agent status checks Docker, emulators, and ADB health. Run cloud agent uses your own API key to reason over the farm (no filtering on our side).</p>
+                  <p class="panel-note">Cloud setup connects, disguises, and routes Tor for remote Android instances. Agent status checks Docker, emulators, and ADB health. Run cloud agent uses your own API key to reason over the farm.</p>
                 </div>
               </section>
               <section class="panel log-panel">
@@ -462,10 +469,10 @@
             <span></span>
           </footer>
         </section>
-      </div>
+      </main>
     </div>
 
     <div class="app-toast" id="app-toast" hidden></div>
     <script src="app.js"></script>
   </body>
-</html>
+</html>

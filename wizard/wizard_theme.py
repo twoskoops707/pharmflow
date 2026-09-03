@@ -22,55 +22,55 @@ if _sd not in sys.path:
 
 from wizard_paths import wizard_assets_dir
 
-# --- Hierarchy (canvas → elevated cards) — flat ink/panel deck ---
-BG = "#0a0f15"  # canvas — content pane & page background
-BG2 = "#111a24"  # primary card / footer / top strip
-BG3 = "#1c2a39"  # nested / inset surfaces
-BG4 = "#22303f"  # hover / diagram tiles
-BG_LOG_ROW = "#121820"  # code / mono strip
+# --- Hierarchy (canvas → elevated cards) — flat console deck (matches automation/dashboard.html) ---
+BG = "#12151a"  # canvas — content pane & page background
+BG2 = "#1a1f27"  # primary card / footer / top strip
+BG3 = "#222833"  # nested / inset surfaces
+BG4 = "#2e3642"  # hover / diagram tiles
+BG_LOG_ROW = "#171c24"  # code / mono strip
 
 # Dedicated sidebar rail (left column shell — darker than canvas)
-SHELL_SIDEBAR_BG = "#060a0f"
+SHELL_SIDEBAR_BG = "#0e1116"
 
 # Footer dock (pair with ``style_*_button`` for hover states below)
 FOOTER_BG = BG3  # bottom bar — inset from content canvas (BG); reads as “dock”
 
 # Chrome & borders (Tk: simulate shadow with highlightbackground + flat relief)
-BORDER = "#22303f"
-BORDER_STRONG = "#2c3d50"
-BORDER_FOCUS = "#4c9df0"
+BORDER = "#2e3642"
+BORDER_STRONG = "#3a4350"
+BORDER_FOCUS = "#4a9ec8"
 
-# Accent — signal amber "Farm Control Deck" (matches assets/cpharm_app/app.css --amber).
-ACCENT = "#f0a62e"
-ACCENT_DIM = "#d18f1f"
-ACCENT_GLOW = "#ffc964"
-ACCENT_MUTED = "#8a5f14"
-ACCENT_SUBTLE = "#2a2110"  # soft fill behind accent-tinted areas
+# Accent — signal green "PharmFlow console" (matches assets/cpharm_app/app.css --green).
+ACCENT = "#3d9a78"
+ACCENT_DIM = "#2f7d61"
+ACCENT_GLOW = "#5fbf9b"
+ACCENT_MUTED = "#245c4a"
+ACCENT_SUBTLE = "#14241e"  # soft fill behind accent-tinted areas
 
 # Shell chrome lines (must follow ACCENT_* definitions — avoid NameError at import)
 DIVIDER_ACCENT = ACCENT_MUTED  # 2px rule above footer / subtle chrome lines
 SHELL_RAIL_ACCENT = ACCENT_DIM  # 2px strip between sidebar and main content
 
 # Semantic fills (success / danger / emphasis)
-GREEN = "#3ecf8e"
-GREEN_ACTIVE = "#35b89c"
-RED = "#f26464"
-RED_ACTIVE = "#d05555"
-PURPLE = "#d18f1f"  # amber-dim stand-in for diagram accents (no purple in the brand)
-PURPLE_ACTIVE = "#c07f18"
+GREEN = "#3d9a78"
+GREEN_ACTIVE = "#2f7d61"
+RED = "#c45c5c"
+RED_ACTIVE = "#a84b4b"
+PURPLE = "#4a9ec8"  # soft blue stand-in for diagram accents (no purple in the brand)
+PURPLE_ACTIVE = "#3f8ab1"
 
 # Text
-T1 = "#e7eef6"
-T2 = "#9aabc0"
-T3 = "#5e7188"
-ON_ACCENT = "#1a1204"
+T1 = "#e7ecf2"
+T2 = "#8b97a8"
+T3 = "#5b6878"
+ON_ACCENT = "#0c1612"
 BLACK = "#000000"
 
 # States — “working” / attention, readable on dark
-WORKING = "#7ab8f0"  # soft sky-blue — in progress, busy
-WARN_FG = "#f0a62e"  # amber text only (no loud yellow panels)
-WARN_BG = "#1c1810"
-CALLOUT_BG = "#111a24"
+WORKING = "#6fb3e0"  # soft sky-blue — in progress, busy
+WARN_FG = "#c9a227"  # warning text only (no loud yellow panels)
+WARN_BG = "#1e1c14"
+CALLOUT_BG = "#1a1f27"
 CALLOUT_BORDER = ACCENT_MUTED
 CALLOUT_STRIP = ACCENT  # left-edge accent for callout chrome
 
@@ -88,7 +88,7 @@ CALLOUT_MUTED = T2
 CALLOUT_ACCENT_BAR = CALLOUT_STRIP
 
 # MuMu / special surfaces
-BG_MUMU = "#12181c"
+BG_MUMU = "#12151a"
 
 # spacing scale (px)
 SP = {"xs": 4, "sm": 8, "md": 12, "lg": 16, "xl": 24, "card": 14, "page": 20}
