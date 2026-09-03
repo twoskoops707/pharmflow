@@ -141,12 +141,12 @@ from wizard_theme import (
 )
 from sequence_humanize import humanize_steps
 
-REPO_URL            = "https://github.com/twoskoops707/cpharm.git"
+REPO_URL            = "https://github.com/twoskoops707/pharmflow.git"
 IS_WIN              = platform.system() == "Windows"
-SETUP_GUIDE_URL     = "https://github.com/twoskoops707/cpharm/blob/main/docs/CPharm_emulator_MuMu_and_sequences.md"
+SETUP_GUIDE_URL     = "https://github.com/twoskoops707/pharmflow/blob/main/docs/CPharm_emulator_MuMu_and_sequences.md"
 # Raw markdown — more reliable to open in a browser than the GitHub HTML "blob" wrapper page.
 SETUP_GUIDE_URL_RAW = (
-    "https://raw.githubusercontent.com/twoskoops707/cpharm/main/docs/CPharm_emulator_MuMu_and_sequences.md"
+    "https://raw.githubusercontent.com/twoskoops707/pharmflow/main/docs/CPharm_emulator_MuMu_and_sequences.md"
 )
 PLAY_CONSOLE_URL    = "https://play.google.com/console"
 PLAY_TESTING_DOCS_URL = "https://support.google.com/googleplay/android-developer/answer/9845334"
@@ -289,7 +289,7 @@ JAVA_DOWNLOAD_URL_X64    = "https://aka.ms/download-jdk/microsoft-jdk-21-windows
 TOR_FALLBACK_URL  = "https://dist.torproject.org/torbrowser/14.0.9/tor-expert-bundle-windows-x86_64-14.0.9.tar.gz"
 PYTHON_URL        = "https://www.python.org/ftp/python/3.13.0/python-3.13.0-arm64.exe"
 PYTHON_URL_X64    = "https://www.python.org/ftp/python/3.13.0/python-3.13.0-amd64.exe"
-CPHARM_ZIP_URL    = "https://github.com/twoskoops707/cpharm/archive/refs/heads/main.zip"
+CPHARM_ZIP_URL    = "https://github.com/twoskoops707/pharmflow/archive/refs/heads/main.zip"
 CPHARM_DEFAULT    = os.path.join(os.path.expanduser("~"), "CPharm")
 
 # MuMu / Netease CLI: newer installs use nemux-shell-winui.Manager.exe; older builds use MuMuManager.exe

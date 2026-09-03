@@ -20,7 +20,7 @@ from typing import Callable
 
 IS_WIN = platform.system() == "Windows"
 MUMU_DOWNLOAD_URL = "https://www.mumuglobal.com/download"
-CPHARM_RELEASES_URL = "https://github.com/twoskoops707/cpharm/releases/latest"
+CPHARM_RELEASES_URL = "https://github.com/twoskoops707/pharmflow/releases/latest"
 SDK_DEFAULT_PATH = Path(os.environ.get("LOCALAPPDATA", "C:\\")) / "Android" / "Sdk"
 
 MUMU_MANAGER_NAMES = (
