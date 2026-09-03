@@ -8,6 +8,7 @@ import os
 import random
 import re
 import string
+import subprocess
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -19,6 +20,10 @@ try:
 except ImportError:  # pragma: no cover — non-Windows
     winreg = None  # type: ignore[assignment]
 
+# Hide console flash for every adb/tool spawn (windowed EXE has no console).
+_SUBPROC_FLAGS = int(getattr(subprocess, "CREATE_NO_WINDOW", 0) or 0) if os.name == "nt" else 0
+
+from automation.adb_paths import adb_executable
 from automation.config import (
     MUMU_DEFAULT_DPI,
     MUMU_DEFAULT_HEIGHT,
@@ -46,6 +51,34 @@ GETPROP_VERIFY_KEYS: tuple[str, ...] = (
 
 # Strings that MUST NOT appear in any fingerprint field
 FORBIDDEN_SUBSTRINGS = ("mumu", "emu", "virtual", "vbox", "genymotion", "sdk_gphone", "android_x86")
+
+
+def _forbidden_leak(value: str) -> bool:
+    """True when a getprop value leaks emulator identity."""
+    low = value.lower()
+    return any(f in low for f in FORBIDDEN_SUBSTRINGS)
+
+
+# Runtime verification table: (getprop, leak_detector, reason). A phone only
+# passes when every populated prop is clean (leak callable returns False).
+_EMULATOR_LEAK_CHECKS: tuple[tuple[str, object, str], ...] = (
+    ("ro.kernel.qemu", lambda v: bool(v.strip()) and v.strip() != "0", "emulator kernel flag set"),
+    ("ro.product.model", _forbidden_leak, "model leaks emulator"),
+    ("ro.product.brand", _forbidden_leak, "brand leaks emulator"),
+    ("ro.product.manufacturer", _forbidden_leak, "manufacturer leaks emulator"),
+    ("ro.product.device", _forbidden_leak, "device leaks emulator"),
+    ("ro.product.board", _forbidden_leak, "board leaks emulator"),
+    ("ro.hardware", _forbidden_leak, "hardware leaks emulator"),
+    ("ro.bootloader", _forbidden_leak, "bootloader leaks emulator"),
+    ("ro.build.fingerprint", _forbidden_leak, "build fingerprint leaks emulator"),
+    ("ro.debuggable", lambda v: v.strip() != "0", "ro.debuggable must be 0"),
+    ("ro.secure", lambda v: v.strip() != "1", "ro.secure must be 1"),
+    ("ro.adb.secure", lambda v: v.strip() != "1", "ro.adb.secure must be 1"),
+)
+
+# Device paths for per-phone user-agent flags (shell-writable, no root needed).
+CHROME_FLAGS_PATH = "/data/local/tmp/chrome-command-line"
+WEBVIEW_FLAGS_PATH = "/data/local/tmp/webview-command-line"
 
 # Retail device profiles — real-world brand/model/hardware combos.
 # Keep this pool large: Cloudflare device analytics collapse identical models.
@@ -162,9 +195,42 @@ RETAIL_PROFILES: list[dict[str, str]] = [
     {
         "brand": "asus", "manufacturer": "asus", "model": "ASUS_AI2205_D",
         "device": "AI2205", "hardware": "qcom", "bootloader": "unknown",
-        "board": "taro", "fingerprint": "asus/WW_AI2205/ASUS_AI2205_D:13/TKQ1.220807.001/33.0820:user/release-keys",
+        "board": "taro",        "fingerprint": "asus/WW_AI2205/ASUS_AI2205_D:13/TKQ1.220807.001/33.0820:user/release-keys",
     },
 ]
+
+def _chrome_version_for_model(model: str) -> str:
+    """Chrome version that matches this model's mobile UA, if known."""
+    ua = MOBILE_USER_AGENTS.get(model, "")
+    m = re.search(r"Chrome/([\d.]+)", ua)
+    return m.group(1) if m else "124.0.0.0"
+
+
+def _retail_pool() -> tuple[dict, ...]:
+    """Runtime rotation pool — retail devices with a stable ``key`` per profile.
+
+    Verification/audit code looks profiles up by ``key`` (brand-model slug),
+    so every entry carries one even though the source list does not.
+    """
+    pool: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for p in RETAIL_PROFILES:
+        item = dict(p)
+        key = f"{item.get('brand', '')}-{item.get('model', '')}".lower().replace(" ", "-")
+        if key in seen:
+            continue
+        seen.add(key)
+        item["key"] = key
+        # Android release is embedded in the build fingerprint ("…:14/…"); the
+        # UA builder needs it as its own field.
+        fp = str(item.get("fingerprint", ""))
+        m_release = re.search(r":(\d{1,2})/", fp)
+        m_build = re.search(r":\d{1,2}/([^/]+)/", fp)
+        item["android_release"] = m_release.group(1) if m_release else "13"
+        item["build_id"] = m_build.group(1) if m_build else "TP1A.220624.014"
+        item["chrome_version"] = _chrome_version_for_model(item.get("model", ""))
+        pool.append(item)
+    return tuple(pool)
 
 # Mobile UAs — model-specific, no emulator leakage
 MOBILE_USER_AGENTS: dict[str, str] = {
@@ -191,6 +257,9 @@ MOBILE_USER_AGENTS: dict[str, str] = {
     "RMX3706": "Mozilla/5.0 (Linux; Android 13; RMX3706) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.6045.163 Mobile Safari/537.36",
     "ASUS_AI2205_D": "Mozilla/5.0 (Linux; Android 13; ASUS_AI2205_D) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.6045.163 Mobile Safari/537.36",
 }
+
+# Built after MOBILE_USER_AGENTS so chrome_version can be derived.
+RETAIL_PROFILE_POOL: tuple[dict, ...] = _retail_pool()
 
 WEBGL_RENDERERS: list[str] = [
     "Qualcomm Adreno (TM) 740",
@@ -995,6 +1064,7 @@ def ensure_fingerprint_before_browse(
 
 # ==== merged from cpharm automation/mumu_fingerprint.py (profile/audit helpers) ====
 
+@dataclass
 class FingerprintAudit:
     serial: str
     profile_key: str
@@ -1074,10 +1144,16 @@ def profile_by_farm_index(index: int) -> dict:
 
 
 def build_mobile_user_agent(profile: dict) -> str:
+    fp = str(profile.get("fingerprint", ""))
+    m_release = re.search(r":(\d{1,2})/", fp)
+    m_build = re.search(r":\d{1,2}/([^/]+)/", fp)
+    release = profile.get("android_release") or (m_release.group(1) if m_release else "13")
+    build_id = profile.get("build_id") or (m_build.group(1) if m_build else "TP1A.220624.014")
+    chrome = profile.get("chrome_version") or _chrome_version_for_model(str(profile.get("model", "")))
     return (
-        f"Mozilla/5.0 (Linux; Android {profile['android_release']}; {profile['model']} "
-        f"Build/{profile['build_id']}; wv) AppleWebKit/537.36 (KHTML, like Gecko) "
-        f"Version/4.0 Chrome/{profile['chrome_version']} Mobile Safari/537.36"
+        f"Mozilla/5.0 (Linux; Android {release}; {profile['model']} "
+        f"Build/{build_id}; wv) AppleWebKit/537.36 (KHTML, like Gecko) "
+        f"Version/4.0 Chrome/{chrome} Mobile Safari/537.36"
     )
 
 

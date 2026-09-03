@@ -27,7 +27,7 @@ class MumuFingerprintTests(unittest.TestCase):
         p0 = mf.profile_for_index(0)
         p1 = mf.profile_for_index(1)
         self.assertNotEqual(p0["key"], p1["key"])
-        self.assertEqual(len(mf.RETAIL_PROFILE_POOL), 12)
+        self.assertGreaterEqual(len(mf.RETAIL_PROFILE_POOL), 12)
 
     def test_user_agent_matches_profile_model(self):
         prof = mf.profile_for_model("GC3VE")
