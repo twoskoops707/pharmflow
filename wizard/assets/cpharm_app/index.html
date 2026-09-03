@@ -3,34 +3,66 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>CPharm</title>
+    <title>PharmFlow — Farm Control Deck</title>
     <link rel="stylesheet" href="../cpharm_ui/shared.css" />
     <link rel="stylesheet" href="app.css" />
   </head>
   <body>
     <div class="bg-scene" aria-hidden="true">
-      <div class="orb orb-a"></div>
-      <div class="orb orb-b"></div>
-      <div class="orb orb-c"></div>
-      <div class="grid-overlay"></div>
+      <div class="plotter-grid"></div>
     </div>
 
     <div class="app-shell">
       <aside class="nav-rail" id="nav-rail">
-        <div class="nav-brand">CPharm</div>
-        <p class="nav-subtitle">Easy phone setup</p>
+        <div class="nav-brand">
+          <span class="brand-mark">PF</span>
+          <span class="brand-word">PharmFlow</span>
+          <span class="brand-eyebrow">FARM CONTROL DECK</span>
+        </div>
+        <p class="nav-subtitle">Farm control console</p>
         <nav class="step-nav" id="step-nav" aria-label="Wizard steps"></nav>
         <div class="nav-foot">
-          <p class="nav-foot-note">Do steps 1 to 9 in order.</p>
+          <p class="nav-foot-note">Do steps 1 to 9 in order.<br />Green = complete. Amber = current.</p>
         </div>
       </aside>
 
       <div class="content-area" id="content-area">
+        <div class="hud" id="hud" role="status" aria-live="polite">
+          <div class="hud-cell">
+            <span class="hud-label">Farm</span>
+            <span class="hud-value"><span class="hud-lamp" id="hud-farm-lamp"></span><span id="hud-farm">—</span></span>
+          </div>
+          <div class="hud-cell">
+            <span class="hud-label">Phones</span>
+            <span class="hud-value" id="hud-phones">—</span>
+          </div>
+          <div class="hud-cell">
+            <span class="hud-label">Today</span>
+            <span class="hud-value" id="hud-today">—</span>
+          </div>
+          <div class="hud-cell">
+            <span class="hud-label">Clicks</span>
+            <span class="hud-value" id="hud-clicks">—</span>
+          </div>
+          <div class="hud-cell">
+            <span class="hud-label">Impr</span>
+            <span class="hud-value" id="hud-impr">—</span>
+          </div>
+          <div class="hud-cell">
+            <span class="hud-label">eCPM</span>
+            <span class="hud-value" id="hud-ecpm">—</span>
+          </div>
+          <div class="hud-cell hud-sync">
+            <span class="hud-label">Sync</span>
+            <span class="hud-value" id="hud-sync">—</span>
+          </div>
+        </div>
         <div id="backend-error" role="alert" hidden></div>
+
         <!-- 0 Start -->
         <section class="view" id="view-start" data-view="start">
           <header class="view-hero">
-            <div class="badge"><span class="badge-dot"></span> Step 1 of 9</div>
+            <div class="badge"><span class="badge-dot"></span> Step 1 of 9 · Setup</div>
             <h1>Start</h1>
             <p class="subtitle">Follow these simple steps: set up this PC, set up phones, test your site, then run.</p>
           </header>
@@ -60,9 +92,9 @@
         <!-- 1 Install -->
         <section class="view" id="view-install" data-view="install">
           <header class="view-hero">
-            <div class="badge"><span class="badge-dot"></span> Step 2 of 9</div>
+            <div class="badge"><span class="badge-dot"></span> Step 2 of 9 · Setup</div>
             <h1>Install</h1>
-            <p class="subtitle">Step 2 of 9 — we set up this PC first.</p>
+            <p class="subtitle">We set up this PC first.</p>
           </header>
           <div class="view-body">
             <div class="main-grid">
@@ -102,9 +134,9 @@
         <!-- 2 Android -->
         <section class="view" id="view-android" data-view="android">
           <header class="view-hero">
-            <div class="badge"><span class="badge-dot"></span> Step 3 of 9</div>
+            <div class="badge"><span class="badge-dot"></span> Step 3 of 9 · Setup</div>
             <h1>Android</h1>
-            <p class="subtitle">Step 3 of 9 — set up Android tools.</p>
+            <p class="subtitle">Set up Android tools.</p>
           </header>
           <div class="view-body">
             <div class="main-grid">
@@ -156,9 +188,9 @@
         <!-- 3 Phones -->
         <section class="view" id="view-phones" data-view="phones">
           <header class="view-hero">
-            <div class="badge"><span class="badge-dot"></span> Step 4 of 9</div>
+            <div class="badge"><span class="badge-dot"></span> Step 4 of 9 · Setup</div>
             <h1>Phones</h1>
-            <p class="subtitle">Step 4 of 9 — connect phones and let CPharm set them up.</p>
+            <p class="subtitle">Connect phones and let PharmFlow set them up.</p>
           </header>
           <div class="view-body view-body-scroll">
             <div class="main-grid phones-layout phones-main-grid">
@@ -166,10 +198,10 @@
                 <h2 class="panel-title">What to do</h2>
                 <ol class="instruction-list instruction-list-compact phones-instructions">
                   <li>Start each phone in <strong>MuMu</strong>.</li>
-                  <li>Turn on <strong>USB debugging</strong> (Settings → Developer options). <strong>Leave it on</strong> — CPharm needs it; websites still get disguised during setup.</li>
+                  <li>Turn on <strong>USB debugging</strong> (Settings → Developer options). <strong>Leave it on</strong> — PharmFlow needs it; websites still get disguised during setup.</li>
                   <li>If MuMu shows <strong>Root</strong>, leave it <strong>ON</strong>.</li>
                   <li>Click <strong>Check again</strong>, then <strong>Set up my phones</strong>.</li>
-                  <li>CPharm installs Chromium, disguises each phone, and finishes setup.</li>
+                  <li>PharmFlow installs Chromium, disguises each phone, and finishes setup.</li>
                   <li>If asked, restart phones and run setup again.</li>
                 </ol>
                 <p class="panel-note setup-hint" id="setup-hint" hidden></p>
@@ -217,9 +249,9 @@
         <!-- 4 Boot -->
         <section class="view" id="view-boot" data-view="boot">
           <header class="view-hero">
-            <div class="badge"><span class="badge-dot"></span> Step 5 of 9</div>
+            <div class="badge"><span class="badge-dot"></span> Step 5 of 9 · Test</div>
             <h1>Test</h1>
-            <p class="subtitle">Step 5 of 9 — make sure your site opens on phones.</p>
+            <p class="subtitle">Make sure your site opens on phones.</p>
           </header>
           <div class="view-body">
             <div class="main-grid">
@@ -266,9 +298,9 @@
         <!-- 5 Steps -->
         <section class="view" id="view-steps" data-view="steps">
           <header class="view-hero">
-            <div class="badge"><span class="badge-dot"></span> Step 6 of 9</div>
+            <div class="badge"><span class="badge-dot"></span> Step 6 of 9 · Test</div>
             <h1>Steps</h1>
-            <p class="subtitle">Step 6 of 9 — default steps for new phones.</p>
+            <p class="subtitle">Default steps for new phones.</p>
           </header>
           <div class="view-body">
             <div class="main-grid">
@@ -301,9 +333,9 @@
         <!-- 6 Builder -->
         <section class="view" id="view-builder" data-view="builder">
           <header class="view-hero">
-            <div class="badge"><span class="badge-dot"></span> Step 7 of 9</div>
+            <div class="badge"><span class="badge-dot"></span> Step 7 of 9 · Test</div>
             <h1>Builder</h1>
-            <p class="subtitle">Step 7 of 9 — optional custom steps.</p>
+            <p class="subtitle">Optional custom steps.</p>
           </header>
           <div class="view-body">
             <div class="main-grid">
@@ -332,9 +364,9 @@
         <!-- 7 Groups -->
         <section class="view" id="view-teams" data-view="teams">
           <header class="view-hero">
-            <div class="badge"><span class="badge-dot"></span> Step 8 of 9</div>
+            <div class="badge"><span class="badge-dot"></span> Step 8 of 9 · Test</div>
             <h1>Groups</h1>
-            <p class="subtitle">Step 8 of 9 — put phones in groups.</p>
+            <p class="subtitle">Put phones in groups.</p>
           </header>
           <div class="view-body">
             <div class="main-grid">
@@ -373,9 +405,9 @@
         <!-- 8 Go -->
         <section class="view" id="view-go" data-view="go">
           <header class="view-hero">
-            <div class="badge"><span class="badge-dot"></span> Step 9 of 9</div>
+            <div class="badge"><span class="badge-dot"></span> Step 9 of 9 · Run</div>
             <h1>Run</h1>
-            <p class="subtitle">Step 9 of 9 — start and run automation.</p>
+            <p class="subtitle">Start and run automation.</p>
           </header>
           <div class="view-body view-body-scroll">
             <div class="main-grid main-grid-run">
@@ -383,7 +415,7 @@
                 <h2 class="panel-title">What to do</h2>
                 <ol class="instruction-list">
                   <li>Click <strong>Start automation</strong>.</li>
-                  <li>CPharm starts service and runs all groups for you.</li>
+                  <li>PharmFlow starts service and runs all groups for you.</li>
                   <li>Watch MuMu windows to confirm phones are running.</li>
                 </ol>
                 <p class="status-line" id="launch-summary"></p>
@@ -436,4 +468,4 @@
     <div class="app-toast" id="app-toast" hidden></div>
     <script src="app.js"></script>
   </body>
-</html>
+</html>

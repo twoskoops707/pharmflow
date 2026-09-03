@@ -372,7 +372,7 @@ def run_webview_app(*, skip_launch_cpharm: bool = False) -> None:
 
     api = MuMuSetupApi(skip_launch_cpharm=skip_launch_cpharm)
     window = webview.create_window(
-        "CPharm — Phone Setup",
+        "PharmFlow — Phone Setup",
         _html_url(),
         js_api=api,
         width=980,

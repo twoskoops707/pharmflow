@@ -115,7 +115,7 @@ def _legacy_find_mumu_install() -> Path | None:
 
 
 def cpharm_exe_beside_setup() -> tuple[bool, Path]:
-    """True when CPharm is available — unified exe counts as ready."""
+    """True when PharmFlow is available — unified exe counts as ready."""
     if getattr(sys, "frozen", False):
         exe = Path(sys.executable).resolve()
         if exe.stem.lower() == "cpharm":
@@ -374,7 +374,7 @@ def build_checklist(data_root: Path) -> list[dict]:
     items: list[dict] = [
         {
             "id": "folder",
-            "title": "CPharm is ready",
+            "title": "PharmFlow is ready",
             "help": "One CPharm.exe does everything — wizard, phone setup, and dashboard.",
             "status": "pass" if exe_ok else "fail",
             "action": None if exe_ok else "download_cpharm",
@@ -416,7 +416,7 @@ def build_checklist(data_root: Path) -> list[dict]:
             "title": "USB debugging is ON",
             "help": (
                 "Settings → Developer options → USB debugging ON — leave it on. "
-                "CPharm needs this to control MuMu; it does not stop hiding the emulator from websites. "
+                "PharmFlow needs this to control MuMu; it does not stop hiding the emulator from websites. "
                 "If MuMu shows a Root switch, leave Root ON."
             ),
             "status": "manual",
@@ -424,7 +424,7 @@ def build_checklist(data_root: Path) -> list[dict]:
         },
         {
             "id": "phones",
-            "title": "CPharm sees your phones",
+            "title": "PharmFlow sees your phones",
             "help": "Click Check again when MuMu is running.",
             "status": "pass" if phones else ("warn" if adb_ok else "fail"),
             "action": "refresh",

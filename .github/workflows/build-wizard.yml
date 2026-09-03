@@ -1,4 +1,4 @@
-name: Build CPharm (.exe)
+name: Build PharmFlow (.exe)
 
 # Branch policy: develop on `main` only. `dev` is deprecated — do not push feature work to `dev`.
 on:
@@ -71,7 +71,7 @@ jobs:
           python automation/verify_mantis_hardcode_sequences.py
           python automation/verify_sequence_matrix_counts.py
           python automation/smoke_home_combo_ui_loader.py
-          cmd /c "python automation/audit_dabflow_live.py || echo WARN: live DabFlow deploy still has zone typos — CPharm runtime CDP patch compensates; deploy dabflow-fix/app.js when ready"
+          cmd /c "python automation/audit_dabflow_live.py || echo WARN: live DabFlow deploy still has zone typos — PharmFlow runtime CDP patch compensates; deploy dabflow-fix/app.js when ready"
 
       - name: Stamp build info for EXE tracking
         shell: pwsh
@@ -82,7 +82,7 @@ jobs:
           $info = [ordered]@{
             build_number = $env:BUILD_NUMBER
             commit = $env:BUILD_COMMIT
-            product = "CPharm"
+            product = "PharmFlow"
             generated_utc = (Get-Date).ToUniversalTime().ToString("o")
           }
           $dir = "wizard/assets"
@@ -90,13 +90,13 @@ jobs:
           ($info | ConvertTo-Json) | Set-Content -Path (Join-Path $dir "build_info.json") -Encoding utf8
           Get-Content (Join-Path $dir "build_info.json")
 
-      # Single shipped binary: CPharm.exe (9-step wizard + phone setup + dashboard).
-      - name: Build CPharm.exe
+      # Single shipped binary: PharmFlow.exe (9-step wizard + phone setup + dashboard).
+      - name: Build PharmFlow.exe
         working-directory: wizard
-        run: pyinstaller CPharm.spec
+        run: pyinstaller PharmFlow.spec
 
       # Single EXE per operator decision: watchdog + agent logic run inside
-      # CPharm.exe (background threads). tools/cpharm_watchdog.py and
+      # PharmFlow.exe (background threads). tools/cpharm_watchdog.py and
       # tools/project_agent.py stay bundled as importable modules.
       - name: Smoke — verify EXE artifact and CLI flags
         shell: pwsh
@@ -105,7 +105,7 @@ jobs:
       - name: Validate release metadata inputs
         shell: pwsh
         run: |
-          if (-not (Test-Path wizard/dist/CPharm.exe -PathType Leaf)) { throw 'CPharm.exe missing before manifest generation' }
+          if (-not (Test-Path wizard/dist/PharmFlow.exe -PathType Leaf)) { throw 'PharmFlow.exe missing before manifest generation' }
 
       - name: Create signed release manifest
         shell: pwsh
@@ -114,7 +114,7 @@ jobs:
           BUILD_NUMBER: ${{ github.run_number }}
         run: |
           $files = @(
-            "wizard/dist/CPharm.exe"
+            "wizard/dist/PharmFlow.exe"
           )
           $entries = foreach ($file in $files) {
             $item = Get-Item $file
@@ -126,7 +126,7 @@ jobs:
             }
           }
           $manifest = [ordered]@{
-            product = "CPharm"
+            product = "PharmFlow"
             build_number = $env:BUILD_NUMBER
             commit = $env:BUILD_COMMIT
             python = (python --version 2>&1).ToString()
@@ -146,7 +146,7 @@ jobs:
           Copy-Item tools/launch_cpharm.ps1 wizard/dist/launch_cpharm.ps1
           Copy-Item checksums-sha256.txt wizard/dist/checksums-sha256.txt
           Copy-Item release-manifest.json wizard/dist/release-manifest.json
-          if (-not (Test-Path wizard/dist/CPharm.exe -PathType Leaf)) { throw 'CPharm.exe was not built' }
+          if (-not (Test-Path wizard/dist/PharmFlow.exe -PathType Leaf)) { throw 'PharmFlow.exe was not built' }
 
       # Fallback only — release assets are canonical and use a separate quota.
       # Continue-on-error so an Actions artifact-storage quota hit never blocks
@@ -156,7 +156,7 @@ jobs:
         continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
-          name: cpharm-exes-${{ github.run_number }}
+          name: pharmflow-exes-${{ github.run_number }}
           if-no-files-found: error
           retention-days: 1
           path: wizard/dist
@@ -168,17 +168,17 @@ jobs:
           BUILD_NUM: ${{ github.run_number }}
         with:
           tag_name: wizard-${{ github.run_number }}
-          name: "CPharm (build ${{ github.run_number }})"
+          name: "PharmFlow (build ${{ github.run_number }})"
           body: |
-            ## CPharm Windows tools (build ${{ github.run_number }})
+            ## PharmFlow Windows tools (build ${{ github.run_number }})
 
-            Download **CPharm.exe** into **`C:\PharmFlow\`** (one file — watchdog and agent run inside):
-            - **CPharm.exe** — wizard + **Start farm** + operator dash **http://127.0.0.1:8091/** + built-in watchdog/agent
+            Download **PharmFlow.exe** into **`C:\PharmFlow\`** (one file — watchdog and agent run inside):
+            - **PharmFlow.exe** — wizard + **Start farm** + operator dash **http://127.0.0.1:8091/** + built-in watchdog/agent
 
             ### Mantis money farm
             1. MuMu x64 phones online (8 canonical money VMs).
             2. **FarmBrowser** on each phone (`farmbrowser/` APK in repo).
-            3. **CPharm.exe → Start farm** (unison: farm + stealth + watchdog + FreeBuff).
+            3. **PharmFlow.exe → Start farm** (unison: farm + stealth + watchdog + FreeBuff).
             4. Dashboard **:8091** — not the wizard `:8080` server.
 
             ### FarmBrowser
@@ -197,7 +197,7 @@ jobs:
             - **checksums-sha256.txt** — SHA256 for the EXE
             - **release-manifest.json** — commit, Python version, sizes, hashes
           files: |
-            wizard/dist/CPharm.exe
+            wizard/dist/PharmFlow.exe
             wizard/dist/launch_cpharm.ps1
             wizard/dist/checksums-sha256.txt
             wizard/dist/release-manifest.json
@@ -208,11 +208,11 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: cpharm-release-fallback-${{ github.run_number }}
+          name: pharmflow-release-fallback-${{ github.run_number }}
           if-no-files-found: warn
           retention-days: 1
           path: |
-            wizard/dist/CPharm.exe
+            wizard/dist/PharmFlow.exe
             wizard/dist/launch_cpharm.ps1
             checksums-sha256.txt
             release-manifest.json
@@ -229,7 +229,7 @@ jobs:
           NTFY_TOKEN: ${{ secrets.NTFY_TOKEN }}
         run: >
           python tools/notify_ntfy.py
-          "CPharm wizard-${{ github.run_number }} shipped — https://github.com/twoskoops707/cpharm/releases/tag/wizard-${{ github.run_number }}"
-          --title "CPharm build done"
+          "PharmFlow wizard-${{ github.run_number }} shipped — https://github.com/twoskoops707/pharmflow/releases/tag/wizard-${{ github.run_number }}"
+          --title "PharmFlow build done"
           --tags "white_check_mark,package"
 

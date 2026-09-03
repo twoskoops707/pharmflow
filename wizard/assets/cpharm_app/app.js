@@ -94,7 +94,7 @@
   function requireApi(action) {
     const a = api();
     if (!a) {
-      const msg = "CPharm backend not connected — close and reopen CPharm.exe.";
+      const msg = "PharmFlow backend not connected — close and reopen PharmFlow.exe.";
       showBackendError(msg);
       showToast(msg);
       return null;
@@ -310,7 +310,7 @@
   function actionLabel(action) {
     const map = {
       download_mumu: "Get MuMu",
-      download_cpharm: "Get CPharm",
+      download_cpharm: "Get PharmFlow",
       install_adb: "Fix",
       refresh: "Refresh",
       fix_tablet: "Fix Pad→Phone",
@@ -465,7 +465,7 @@
     try {
       const rows = await callApi("Refresh", function (a) {
         if (typeof a.get_prereq_status !== "function") {
-          throw new Error("CPharm is still starting. Wait a moment and try again.");
+          throw new Error("PharmFlow is still starting. Wait a moment and try again.");
         }
         return a.get_prereq_status();
       });
@@ -671,6 +671,57 @@
     }
   }
 
+  /* ── HUD telemetry strip ─────────────────────────────── */
+  function setHudText(id, text) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = text;
+  }
+
+  function fmtMoney(v) {
+    const n = Number(v || 0);
+    return "$" + n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+
+  async function refreshHud() {
+    const a = api();
+    const lamp = document.getElementById("hud-farm-lamp");
+    try {
+      if (!a || typeof a.get_farm_hud !== "function") {
+        setHudText("hud-farm", "—");
+        setHudText("hud-phones", "—");
+        setHudText("hud-today", "—");
+        setHudText("hud-clicks", "—");
+        setHudText("hud-impr", "—");
+        setHudText("hud-ecpm", "—");
+        if (lamp) lamp.className = "hud-lamp";
+        return;
+      }
+      const h = await a.get_farm_hud();
+      if (!h) return;
+      const running = !!(h.running || h.external);
+      setHudText("hud-farm", running ? "RUN" : "OFF");
+      if (lamp) lamp.className = "hud-lamp" + (running ? " run" : " err");
+      setHudText("hud-phones", String(h.phones_online || 0));
+      setHudText("hud-today", fmtMoney(h.revenue_today_usd));
+      setHudText("hud-clicks", String(h.clicks || 0));
+      setHudText("hud-impr", String(h.impressions || 0));
+      setHudText("hud-ecpm", "$" + (Number(h.ecpm) || 0).toFixed(2));
+    } catch (_e) {
+      setHudText("hud-farm", "—");
+    } finally {
+      setHudText(
+        "hud-sync",
+        new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })
+      );
+    }
+  }
+
+  function startHudPoll() {
+    if (startHudPoll._t) return;
+    refreshHud();
+    startHudPoll._t = setInterval(refreshHud, 15000);
+  }
+
   window.CPharmSetup = {
     appendLog: function (t) {
       appendLog(setupLog, t, classifySetupLine(t));
@@ -795,14 +846,15 @@
 
     pyApi = await waitForApi(20000);
     if (!pyApi) {
-      showBackendError("Could not connect to CPharm backend. Close and reopen CPharm.exe.");
-      showToast("Backend not connected — restart CPharm.exe");
+      showBackendError("Could not connect to PharmFlow backend. Close and reopen PharmFlow.exe.");
+      showToast("Backend not connected — restart PharmFlow.exe");
       wizardSteps = STEP_IDS.map(function (id, i) {
         return { id: id, index: i, name: id, subtitle: "" };
       });
       renderStepNav();
       showView("start");
       wireActionButtons();
+      startHudPoll();
       return;
     }
 
@@ -813,6 +865,7 @@
       showBackendError("Wizard load failed: " + e);
     }
     renderStepNav();
+    startHudPoll();
 
     const startView = new URLSearchParams(window.location.search).get("view") || "start";
     if (startView === "setup") {

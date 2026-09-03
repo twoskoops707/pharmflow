@@ -57,7 +57,7 @@ def main() -> int:
         return _fail("phone_setup must not route to cpharm_app_webview")
 
     core = (_WIZARD / "mumu_setup_core.py").read_text(encoding="utf-8")
-    if "Already set up — opening CPharm" not in core:
+    if "Already set up — opening PharmFlow" not in core:
         return _fail("legacy standalone message missing from mumu_setup_core")
     if "phone settings and sequences refreshed" not in core:
         return _fail("unified exe refresh message missing from mumu_setup_core")

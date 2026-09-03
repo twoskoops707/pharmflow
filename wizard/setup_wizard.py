@@ -1,15 +1,15 @@
 """
-CPharm — Windows onboarding for virtual phones + browser dashboard (`wizard/setup_wizard.py`).
+PharmFlow — Windows onboarding for virtual phones + browser dashboard (`wizard/setup_wizard.py`).
 
 **Primary entry (standalone wizard, no unified desktop):** from repo root run
 ``py -3 wizard/setup_wizard.py`` — or from ``wizard/``: ``py -3 setup_wizard.py``.
 Optional unified shell: ``py -3 wizard/cpharm_desktop.py``, or set ``CPHARM_USE_DESKTOP=1``
 when executing this file to launch that shell instead.
 
-Happy path: Start → install tools (Java/Python/CPharm + quick verify) → Android or MuMu →
+Happy path: Start → install tools (Java/Python/PharmFlow + quick verify) → Android or MuMu →
 create/connect phones → automation & groups → launch dashboard (browser-only: Chrome → getdabflow.app).
 
-When you close the wizard (X or File → Exit), CPharm tries to fix each phone's internet so
+When you close the wizard (X or File → Exit), PharmFlow tries to fix each phone's internet so
 browsers are not stuck. Use **Launch → Fix the phone's internet** anytime without closing.
 Advanced: ``CPHARM_SKIP_EXIT_PROXY_CLEAR=1`` skips exit cleanup; ``CPHARM_SKIP_TOR_WAIT=1``
 is for quick tests on your home network only.
@@ -363,7 +363,7 @@ def _sync_sequences_to_user_profile(log_write=None) -> None:
             if missing:
                 log(
                     f"  WARNING: {len(missing)} sequence playlist file(s) missing after sync "
-                    "(run Phone Setup GO on CPharm Home → Step 1, or copy sequences/ manually)."
+                    "(run Phone Setup GO on PharmFlow Home → Step 1, or copy sequences/ manually)."
                 )
     except Exception as exc:
         log(f"  (sequence sync skipped: {exc})")
@@ -401,7 +401,7 @@ def _load_sequence_document_from_path(path: Path):
         return load_sequence_steps_ui(payload)
     except ImportError as exc:
         raise SequenceJsonLoadError(
-            "Sequence tools not available (complete CPharm Install step first)."
+            "Sequence tools not available (complete PharmFlow Install step first)."
         ) from exc
     except ValueError as exc:
         raise SequenceJsonLoadError(
@@ -1383,7 +1383,7 @@ def _open_setup_guide_doc(parent: tk.Misc | None = None) -> None:
         messagebox.showinfo(
             "Setup guide",
             "Opened the help guide in your browser.\n\n"
-            "Tip: you can also read the docs folder that came with CPharm.",
+            "Tip: you can also read the docs folder that came with PharmFlow.",
             parent=mb_parent,
         )
         return
@@ -2448,7 +2448,7 @@ class PerPhoneSequenceEditor(tk.Toplevel):
         self.destroy()
 
     def _lift_to_front(self) -> None:
-        """WebView shell keeps tk root withdrawn — raise editor above CPharm window."""
+        """WebView shell keeps tk root withdrawn — raise editor above PharmFlow window."""
         try:
             import sys
 
@@ -2970,7 +2970,7 @@ def _calibrate_installed_stack(py: str | list[str], cpharm_root: Path, log_fn) -
     if not auto.is_dir():
         log_fn("  (Skipping quick check — no automation folder.)\n")
         return False
-    log_fn("  Quick check — making sure CPharm runs…\n")
+    log_fn("  Quick check — making sure PharmFlow runs…\n")
     parent = str(root)
     if isinstance(py, str):
         py_cmd, _disp = _resolve_python_cmd(py)
@@ -3108,7 +3108,7 @@ def wiz_clear_phone_proxies_best_effort(*, stop_tor_host: bool = True) -> int:
     """Clear ``global http_proxy`` and Tor ``adb reverse`` ports on all known devices.
 
     Runs **locally via ADB** — does not require the automation server. Call on wizard exit
-    so MuMu browsers are not left pointing at a dead tunnel after CPharm closes.
+    so MuMu browsers are not left pointing at a dead tunnel after PharmFlow closes.
 
     Set ``CPHARM_SKIP_EXIT_PROXY_CLEAR=1`` to disable exit-time cleanup.
     """
@@ -4397,7 +4397,7 @@ def _direct_download_emulator(sdk_path, log_fn=None):
                     "  ✅  Use MuMuPlayer for Windows ARM instead:\n"
                     "     MuMuPlayer is a free Android emulator with native ARM64 Windows\n"
                     "     support, multi-instance, and full ADB access — exactly what\n"
-                    "     CPharm needs.\n\n"
+                    "     PharmFlow needs.\n\n"
                     "  How to set up (wizard handles connection automatically):\n"
                     "     1. Download MuMuPlayer for Windows ARM:\n"
                     f"        {MUMU_DOWNLOAD_URL}\n"
@@ -4654,7 +4654,7 @@ def _add_firewall_exception_for_java() -> bool:
         java_exe = "java.exe"
 
     ps_cmd = (
-        f"New-NetFirewallRule -DisplayName 'CPharm Java' "
+        f"New-NetFirewallRule -DisplayName 'PharmFlow Java' "
         f"-Direction Outbound -Action Allow "
         f"-Program '{java_exe}' -Enabled True"
     )
@@ -6225,7 +6225,7 @@ class WelcomePage(PageBase):
         tk.Label(
             hero_inner,
             text=(
-                "MuMu users: use CPharm Phone Setup tab first (checklist + GO). "
+                "MuMu users: use PharmFlow Phone Setup tab first (checklist + GO). "
                 "This advanced wizard covers teams, sequences, and extra options."
             ),
             font=FONT_LEAD,
@@ -6265,7 +6265,7 @@ class WelcomePage(PageBase):
             anchor="w",
         ).pack(fill="x")
         bullets = [
-            "1. Install what CPharm needs on this PC (Java, Python, Tor).",
+            "1. Install what PharmFlow needs on this PC (Java, Python, Tor).",
             "2. Start MuMu phones (Setup exe already hid emulator look if you ran it).",
             "3. Set up Tor — each phone gets its own internet address.",
             "4. Run your phone teams on getdabflow.app.",
@@ -6384,7 +6384,7 @@ class WelcomePage(PageBase):
             (ACCENT, "Tools\n(adb / SDK)"),
             (GREEN, "Phones\n(AVD / MuMu)"),
             (ACCENT_DIM, "Browser\ndashboard"),
-            (PURPLE, "CPharm\nSetup"),
+            (PURPLE, "PharmFlow\nSetup"),
         ]
         bw = 128
         gap = max(8, (w - len(boxes) * bw) // (len(boxes) + 1))
@@ -6535,7 +6535,7 @@ class PrerequisitesPage(PageBase):
 
         path_hint = tk.Label(
             primary,
-            text="We default paths from your CPharm folder when we can — use Pick a different "
+            text="We default paths from your PharmFlow folder when we can — use Pick a different "
                  "folder only if you need another copy.",
             font=FONT_CAPTION,
             bg=BG2,
@@ -6556,7 +6556,7 @@ class PrerequisitesPage(PageBase):
             highlightbackground=BORDER_STRONG,
         )
         path_card.pack(fill="x", pady=(0, SP["md"]))
-        tk.Label(path_card, text="Folder for CPharm:",
+        tk.Label(path_card, text="Folder for PharmFlow:",
                  font=("Segoe UI", 10, "bold"), bg=BG4, fg=T1).pack(side="left")
         self._install_dir = tk.StringVar(value=CPHARM_DEFAULT)
         tk.Entry(path_card, textvariable=self._install_dir, font=FM,
@@ -6581,7 +6581,7 @@ class PrerequisitesPage(PageBase):
         top = self.winfo_toplevel()
         items = [
             ("java",     "prereq_java", "Java",                   "For Android tools",           True),
-            ("python",   "prereq_python", "Python",               "Runs CPharm",                 True),
+            ("python",   "prereq_python", "Python",               "Runs PharmFlow",                 True),
             ("packages", "prereq_packages", "Python add-ons",      "Dashboard dependencies",      True),
             (
                 "tor",
@@ -6590,7 +6590,7 @@ class PrerequisitesPage(PageBase):
                 "Gives each phone its own internet location for browsing.",
                 False,
             ),
-            ("cpharm",   "prereq_cpharm", "CPharm files",          "App + automation folder",     True),
+            ("cpharm",   "prereq_cpharm", "PharmFlow files",       "App + automation folder",     True),
         ]
         for key, icon_stem, name, desc, required in items:
             row = tk.Frame(list_card, bg=BG2, pady=5)
@@ -6730,7 +6730,7 @@ class PrerequisitesPage(PageBase):
         init = self._install_dir.get().strip()
         init_path = init if init and Path(init).is_dir() else None
         d = filedialog.askdirectory(
-            title="Choose where to install CPharm",
+            title="Choose where to install PharmFlow",
             initialdir=init_path,
         )
         if d:
@@ -7045,7 +7045,7 @@ class PrerequisitesPage(PageBase):
 
         if live_tree:
             self._log_write(
-                "Install folder is (or contains) the running CPharm checkout — "
+                "Install folder is (or contains) the running PharmFlow checkout — "
                 "will merge updates without deleting the live tree.\n"
             )
             self._log_write(
@@ -7065,7 +7065,7 @@ class PrerequisitesPage(PageBase):
                     else:
                         state["cpharm_dir"] = str(root)
                         self._set_row("cpharm", "✅  Done", GREEN)
-                        self._log_write(f"CPharm ready at {root} ✅\n")
+                        self._log_write(f"PharmFlow ready at {root} ✅\n")
                         _sync_sequences_to_user_profile(self._log_write)
                         return
 
@@ -7082,7 +7082,7 @@ class PrerequisitesPage(PageBase):
                     if not miss:
                         state["cpharm_dir"] = str(root)
                         self._set_row("cpharm", "✅  Done", GREEN)
-                        self._log_write(f"CPharm ready at {root} ✅\n")
+                        self._log_write(f"PharmFlow ready at {root} ✅\n")
                         _sync_sequences_to_user_profile(self._log_write)
                         return
                     self._log_write(
@@ -7092,7 +7092,7 @@ class PrerequisitesPage(PageBase):
                     )
 
         self._set_row("cpharm", "⬇  Downloading…", ACCENT)
-        self._log_write("Downloading CPharm files from GitHub…")
+        self._log_write("Downloading PharmFlow files from GitHub…")
         tmp = Path(os.environ.get("TEMP", "C:\\Temp")) / "cpharm.zip"
         zip_ok = True
         try:
@@ -7161,7 +7161,7 @@ class PrerequisitesPage(PageBase):
             else:
                 state["cpharm_dir"] = str(root)
                 self._set_row("cpharm", "✅  Done", GREEN)
-                self._log_write(f"CPharm installed at {root} ✅")
+                self._log_write(f"PharmFlow installed at {root} ✅")
                 _sync_sequences_to_user_profile(self._log_write)
                 return
 
@@ -7173,7 +7173,7 @@ class PrerequisitesPage(PageBase):
             self._log_write(
                 "Git clone skipped: install path is this running repo, but automation/dashboard.py "
                 "is still missing.\n"
-                "Clone or unpack CPharm into this folder manually, or choose a different install directory.\n"
+                "Clone or unpack PharmFlow into this folder manually, or choose a different install directory.\n"
             )
             self._log_write(f"Manual: git clone {REPO_URL} \"{install_dir}\"")
             return
@@ -7220,7 +7220,7 @@ class PrerequisitesPage(PageBase):
             else:
                 state["cpharm_dir"] = str(root)
                 self._set_row("cpharm", "✅  Done", GREEN)
-                self._log_write("CPharm installed via git clone ✅")
+                self._log_write("PharmFlow installed via git clone ✅")
         else:
             self._set_row("cpharm", "❌  Failed", RED)
             self._log_write("Both ZIP download and git clone failed.")
@@ -8050,7 +8050,7 @@ class AndroidStudioPage(PageBase):
         if _is_mumu_gui_path(path):
             messagebox.showwarning(
                 "Wrong file",
-                "That is the MuMu Player app, not the helper tool CPharm needs.\n\n"
+                "That is the MuMu Player app, not the helper tool PharmFlow needs.\n\n"
                 "Pick nemux-shell-winui.Manager.exe or MuMuManager.exe in the shell folder:\n"
                 "  …\\MuMuPlayerARM\\shell\\nemux-shell-winui.Manager.exe",
                 parent=self.winfo_toplevel(),
@@ -8166,7 +8166,7 @@ class PhoneFarmPage(PageBase):
         top_pf = self.winfo_toplevel()
         trash = load_icon("icon_trash", top_pf)
         del_kw = dict(
-            text="Delete all CPharm phones",
+            text="Delete all PharmFlow phones",
             font=FS, bg=RED, fg=ON_ACCENT, relief="flat",
             cursor="hand2", command=self._delete_phones,
             padx=10, pady=8, bd=0, highlightthickness=0,
@@ -8227,11 +8227,11 @@ class PhoneFarmPage(PageBase):
                       "  4. In each instance open Settings (≡ or gear) and turn ON ADB / "
                       "debugging — otherwise this PC cannot connect\n"
                       "  5. Leave MuMuPlayer running\n"
-                      "  6. Click Next below — CPharm does not start MuMuPlayer; it only connects over ADB "
+                      "  6. Click Next below — PharmFlow does not start MuMuPlayer; it only connects over ADB "
                       "when you're ready\n\n"
                       "Note: MuMu uses OEM-style images (e.g. Google Pixel 8 / GC3VE, HONOR 200 Pro,\n"
                       "  etc.) — whatever appears under Device model here is normal for that template.\n"
-                      "  Each instance can be a different model or resolution; CPharm connects by ADB serial,\n"
+                      "  Each instance can be a different model or resolution; PharmFlow connects by ADB serial,\n"
                       "  so mixed farms are fine. Root / writable system may be off unless you enable them\n"
                       "  in MuMu settings per instance.",
                  font=FS, bg=BG_MUMU, fg=T2,
@@ -8240,7 +8240,7 @@ class PhoneFarmPage(PageBase):
         bind_responsive_wraplength(self._mumu_help_lbl, self._mumu_panel, pad=28)
         tk.Label(
             self._mumu_panel,
-            text="CPharm does not launch MuMuPlayer — open it yourself from the Start menu or taskbar.",
+            text="PharmFlow does not launch MuMuPlayer — open it yourself from the Start menu or taskbar.",
             font=("Segoe UI", 9, "italic"),
             bg=BG_MUMU,
             fg=T3,
@@ -8443,7 +8443,7 @@ class PhoneFarmPage(PageBase):
                 seen.add(a)
                 to_delete.append(a)
         if not to_delete:
-            self._log_write("No CPharm phones found to delete.\n")
+            self._log_write("No PharmFlow phones found to delete.\n")
             return
         if not messagebox.askyesno(
             "Delete phones?",
@@ -10014,7 +10014,7 @@ class PlayStorePage(PageBase):
         super().__init__(parent)
         self.header(
             "Removed",
-            "Play Store testing is not part of CPharm. DabFlow runs in the browser only.",
+            "Play Store testing is not part of PharmFlow. DabFlow runs in the browser only.",
         )
         box = instruction_card(self, pad=SP["md"])
         box.pack(fill="x", pady=(0, SP["sm"]))
@@ -10916,7 +10916,7 @@ class LaunchPage(PageBase):
         self._server_proc = None
         self.header(
             "Go",
-            "Start CPharm, pick browse mode (Scramble recommended for ads), run your phone teams. "
+            "Start PharmFlow, pick browse mode (Scramble recommended for ads), run your phone teams. "
             "(Emulator hide: done in Phone Setup (Home → Step 1) unless you need Re-apply in section E.)",
         )
 
@@ -10992,13 +10992,13 @@ class LaunchPage(PageBase):
         # Server
         srv = tk.Frame(self, bg=BG3, padx=14, pady=12)
         srv.pack(fill="x", pady=(0, 8))
-        tk.Label(srv, text="A — Start CPharm on this PC",
+        tk.Label(srv, text="A — Start PharmFlow on this PC",
                  font=("Segoe UI", 11, "bold"), bg=BG3,
                  fg=ACCENT, anchor="w").pack(fill="x")
         srv_hint = tk.Label(
             srv,
             text=(
-                "This keeps CPharm running on your PC. Leave it on while your phone teams work."
+                "This keeps PharmFlow running on your PC. Leave it on while your phone teams work."
             ),
             font=FS,
             bg=BG3,
@@ -11206,7 +11206,7 @@ class LaunchPage(PageBase):
         fp_copy = tk.Label(
             fp_fr,
             text=(
-                "Use if CPharmMuMuSetup did not run, after MuMu cold boot, or Mantis ads never show. "
+                "Use if PharmFlow MuMu setup did not run, after MuMu cold boot, or Mantis ads never show. "
                 "Re-applies retail phone disguise + browser ad-zone patch flags on ALL phones."
             ),
             font=FS,
@@ -11338,7 +11338,7 @@ class LaunchPage(PageBase):
             tor_fix,
             text=(
                 "Phone says no internet or the page is blank? Tap the button below. "
-                "Closing CPharm usually fixes this too."
+                "Closing PharmFlow usually fixes this too."
             ),
             font=FS,
             bg=BG3,
@@ -11562,7 +11562,7 @@ class LaunchPage(PageBase):
             messagebox.showerror(
                 "Not found",
                 f"dashboard.py not found at:\n{dashboard}\n\n"
-                "Make sure CPharm is cloned correctly.",
+                "Make sure PharmFlow is cloned correctly.",
                 parent=self.winfo_toplevel(),
             )
             return
@@ -14294,7 +14294,7 @@ class WebpePage(PageBase):
         actions2 = tk.Frame(studio, bg=BG2)
         actions2.pack(fill="x", pady=(0, SP["sm"]))
         self.btn(actions2, "Open logs", self._open_logs, color=BG3, side="left", pady=5)
-        self.btn(actions2, "Import sequence into CPharm", self._import_sequence, color=PURPLE, side="left", pady=5)
+        self.btn(actions2, "Import sequence into PharmFlow", self._import_sequence, color=PURPLE, side="left", pady=5)
 
         out = tk.Frame(studio, bg=BG2)
         out.pack(fill="x", pady=(0, SP["xs"]))
@@ -14761,7 +14761,7 @@ class WebpePage(PageBase):
             self._append_log(f"Import save failure for {dst}: {type(exc).__name__}: {exc}")
             self._set_status("Import failed while saving.", error=str(exc))
             return
-        self._set_status(f"Sequence imported to CPharm: {dst.name} ({len(normalized)} step(s))")
+        self._set_status(f"Sequence imported to PharmFlow: {dst.name} ({len(normalized)} step(s))")
         state["webpe_output_path"] = str(src)
         self._dirty = False
         self._append_log(f"Imported sequence: {src} -> {dst} ({len(normalized)} step(s))")
@@ -14894,7 +14894,7 @@ class CPharmWizard(tk.Frame):
         self._current = 0
         self._show(0)
 
-        # Try to auto-detect CPharm directory
+        # Try to auto-detect PharmFlow directory
         guesses = [
             _cpharm_install_root(),
             Path.home() / "CPharm",
@@ -14923,7 +14923,7 @@ class CPharmWizard(tk.Frame):
         copy_col.pack(side="left", fill="x", expand=True)
         tk.Label(
             copy_col,
-            text="CPharm",
+            text="PharmFlow",
             font=FONT_PAGE_TITLE,
             bg=BG2,
             fg=T1,
@@ -15159,7 +15159,7 @@ if __name__ == "__main__":
 
     _root = tk.Tk()
     _style_scrollbars(_root)
-    _root.title("CPharm")
+    _root.title("PharmFlow")
     _root.geometry("1120x960")
     _root.minsize(960, 780)
     _root.config(bg=BG)

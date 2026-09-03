@@ -60,7 +60,7 @@ def main() -> int:
     log(f"  leaks_total={summary.get('leaks_total')} phones_with_leaks={summary.get('phones_with_leaks')}")
 
     log("")
-    log("DONE — open CPharm → Run (step 9) → Start service → Run all groups")
+    log("DONE — open PharmFlow → Run (step 9) → Start service → Run all groups")
     return 0
 
 

@@ -1831,3 +1831,69 @@ def farm_status_from_app() -> dict:
             return {"ok": False, "error": str(exc)}
 
     return _run_on_tk(work)
+
+
+def get_farm_hud() -> dict:
+    """Compact live telemetry for the wizard HUD strip (phones / income / state).
+
+    Runs on the caller's thread (never the tk loop) so a 15s HUD poll can
+    never freeze the GUI, and never raises: the HUD must stay live even when
+    the farm is down or ADB is wedged.
+    """
+    out: dict[str, Any] = {
+        "ok": True,
+        "farm": "off",
+        "running": False,
+        "external": False,
+        "phones_online": 0,
+        "revenue_today_usd": 0.0,
+        "clicks": 0,
+        "impressions": 0,
+        "ecpm": 0.0,
+        "as_of": "",
+        "dashboard": "http://127.0.0.1:8091/",
+    }
+
+    try:
+        from wizard.farm_control import external_python_farm_running as _ex
+        from wizard.farm_control import farm_running as _fr
+
+        out["running"] = bool(_fr())
+        out["external"] = bool(_ex())
+        out["farm"] = "run" if (out["running"] or out["external"]) else "off"
+    except Exception:  # noqa: BLE001 — HUD is best-effort
+        pass
+
+    try:
+        from automation.scorecard_api import _live_farm_facts
+
+        facts = _live_farm_facts() or {}
+        out["revenue_today_usd"] = round(float(facts.get("payout_usd") or 0.0), 2)
+        out["clicks"] = int(facts.get("clicks") or 0)
+        out["impressions"] = int(facts.get("impressions") or 0)
+        out["ecpm"] = float(facts.get("ecpm") or 0.0)
+        out["as_of"] = str(facts.get("source") or "")
+    except Exception:  # noqa: BLE001
+        pass
+
+    try:
+        from wizard.wizard_paths import bundled_adb_path
+
+        exe = str(bundled_adb_path())
+        r = subprocess.run(
+            [exe, "devices"],
+            capture_output=True,
+            text=True,
+            timeout=6,
+            errors="replace",
+        )
+        n = 0
+        for line in (r.stdout or "").splitlines()[1:]:
+            parts = line.split()
+            if len(parts) >= 2 and parts[1] == "device":
+                n += 1
+        out["phones_online"] = n
+    except Exception:  # noqa: BLE001
+        pass
+
+    return out

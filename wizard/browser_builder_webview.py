@@ -211,7 +211,7 @@ def _run_webview_session(
     api = JsApi()
     w, h = clamp_dims(width, height)
     window = webview.create_window(
-        "CPharm — Browser builder",
+        "PharmFlow — Browser builder",
         url,
         js_api=api,
         width=w,

@@ -266,7 +266,7 @@ _COLD_BOOT_MSG = (
     "  2. Wait a few seconds.\n"
     "  3. Click START on each phone — wait for Android home.\n"
     "  4. Click Set up my phones again.\n\n"
-    "CPharm will NOT open until phones pass this check."
+    "PharmFlow will NOT open until phones pass this check."
 )
 
 _BROWSER_RETRY_MSG = (
@@ -277,7 +277,7 @@ _BROWSER_RETRY_MSG = (
 
 _SEQUENCES_MISSING_MSG = (
     "Sequence files missing on this PC.\n\n"
-    "In CPharm run Install (step 2), then open Phones (step 4) and click Set up my phones again.\n"
+    "In PharmFlow run Install (step 2), then open Phones (step 4) and click Set up my phones again.\n"
     "Or copy the repo sequences/ folder to:\n"
     "  %USERPROFILE%\\CPharm\\sequences\n\n"
     "Missing: {sample}{more}"
@@ -381,7 +381,7 @@ def _no_phones_message() -> str:
         "  1. Open MuMu Player on this PC.\n"
         "  2. Click Start on each phone — wait for Android home.\n"
         "  3. On each phone: Settings → Developer options → USB debugging ON.\n"
-        "     (Leave USB debugging ON — CPharm needs it; websites still get disguised.)\n"
+        "     (Leave USB debugging ON — PharmFlow needs it; websites still get disguised.)\n"
         "  4. If MuMu shows Root, leave Root ON.\n"
         "  5. Click Check again, then Set up my phones.\n\n"
         "Tip: If phone connection helper (adb) was red, click Fix first."
@@ -475,7 +475,7 @@ def run_full_setup(log: LogFn) -> tuple[bool, str, list[str]]:
 
             if skip_launch_cpharm_after_setup():
                 return True, "Already set up — phone settings and sequences refreshed.", serials
-            return True, "Already set up — opening CPharm…", serials
+            return True, "Already set up — opening PharmFlow…", serials
 
     if awaiting:
         log("")
@@ -551,7 +551,7 @@ def run_full_setup(log: LogFn) -> tuple[bool, str, list[str]]:
         if gp:
             log(f"  Saved: {gp}")
         else:
-            log("  Kept your existing groups file (already edited in CPharm).")
+            log("  Kept your existing groups file (already edited in PharmFlow).")
         write_desktop_prefs(serials, root, setup_complete=True, awaiting_cold_boot=False)
         write_setup_prefs(root, mumu_setup_phase="complete")
         log("  Phone Setup complete.")
@@ -561,7 +561,7 @@ def run_full_setup(log: LogFn) -> tuple[bool, str, list[str]]:
         else:
             log(f"  Settings folder: {root / 'automation' / 'recordings'}")
             log(f"  Sequences folder: {sync.get('dest')}")
-            log("  In CPharm: Install step downloads the rest (Java, Python, Tor).")
+            log("  In PharmFlow: Install step downloads the rest (Java, Python, Tor).")
     except OSError as e:
         log(f"  Warning: could not save settings: {e}")
         return False, f"Could not save settings: {e}", serials
@@ -575,4 +575,4 @@ def run_full_setup(log: LogFn) -> tuple[bool, str, list[str]]:
             serials,
         )
 
-    return True, "All phones ready. Opening CPharm…", serials
+    return True, "All phones ready. Opening PharmFlow…", serials

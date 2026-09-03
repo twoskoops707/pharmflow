@@ -1,4 +1,4 @@
-"""Single source of truth for the CPharm app version and build number.
+"""Single source of truth for the PharmFlow app version and build number.
 
 Build-number source priority (so any shipped EXE is identifiable):
   1. ``assets/build_info.json`` bundled at build time by CI (run number + commit),
@@ -18,7 +18,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-APP_NAME = "CPharm"
+APP_NAME = "PharmFlow"
 APP_VERSION = "1.5.0"
 
 
@@ -109,7 +109,7 @@ def display_version(*, short: bool = False) -> str:
 
 
 def instance_title(suffix: str) -> str:
-    """Window title, e.g. 'CPharm — Control Panel (build 1234)'."""
+    """Window title, e.g. 'PharmFlow — Control Panel (build 1234)'."""
     return f"{APP_NAME} — {suffix} (build {BUILD_LABEL})"
 
 

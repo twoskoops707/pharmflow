@@ -385,6 +385,11 @@ class CPharmAppApi:
 
         return bridge.farm_status_from_app()
 
+    def get_farm_hud(self) -> dict:
+        import cpharm_wizard_bridge as bridge
+
+        return bridge.get_farm_hud()
+
 
 def run_cpharm_app(*, initial_view: str | None = None) -> None:
     import webview

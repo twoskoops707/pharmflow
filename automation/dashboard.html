@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
-<title>CPharm</title>
+<title>PharmFlow</title>
 <link rel="manifest" href="/manifest.json">
 <meta name="theme-color" content="#00e676">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -14,8 +14,8 @@
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
-  --g:#00e676;--g2:#00c853;--g-dim:#00e67618;--g-glow:#00e67640;
-  --s:#14B8A6;--s2:#0d9488;--s-dim:#14B8A618;--s-glow:#14B8A640;
+  --g:#f0a62e;--g2:#d18f1f;--g-dim:#f0a62e18;--g-glow:#f0a62e40;
+  --s:#f0a62e;--s2:#d18f1f;--s-dim:#f0a62e18;--s-glow:#f0a62e40;
   --r:#f43f5e;--y:#f59e0b;--b:#3b82f6;
   --bg0:#070a0d;--bg1:#0c1118;--bg2:#111822;--bg3:#18222e;
   --bd:#1e2d3d;--bd2:#263447;
@@ -401,7 +401,7 @@ body:hover *::-webkit-scrollbar-thumb{background:var(--scroll-thumb)}
 <div id="app">
 
 <header>
-  <div class="logo"><div class="logo-dot"></div>C·PHARM</div>
+  <div class="logo"><div class="logo-dot"></div>PHARMFLOW</div>
   <div class="header-r">
     <div class="ip-chip" id="ip-chip">—.—.—.—</div>
     <div class="ws-dot" id="ws-dot"></div>
@@ -514,7 +514,7 @@ body:hover *::-webkit-scrollbar-thumb{background:var(--scroll-thumb)}
   <div style="background:var(--bg2);border:1px solid var(--bd);border-radius:var(--rad);padding:14px">
     <p style="font-size:.78rem;color:var(--t1);line-height:1.6;margin-bottom:10px">
       Run different sequences on different sets of phones at the same time.<br>
-      Build your groups in <strong>CPharm</strong>, then load them here and click Run All.
+      Build your groups in <strong>PharmFlow</strong>, then load them here and click Run All.
     </p>
     <div class="groups-ctrl" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
       <button class="btn-b btn-sm" id="btn-groups-load">Load Saved Groups</button>
@@ -523,7 +523,7 @@ body:hover *::-webkit-scrollbar-thumb{background:var(--scroll-thumb)}
     </div>
     <div id="groups-list" style="display:flex;flex-direction:column;gap:8px"></div>
     <div id="groups-empty" style="font-size:.75rem;color:var(--t2);margin-top:4px">
-      No groups loaded yet. Use CPharm to create groups, then click Load Saved Groups.
+      No groups loaded yet. Use PharmFlow to create groups, then click Load Saved Groups.
     </div>
     <div id="farm-status" style="display:none;margin-top:14px">
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
@@ -1167,7 +1167,7 @@ async function loadGroups() {
     renderGroups();
     document.getElementById('btn-groups-run').disabled = loadedGroups.length === 0;
     toast(`Loaded ${loadedGroups.length} group(s)`, 'ok');
-  } catch(e) { toast('No saved groups found — run the CPharm wizard first', 'err'); }
+  } catch(e) { toast('No saved groups found — run the PharmFlow wizard first', 'err'); }
 }
 
 function renderGroups() {

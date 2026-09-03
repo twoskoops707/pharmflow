@@ -85,7 +85,7 @@ def build_site_interview_card(app: Any, parent: tk.Misc) -> None:
     tk.Label(
         card,
         text=(
-            "CPharm is a virtual phone farm. Answer these questions for the site/app you want to farm. "
+            "PharmFlow is a virtual phone farm. Answer these questions for the site/app you want to farm. "
             "We save a Site Profile and generate humanized sequences. "
             "One brand (e.g. a previous campaign) is never what the EXE is — only a target you choose."
         ),

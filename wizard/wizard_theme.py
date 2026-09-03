@@ -1,8 +1,8 @@
 """
-CPharm UI tokens + Tk helpers (`wizard/setup_wizard.py`).
+PharmFlow UI tokens + Tk helpers (`wizard/setup_wizard.py`).
 
-**Studio shell:** violet/slate palette + left sidebar rail (see ``CPharmWizard``) — not a “recolored
-horizontal stepper.” Canvas vs cards: BG / BG2 / BG3; avoid loud yellow — WORKING / CALLOUT_* / WARN_FG.
+**Farm Control Deck:** flat ink/panel surfaces + amber accent (matches ``assets/cpharm_app/app.css``)
++ left sidebar rail (see ``CPharmWizard``). Canvas vs cards: BG / BG2 / BG3.
 
 PyInstaller one-file: bundle assets next to the frozen module, e.g. from ``wizard/``:
   ``--add-data "assets;assets"``
@@ -22,65 +22,64 @@ if _sd not in sys.path:
 
 from wizard_paths import wizard_assets_dir
 
-# --- Hierarchy (canvas → elevated cards) — cool violet/slate base ---
-BG = "#0f1219"  # canvas — content pane & page background
-BG2 = "#161c27"  # primary card / footer / top strip
-BG3 = "#1e2633"  # nested / inset surfaces
-BG4 = "#2a3445"  # hover / diagram tiles
+# --- Hierarchy (canvas → elevated cards) — flat ink/panel deck ---
+BG = "#0a0f15"  # canvas — content pane & page background
+BG2 = "#111a24"  # primary card / footer / top strip
+BG3 = "#1c2a39"  # nested / inset surfaces
+BG4 = "#22303f"  # hover / diagram tiles
 BG_LOG_ROW = "#121820"  # code / mono strip
 
 # Dedicated sidebar rail (left column shell — darker than canvas)
-SHELL_SIDEBAR_BG = "#0b0f17"
+SHELL_SIDEBAR_BG = "#060a0f"
 
 # Footer dock (pair with ``style_*_button`` for hover states below)
 FOOTER_BG = BG3  # bottom bar — inset from content canvas (BG); reads as “dock”
 
 # Chrome & borders (Tk: simulate shadow with highlightbackground + flat relief)
-BORDER = "#3a4659"
-BORDER_STRONG = "#4f6078"
-BORDER_FOCUS = "#7286a3"
+BORDER = "#22303f"
+BORDER_STRONG = "#2c3d50"
+BORDER_FOCUS = "#4c9df0"
 
-# Accent — teal "Dark Signal desk" (FamFlow design system; matches the
-# dashboard's --s:#14B8A6 signal. Plain, readable on dark; not purple.)
-ACCENT = "#14B8A6"
-ACCENT_DIM = "#0d9488"
-ACCENT_GLOW = "#5eead4"
-ACCENT_MUTED = "#0f766e"
-ACCENT_SUBTLE = "#0b2e2a"  # soft fill behind accent-tinted areas
+# Accent — signal amber "Farm Control Deck" (matches assets/cpharm_app/app.css --amber).
+ACCENT = "#f0a62e"
+ACCENT_DIM = "#d18f1f"
+ACCENT_GLOW = "#ffc964"
+ACCENT_MUTED = "#8a5f14"
+ACCENT_SUBTLE = "#2a2110"  # soft fill behind accent-tinted areas
 
 # Shell chrome lines (must follow ACCENT_* definitions — avoid NameError at import)
 DIVIDER_ACCENT = ACCENT_MUTED  # 2px rule above footer / subtle chrome lines
 SHELL_RAIL_ACCENT = ACCENT_DIM  # 2px strip between sidebar and main content
 
 # Semantic fills (success / danger / emphasis)
-GREEN = "#3ecfb0"
+GREEN = "#3ecf8e"
 GREEN_ACTIVE = "#35b89c"
-RED = "#e88888"
-RED_ACTIVE = "#d07070"
-PURPLE = "#9b9be0"
-PURPLE_ACTIVE = "#8888cf"
+RED = "#f26464"
+RED_ACTIVE = "#d05555"
+PURPLE = "#d18f1f"  # amber-dim stand-in for diagram accents (no purple in the brand)
+PURPLE_ACTIVE = "#c07f18"
 
 # Text
-T1 = "#eef2f8"
-T2 = "#b8c5d6"
-T3 = "#8697ab"
-ON_ACCENT = "#0b0818"
+T1 = "#e7eef6"
+T2 = "#9aabc0"
+T3 = "#5e7188"
+ON_ACCENT = "#1a1204"
 BLACK = "#000000"
 
-# States — replaces harsh yellow for “working” / attention (muted, readable on dark)
-WORKING = "#7eb8d6"  # soft sky — in progress, busy
-WARN_FG = "#d4a574"  # muted amber text only (no yellow panels)
-WARN_BG = "#1c1814"
-CALLOUT_BG = "#12101f"
+# States — “working” / attention, readable on dark
+WORKING = "#7ab8f0"  # soft sky-blue — in progress, busy
+WARN_FG = "#f0a62e"  # amber text only (no loud yellow panels)
+WARN_BG = "#1c1810"
+CALLOUT_BG = "#111a24"
 CALLOUT_BORDER = ACCENT_MUTED
 CALLOUT_STRIP = ACCENT  # left-edge accent for callout chrome
 
 # Legacy alias: migrating code — prefer STATUS_PROGRESS / WORKING
 YELLOW = WORKING
 
-# Aliases for clearer setup_wizard usage (no harsh yellow in UI)
+# Aliases for clearer setup_wizard usage
 STATUS_PROGRESS = WORKING
-STATUS_PENDING = "#8aa4b8"
+STATUS_PENDING = "#5e7188"
 WARNING = WARN_FG
 
 # Text on callout panels (CALLOUT_BG)

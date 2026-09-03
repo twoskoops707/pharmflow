@@ -1,4 +1,4 @@
-"""Shared PyInstaller configuration for CPharm wizard builds."""
+"""Shared PyInstaller configuration for PharmFlow wizard builds."""
 
 from __future__ import annotations
 
@@ -12,9 +12,9 @@ from PyInstaller.utils.hooks import collect_all, collect_submodules
 SPEC_DIR = Path(os.path.dirname(os.path.abspath(__file__)))
 ROOT = SPEC_DIR.parent
 
-APP_VERSION = "1.4.17"
-COMPANY_NAME = "CPharm"
-PRODUCT_NAME = "CPharm Phone Farm"
+APP_VERSION = "1.5.0"
+COMPANY_NAME = "PharmFlow"
+PRODUCT_NAME = "PharmFlow Phone Farm"
 
 
 def _existing_data_pairs() -> list[tuple[str, str]]:

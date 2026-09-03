@@ -1,25 +1,26 @@
 :root {
-  --bg0: #07090f;
-  --bg1: #0f1219;
-  --bg2: #161c27;
-  --bg3: #1e2633;
-  --glass: rgba(22, 28, 39, 0.72);
-  --glass-border: rgba(155, 140, 248, 0.22);
-  --accent: #9b8cf8;
-  --accent-glow: #d4c9fd;
-  --accent-dim: #8576f0;
-  --green: #3ecfb0;
-  --green-glow: rgba(62, 207, 176, 0.45);
-  --red: #e88888;
-  --amber: #d4a574;
-  --t1: #eef2f8;
-  --t2: #b8c5d6;
-  --t3: #8697ab;
-  --radius: 18px;
-  --radius-sm: 12px;
-  --shadow: 0 24px 80px rgba(0, 0, 0, 0.55);
+  /* PharmFlow Farm Control Deck — flat console, amber accent (matches cpharm_app/app.css) */
+  --bg0: #0a0f15;
+  --bg1: #0a0f15;
+  --bg2: #111a24;
+  --bg3: #1c2a39;
+  --glass: #111a24;
+  --glass-border: #22303f;
+  --accent: #f0a62e;
+  --accent-glow: #f0a62e;
+  --accent-dim: #d18f1f;
+  --green: #3ecf8e;
+  --green-glow: rgba(62, 207, 142, 0.35);
+  --red: #f26464;
+  --amber: #f0a62e;
+  --t1: #e7eef6;
+  --t2: #9aabc0;
+  --t3: #5e7188;
+  --radius: 12px;
+  --radius-sm: 8px;
+  --shadow: 0 18px 60px rgba(0, 0, 0, 0.5);
   --font: "Segoe UI Variable", "Segoe UI", system-ui, -apple-system, sans-serif;
-  --mono: "Cascadia Code", "Consolas", "SF Mono", monospace;
+  --mono: "Cascadia Mono", "Cascadia Code", Consolas, "SF Mono", monospace;
 }
 
 *,
@@ -49,9 +50,8 @@ body {
   inset: 0;
   z-index: 0;
   overflow: hidden;
-  background: radial-gradient(1200px 800px at 15% -10%, rgba(155, 140, 248, 0.18), transparent 55%),
-    radial-gradient(900px 700px at 85% 110%, rgba(62, 207, 176, 0.12), transparent 50%),
-    linear-gradient(165deg, var(--bg0) 0%, var(--bg1) 45%, #0b1018 100%);
+  background: radial-gradient(1000px 700px at 15% -10%, rgba(240, 166, 46, 0.07), transparent 55%),
+    linear-gradient(165deg, var(--bg0) 0%, var(--bg1) 55%, #060a0f 100%);
 }
 
 .orb {
@@ -65,7 +65,7 @@ body {
 .orb-a {
   width: 420px;
   height: 420px;
-  background: #6b5ce7;
+  background: #d18f1f;
   top: -120px;
   left: -80px;
 }
@@ -73,7 +73,7 @@ body {
 .orb-b {
   width: 360px;
   height: 360px;
-  background: #2a9d8f;
+  background: #3ecf8e;
   bottom: -100px;
   right: -60px;
   animation-delay: -6s;
@@ -82,7 +82,7 @@ body {
 .orb-c {
   width: 280px;
   height: 280px;
-  background: #9b8cf8;
+  background: #f0a62e;
   top: 40%;
   left: 55%;
   animation-delay: -12s;
@@ -133,8 +133,8 @@ body {
   gap: 8px;
   padding: 6px 14px;
   border-radius: 999px;
-  background: rgba(155, 140, 248, 0.12);
-  border: 1px solid rgba(155, 140, 248, 0.28);
+  background: rgba(240, 166, 46, 0.12);
+  border: 1px solid rgba(240, 166, 46, 0.28);
   color: var(--accent-glow);
   font-size: 11px;
   font-weight: 600;
@@ -242,8 +242,8 @@ h1 {
 }
 
 .step.active {
-  border-color: rgba(155, 140, 248, 0.45);
-  background: rgba(155, 140, 248, 0.08);
+  border-color: rgba(240, 166, 46, 0.45);
+  background: rgba(240, 166, 46, 0.08);
   transform: translateX(4px);
 }
 
@@ -275,11 +275,11 @@ h1 {
 .step.active .step-icon {
   background: linear-gradient(135deg, var(--accent), var(--accent-dim));
   color: var(--bg0);
-  box-shadow: 0 0 20px rgba(155, 140, 248, 0.5);
+  box-shadow: 0 0 20px rgba(240, 166, 46, 0.5);
 }
 
 .step.done .step-icon {
-  background: linear-gradient(135deg, var(--green), #2aa88f);
+  background: linear-gradient(135deg, var(--green), #2fae7c);
   color: var(--bg0);
 }
 
@@ -411,7 +411,7 @@ h1 {
 }
 
 .log-terminal::-webkit-scrollbar-thumb {
-  background: rgba(155, 140, 248, 0.35);
+  background: rgba(240, 166, 46, 0.35);
   border-radius: 4px;
 }
 
@@ -479,7 +479,7 @@ h1 {
   letter-spacing: -0.01em;
   color: #061510;
   cursor: pointer;
-  background: linear-gradient(135deg, #4eecc8 0%, var(--green) 45%, #2aa88f 100%);
+  background: linear-gradient(135deg, #7fe8b6 0%, var(--green) 45%, #2fae7c 100%);
   box-shadow: 0 8px 32px var(--green-glow), inset 0 1px 0 rgba(255, 255, 255, 0.35);
   overflow: hidden;
   transition: transform 0.2s, box-shadow 0.2s, filter 0.2s;
@@ -532,8 +532,8 @@ h1 {
 }
 
 .btn-ghost:hover:not(:disabled) {
-  background: rgba(155, 140, 248, 0.1);
-  border-color: rgba(155, 140, 248, 0.35);
+  background: rgba(240, 166, 46, 0.1);
+  border-color: rgba(240, 166, 46, 0.35);
   color: var(--t1);
 }
 
@@ -652,7 +652,7 @@ h1 {
 }
 
 .check-item.manual {
-  border-color: rgba(155, 140, 248, 0.2);
+  border-color: rgba(240, 166, 46, 0.2);
 }
 
 .check-dot {
@@ -684,7 +684,7 @@ h1 {
 }
 
 .check-item.manual .check-dot {
-  background: rgba(155, 140, 248, 0.12);
+  background: rgba(240, 166, 46, 0.12);
   color: var(--accent-glow);
 }
 
@@ -703,19 +703,19 @@ h1 {
 }
 
 .btn-mini {
-  border: 1px solid rgba(155, 140, 248, 0.35);
+  border: 1px solid rgba(240, 166, 46, 0.35);
   border-radius: 999px;
   padding: 5px 12px;
   font-family: var(--font);
   font-size: 11px;
   font-weight: 600;
   color: var(--accent-glow);
-  background: rgba(155, 140, 248, 0.1);
+  background: rgba(240, 166, 46, 0.1);
   cursor: pointer;
 }
 
 .btn-mini:hover {
-  background: rgba(155, 140, 248, 0.18);
+  background: rgba(240, 166, 46, 0.18);
 }
 
 .btn-fix {
@@ -726,7 +726,7 @@ h1 {
   font-size: 11px;
   font-weight: 700;
   color: #061510;
-  background: linear-gradient(135deg, #4eecc8, var(--green));
+  background: linear-gradient(135deg, #7fe8b6, var(--green));
   cursor: pointer;
   white-space: nowrap;
 }

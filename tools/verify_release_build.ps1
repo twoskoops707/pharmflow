@@ -1,11 +1,11 @@
 $ErrorActionPreference = "Stop"
 
-# Single-EXE pipeline: one windowed binary (CPharm.exe) bundles the GUI wizard
+# Single-EXE pipeline: one windowed binary (PharmFlow.exe) bundles the GUI wizard
 # plus the agent (--agent) and watchdog (--watchdog) combined-mode entrypoints.
 # The EXE is console=False, so stdout is not pipe-capturable from PowerShell;
 # the release contract is a correct PROCESS EXIT CODE per CLI mode.
 $files = @(
-  "wizard/dist/CPharm.exe"
+  "wizard/dist/PharmFlow.exe"
 )
 foreach ($file in $files) {
   if (!(Test-Path -LiteralPath $file)) { throw "Missing build artifact: $file" }
@@ -20,11 +20,11 @@ function Invoke-Exe([string]$path, [string[]]$arguments) {
   Write-Host "  ok: $(Split-Path $path -Leaf) $($arguments -join ' ')"
 }
 
-$exe = (Resolve-Path ".\wizard\dist\CPharm.exe").Path
+$exe = (Resolve-Path ".\wizard\dist\PharmFlow.exe").Path
 
 Write-Host "Smoke-checking single EXE ($exe):"
 Invoke-Exe $exe @("--version")
 Invoke-Exe $exe @("--watchdog", "--help")
 Invoke-Exe $exe @("--agent", "--version")
 
-Write-Host "CPharm.exe (single EXE with bundled agent + watchdog) passed release smoke checks."
+Write-Host "PharmFlow.exe (single EXE with bundled agent + watchdog) passed release smoke checks."

@@ -1,12 +1,12 @@
 """
-CPharm - unified Windows desktop application.
+PharmFlow - unified Windows desktop application.
 
-Single shipped binary: ``CPharm.exe`` — 9-step wizard, phone setup, install, dashboard.
-Optional: ``CPharm.exe --phone-setup`` opens Phones (step 4) only.
+Single shipped binary: ``PharmFlow.exe`` — 9-step wizard, phone setup, install, dashboard.
+Optional: ``PharmFlow.exe --phone-setup`` opens Phones (step 4) only.
 
 Build (from ``wizard/``)::
 
-    py -3 -m PyInstaller CPharm.spec
+    py -3 -m PyInstaller PharmFlow.spec
 """
 
 from __future__ import annotations
@@ -71,7 +71,7 @@ def _show_splash() -> None:
     inner.pack(fill="both", expand=True)
     tk.Label(
         inner,
-        text="CPharm",
+        text="PharmFlow",
         font=("Segoe UI", 36, "bold"),
         bg="#0a0e18",
         fg=T1,
@@ -164,7 +164,7 @@ def run_main_window(*, initial_view: str | None = None) -> None:
     menubar = tk.Menu(root)
     file_m = tk.Menu(menubar, tearoff=0)
     file_m.add_command(
-        label="Open CPharm folder…",
+        label="Open PharmFlow folder…",
         command=lambda: _open_folder_from_state(),
     )
     file_m.add_separator()
@@ -465,7 +465,7 @@ def run_main_window(*, initial_view: str | None = None) -> None:
                                 {
                                     "tor_proxy_configured": True,
                                     "phone_serials": snap_ser,
-                                    "note": "Set by CPharm desktop Tools → Set up Tor on all phones; "
+                                    "note": "Set by PharmFlow desktop Tools → Set up Tor on all phones; "
                                     "routes each device through host Tor (tor_manager.apply_identity_adb). "
                                     "Browser fingerprint hiding is separate (automation/mumu_fingerprint.py).",
                                 },
@@ -717,10 +717,10 @@ def run_main_window(*, initial_view: str | None = None) -> None:
 
     help_m = tk.Menu(menubar, tearoff=0)
     help_m.add_command(
-        label="About CPharm",
+        label="About PharmFlow",
         command=lambda: messagebox.showinfo(
             "About",
-            "CPharm runs virtual phones from your PC.\n\n"
+            "PharmFlow runs virtual phones from your PC.\n\n"
             "Home = big buttons.\n"
             "Setup = step-by-step guide.\n"
             "Launch = start the helper, then open the dashboard.\n\n"
@@ -775,7 +775,7 @@ def run_main_window(*, initial_view: str | None = None) -> None:
     hero.pack(fill="both", expand=True, padx=48, pady=36)
     tk.Label(
         hero,
-        text="CPharm",
+        text="PharmFlow",
         font=("Segoe UI", 28, "bold"),
         bg=BG,
         fg=T1,

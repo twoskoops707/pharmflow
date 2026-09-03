@@ -262,9 +262,9 @@ def run_startup_cleanup(
 
     log("")
     if first_time:
-        log("First-time setup — closing previous MuMu, adb, and CPharm processes…")
+        log("First-time setup — closing previous MuMu, adb, and PharmFlow processes…")
     else:
-        log("Closing stale CPharm / adb / setup processes (MuMu left running)…")
+        log("Closing stale PharmFlow / adb / setup processes (MuMu left running)…")
 
     _adb_kill_server(log)
     time.sleep(0.4)

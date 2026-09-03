@@ -32,7 +32,7 @@ class IntegratedSetupWizard(WizardShell):
     """First-run setup screens — transitions to main app via on_complete callback."""
 
     def __init__(self, on_complete: Callable[[], None] | None = None) -> None:
-        super().__init__("CPharm — First Run Setup")
+        super().__init__("PharmFlow — First Run Setup")
         self.on_complete = on_complete
         self.core = MuMuSetupCore()
         self.phone_count = 1
@@ -52,7 +52,7 @@ class IntegratedSetupWizard(WizardShell):
     def _screen_welcome(self) -> None:
         s = ScreenFrame(
             self._container,
-            "CPharm",
+            "PharmFlow",
             "We will set up your phone farm for you. Just click the button.",
         )
         icon = load_icon("phone", 64)

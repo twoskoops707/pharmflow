@@ -230,7 +230,7 @@ class ErrorScreen(ScreenFrame):
 class WizardShell(ctk.CTk):
     """Base window for setup and main wizards."""
 
-    def __init__(self, title: str = "CPharm Phone Farm") -> None:
+    def __init__(self, title: str = "PharmFlow Phone Farm") -> None:
         super().__init__()
         self.title(title)
         self.geometry("900x650")

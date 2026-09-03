@@ -1,5 +1,5 @@
 """
-CPharm Dashboard — ADB-native backend.
+PharmFlow Dashboard — ADB-native backend.
 Works with any Android device: AVD emulators, BlueStacks, Genymotion, MEmu, NOX, real phones.
 
 Launch (Windows): double-click automation/run_dashboard.bat or start_dashboard.bat — both ``cd``
@@ -2027,7 +2027,7 @@ def run_sequence_step(serial: str, step: dict, interrupt_check=None, hv_rng=None
             if _fp.get("audit", {}).get("leaks"):
                 log.warning(
                     "open_url fingerprint leaks serial=%s count=%s — cold-boot MuMu after "
-                    "CPharmMuMuSetup.exe → GO, or CPharm Boot/Launch → Re-apply hide emulator",
+                    "CPharmMuMuSetup.exe → GO, or PharmFlow Boot/Launch → Re-apply hide emulator",
                     serial,
                     len(_fp["audit"]["leaks"]),
                 )
@@ -2711,7 +2711,7 @@ async def handle_get(path: str) -> bytes:
             "wsPort": LISTEN_WS_PORT,
             "port": LISTEN_HTTP_PORT,
             "bind": LISTEN_HOST,
-            "appName": "CPharm",
+            "appName": "PharmFlow",
         }
         cfg.update(_desktop_prefs_for_api())
         return json_ok(cfg)
@@ -2732,7 +2732,7 @@ async def handle_get(path: str) -> bytes:
             except (json.JSONDecodeError, OSError):
                 return json_err("corrupt groups_config.json")
             return json_ok(cfg)
-        return json_err("no groups_config.json found — run CPharm first")
+        return json_err("no groups_config.json found — run PharmFlow first")
     if path == "/api/groups/adb_errors":
         with _group_adb_errors_lock:
             snap = list(_group_adb_errors)
@@ -3246,7 +3246,7 @@ async def handle_post(path: str, body: bytes) -> bytes:
                      remap.get("remapped"), len(online_serials))
             asyncio.get_running_loop().call_soon_threadsafe(
                 lambda: asyncio.ensure_future(
-                    broadcast({"type": "log", "msg": f"[CPharm] Auto-remapped groups to live phones ({len(online_serials)} online)"}),
+                    broadcast({"type": "log", "msg": f"[PharmFlow] Auto-remapped groups to live phones ({len(online_serials)} online)"}),
                 )
             )
         configured_serials: set[str] = set()
@@ -3842,7 +3842,7 @@ async def handle_post(path: str, body: bytes) -> bytes:
             except (json.JSONDecodeError, OSError):
                 return json_err("corrupt groups_config.json")
             return json_ok(cfg)
-        return json_err("no groups_config.json found — run CPharm first")
+        return json_err("no groups_config.json found — run PharmFlow first")
 
     # ── App tester: launch app ──
     if path == "/api/launch_app":
@@ -4122,7 +4122,7 @@ async def main():
     )
 
     print("\n  ╔══════════════════════════════════════════╗")
-    print("  ║   CPharm  •  ready                       ║")
+    print("  ║   PharmFlow  •  ready                       ║")
     print("  ║                                          ║")
     print(f"  ║   On this PC:  http://localhost:{LISTEN_HTTP_PORT}    ║")
     print(
@@ -4146,4 +4146,4 @@ if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        print("\n  CPharm stopped.")
+        print("\n  PharmFlow stopped.")

@@ -1,8 +1,8 @@
 ﻿# -*- mode: python ; coding: utf-8 -*-
 #
-# Single frozen Windows binary: ``cpharm_desktop.py`` → ``CPharm.exe``.
+# Single frozen Windows binary: ``cpharm_desktop.py`` → ``PharmFlow.exe``.
 # One exe: 9-step wizard, phone setup (step 4), install, boot, go, dashboard.
-# CI: ``pyinstaller CPharm.spec`` from ``wizard/`` (see ``.github/workflows/build-wizard.yml``).
+# CI: ``pyinstaller PharmFlow.spec`` from ``wizard/`` (see ``.github/workflows/build-wizard.yml``).
 #
 from PyInstaller.utils.hooks import collect_all, collect_submodules
 
@@ -91,7 +91,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name="CPharm",
+    name="PharmFlow",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
