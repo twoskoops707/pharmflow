@@ -484,7 +484,7 @@ def build_checklist(data_root: Path) -> list[dict]:
             }
         )
     if not exe_ok:
-        items[0]["help"] = f"Missing: {exe_path.parent}\\CPharm.exe — download from GitHub Releases."
+        items[0]["help"] = f"Missing: {exe_path.parent}\\PharmFlow.exe — download from GitHub Releases."
     return items
 
 
@@ -496,7 +496,7 @@ def run_check_action(action: str, log_fn: LogFn | None = None) -> dict:
         return {"ok": True, "message": "Opened MuMu download page in your browser."}
     if action == "download_cpharm":
         open_cpharm_releases()
-        return {"ok": True, "message": "Opened GitHub Releases — download CPharm.exe into this folder."}
+        return {"ok": True, "message": "Opened GitHub Releases — download PharmFlow.exe into this folder."}
     if action == "install_adb":
         ok = download_platform_tools(log)
         return {

@@ -1,7 +1,7 @@
 """
 Backend for phone setup — preflight, ADB discovery, fingerprint, groups.
 
-UI: embedded in CPharm.exe step 4 (``cpharm_app``) via ``MuMuSetupApi``;
+UI: embedded in PharmFlow.exe step 4 (``cpharm_app``) via ``MuMuSetupApi``;
 legacy standalone ``cpharm_mumu_setup.py`` / ``mumu_setup_webview.py`` for dev only.
 """
 
@@ -513,7 +513,7 @@ def run_full_setup(log: LogFn) -> tuple[bool, str, list[str]]:
             write_desktop_prefs(serials, root, setup_complete=False, awaiting_cold_boot=True)
             write_setup_prefs(root, mumu_setup_phase="awaiting_cold_boot")
             log("")
-            log("Stopping here — reboot phones before we install Chromium or open CPharm.")
+            log("Stopping here — reboot phones before we install the browser or continue.")
             return False, _COLD_BOOT_MSG, serials
 
         n_bad, _ = farm.phones_needing_cold_boot(serials)

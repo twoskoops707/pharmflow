@@ -127,7 +127,7 @@ class MuMuSetupTkFallback(tk.Tk):
 
         if not core.cpharm_exe_path().is_file():
             self._log_write(
-                f"Note: CPharm.exe not found:\n  {core.cpharm_exe_path()}\n"
+                f"Note: PharmFlow.exe not found:\n  {core.cpharm_exe_path()}\n"
                 "Download both exes from GitHub Releases into the same folder.\n\n"
             )
 
@@ -147,7 +147,7 @@ class MuMuSetupTkFallback(tk.Tk):
             return
         ok, msg = core.launch_cpharm()
         if not ok:
-            messagebox.showerror("CPharm.exe missing", msg)
+            messagebox.showerror("PharmFlow.exe missing", msg)
             return
         self._log_write(f"\nOpened: {msg}\n")
 
@@ -193,7 +193,7 @@ class MuMuSetupTkFallback(tk.Tk):
                     else:
                         messagebox.showinfo(
                             "Setup done",
-                            msg + "\n\nDownload CPharm.exe into the same folder, then double-click it.",
+                            msg + "\n\nDownload PharmFlow.exe into the same folder, then double-click it.",
                         )
                 else:
                     messagebox.showwarning("Phone Setup — wait for reboot", msg)
