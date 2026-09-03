@@ -14,6 +14,7 @@ import logging
 import os
 import re
 import shutil
+import sys
 import tempfile
 import urllib.error
 import urllib.request
@@ -310,6 +311,27 @@ def apk_path_for(spec: BrowserApkSpec, cache_dir: Path | None = None) -> Path:
     return (cache_dir or default_apk_cache_dir()) / spec.filename
 
 
+def _embedded_apk_dirs() -> list[Path]:
+    """Directories where browser APKs are built into the EXE (offline install)."""
+    dirs: list[Path] = []
+    meipass = getattr(sys, "_MEIPASS", None)
+    if meipass:
+        dirs.append(Path(meipass) / "bundled" / "apks")
+    root = Path(__file__).resolve().parents[1]
+    dirs.append(root / "wizard" / "bundled" / "apks")
+    dirs.append(root / "bundled" / "apks")
+    return dirs
+
+
+def find_embedded_apk(spec: BrowserApkSpec) -> Path | None:
+    """Return the APK built into the EXE for this browser, if present."""
+    for d in _embedded_apk_dirs():
+        p = d / spec.filename
+        if p.is_file() and p.stat().st_size > 1_000_000:
+            return p
+    return None
+
+
 def download_browser_apk(
     spec: BrowserApkSpec,
     *,
@@ -322,6 +344,12 @@ def download_browser_apk(
     if not force and dest.is_file() and dest.stat().st_size > 1_000_000:
         logger.info("Using cached %s (%s bytes)", dest.name, dest.stat().st_size)
         return dest
+
+    # APKs built into PharmFlow.exe install offline — never hit the network.
+    embedded = find_embedded_apk(spec)
+    if embedded is not None:
+        logger.info("Using built-in APK %s", embedded)
+        return embedded
 
     if spec.package == BROWSER_FIREFOX:
         url = resolve_firefox_apk_url()

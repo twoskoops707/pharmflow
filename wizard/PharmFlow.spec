@@ -4,9 +4,17 @@
 # One exe: 9-step wizard, phone setup (step 4), install, boot, go, dashboard.
 # CI: ``pyinstaller PharmFlow.spec`` from ``wizard/`` (see ``.github/workflows/build-wizard.yml``).
 #
+import os
+
 from PyInstaller.utils.hooks import collect_all, collect_submodules
 
 _webview_datas, _webview_binaries, _webview_hidden = collect_all("webview")
+
+# Browser APKs fetched at build time (tools/prefetch_browser_apks.py) embed
+# inside the EXE so browser installs work offline. Absent locally/CI = no-op.
+_browser_apk_datas: list = []
+if os.path.isdir("bundled/apks"):
+    _browser_apk_datas.append(("bundled/apks", "bundled/apks"))
 
 _hidden = (
     [
@@ -75,7 +83,8 @@ a = Analysis(
         ("../tools", "tools"),
         ("../docker_guard.py", "."),
     ]
-    + list(_webview_datas),
+    + list(_webview_datas)
+    + _browser_apk_datas,
     hiddenimports=_hidden,
     hookspath=[],
     hooksconfig={},

@@ -215,6 +215,14 @@ def download_official_chromium_apk(
     ):
         return legacy
 
+    # APKs built into PharmFlow.exe install offline — use them first.
+    embedded = find_sideload_apk(serial=serial)
+    if embedded:
+        e_apk, _ = embedded
+        if apk_matches_abi(e_apk, abi):
+            log(f"  Using built-in browser APK: {e_apk.name}")
+            return e_apk
+
     url = CHROMIUM_SNAPSHOT_URL_TEMPLATE.format(platform=platform)
     tmp_zip = bundled_dir() / f"_chromium_android_{platform}.zip"
     log(f"Downloading Chromium for Android ({abi}, {platform}) — one time…")
@@ -244,9 +252,11 @@ def bundled_search_dirs() -> list[Path]:
     for base in (cpharm_default_install_root(), wizard_module_dir()):
         dirs.append(base / "bundled")
         dirs.append(base / "apks")
+        dirs.append(base / "bundled" / "apks")
     m = meipass_dir()
     if m is not None:
         dirs.extend([m / "bundled", m / "wizard" / "bundled"])
+        dirs.append(m / "bundled" / "apks")
     seen: set[str] = set()
     out: list[Path] = []
     for d in dirs:

@@ -122,3 +122,8 @@ LOCAL_MEMORY.md
 
 # CI-generated at build time; do not commit a local build stamp
 /wizard/assets/build_info.json
+
+# Browser APKs fetched at build time (tools/prefetch_browser_apks.py); they
+# are embedded into the EXE by CI, never committed to the repo (~400 MB).
+/wizard/bundled/
+/bundled/apks/

@@ -90,6 +90,13 @@ jobs:
           ($info | ConvertTo-Json) | Set-Content -Path (Join-Path $dir "build_info.json") -Encoding utf8
           Get-Content (Join-Path $dir "build_info.json")
 
+      # Browser APKs ship INSIDE the EXE so installs work offline (see
+      # tools/prefetch_browser_apks.py). Chromium mirrors are dead — the script
+      # tries, logs honestly, and embeds Firefox/Brave/DuckDuckGo/Opera.
+      - name: Prefetch browser APKs into the EXE
+        working-directory: wizard
+        run: python ../tools/prefetch_browser_apks.py
+
       # Single shipped binary: PharmFlow.exe (9-step wizard + phone setup + dashboard).
       - name: Build PharmFlow.exe
         working-directory: wizard
