@@ -511,10 +511,16 @@ def _discover_available_phones(
                 logger.info("discover skip tablet: %s serial=%s", name, serial or "?")
                 continue
         available.append(name)
+    # Operator model: the farm runs whatever is LIVE on ADB, always — MuMu,
+    # Android Studio AVD, docker, cloud. A remembered/sticky phone list may
+    # order discovery but must NEVER exclude a live phone (a stale list left
+    # a live device idle for hours). No membership filtering.
     preferred_list = _sticky_phone_preference()
     if preferred_list:
-        pref_set = set(preferred_list)
-        available = [p for p in available if p in pref_set]
+        avail_set = set(available)
+        ordered = [p for p in preferred_list if p in avail_set]
+        ordered += [p for p in available if p not in set(preferred_list)]
+        available = ordered
     return available
 
 
