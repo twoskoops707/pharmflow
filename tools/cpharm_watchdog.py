@@ -472,9 +472,34 @@ def tcp_open(host: str, port: int) -> bool:
         return False
 
 
+def _docker_guard() -> tuple[object, str]:
+    """Return (engine_running_check, off_message).
+
+    Docker Desktop's CLI shim launches the GUI when the engine is down, so we
+    must never invoke the docker CLI unless the engine is already running.
+    Fail closed: if the guard cannot load, docker stays off.
+    """
+    try:
+        if str(ROOT) not in sys.path:
+            sys.path.insert(0, str(ROOT))
+        from docker_guard import DOCKER_OFF_MSG, engine_running
+
+        return engine_running, DOCKER_OFF_MSG
+    except Exception:  # noqa: BLE001
+        def _off() -> bool:
+            return False
+
+        return _off, "Docker guard unavailable - Docker left off."
+
+
 def docker_status(apply: bool) -> dict:
     if not COMPOSE.is_file():
         return {"ok": False, "error": f"Missing compose file: {COMPOSE}"}
+    engine_running, off_msg = _docker_guard()
+    if not engine_running():
+        # Never touch the docker CLI while the engine is down - the Docker
+        # Desktop shim would launch the GUI on its own. Docker stays off.
+        return {"ok": True, "disabled": True, "apply": apply, "detail": off_msg}
     code, output = command(["docker", "compose", "-f", str(COMPOSE), "ps", "--format", "json"], timeout=45)
     return {"ok": code == 0, "apply": apply, "detail": output[-2000:]}
 
@@ -483,6 +508,10 @@ def repair_docker(apply: bool, service: str | None) -> dict:
     target = [service] if service else []
     if not apply:
         return {"action": "docker compose up -d", "services": target, "status": "dry_run"}
+    engine_running, off_msg = _docker_guard()
+    if not engine_running():
+        return {"action": "docker compose up -d", "services": target,
+                "status": "failed", "detail": off_msg}
     code, output = command(["docker", "compose", "-f", str(COMPOSE), "up", "-d", *target], timeout=180)
     return {"action": "docker compose up -d", "services": target, "status": "ok" if code == 0 else "failed", "detail": output[-1000:]}
 
@@ -612,7 +641,7 @@ def check_once(args: argparse.Namespace) -> dict:
         "status": "healthy" if healthy else "degraded",
         "main_process": "up" if main["ok"] else "down",
         "dashboard": "up" if dash["ok"] else "down",
-        "docker_stack": "up" if docker["ok"] else "down",
+        "docker_stack": "off (disabled)" if docker.get("disabled") else ("up" if docker["ok"] else "down"),
         "adb_endpoints_online": cloud_up,
         "exit_ips_unique": exit_ips_unique,
         "exit_ip_rotations": uniqueness.get("rotations", 0) if uniqueness.get("checked") else 0,

@@ -138,9 +138,24 @@ def _run(argv: list[str], *, timeout: int = 120, cwd: Path | None = None) -> dic
             "stderr": (proc.stderr or "").strip()[-2000:]}
 
 
+def _docker_engine_running() -> bool:
+    """True only when the docker CLI cannot wake Docker Desktop."""
+    try:
+        if str(ROOT) not in sys.path:
+            sys.path.insert(0, str(ROOT))
+        from docker_guard import engine_running
+
+        return bool(engine_running())
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def tool_farm_status() -> dict:
     out = {}
-    out["docker"] = _run(["docker", "ps", "--format", "{{.Names}} {{.Status}}"], timeout=30)
+    if _docker_engine_running():
+        out["docker"] = _run(["docker", "ps", "--format", "{{.Names}} {{.Status}}"], timeout=30)
+    else:
+        out["docker"] = {"ok": False, "error": "Docker off (engine not running) - not started by PharmFlow"}
     out["adb"] = _run(["adb", "devices"], timeout=30)
     log = ROOT / "logs" / "cpharm.log"
     out["log_exists"] = log.is_file()
@@ -152,6 +167,8 @@ def tool_adb_devices() -> dict:
 
 
 def tool_docker_ps() -> dict:
+    if not _docker_engine_running():
+        return {"ok": False, "error": "Docker off (engine not running) - not started by PharmFlow"}
     return _run(["docker", "ps", "--format", "{{.Names}}\t{{.Status}}"], timeout=30)
 
 

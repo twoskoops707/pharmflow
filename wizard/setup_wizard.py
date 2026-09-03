@@ -8288,6 +8288,24 @@ class PhoneFarmPage(PageBase):
 
         def go():
             containers = []
+            # Docker Desktop's CLI shim launches the GUI when the engine is
+            # down - never run docker here unless the engine is already up.
+            try:
+                import sys as _sys
+                _base = getattr(_sys, "_MEIPASS", None) or str(Path(__file__).resolve().parent.parent)
+                if str(_base) not in _sys.path:
+                    _sys.path.insert(0, str(_base))
+                import docker_guard as _dg
+                if not _dg.engine_running():
+                    self._log_write("  " + _dg.DOCKER_OFF_MSG + "\n")
+                    self._docker_status_lbl.config(
+                        text="Docker off - start Docker Desktop yourself, then Connect", fg=WARN_FG
+                    )
+                    return
+            except Exception:
+                self._log_write("  Docker guard unavailable - Docker left off.\n")
+                self._docker_status_lbl.config(text="Docker off", fg=WARN_FG)
+                return
             try:
                 import subprocess as _sp
                 r = _sp.run(

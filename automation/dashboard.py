@@ -2502,11 +2502,27 @@ def _tcp_open(host: str, port: int, timeout: float = 0.4) -> bool:
         return False
 
 
+def _docker_engine_running() -> bool:
+    """True only when the docker CLI cannot wake Docker Desktop."""
+    try:
+        if str(SCRIPT_DIR.parent) not in sys.path:
+            sys.path.insert(0, str(SCRIPT_DIR.parent))
+        from docker_guard import engine_running
+
+        return bool(engine_running())
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def _docker_phone_state() -> tuple[list[dict], str]:
     """Read what Docker is doing: redroid containers + per-phone adb state."""
     compose = SCRIPT_DIR.parent / "cloud_phones" / "docker-compose.redroid.yml"
     if not compose.exists():
         return [], "compose file missing"
+    if not _docker_engine_running():
+        # Docker Desktop's CLI shim would launch the GUI from any docker call -
+        # report off instead of waking it.
+        return [], "Docker off - start Docker Desktop yourself to use redroid phones"
     code, out = _docker_cmd(
         ["docker", "compose", "-f", str(compose), "ps", "-a", "--format", "json"],
         timeout=20,
@@ -2579,6 +2595,8 @@ async def handle_docker_action(body: bytes) -> bytes:
     valid = name.startswith("redroid-") and name.replace("redroid-", "").isdigit()
     if action not in ("start", "stop", "restart") or not valid:
         return json_err("action must be start|stop|restart for a redroid-N container")
+    if not _docker_engine_running():
+        return json_err("Docker off - start Docker Desktop yourself, then retry")
     code, out = _docker_cmd(["docker", action, name], timeout=90)
     detail = (out or "")[-400:]
     if code == 0 and action in ("start", "restart"):

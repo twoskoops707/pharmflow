@@ -73,6 +73,7 @@ a = Analysis(
         ("../tools/cpharm_watchdog.py", "tools"),
         ("../tools/project_agent.py", "tools"),
         ("../tools", "tools"),
+        ("../docker_guard.py", "."),
     ]
     + list(_webview_datas),
     hiddenimports=_hidden,

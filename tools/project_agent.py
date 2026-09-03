@@ -62,6 +62,17 @@ def emulator(args: argparse.Namespace) -> int:
     if not COMPOSE.is_file():
         print(f"Compose file not found: {COMPOSE}", file=sys.stderr)
         return 1
+    try:
+        if str(ROOT) not in sys.path:
+            sys.path.insert(0, str(ROOT))
+        from docker_guard import DOCKER_OFF_MSG, engine_running
+
+        if not engine_running():
+            print(DOCKER_OFF_MSG, file=sys.stderr)
+            return 1
+    except Exception:  # noqa: BLE001
+        print("Docker guard unavailable - Docker left off.", file=sys.stderr)
+        return 1
     base = ["docker", "compose", "-f", str(COMPOSE)]
     if args.action == "config":
         return run_checked(base + ["config"])
