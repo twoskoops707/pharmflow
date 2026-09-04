@@ -310,3 +310,25 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
           path: wizard/dist/PharmFlow.exe
+
+      # Release assets are the reliable download channel on this repo (Actions
+      # artifact storage has silently dropped runs); publish the native ARM64
+      # EXE as its own release tag so the Snapdragon box installs it directly.
+      - name: Create GitHub Release (native ARM64)
+        if: success()
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: wizard-arm64-${{ github.run_number }}
+          name: "PharmFlow ARM64 (build ${{ github.run_number }})"
+          body: |
+            ## PharmFlow native ARM64 (build ${{ github.run_number }})
+
+            Native Windows-on-ARM build for Snapdragon X / X Elite machines. No x64 emulation — python and every lane run native.
+            Replace **PharmFlow.exe** in **`C:\PharmFlow\`** with this file.
+
+            Release integrity:
+            - **checksums-sha256.txt** — SHA256 for the EXE
+          files: |
+            wizard/dist/PharmFlow.exe
+          draft: false
+          prerelease: false
