@@ -121,7 +121,6 @@ def _install_desktop_runtime(root: Path) -> bool:
 def _activate_coreclr(root: Path) -> bool:
     """Wire pythonnet to the Desktop runtime at ``root`` and preload WinForms."""
     try:
-        import clr  # noqa: F401  (import triggers runtime setup)
         import clr_loader
         import pythonnet
         from clr_loader.util.runtime_spec import DotnetCoreRuntimeSpec
@@ -135,9 +134,13 @@ def _activate_coreclr(root: Path) -> bool:
             version,
             root / "shared" / "Microsoft.WindowsDesktop.App" / version,
         )
+        # set_runtime MUST precede any `import clr` (that would trigger the
+        # default netfx loader first).
         pythonnet.set_runtime(
             clr_loader.get_coreclr(runtime_spec=spec, dotnet_root=root)
         )
+        import clr  # noqa: F401  (no-op now; runtime already selected)
+
         # Own assembly in the Desktop framework; needed by pywebview's import.
         clr.AddReference("Microsoft.Win32.SystemEvents")
         clr.AddReference("System.Windows.Forms")
