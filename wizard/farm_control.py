@@ -451,7 +451,25 @@ def apply_profile_farm_env(profile: SiteProfile | None) -> None:
     os.environ.setdefault("CPHARM_FARM_PHONE_COUNT", str(phone_count))
     os.environ.setdefault("CPHARM_SITE_SLUG", profile.slug)
     if profile.adapter == "dabflow":
-        os.environ.pop("CPHARM_FARM_SEQUENCE_ROOT", None)
+        # dabflow pools live on disk as <root>/900x1600/{no-ad,ad}/dabflow__*.json.
+        # Never drop to the empty bundle recordings dir — that strands the farm
+        # with zero sequences. Prefer an explicit env, then the operator pool.
+        if os.environ.get("CPHARM_FARM_SEQUENCE_ROOT", "").strip():
+            pass
+        else:
+            dab_pool: Path | None = None
+            for cand in (
+                Path(r"C:\CPharm\sequences"),
+                Path.home() / "CPharm" / "sequences",
+            ):
+                if cand.is_dir() and (cand / "900x1600").is_dir():
+                    dab_pool = cand
+                    break
+            if dab_pool is None:
+                runtime = sequences_dir()
+                dab_pool = runtime if runtime.is_dir() else None
+            if dab_pool is not None:
+                os.environ["CPHARM_FARM_SEQUENCE_ROOT"] = str(dab_pool)
     else:
         os.environ.setdefault(
             "CPHARM_FARM_SEQUENCE_ROOT", str(sequences_dir() / profile.slug)
