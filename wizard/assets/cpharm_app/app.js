@@ -2077,6 +2077,39 @@
     });
   }
 
+  // ── Help modal (opened from File → Help or the __pharmflowOpenHelp hook) ──
+  const helpOverlay = document.getElementById("help-overlay");
+
+  function openHelp() {
+    if (!helpOverlay) return;
+    helpOverlay.hidden = false;
+    const closeBtn = document.getElementById("help-close");
+    if (closeBtn) closeBtn.focus();
+  }
+
+  function closeHelp() {
+    if (!helpOverlay) return;
+    helpOverlay.hidden = true;
+  }
+
+  if (helpOverlay) {
+    const closeBtn = document.getElementById("help-close");
+    if (closeBtn) closeBtn.addEventListener("click", closeHelp);
+    helpOverlay.addEventListener("click", function (e) {
+      if (e.target === helpOverlay) closeHelp();
+    });
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape" && !helpOverlay.hidden) {
+        closeHelp();
+        e.stopPropagation();
+      }
+    });
+  }
+
+  // Global hook so the native window menu (File → Help) can open the modal.
+  window.__pharmflowOpenHelp = openHelp;
+  window.__pharmflowCloseHelp = closeHelp;
+
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", init);
   } else {

@@ -519,6 +519,79 @@
     </div>
 
     <div class="app-toast" id="app-toast" hidden></div>
+
+    <!-- Help (File → Help) -->
+    <div class="help-overlay" id="help-overlay" hidden>
+      <div class="help-sheet" role="dialog" aria-modal="true" aria-labelledby="help-title">
+        <header class="help-head">
+          <div class="help-head-titles">
+            <div class="kicker"><span class="badge-dot"></span> PHARMFLOW · HELP</div>
+            <h2 id="help-title">Help &amp; quick guide</h2>
+          </div>
+          <button type="button" class="btn-ghost help-close" id="help-close" title="Close help (Esc)">Close ✕</button>
+        </header>
+
+        <div class="help-body">
+          <section class="help-sec">
+            <h3>What this is</h3>
+            <p>PharmFlow turns emulator phones into a working ad farm. The deck walks you through it in <strong>10 ordered steps</strong> — set up this PC, get Android tools, connect phones, prove the site works, map it, build sequences, assign groups, and run. Work top to bottom; the pipeline above turns green as each part is done.</p>
+          </section>
+
+          <section class="help-sec">
+            <h3>The 10 steps</h3>
+            <ol class="help-steps">
+              <li><strong>Welcome</strong> — the path and what each part needs.</li>
+              <li><strong>Install</strong> — browser + tools this PC needs to run the farm.</li>
+              <li><strong>Android</strong> — ADB and emulator tooling, wherever it lives on this machine.</li>
+              <li><strong>Phones</strong> — discover and set up phones. <em>Any live ADB device works — MuMu, Android Studio AVD, Docker, or cloud — the deck finds what is actually online, not a fixed list.</em></li>
+              <li><strong>Test</strong> — prove a phone can load your site and click a zone before you build anything.</li>
+              <li><strong>Site Map</strong> — scan a site once and get a map of its pages, forms, buttons, and links to base sequences on.</li>
+              <li><strong>Steps</strong> — review and fine-tune the recorded steps for the site.</li>
+              <li><strong>Builder</strong> — shape full sequences (with and without ads) from the mapped site.</li>
+              <li><strong>Groups</strong> — assign sequences to phones so every phone knows its job.</li>
+              <li><strong>Run</strong> — start the server, start the groups, and watch the farm work. Log and money gauges live on this screen.</li>
+            </ol>
+          </section>
+
+          <section class="help-sec">
+            <h3>Emulators — recognized, not commanded</h3>
+            <p>The farm <strong>reads</strong> ADB to find whatever is alive. It never forces a specific emulator up or down and has no fixed roster — VMs renumber, Docker images change, Studio starts and stops, and the farm still adopts every phone that answers ADB. ADB itself is started automatically for the emulators the EXE manages.</p>
+          </section>
+
+          <section class="help-sec">
+            <h3>Running the farm</h3>
+            <p>On <strong>Run</strong>, press <strong>Start server</strong> then <strong>Run all groups</strong> (or the one-press start). PharmFlow launches its unison stack — farm, stealth, watchdog, and FreeBuff lanes. The farm self-heals: crashed or frozen phones are restarted, dead lanes respawn, and each phone keeps its own identity and exit path. Watch it live:</p>
+            <ul class="help-list">
+              <li><strong>Farm dashboard:</strong> <span class="mono">http://127.0.0.1:8091/</span> — phones, progress, money.</li>
+              <li><strong>Wizard control server:</strong> <span class="mono">http://localhost:8080/</span></li>
+            </ul>
+          </section>
+
+          <section class="help-sec">
+            <h3>Stealth first, then money</h3>
+            <p>Those are the two priorities, in that order. Phones are disguised as real devices before they ever click; per-phone identity and exit paths are applied during setup and kept through the run. The farm never trades stealth for speed — a phone that looks wrong is stopped, not pushed.</p>
+          </section>
+
+          <section class="help-sec">
+            <h3>Advanced controls</h3>
+            <p>Most steps have an <strong>Advanced</strong> submenu with that step's deeper knobs — timing, caps, sequence roots, stealth options, and farm parameters. Changes are saved when you press Save and survive EXE restarts, so you can either follow the guided path or go deep per step.</p>
+          </section>
+
+          <section class="help-sec">
+            <h3>If something looks stuck</h3>
+            <ul class="help-list">
+              <li><strong>No phones listed:</strong> confirm the emulator is actually running, then reopen the Phones step — discovery is live.</li>
+              <li><strong>Farm idle with a phone online:</strong> check the phone was adopted on the Run screen, then check <span class="mono">127.0.0.1:8091</span>.</li>
+              <li><strong>Farm lane died:</strong> the watchdog respawns it automatically; give it one cycle.</li>
+              <li><strong>Nothing helps:</strong> restart PharmFlow — startup cleanup only clears stale PharmFlow/ADB duplicates, never your running phones.</li>
+            </ul>
+          </section>
+        </div>
+
+        <footer class="help-foot">Settings and logs live under <span class="mono">C:\CPharm</span> · Help is File → Help at any time.</footer>
+      </div>
+    </div>
+
     <script src="app.js"></script>
   </body>
 </html>

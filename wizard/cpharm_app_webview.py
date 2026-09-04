@@ -418,6 +418,46 @@ class CPharmAppApi:
         return reset(step or None, keys or None)
 
 
+def _build_native_menu(api: "CPharmAppApi") -> list:
+    """Top-of-window menu: File -> Help / Exit.
+
+    Menu actions run on a background thread; both dispatch through the bound
+    window so the deck JS stays the single source of truth.
+    """
+    import webview.menu as wm
+
+    def _open_help() -> None:
+        win = api._window
+        if win is None:
+            return
+        try:
+            win.evaluate_js(
+                "window.__pharmflowOpenHelp ? window.__pharmflowOpenHelp() : null"
+            )
+        except Exception:
+            pass
+
+    def _exit_app() -> None:
+        win = api._window
+        if win is None:
+            return
+        try:
+            win.destroy()
+        except Exception:
+            pass
+
+    return [
+        wm.Menu(
+            "File",
+            [
+                wm.MenuAction("Help", _open_help),
+                wm.MenuSeparator(),
+                wm.MenuAction("Exit", _exit_app),
+            ],
+        )
+    ]
+
+
 def run_cpharm_app(*, initial_view: str | None = None) -> None:
     import webview
     from cpharm_version import instance_title
@@ -433,7 +473,7 @@ def run_cpharm_app(*, initial_view: str | None = None) -> None:
         background_color="#07090f",
     )
     api.bind_window(window)
-    webview.start(gui="edgechromium", debug=False)
+    webview.start(gui="edgechromium", debug=False, menu=_build_native_menu(api))
 
 
 def run_cpharm_app_or_fallback(*, initial_view: str | None = None) -> None:
