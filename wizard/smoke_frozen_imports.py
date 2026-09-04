@@ -45,8 +45,10 @@ def main() -> int:
     import cpharm_wizard_bridge as bridge
 
     steps = bridge.get_wizard_steps()
-    if len(steps) != 9:
-        print(f"smoke_frozen_imports: expected 9 wizard steps, got {len(steps)}", file=sys.stderr)
+    # Deck + bridge share 10 steps (Site Map was added as step 6). Keep this
+    # count in lockstep with WIZARD_STEPS / the deck STEP_IDS list.
+    if len(steps) != 10:
+        print(f"smoke_frozen_imports: expected 10 wizard steps, got {len(steps)}", file=sys.stderr)
         return 1
     rows = bridge.scan_prereqs()
     if not rows or len(rows) < 3:
