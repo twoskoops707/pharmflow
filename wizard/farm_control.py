@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import runpy
 import shutil
 import subprocess
@@ -721,3 +722,177 @@ def load_active_profile(slug: str | None) -> SiteProfile | None:
         return load_profile(app_data_root(), slug)
     except (OSError, ValueError, TypeError, KeyError):
         return None
+
+
+# ---------------------------------------------------------------------------
+# Spin up ONE phone for testing — explicit user click ONLY, never automatic
+# ---------------------------------------------------------------------------
+_test_phone_lock = threading.Lock()
+_test_phone_active = False
+
+
+def _docker_cli(argv: list[str], timeout: float = 40.0) -> tuple[int, str]:
+    try:
+        r = subprocess.run(
+            ["docker", *argv],
+            capture_output=True,
+            text=True,
+            errors="replace",
+            timeout=timeout,
+            **hidden_run_kwargs(),
+        )
+        return r.returncode, ((r.stdout or "") + (r.stderr or "")).strip()
+    except Exception as exc:  # noqa: BLE001 — surface text to the log
+        return 1, str(exc)
+
+
+def _redroid_containers() -> list[tuple[int, str, bool]]:
+    """[(idx, name, is_up)] for every redroid-N container docker knows."""
+    code, out = _docker_cli(
+        ["ps", "-a", "--filter", "name=redroid-", "--format", "{{.Names}}|{{.Status}}"]
+    )
+    if code != 0:
+        return []
+    rows: list[tuple[int, str, bool]] = []
+    for line in out.splitlines():
+        name, _, status = line.partition("|")
+        m = re.match(r"^redroid-(\d+)$", name.strip())
+        if not m:
+            continue
+        rows.append((int(m.group(1)), name.strip(), status.strip().startswith("Up")))
+    return sorted(rows)
+
+
+def spin_up_test_phone(*, log: Callable[[str, str], None] | None = None) -> dict:
+    """Bring up ONE phone for testing when the operator clicks the button.
+
+    Never runs automatically. Order of preference: a redroid (Android-in-
+    Docker) phone already running but not on ADB, then a stopped redroid
+    container (docker start), then an offline real MuMu VM. The work runs in a
+    background thread and the call returns immediately with an honest message;
+    self-heal in the farm runner is the only other phone spin-up, and it is
+    limited to phones that were ONLINE when that farm run started.
+    """
+    global _test_phone_active
+
+    def _log(msg: str, level: str = "ok") -> None:
+        if log:
+            try:
+                log(msg, level)
+            except Exception:
+                pass
+
+    with _test_phone_lock:
+        if _test_phone_active:
+            return {
+                "ok": True,
+                "started": False,
+                "busy": True,
+                "message": "A test phone is already coming up — wait a moment.",
+            }
+        _test_phone_active = True
+
+    def _run() -> None:
+        try:
+            from automation.adb_wrapper import AdbWrapper
+
+            adb = AdbWrapper()
+            live = {
+                d.serial
+                for d in adb.devices_detailed()
+                if getattr(d, "online", False)
+            }
+            redroids = _redroid_containers()
+            # 1) Already-running redroid that is simply not adb-connected yet.
+            for idx, name, up in redroids:
+                if not up:
+                    continue
+                target = f"127.0.0.1:{5555 + idx}"
+                if target in live:
+                    _log(f"{name} is already online ({target}) — ready to test.", "ok")
+                    return
+            for idx, name, up in redroids:
+                if not up:
+                    continue
+                target = f"127.0.0.1:{5555 + idx}"
+                _log(f"{name} is running — connecting ADB ({target})…")
+                adb.connect(target)
+                if adb.wait_for_device(target, timeout=45.0):
+                    _log(f"{name} online ({target}) — ready to test.", "ok")
+                    return
+            # 2) Stopped redroid container -> docker start just that one.
+            for idx, name, up in redroids:
+                if up:
+                    continue
+                _log(f"{name} is stopped — starting it (docker start)…")
+                code, err = _docker_cli(["start", name], timeout=120.0)
+                if code != 0:
+                    _log(f"{name} failed to start: {err}", "err")
+                    continue
+                target = f"127.0.0.1:{5555 + idx}"
+                adb.connect(target)
+                if adb.wait_for_device(target, timeout=120.0):
+                    _log(f"{name} online ({target}) — ready to test.", "ok")
+                    return
+                _log(
+                    f"{name} started but no ADB yet — give it a minute, then "
+                    "press Open site on phones.",
+                    "warn",
+                )
+                return
+            # 3) Offline real MuMu VM (explicit user click — never automatic).
+            from wizard.mumu_farm_ops import MuMuFarmOps
+
+            farm = MuMuFarmOps()
+            insts = farm.list_instances() or []
+            live_serials = {
+                d.serial
+                for d in farm.enumerate_adb_devices()
+                if getattr(d, "online", False)
+            }
+            offline = sorted(
+                (
+                    i
+                    for i in insts
+                    if (i.name or "").startswith("vm")
+                    and (not getattr(i, "adb_serial", None) or i.adb_serial not in live_serials)
+                ),
+                key=lambda i: i.index,
+            )
+            if not offline:
+                _log(
+                    "No stopped redroid and every MuMu phone is already online — "
+                    "nothing to spin up.",
+                    "warn",
+                )
+                return
+            pick = offline[0]
+            _log(
+                f"Booting one MuMu test phone: {pick.name} "
+                "(takes a few minutes on this box)…"
+            )
+            try:
+                ok = farm.start_phone(pick.name)
+            except Exception as exc:  # noqa: BLE001
+                ok = False
+                _log(f"MuMu spin-up failed: {exc}", "err")
+            if ok:
+                _log(f"{pick.name} is up — ready to test.", "ok")
+            else:
+                _log(
+                    f"{pick.name} launch started but ADB is not up yet — wait a few "
+                    "minutes, then press Open site on phones.",
+                    "warn",
+                )
+        except Exception as exc:  # noqa: BLE001
+            _log(f"Test phone spin-up error: {exc}", "err")
+        finally:
+            global _test_phone_active
+            _test_phone_active = False
+
+    threading.Thread(target=_run, name="cpharm-test-phone", daemon=True).start()
+    return {
+        "ok": True,
+        "started": True,
+        "message": "Spinning up one test phone in the background — watch the Test log.",
+    }

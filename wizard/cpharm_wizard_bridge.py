@@ -1038,26 +1038,6 @@ def run_create_phone_farm() -> dict:
     return {"ok": True, "started": True}
 
 
-def run_boot_all() -> dict:
-    def work() -> None:
-        _prepare_editor_state()
-        page = _page(4)
-        page._boot_all()
-
-    _run_async_on_tk(work)
-    return {"ok": True, "started": True}
-
-
-def run_stop_all_phones() -> dict:
-    def work() -> None:
-        _prepare_editor_state()
-        page = _page(4)
-        page._stop_all()
-
-    _run_async_on_tk(work)
-    return {"ok": True, "started": True}
-
-
 def run_test_url(url: str | None = None) -> dict:
     def work() -> dict:
         from site_prefs import apply_site_url_to_boot_page, load_target_site_url, save_target_site_url
@@ -1873,6 +1853,24 @@ def stop_farm_from_app() -> dict:
             return {"ok": bool(stopped), "stopped": bool(stopped)}
         except Exception as exc:  # noqa: BLE001
             return {"ok": False, "error": f"stop_farm error: {exc}"}
+
+    return _run_on_tk(work)
+
+
+def spin_up_test_phone_from_app() -> dict:
+    """User-clicked ONLY: bring up one phone (Docker redroid or MuMu VM) for testing.
+
+    Delegates to wizard.farm_control.spin_up_test_phone, which never runs
+    automatically and returns immediately (the boot continues in a background
+    thread).
+    """
+    from wizard.farm_control import spin_up_test_phone as _spin
+
+    def work() -> dict:
+        try:
+            return _spin()
+        except Exception as exc:  # noqa: BLE001 — surface to UI
+            return {"ok": False, "error": f"spin_up_test_phone error: {exc}"}
 
     return _run_on_tk(work)
 

@@ -3254,10 +3254,12 @@ def main() -> int:
     if tablet_thread is not None:
         all_threads.append(tablet_thread)
 
-    # Self-heal (2): relaunch crashed/frozen farm VMs without operator action.
-    # Only VMs that were ONLINE at farm start are tracked; synthetic devices
-    # (AVD/docker/cloud) have no VM to relaunch. Cooldown prevents relaunch
-    # storms while a VM is mid-boot.
+    # Self-heal (spin-up only, farm already running): the EXE never launches
+    # emulators before the operator starts the farm, and it never reboots the
+    # program. But once this farm run is live, a phone that was ONLINE at farm
+    # start and then dies is spun back up (VM only, 120s cooldown, never a
+    # whole-program or whole-farm restart). Synthetic devices (AVD/docker/
+    # cloud) and phones that were never online at start are never touched.
     heal_last: dict[str, float] = {}
     try:
         while any(t.is_alive() for t in all_threads):
@@ -3291,14 +3293,14 @@ def main() -> int:
                     continue
                 heal_last[phone] = now_ts
                 logger.warning(
-                    "SELF-HEAL %s offline (serial=%s) — relaunching its VM",
+                    "SELF-HEAL %s offline (serial=%s) — spinning its VM back up",
                     phone,
                     inst.adb_serial,
                 )
                 try:
                     farm.start_phone(phone)
                 except Exception as exc:
-                    logger.warning("SELF-HEAL %s relaunch failed: %s", phone, exc)
+                    logger.warning("SELF-HEAL %s spin-up failed: %s", phone, exc)
             with lock:
                 snap = {k: v.get("done", 0) for k, v in progress.items()}
                 active_keys = seq_lock.active

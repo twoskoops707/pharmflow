@@ -154,15 +154,10 @@ class CPharmAppApi:
 
         return bridge.run_create_phone_farm()
 
-    def run_boot_all(self) -> dict:
+    def spin_up_test_phone(self) -> dict:
         import cpharm_wizard_bridge as bridge
 
-        return bridge.run_boot_all()
-
-    def run_stop_all_phones(self) -> dict:
-        import cpharm_wizard_bridge as bridge
-
-        return bridge.run_stop_all_phones()
+        return bridge.spin_up_test_phone_from_app()
 
     def run_test_url(self, url: str = "") -> dict:
         import cpharm_wizard_bridge as bridge

@@ -276,13 +276,12 @@
                   <button type="button" class="btn-mini" id="btn-save-site-url">Save</button>
                 </div>
                 <p class="panel-note" id="site-url-hint">Used for Test and default sequences.</p>
+                <p class="panel-note boot-policy-note">PharmFlow never opens or closes emulators by itself. Start your phones in MuMu (or AVD/Docker) — the EXE farms whatever is already live, and once the farm is running it keeps its phones alive.</p>
                 <div class="action-row">
-                  <button type="button" class="btn-go" id="btn-boot-all">Start all phones</button>
-                  <button type="button" class="btn-ghost" id="btn-stop-all">Stop all</button>
-                </div>
-                <div class="action-row">
+                  <button type="button" class="btn-ghost" id="btn-spin-test-phone">Spin up one phone to test</button>
                   <button type="button" class="btn-go btn-go-secondary" id="btn-test-url">Open site on phones</button>
                 </div>
+                <p class="panel-note">No phone on ADB? <strong>Spin up one phone to test</strong> boots a Docker redroid or a MuMu VM for you — never automatic, your click only.</p>
               </section>
               <section class="panel log-panel">
                 <div class="log-header">
@@ -560,7 +559,7 @@
 
           <section class="help-sec">
             <h3>Running the farm</h3>
-            <p>On <strong>Run</strong>, press <strong>Start server</strong> then <strong>Run all groups</strong> (or the one-press start). PharmFlow launches its unison stack — farm, stealth, watchdog, and FreeBuff lanes. The farm self-heals: crashed or frozen phones are restarted, dead lanes respawn, and each phone keeps its own identity and exit path. Watch it live:</p>
+            <p>On <strong>Run</strong>, press <strong>Start automation</strong> (or start the service then run all groups). PharmFlow launches its unison stack — farm, stealth, watchdog, and FreeBuff lanes. PharmFlow never opens or closes emulators by itself: it farms whatever is already live on ADB. Once the farm is running it keeps its phones alive — a phone that drops is spun back up automatically, and dead code lanes respawn. Watch it live:</p>
             <ul class="help-list">
               <li><strong>Farm dashboard:</strong> <span class="mono">http://127.0.0.1:8091/</span> — phones, progress, money.</li>
               <li><strong>Wizard control server:</strong> <span class="mono">http://localhost:8080/</span></li>

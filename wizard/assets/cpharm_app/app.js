@@ -1527,37 +1527,20 @@
       });
     }
 
-    const btnBoot = document.getElementById("btn-boot-all");
-    if (btnBoot && !btnBoot.dataset.wired) {
-      btnBoot.dataset.wired = "1";
-      btnBoot.addEventListener("click", async function () {
-        const bootLed = document.getElementById("boot-led");
-        const bootStatus = document.getElementById("boot-status");
-        if (bootLed) bootLed.classList.remove("on");
-        if (bootStatus) bootStatus.textContent = "Starting phones…";
+    const btnSpin = document.getElementById("btn-spin-test-phone");
+    if (btnSpin && !btnSpin.dataset.wired) {
+      btnSpin.dataset.wired = "1";
+      btnSpin.addEventListener("click", async function () {
         try {
-          const res = await callApi("Boot", function (a) {
-            return a.run_boot_all();
+          const res = await callApi("Spin up test phone", function (a) {
+            return a.spin_up_test_phone();
           });
-          if (bootLog && res && res.log) appendLog(bootLog, res.log);
-          if (bootLog && res && res.message) appendLog(bootLog, res.message);
-          if (bootLed) bootLed.classList.add("on");
-          if (bootStatus) bootStatus.textContent = (res && res.message) || "Phones starting";
-          showToast("Starting phones…");
-        } catch (e) {
-          if (bootStatus) bootStatus.textContent = "Boot failed";
-          if (bootLog) appendLog(bootLog, "Boot failed: " + e);
+          const msg = (res && res.message) || "Spinning up one test phone…";
+          showToast(msg);
+          if (bootLog) appendLog(bootLog, msg);
+        } catch (_e) {
+          /* banner shown */
         }
-      });
-    }
-
-    const btnStop = document.getElementById("btn-stop-all");
-    if (btnStop && !btnStop.dataset.wired) {
-      btnStop.dataset.wired = "1";
-      btnStop.addEventListener("click", async function () {
-        await callApi("Stop phones", function (a) {
-          return a.run_stop_all_phones();
-        });
       });
     }
 

@@ -187,10 +187,11 @@ jobs:
             - **PharmFlow.exe** — wizard + **Start farm** + operator dash **http://127.0.0.1:8091/** + built-in watchdog/agent
 
             ### Mantis money farm
-            1. MuMu x64 phones online (8 canonical money VMs).
+            1. Start your phones yourself (MuMu VMs, AVD, or Docker redroid) — the EXE never opens or closes emulators by itself.
             2. **FarmBrowser** on each phone (`farmbrowser/` APK in repo).
-            3. **PharmFlow.exe → Start farm** (unison: farm + stealth + watchdog + FreeBuff).
+            3. **PharmFlow.exe → Start farm** (unison: farm + stealth + watchdog + FreeBuff). It farms every phone live on ADB — no roster, no canonical list. Once running, a phone that drops is spun back up automatically.
             4. Dashboard **:8091** — not the wizard `:8080` server.
+            5. No phone up? Test view has **Spin up one phone to test** (Docker redroid or MuMu VM, your click only).
 
             ### FarmBrowser
             - Package: `com.farmbrowser.stealth.debug` (Path3 / Mantis clicks)
@@ -244,3 +245,68 @@ jobs:
           --title "PharmFlow build done"
           --tags "white_check_mark,package"
 
+
+  # Native ARM64 probe (Snapdragon/X Elite operator box runs x64 under
+  # emulation today). Free on public repos (windows-11-arm preview). Non-
+  # blocking on purpose: this job must prove itself without ever delaying the
+  # proven x64 release above.
+  arm64:
+    runs-on: windows-11-arm
+    continue-on-error: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.14
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Assert native ARM64 interpreter (not emulated x64)
+        shell: pwsh
+        run: |
+          $arch = (python -c "import platform; print(platform.machine().lower())").Trim()
+          Write-Host "python machine: $arch"
+          if ($arch -notin @('arm64', 'aarch64')) { throw "Expected native arm64 python, got $arch" }
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller pillow
+
+      - name: Smoke — compile + imports that matter on arm64
+        run: |
+          python -m py_compile wizard/cpharm_app_webview.py
+          python -m py_compile wizard/cpharm_wizard_bridge.py
+          python -m py_compile wizard/setup_wizard.py
+          python -m py_compile wizard/mumu_farm_ops.py
+          python -m py_compile wizard/farm_control.py
+          python -m py_compile wizard/farm_settings.py
+          python -m py_compile scripts/run_farm_354.py
+          python wizard/smoke_app_js.py
+          python wizard/smoke_frozen_imports.py
+
+      - name: Build native ARM64 PharmFlow.exe
+        working-directory: wizard
+        run: pyinstaller PharmFlow.spec
+
+      - name: Report native ARM64 artifact
+        shell: pwsh
+        run: |
+          if (-not (Test-Path wizard/dist/PharmFlow.exe -PathType Leaf)) {
+            Write-Warning "No PharmFlow.exe produced on arm64"
+          } else {
+            $f = Get-Item wizard/dist/PharmFlow.exe
+            Write-Host ("arm64 PharmFlow.exe bytes={0} sha256={1}" -f $f.Length, (Get-FileHash -Algorithm SHA256 $f.FullName).Hash.ToLowerInvariant())
+          }
+
+      - name: Upload native ARM64 EXE artifact
+        if: success()
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: pharmflow-arm64-${{ github.run_number }}
+          if-no-files-found: warn
+          retention-days: 7
+          path: wizard/dist/PharmFlow.exe
