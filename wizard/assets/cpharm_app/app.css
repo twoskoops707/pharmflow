@@ -1589,3 +1589,47 @@ details.adv-details[open] > summary::before {
 .help-overlay[hidden] {
   display: none !important;
 }
+
+/* ---- hover help: tooltips on inputs, selects, and choices ---- */
+[data-help] {
+  position: relative;
+}
+[data-help]::after {
+  content: attr(data-help);
+  position: absolute;
+  bottom: calc(100% + 9px);
+  left: 50%;
+  transform: translateX(-50%) translateY(3px);
+  z-index: 45;
+  width: max-content;
+  max-width: 300px;
+  padding: 7px 11px;
+  background: var(--panel2);
+  color: var(--text);
+  border: 1px solid var(--line2);
+  border-radius: var(--rad-sm);
+  box-shadow: 0 6px 18px rgba(5, 8, 12, 0.55);
+  font-family: var(--font);
+  font-size: 0.82rem;
+  line-height: 1.45;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  white-space: normal;
+  text-align: left;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.14s ease, transform 0.14s ease, visibility 0.14s;
+}
+[data-help]:hover::after,
+[data-help]:focus::after {
+  opacity: 1;
+  visibility: visible;
+  transform: translateX(-50%) translateY(0);
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-help]::after {
+    transition: none;
+  }
+}

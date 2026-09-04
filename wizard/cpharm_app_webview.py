@@ -485,6 +485,17 @@ def run_cpharm_app_or_fallback(*, initial_view: str | None = None) -> None:
         _fallback_tk(initial_view=initial_view)
         return
 
+    # pywebview's WinForms backend needs pythonnet against a real .NET runtime.
+    # netfx (built into Windows) is preferred; coreclr is auto-installed only if
+    # netfx is unavailable. Without this the deck silently degrades to Tk.
+    if sys.platform == "win32":
+        try:
+            from dotnet_provision import ensure_pythonnet_ready
+
+            ensure_pythonnet_ready()
+        except Exception:
+            pass
+
     try:
         run_cpharm_app(initial_view=initial_view)
     except Exception:

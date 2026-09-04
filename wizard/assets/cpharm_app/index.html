@@ -66,11 +66,11 @@
               <section class="panel panel-run-actions">
                 <h2 class="panel-title">Quick start</h2>
                 <div class="action-row action-row-big">
-                  <button type="button" class="btn-go" id="btn-start-farm-home">Start farm</button>
+                  <button type="button" class="btn-go" id="btn-start-farm-home" data-help="Farms every phone that is live on ADB right now. The EXE never opens or closes emulators itself — start your phones first, then press this.">Start farm</button>
                   <button type="button" class="btn-go btn-go-secondary" id="btn-open-dash-home">Open dashboard</button>
                 </div>
                 <div class="action-row">
-                  <button type="button" class="btn-ghost" id="btn-spin-test-phone-home">Spin up one phone to test</button>
+                  <button type="button" class="btn-ghost" id="btn-spin-test-phone-home" data-help="Your click only: boots one spare phone (Docker redroid first, then MuMu) so you can test the setup before the farm goes live.">Spin up one phone to test</button>
                 </div>
                 <p class="panel-note">Farms whatever is live on ADB — no roster. Never opens or closes emulators by itself; once running it keeps its phones alive.</p>
               </section>
@@ -116,7 +116,7 @@
                 </div>
                 <ul class="prereq-list" id="prereq-list"></ul>
                 <div class="action-row">
-                  <button type="button" class="btn-go" id="btn-install-all">Install everything</button>
+                  <button type="button" class="btn-go" id="btn-install-all" data-help="Installs every missing prerequisite: ADB, Android SDK tools, WebView2 runtime. Safe to run again.">Install everything</button>
                 </div>
                 <ol class="instruction-list">
                   <li>Click <strong>Install everything</strong> and wait for green lines.</li>
@@ -157,7 +157,7 @@
                   <li><strong>AVD option:</strong> use Android tools if you're not using MuMu.</li>
                 </ol>
                 <h2 class="panel-title">Android tools</h2>
-                <button type="button" class="btn-go" id="btn-android-install">Install Android tools (SDK + ADB)</button>
+                <button type="button" class="btn-go" id="btn-android-install" data-help="Installs the Android SDK command-line tools and ADB on this machine so the farm can talk to phones.">Install Android tools (SDK + ADB)</button>
                 <p class="status-line" id="android-status">Checking SDK…</p>
                 <p class="status-line" id="android-detail"></p>
               </section>
@@ -174,15 +174,15 @@
                   <summary class="panel-title">Google AVD farm (optional — MuMu users skip)</summary>
                   <p class="panel-note">Creates Pixel-style virtual devices in the Android SDK. Only use this if you are not using MuMu.</p>
                   <div class="count-picker" id="count-picker">
-                    <button type="button" data-count="1">1</button>
-                    <button type="button" data-count="2">2</button>
-                    <button type="button" data-count="3" class="selected">3</button>
-                    <button type="button" data-count="5">5</button>
-                    <button type="button" data-count="8">8</button>
-                    <button type="button" data-count="10">10</button>
+                    <button type="button" data-count="1" data-help="How many phones this farm creates. 1 is the lightest — good for testing.">1</button>
+                    <button type="button" data-count="2" data-help="How many phones this farm creates. 2 balances speed and RAM.">2</button>
+                    <button type="button" data-count="3" class="selected" data-help="How many phones this farm creates. 3 is the safe default on most machines.">3</button>
+                    <button type="button" data-count="5" data-help="How many phones this farm creates. 5 needs a beefy machine with 32 GB+ RAM.">5</button>
+                    <button type="button" data-count="8" data-help="How many phones this farm creates. 8 is heavy — only on a machine with RAM to spare.">8</button>
+                    <button type="button" data-count="10" data-help="How many phones this farm creates. 10 will max out most machines.">10</button>
                   </div>
                   <div class="action-row">
-                    <button type="button" class="btn-mini" id="btn-create-farm">Create phone farm</button>
+                    <button type="button" class="btn-mini" id="btn-create-farm" data-help="Creates the phone farm with the count above. Emulators boot on this machine only when you press this.">Create phone farm</button>
                   </div>
                 </details>
                 <div class="log-terminal" id="android-log" role="log"></div>
@@ -229,7 +229,7 @@
                   <div id="phone-chips" class="phone-chips" hidden></div>
                 </div>
                 <div class="phones-actions-bar">
-                  <button type="button" class="btn-go btn-go-compact" id="btn-go">Set up my phones</button>
+                  <button type="button" class="btn-go btn-go-compact" id="btn-go" data-help="Walks the live phones through setup: browser install, ADB keys, Tor per phone. Skips phones already set up.">Set up my phones</button>
                 </div>
               </section>
 
@@ -240,11 +240,11 @@
                 <div class="browser-picker">
                   <div class="browser-field">
                     <label class="browser-picker-label" for="browser-select">Browser</label>
-                    <select id="browser-select" class="browser-select" aria-label="Choose a browser to install"></select>
+                    <select id="browser-select" class="browser-select" aria-label="Choose a browser to install" data-help="Browser to install on each phone. Chrome is the default; Firefox is lighter and uses less RAM."></select>
                   </div>
                   <div class="browser-field">
                     <label class="browser-picker-label" for="phone-select">On</label>
-                    <select id="phone-select" class="browser-select phone-select" aria-label="Choose which phone to install on"></select>
+                    <select id="phone-select" class="browser-select phone-select" aria-label="Choose which phone to install on" data-help="Which phone gets the browser. Leave as All to batch-install to every live phone."></select>
                   </div>
                   <button type="button" class="btn-go btn-chrome btn-chrome-compact" id="btn-install-browser">Install</button>
                 </div>
@@ -288,14 +288,14 @@
                 </ol>
                 <h2 class="panel-title">Target site</h2>
                 <div class="site-url-row">
-                  <input type="url" class="site-url-input" id="site-url-input" placeholder="https://example.com" autocomplete="url" />
+                  <input type="url" class="site-url-input" id="site-url-input" placeholder="https://example.com" autocomplete="url" data-help="The site the farm works against. Save it before testing, and keep it pointing at the site you farm." />
                   <button type="button" class="btn-mini" id="btn-save-site-url">Save</button>
                 </div>
                 <p class="panel-note" id="site-url-hint">Used for Test and default sequences.</p>
                 <p class="panel-note boot-policy-note">PharmFlow never opens or closes emulators by itself. Start your phones in MuMu (or AVD/Docker) — the EXE farms whatever is already live, and once the farm is running it keeps its phones alive.</p>
                 <div class="action-row">
-                  <button type="button" class="btn-ghost" id="btn-spin-test-phone">Spin up one phone to test</button>
-                  <button type="button" class="btn-go btn-go-secondary" id="btn-test-url">Open site on phones</button>
+                  <button type="button" class="btn-ghost" id="btn-spin-test-phone" data-help="Your click only: boots one spare phone (Docker redroid first, then MuMu) so you can test the setup before the farm goes live.">Spin up one phone to test</button>
+                  <button type="button" class="btn-go btn-go-secondary" id="btn-test-url" data-help="Opens the saved site on the live phones so you can check it renders before farming.">Open site on phones</button>
                 </div>
                 <p class="panel-note">No phone on ADB? <strong>Spin up one phone to test</strong> boots a Docker redroid or a MuMu VM for you — never automatic, your click only.</p>
               </section>
@@ -336,12 +336,12 @@
                 </ol>
                 <h2 class="panel-title">Site URL</h2>
                 <div class="site-url-row">
-                  <input type="url" class="site-url-input" id="map-url-input" placeholder="https://example.com" autocomplete="url" />
+                  <input type="url" class="site-url-input" id="map-url-input" placeholder="https://example.com" autocomplete="url" data-help="Site to crawl for a starter sequence. Should match the site you farm on the Test step." />
                   <button type="button" class="btn-mini" id="btn-map-scan">Scan site</button>
                 </div>
                 <p class="status-line" id="map-status">Not scanned yet.</p>
                 <div class="action-row">
-                  <button type="button" class="btn-go" id="btn-map-generate">Generate starter sequence</button>
+                  <button type="button" class="btn-go" id="btn-map-generate" data-help="Turns the scanned pages into a starter sequence you can review and edit on the next step.">Generate starter sequence</button>
                 </div>
               </section>
               <section class="panel log-panel">
@@ -381,9 +381,9 @@
                 <h2 class="panel-title">Default sequence</h2>
                 <p class="status-line" id="steps-summary">No default steps defined.</p>
                 <div class="action-row">
-                  <button type="button" class="btn-go" id="btn-edit-sequence">Edit default sequence</button>
-                  <button type="button" class="btn-mini" id="btn-load-sequence">Load file</button>
-                  <button type="button" class="btn-mini" id="btn-save-sequence">Save as</button>
+                  <button type="button" class="btn-go" id="btn-edit-sequence" data-help="Opens the default sequence for editing before it goes live.">Edit default sequence</button>
+                  <button type="button" class="btn-mini" id="btn-load-sequence" data-help="Loads a sequence from disk (JSON).">Load file</button>
+                  <button type="button" class="btn-mini" id="btn-save-sequence" data-help="Saves the current sequence to disk so you can reuse it later.">Save as</button>
                 </div>
               </section>
               <section class="panel">
