@@ -357,6 +357,60 @@ def _persist_multi_browser_sticky() -> None:
     return
 
 
+def _dabflow_sequence_root() -> Path | None:
+    """Resolve the operator dabflow pool (900x1600/no-ad + ad dabflow sequences).
+
+    Returns None when no on-disk pool exists so callers keep the runtime
+    default rather than inventing a path.
+    """
+    if os.environ.get("CPHARM_FARM_SEQUENCE_ROOT", "").strip():
+        return None
+    # dabflow money pool is the v3 runtime recordings tree (ad/complete/halfway
+    # combos per material), not the legacy v0 sequences/900x1600 matrix.
+    for cand in (
+        Path(r"C:\CPharm\automation\recordings\sequences"),
+        Path.home() / "CPharm" / "automation" / "recordings" / "sequences",
+    ):
+        if _dir_has_v3_sequences(cand):
+            return cand
+    for cand in (
+        Path(r"C:\CPharm\sequences"),
+        Path.home() / "CPharm" / "sequences",
+        Path(r"C:\Users\jsmil\CPharm\sequences"),
+    ):
+        if _dir_has_v3_sequences(cand):
+            return cand
+    return None
+
+
+def _dir_has_v3_sequences(cand: Path) -> bool:
+    """True when the dir contains any v3+ sequence JSON (runnable by the farm)."""
+    if not cand.is_dir():
+        return False
+    import json as _json
+
+    try:
+        it = cand.rglob("*.json")
+        for _i, path in enumerate(it):
+            if _i >= 200:
+                break
+            try:
+                data = _json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            if isinstance(data, dict) and int(data.get("sequence_version") or 0) >= 3:
+                return True
+    except OSError:
+        return False
+    return False
+
+
+def _apply_dabflow_pool_env() -> None:
+    pool = _dabflow_sequence_root()
+    if pool is not None:
+        os.environ["CPHARM_FARM_SEQUENCE_ROOT"] = str(pool)
+
+
 def apply_profile_farm_env(profile: SiteProfile | None) -> None:
     """Map SiteProfile farm prefs onto CPHARM_FARM_* env for the runner.
 
@@ -401,6 +455,11 @@ def apply_profile_farm_env(profile: SiteProfile | None) -> None:
         # Plan fills gaps only — sticky CPHARM_* already applied above.
         plan = plan_for_phones(int(os.environ.get("CPHARM_FARM_PHONE_COUNT") or 4))
         _apply_plan_gaps(plan)
+        # dabflow is the default site — without an active profile the lane must
+        # still point at the on-disk pool, never the empty bundle recordings dir.
+        slug = os.environ.get("CPHARM_SITE_SLUG", "dabflow").strip() or "dabflow"
+        if slug == "dabflow":
+            _apply_dabflow_pool_env()
         return
     f = profile.farm
     phone_count = max(1, min(len(_PHONE_NAMES), int(f.phone_count)))
@@ -453,23 +512,8 @@ def apply_profile_farm_env(profile: SiteProfile | None) -> None:
     if profile.adapter == "dabflow":
         # dabflow pools live on disk as <root>/900x1600/{no-ad,ad}/dabflow__*.json.
         # Never drop to the empty bundle recordings dir — that strands the farm
-        # with zero sequences. Prefer an explicit env, then the operator pool.
-        if os.environ.get("CPHARM_FARM_SEQUENCE_ROOT", "").strip():
-            pass
-        else:
-            dab_pool: Path | None = None
-            for cand in (
-                Path(r"C:\CPharm\sequences"),
-                Path.home() / "CPharm" / "sequences",
-            ):
-                if cand.is_dir() and (cand / "900x1600").is_dir():
-                    dab_pool = cand
-                    break
-            if dab_pool is None:
-                runtime = sequences_dir()
-                dab_pool = runtime if runtime.is_dir() else None
-            if dab_pool is not None:
-                os.environ["CPHARM_FARM_SEQUENCE_ROOT"] = str(dab_pool)
+        # with zero sequences.
+        _apply_dabflow_pool_env()
     else:
         os.environ.setdefault(
             "CPHARM_FARM_SEQUENCE_ROOT", str(sequences_dir() / profile.slug)

@@ -44,6 +44,18 @@ from automation.farm_visit_caps import apply_runtime_overrides_to_env  # noqa: E
 # bare spawn without launcher env must not fall back to CAP=5 / gap=180.
 apply_runtime_overrides_to_env()
 
+# Operator overrides (wizard Advanced panels -> wizard_farm_settings.json) are
+# applied a second time HERE because the SSOT merge above unconditionally
+# clobbers env. Re-applying from the operator file after that merge makes the
+# wizard the authority over the listed keys for this lane process, no matter
+# which code path spawned it (EXE unison lane, dev runner, soft recycle).
+try:
+    from wizard.farm_settings import apply_saved_to_env as _apply_operator_overrides
+
+    _operator_applied = _apply_operator_overrides()
+except Exception:
+    _operator_applied = 0
+
 from wizard.wizard_paths import bundled_adb_path
 
 os.environ.setdefault("CPHARM_ADB", str(bundled_adb_path()))
