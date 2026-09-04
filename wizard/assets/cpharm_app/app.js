@@ -2083,6 +2083,7 @@
   function openHelp() {
     if (!helpOverlay) return;
     helpOverlay.hidden = false;
+    helpOverlay.style.display = "flex"; // inline wins over any stylesheet
     const closeBtn = document.getElementById("help-close");
     if (closeBtn) closeBtn.focus();
   }
@@ -2090,6 +2091,7 @@
   function closeHelp() {
     if (!helpOverlay) return;
     helpOverlay.hidden = true;
+    helpOverlay.style.display = "none";
   }
 
   if (helpOverlay) {

@@ -1558,3 +1558,8 @@ details.adv-details[open] > summary::before {
   font-size: 0.82rem;
   color: var(--muted);
 }
+
+/* hidden must always win over the flex layout above */
+.help-overlay[hidden] {
+  display: none !important;
+}
