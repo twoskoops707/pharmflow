@@ -493,9 +493,12 @@ def _discover_available_phones(
         logger.info("discover fast sticky boot — skip connect_adb/mpid rescan")
     available: list[str] = []
     banned = _banned_serials()
+    covered_serials: set[str] = set()
     for st in farm.get_all_phone_statuses():
         name = str(st.get("name") or "").strip()
         serial = str(st.get("adb_serial") or "").strip()
+        if serial:
+            covered_serials.add(serial)
         if not name or not st.get("connected"):
             continue
         if serial and serial in banned:
@@ -511,6 +514,31 @@ def _discover_available_phones(
                 logger.info("discover skip tablet: %s serial=%s", name, serial or "?")
                 continue
         available.append(name)
+    # Roster-less: adopt EVERY live ADB device, including ones with no MuMu VM
+    # folder — Android Studio AVDs, docker containers, cloud phones. Each is
+    # registered under a synthetic name bound to its serial so the whole run
+    # path (sessions, pacing, groups) treats it like any other phone.
+    try:
+        for dev in farm.enumerate_adb_devices():
+            serial = str(getattr(dev, "serial", "") or "").strip()
+            if not getattr(dev, "online", False) or not serial:
+                continue
+            if serial.startswith("127.0.0.1:"):
+                continue
+            if serial in covered_serials or serial in banned:
+                continue
+            sname = serial.replace(":", "-").replace(".", "-")
+            name = f"adb-{sname}"
+            try:
+                farm.register_serial_phone(name, serial)
+            except Exception as exc:
+                logger.debug("register live device %s failed: %s", serial, exc)
+                continue
+            covered_serials.add(serial)
+            available.append(name)
+            logger.info("discover adopt live ADB device %s as %s", serial, name)
+    except Exception as exc:
+        logger.debug("live device adoption scan failed: %s", exc)
     # Operator model: the farm runs whatever is LIVE on ADB, always — MuMu,
     # Android Studio AVD, docker, cloud. A remembered/sticky phone list may
     # order discovery but must NEVER exclude a live phone (a stale list left
@@ -553,10 +581,14 @@ def _idx_from_phone_name(name: str) -> int:
 
 
 def _persist_live_phones(phones: list[str], farm: MuMuFarmOps) -> None:
-    """Write canonical 8 into sticky/lock — never shrink expect to live adaptive bleed."""
+    """Record the phones that are ACTUALLY live into sticky/lock for dash/ops.
+
+    Roster-less by design: what is persisted is exactly the fleet running right
+    now, never a pinned canonical list that can go stale when VMs renumber.
+    """
     live = [p for p in phones if p]
-    names = canonical_names_sorted()
-    expect = canonical_expect_phones()
+    names = live or canonical_names_sorted()
+    expect = len(live) or len(names)
     log_dir = Path(
         os.environ.get("CPHARM_LOGS")
         or os.environ.get("CPHARM_LOG_DIR")
@@ -567,7 +599,7 @@ def _persist_live_phones(phones: list[str], farm: MuMuFarmOps) -> None:
     for name in names:
         inst = farm.get_phone(name) if hasattr(farm, "get_phone") else None
         ser = str(getattr(inst, "adb_serial", "") or "").strip()
-        if ser and not is_banned_serial(ser) and ser.startswith("10.0.2."):
+        if ser and ":" in ser and not is_banned_serial(ser):
             serials[name] = ser
         elif name in live_by_name and ser and not is_banned_serial(ser):
             serials[name] = ser
@@ -595,14 +627,16 @@ def _persist_live_phones(phones: list[str], farm: MuMuFarmOps) -> None:
     except OSError as exc:
         logger.warning("persist sticky phones failed: %s", exc)
     try:
+        def _inject_port(name: str) -> int:
+            m = re.match(r"^vm(\d+)\.gmadoa$", name)
+            return 8218 + int(m.group(1)) if m else 0
+
         lock = {
             "phones": serials,
             "tablet": {},
-            "inject": {
-                nm: 8218 + int(nm.split(".")[0][2:]) for nm in names
-            },
+            "inject": {nm: _inject_port(nm) for nm in names},
             "locked_at": now,
-            "note": f"canonical_sticky live={len(live)} expect={expect}",
+            "note": f"live_fleet live={len(live)} expect={expect}",
             "updated": now,
         }
         tab = tablet_phone_name()
@@ -2812,6 +2846,14 @@ def main() -> int:
         deadline_ts = time.time() + hours * 3600.0
 
     farm = MuMuFarmOps()
+    # Self-heal (1): the ADB server must be up before discovery. MuMu / Studio /
+    # docker devices are useless while the bus is down; `adb start-server` is
+    # idempotent and never touches VMs.
+    try:
+        farm.adb.run("start-server")
+        logger.info("adb server ensured (start-server ok)")
+    except Exception as exc:
+        logger.warning("adb start-server failed: %s", exc)
     fast_boot = os.environ.get("CPHARM_FAST_STICKY_BOOT", "1").strip().lower() not in (
         "0",
         "false",
@@ -3200,6 +3242,11 @@ def main() -> int:
     if tablet_thread is not None:
         all_threads.append(tablet_thread)
 
+    # Self-heal (2): relaunch crashed/frozen farm VMs without operator action.
+    # Only VMs that were ONLINE at farm start are tracked; synthetic devices
+    # (AVD/docker/cloud) have no VM to relaunch. Cooldown prevents relaunch
+    # storms while a VM is mid-boot.
+    heal_last: dict[str, float] = {}
     try:
         while any(t.is_alive() for t in all_threads):
             if _stop_requested():
@@ -3208,6 +3255,38 @@ def main() -> int:
             if not day_mode and time.time() >= deadline_ts:
                 logger.info("Global duration %.1fh reached — signaling stop", hours)
                 stop.set()
+            now_ts = time.time()
+            try:
+                live_serials = {
+                    d.serial
+                    for d in farm.enumerate_adb_devices()
+                    if getattr(d, "online", False)
+                }
+            except Exception:
+                live_serials = set()
+            for phone, _pidx in list(online):
+                if not phone.startswith("vm") or ".gmadoa" not in phone:
+                    continue
+                if now_ts - heal_last.get(phone, 0.0) < 120.0:
+                    continue
+                try:
+                    inst = farm.get_phone(phone)
+                except Exception:
+                    inst = None
+                if not inst or not inst.adb_serial:
+                    continue
+                if inst.adb_serial in live_serials:
+                    continue
+                heal_last[phone] = now_ts
+                logger.warning(
+                    "SELF-HEAL %s offline (serial=%s) — relaunching its VM",
+                    phone,
+                    inst.adb_serial,
+                )
+                try:
+                    farm.start_phone(phone)
+                except Exception as exc:
+                    logger.warning("SELF-HEAL %s relaunch failed: %s", phone, exc)
             with lock:
                 snap = {k: v.get("done", 0) for k, v in progress.items()}
                 active_keys = seq_lock.active

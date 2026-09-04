@@ -1310,6 +1310,20 @@ class MuMuFarmOps:
             instances.append(inst)
             self.instances[name] = inst
 
+        # Roster-less: phones registered from live ADB with no MuMu folder
+        # (Android Studio AVD, docker containers, cloud) survive every rescan.
+        for extra_name, extra in list(getattr(self, "_adb_only", {}).items()):
+            if extra_name in self.instances:
+                continue
+            extra_online = bool(extra.adb_serial) and any(
+                d.serial == extra.adb_serial and d.online for d in live_devices
+            )
+            if extra_online:
+                extra.running = True
+            if extra.adb_serial not in claimed:
+                instances.append(extra)
+                self.instances[extra_name] = extra
+
         self._sync_phone_names([i.name for i in instances])
         return instances
 
@@ -1735,6 +1749,33 @@ class MuMuFarmOps:
         except (OSError, ValueError, json.JSONDecodeError, TypeError):
             return ""
         return ""
+
+    def register_serial_phone(self, name: str, serial: str) -> bool:
+        """Register a live ADB device that has no MuMu VM folder as a phone.
+
+        Roster-less adoption: docker containers, Android Studio AVDs and cloud
+        devices are farmed under a synthetic name bound to their serial. The
+        entry lives in ``self._adb_only`` so every ``list_instances`` rescan
+        (which rebuilds from the vms dir) keeps it.
+        """
+        name = str(name or "").strip()
+        serial = str(serial or "").strip()
+        if not name or not serial:
+            return False
+        if not hasattr(self, "_adb_only"):
+            self._adb_only = {}
+        with self._instances_lock:
+            existing = self.instances.get(name) if hasattr(self, "instances") else None
+            if existing is None and self._adb_only.get(name):
+                existing = self._adb_only[name]
+            if existing is not None and existing.adb_serial == serial:
+                return True
+            idx = 8000 + len(self._adb_only)
+            inst = MuMuInstance(name=name, index=idx, vm_path=Path("adb"), adb_serial=serial)
+            self._adb_only[name] = inst
+            if hasattr(self, "instances"):
+                self.instances[name] = inst
+        return True
 
     def connect_adb(self, name: str) -> bool:
         """Ensure ADB is connected to the phone's current serial."""

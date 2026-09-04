@@ -9,6 +9,7 @@ with no extra dependencies. All network I/O is read-only GET.
 from __future__ import annotations
 
 import json
+import os
 import re
 import time
 from html.parser import HTMLParser
@@ -182,10 +183,16 @@ def fetch_html(url: str, timeout: int = FETCH_TIMEOUT) -> str | None:
 
 def scan_site(
     url: str,
-    max_pages: int = MAX_PAGES_DEFAULT,
+    max_pages: int | None = None,
     timeout: int = FETCH_TIMEOUT,
 ) -> dict:
     """Crawl same-host pages from ``url`` and return the site map."""
+    if max_pages is None:
+        try:
+            max_pages = int(os.environ.get("CPHARM_SITE_MAP_MAX_PAGES") or MAX_PAGES_DEFAULT)
+        except (TypeError, ValueError):
+            max_pages = MAX_PAGES_DEFAULT
+    max_pages = max(1, min(500, max_pages))
     start = normalize_url(url)
     if not start:
         return {"ok": False, "error": "Enter a valid URL like https://example.com"}

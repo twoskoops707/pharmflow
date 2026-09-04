@@ -400,6 +400,23 @@ class CPharmAppApi:
 
         return bridge.get_farm_hud()
 
+    # ── Farm settings (Advanced panels) ──
+
+    def get_farm_settings(self) -> dict:
+        from wizard.farm_settings import catalog_payload
+
+        return catalog_payload()
+
+    def save_farm_settings(self, updates: dict | None = None) -> dict:
+        from wizard.farm_settings import save
+
+        return save(updates or {}, note="wizard_advanced_panel")
+
+    def reset_farm_settings(self, step: str = "", keys: list | None = None) -> dict:
+        from wizard.farm_settings import reset
+
+        return reset(step or None, keys or None)
+
 
 def run_cpharm_app(*, initial_view: str | None = None) -> None:
     import webview

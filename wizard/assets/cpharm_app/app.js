@@ -392,6 +392,7 @@
   }
 
   async function refreshSetup() {
+    ensureAdvanced("phones");
     try {
       const state = await callApi("Refresh checks", function (a) {
         return a.get_setup_state();
@@ -606,6 +607,7 @@
   }
 
   async function refreshBoot() {
+    ensureAdvanced("boot");
     const a = api();
     if (!a || !a.get_site_settings) return;
     const input = document.getElementById("site-url-input");
@@ -628,6 +630,7 @@
   }
 
   async function refreshMap() {
+    ensureAdvanced("map");
     wireMapStep();
     const a = api();
     if (!a || !a.get_site_settings) return;
@@ -804,6 +807,7 @@
   }
 
   async function refreshSteps() {
+    ensureAdvanced("steps");
     const a = api();
     if (!a) return;
     const el = document.getElementById("steps-summary");
@@ -822,6 +826,7 @@
   }
 
   async function refreshTeams() {
+    ensureAdvanced("teams");
     const a = api();
     if (!a) return;
     const el = document.getElementById("teams-summary");
@@ -837,6 +842,7 @@
   }
 
   async function refreshGo() {
+    ensureAdvanced("go");
     const a = api();
     if (!a) return;
     const el = document.getElementById("launch-summary");
@@ -846,6 +852,238 @@
       if (el) el.textContent = s.summary || "Start the service, then run all groups.";
     } catch (e) {
       if (el) el.textContent = "Ready to launch.";
+    }
+  }
+
+  /* ── Farm settings — Advanced panels (per step) ──────── */
+  let advPayload = null;
+
+  async function advLoad(force) {
+    if (advPayload && !force) return advPayload;
+    const a = api();
+    if (!a || typeof a.get_farm_settings !== "function") return null;
+    try {
+      advPayload = await a.get_farm_settings();
+    } catch (_e) {
+      advPayload = null;
+    }
+    return advPayload;
+  }
+
+  function advEntry(step, key) {
+    const p = advPayload;
+    if (!p || !p.catalog) return null;
+    return (p.catalog || []).find(function (e) {
+      return e.step === step && e.key === key;
+    });
+  }
+
+  function advControlFor(entry, value) {
+    const kind = entry.kind || "text";
+    const val = String(value == null ? "" : value);
+    const isOn = ["1", "true", "yes", "on"].indexOf(val.toLowerCase()) >= 0;
+    if (kind === "toggle") {
+      const lab = document.createElement("label");
+      lab.className = "adv-toggle";
+      const cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.dataset.key = entry.key;
+      cb.checked = isOn;
+      lab.appendChild(cb);
+      const sw = document.createElement("span");
+      sw.className = "adv-toggle-ui";
+      lab.appendChild(sw);
+      const tx = document.createElement("span");
+      tx.className = "adv-toggle-text";
+      tx.textContent = isOn ? "On" : "Off";
+      lab.appendChild(tx);
+      cb.addEventListener("change", function () {
+        tx.textContent = cb.checked ? "On" : "Off";
+      });
+      return lab;
+    }
+    if (kind === "select") {
+      const sel = document.createElement("select");
+      sel.className = "adv-select";
+      sel.dataset.key = entry.key;
+      (entry.options || []).forEach(function (opt) {
+        const o = document.createElement("option");
+        o.value = opt;
+        o.textContent = opt;
+        if (opt === val) o.selected = true;
+        sel.appendChild(o);
+      });
+      if (!val) sel.value = (entry.options || [])[0] || "";
+      return sel;
+    }
+    const input = document.createElement("input");
+    input.dataset.key = entry.key;
+    if (kind === "int" || kind === "float") {
+      input.type = "number";
+      input.step = kind === "float" ? "any" : "1";
+      input.min = "0";
+      input.value = val;
+    } else {
+      input.type = "text";
+      input.value = val;
+      input.placeholder = entry.kind === "csv" ? "e.g. 148,102,97,52" : "";
+    }
+    input.className = "adv-input";
+    return input;
+  }
+
+  async function ensureAdvanced(step) {
+    const host = document.querySelector("#view-" + step + " .view-body");
+    if (!host) return;
+    const title = ((advPayload && advPayload.step_titles) || {})[step] || step;
+    let box = document.getElementById("adv-farm-" + step);
+    if (!box) {
+      const a = api();
+      if (!a || typeof a.get_farm_settings !== "function") return;
+      box = document.createElement("div");
+      box.className = "adv-farm";
+      box.id = "adv-farm-" + step;
+      box.innerHTML =
+        '<details class="adv-details">' +
+        "<summary>Advanced · " +
+        escHtml(title) +
+        " controls</summary>" +
+        '<p class="adv-note">Power settings for this step. Changes are saved and applied at the next farm start.</p>' +
+        '<div class="adv-grid" id="adv-grid-' +
+        step +
+        '"></div>' +
+        '<div class="adv-actions-row">' +
+        '<button type="button" class="btn-mini" data-act="save">Save settings</button>' +
+        '<button type="button" class="btn-ghost" data-act="reset">Reset to farm defaults</button>' +
+        '<span class="adv-status" id="adv-status-' +
+        step +
+        '"></span>' +
+        "</div>" +
+        "</details>";
+      host.appendChild(box);
+      box.querySelector("button[data-act=save]").addEventListener("click", function () {
+        advSave(step, title);
+      });
+      box.querySelector("button[data-act=reset]").addEventListener("click", function () {
+        advReset(step, title);
+      });
+    }
+    const payload = await advLoad();
+    if (!payload || !payload.ok) return;
+    const sum = box.querySelector("summary");
+    if (sum && payload.step_titles && payload.step_titles[step]) {
+      const want = "Advanced · " + payload.step_titles[step] + " controls";
+      if (sum.textContent !== want) sum.textContent = want;
+    }
+    const grid = document.getElementById("adv-grid-" + step);
+    if (!grid) return;
+    if (grid.dataset.rendered === step) {
+      advFill(step, payload);
+      return;
+    }
+    grid.innerHTML = "";
+    (payload.catalog || [])
+      .filter(function (e) {
+        return e.step === step;
+      })
+      .forEach(function (entry) {
+        const cell = document.createElement("label");
+        cell.className = "adv-cell";
+        const head = document.createElement("span");
+        head.className = "adv-cell-head";
+        const t = document.createElement("span");
+        t.className = "adv-label";
+        t.textContent = entry.label || entry.key;
+        head.appendChild(t);
+        const chip = document.createElement("span");
+        chip.className = "adv-chip";
+        chip.textContent = "custom";
+        chip.hidden = true;
+        chip.dataset.chip = entry.key;
+        head.appendChild(chip);
+        cell.appendChild(head);
+        const val = ((payload.values || {})[entry.key] || {}).value;
+        const src = ((payload.values || {})[entry.key] || {}).source;
+        cell.appendChild(advControlFor(entry, val));
+        const hint = document.createElement("span");
+        hint.className = "adv-hint";
+        hint.textContent = entry.hint || "";
+        cell.appendChild(hint);
+        chip.hidden = src !== "saved";
+        grid.appendChild(cell);
+      });
+    grid.dataset.rendered = step;
+    advFill(step, payload);
+  }
+
+  function advFill(step, payload) {
+    const grid = document.getElementById("adv-grid-" + step);
+    if (!grid || !payload) return;
+    grid.querySelectorAll("[data-key]").forEach(function (ctl) {
+      const val = ((payload.values || {})[ctl.dataset.key] || {}).value;
+      if (val === undefined || val === null) return;
+      if (ctl.type === "checkbox") {
+        ctl.checked = ["1", "true", "yes", "on"].indexOf(String(val).toLowerCase()) >= 0;
+      } else if (ctl.tagName === "SELECT") {
+        if (ctl.options.length) ctl.value = String(val);
+      } else {
+        ctl.value = String(val);
+      }
+    });
+    grid.querySelectorAll("[data-chip]").forEach(function (chip) {
+      const src = ((payload.values || {})[chip.dataset.chip] || {}).source;
+      chip.hidden = src !== "saved";
+    });
+  }
+
+  function advStatus(step, text, kind) {
+    const el = document.getElementById("adv-status-" + step);
+    if (el) {
+      el.textContent = text || "";
+      el.className = "adv-status" + (kind === "err" ? " err" : kind === "ok" ? " ok" : "");
+    }
+  }
+
+  async function advSave(step, title) {
+    const grid = document.getElementById("adv-grid-" + step);
+    const a = api();
+    if (!grid || !a || typeof a.save_farm_settings !== "function") return;
+    const updates = {};
+    grid.querySelectorAll("[data-key]").forEach(function (ctl) {
+      updates[ctl.dataset.key] =
+        ctl.type === "checkbox" ? (ctl.checked ? "1" : "0") : ctl.value;
+    });
+    advStatus(step, "Saving…");
+    try {
+      const res = await a.save_farm_settings(updates);
+      if (!res || !res.ok) {
+        const errs = (res && res.errors) || ["save failed"];
+        advStatus(step, errs.join(" · "), "err");
+        return;
+      }
+      await advLoad(true);
+      advFill(step, advPayload);
+      advStatus(step, "✓ Saved — applies at the next farm start", "ok");
+    } catch (e) {
+      advStatus(step, "Save error: " + e, "err");
+    }
+  }
+
+  async function advReset(step, title) {
+    const a = api();
+    if (!a || typeof a.reset_farm_settings !== "function") return;
+    advStatus(step, "Resetting…");
+    try {
+      const res = await a.reset_farm_settings(step);
+      if (!res || !res.ok) {
+        advStatus(step, "Reset failed", "err");
+        return;
+      }
+      await advLoad(true);
+      advFill(step, advPayload);
+      advStatus(step, "✓ Back to farm defaults", "ok");
+    } catch (e) {
+      advStatus(step, "Reset error: " + e, "err");
     }
   }
 

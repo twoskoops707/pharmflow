@@ -587,6 +587,16 @@ def start_farm(
                 return False
             stop_external_python_farm(log=log)
         apply_profile_farm_env(profile)
+        # Wizard Advanced panels persist user overrides here; re-apply after
+        # profile defaults so user tweaks win, before lanes spawn with env.
+        try:
+            from wizard.farm_settings import apply_saved_to_env
+
+            applied = apply_saved_to_env()
+            if applied:
+                _log(f"Applied {applied} wizard farm setting(s)", "ok")
+        except Exception as exc:
+            _log(f"apply wizard farm settings failed: {exc}", "warn")
         os.environ["CPHARM_FARM_STOP"] = "0"
         helper_py = _resolve_helper_python()
         # Prefer real pythonw workers; only use in-process farm when frozen w/o python.

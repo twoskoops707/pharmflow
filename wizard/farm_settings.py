@@ -1,0 +1,432 @@
+"""Wizard farm-settings catalog + persistence.
+
+Every knob listed here maps to a CPHARM_* env key that the farm runner
+(scripts/run_farm_354.py) or its supporting automation modules genuinely read.
+The wizard's per-step "Advanced" panels render from CATALOG so the UI can
+never drift from what the farm honors.
+
+Persistence is a single user settings file next to the app data root
+(``wizard_farm_settings.json``). The farm itself keeps its SSOT in code
+(automation.cpharm_farm_config); this file only records *user overrides* from
+the wizard, and :func:`apply_saved_to_env` is called by
+``wizard.farm_control.start_farm`` so every lane inherits them as env.
+"""
+from __future__ import annotations
+
+import json
+import os
+import threading
+from pathlib import Path
+from typing import Any
+
+_LOCK = threading.RLock()
+
+# step -> display title used by the Advanced panel header.
+STEP_TITLES: dict[str, str] = {
+    "phones": "Phones",
+    "boot": "Test & site",
+    "map": "Site Map",
+    "steps": "Sequences",
+    "teams": "Groups",
+    "go": "Run",
+}
+
+# Every entry: key (env), step (view), kind, label, hint, and optional options.
+# kind: int | float | toggle | select | text | csv
+# Values are validated on save; toggles store "1"/"0".
+CATALOG: list[dict[str, Any]] = [
+    # ── Phones ────────────────────────────────────────────────────────────────
+    {
+        "key": "CPHARM_FARM_PHONE_COUNT",
+        "step": "phones",
+        "kind": "int",
+        "label": "Farm phone count",
+        "hint": "How many phones the farm plans and paces for (drives per-phone daily budgets).",
+    },
+    {
+        "key": "CPHARM_FARM_EXPECT_PHONES",
+        "step": "phones",
+        "kind": "int",
+        "label": "Expected online phones",
+        "hint": "How many phones discovery expects live on ADB before farming starts.",
+    },
+    {
+        "key": "CPHARM_FARM_BAN_SERIALS",
+        "step": "phones",
+        "kind": "text",
+        "label": "Banned serials",
+        "hint": "Comma-separated ADB serials the farm must never use.",
+    },
+    {
+        "key": "CPHARM_REQUIRE_FARM_BROWSERS",
+        "step": "phones",
+        "kind": "toggle",
+        "label": "Require farm browsers first",
+        "hint": "Block a phone from farming until its Path 1/2 browsers are sideloaded.",
+    },
+    {
+        "key": "CPHARM_FAST_STICKY_BOOT",
+        "step": "phones",
+        "kind": "toggle",
+        "label": "Fast sticky boot",
+        "hint": "Skip the slow full VM rescan at farm start when a known-good lock exists.",
+    },
+    {
+        "key": "CPHARM_TABLET_FARM",
+        "step": "phones",
+        "kind": "toggle",
+        "label": "Tablet farm mode",
+        "hint": "Run the tablet lane (Path 1/2 only) alongside the phone fleet.",
+    },
+    # ── Test / boot ───────────────────────────────────────────────────────────
+    {
+        "key": "CPHARM_GEO_TIME_WINDOW",
+        "step": "boot",
+        "kind": "toggle",
+        "label": "Geo awake-time window",
+        "hint": "Only assign geos whose local time is inside the awake window.",
+    },
+    {
+        "key": "CPHARM_SKIP_BOOT_GEO",
+        "step": "boot",
+        "kind": "toggle",
+        "label": "Skip boot geo pass",
+        "hint": "Skip the one-time geo assignment at farm start; per-sequence isolation still geos.",
+    },
+    {
+        "key": "CPHARM_BROWSE_PROXY_MODE",
+        "step": "boot",
+        "kind": "select",
+        "label": "Browse proxy mode",
+        "hint": "How the phones route browsing: scramble rotates per session; tor/direct/upstream pin one way.",
+        "options": ["scramble", "tor", "direct", "upstream"],
+    },
+    # ── Site Map ──────────────────────────────────────────────────────────────
+    {
+        "key": "CPHARM_SITE_MAP_MAX_PAGES",
+        "step": "map",
+        "kind": "int",
+        "label": "Max pages scanned",
+        "hint": "Page cap for one site-map scan (bigger = deeper map, slower scan).",
+    },
+    # ── Steps / sequences ─────────────────────────────────────────────────────
+    {
+        "key": "CPHARM_FARM_PATHS",
+        "step": "steps",
+        "kind": "text",
+        "label": "Active paths",
+        "hint": "Comma list of paths to run: 1,2 and 3 (Path 3 is the ad path).",
+    },
+    {
+        "key": "CPHARM_FARM_ALLOW_ADS",
+        "step": "steps",
+        "kind": "toggle",
+        "label": "Allow ads (Path 3)",
+        "hint": "Master switch for the ad path. Off = Path 1/2 visits only.",
+    },
+    {
+        "key": "CPHARM_FARM_UNIQUE_SEQ",
+        "step": "steps",
+        "kind": "toggle",
+        "label": "Unique-sequence lock",
+        "hint": "Never run the same sequence file/ad identity on two phones at once.",
+    },
+    {
+        "key": "CPHARM_FARM_SEQS_PER_HOUR",
+        "step": "steps",
+        "kind": "int",
+        "label": "Sequences per hour",
+        "hint": "Soft cap on sequences per phone per hour (Path 1/2 + Path 3 combined pacing input).",
+    },
+    {
+        "key": "CPHARM_FARM_PATH3_PER_HOUR",
+        "step": "steps",
+        "kind": "int",
+        "label": "Path 3 per hour",
+        "hint": "Cap on ad (Path 3) runs per phone per hour.",
+    },
+    {
+        "key": "CPHARM_FARM_MIN_SEQ_SPACING_S",
+        "step": "steps",
+        "kind": "int",
+        "label": "Min seconds between runs",
+        "hint": "Floor gap enforced between sequences on the same phone.",
+    },
+    {
+        "key": "CPHARM_SKIP_SEQUENCE_ISOLATION",
+        "step": "steps",
+        "kind": "toggle",
+        "label": "Skip sequence isolation",
+        "hint": "DANGER: turns off per-sequence fingerprint/IP isolation. Leave off.",
+    },
+    # ── Teams / groups (budgets) ──────────────────────────────────────────────
+    {
+        "key": "CPHARM_FARM_DAILY_VISITS",
+        "step": "teams",
+        "kind": "csv",
+        "label": "Daily visits per phone",
+        "hint": "Comma list, one number per phone in fleet order (e.g. 148,102,97,52).",
+    },
+    {
+        "key": "CPHARM_FARM_DAILY_ADS",
+        "step": "teams",
+        "kind": "csv",
+        "label": "Daily ads per phone",
+        "hint": "Comma list, one number per phone in fleet order (e.g. 5,1,4,2).",
+    },
+    {
+        "key": "CPHARM_FARM_IMPRESSIONS_PER_VISIT",
+        "step": "teams",
+        "kind": "float",
+        "label": "Impressions per visit",
+        "hint": "Revenue-model impressions target per visit for pacing math.",
+    },
+    # ── Run / go ──────────────────────────────────────────────────────────────
+    {
+        "key": "CPHARM_FARM_HOURS",
+        "step": "go",
+        "kind": "float",
+        "label": "Run duration (hours)",
+        "hint": "0 = run all day on daily caps; otherwise the farm stops after N hours.",
+    },
+    {
+        "key": "CPHARM_AUTOPILOT_PAUSE",
+        "step": "go",
+        "kind": "toggle",
+        "label": "Pause Mantis autopilot",
+        "hint": "Keeps the operator dashboard from auto-reshaping ads while the farm runs.",
+    },
+    {
+        "key": "CPHARM_FARM_START_STAGGER_WINDOW",
+        "step": "go",
+        "kind": "int",
+        "label": "Start stagger window (s)",
+        "hint": "Spread over which phones begin their first sequence after farm start.",
+    },
+    {
+        "key": "CPHARM_FARM_START_STAGGER_MIN_GAP",
+        "step": "go",
+        "kind": "int",
+        "label": "Start stagger min gap (s)",
+        "hint": "Minimum delay between two phones starting, within the window.",
+    },
+]
+
+_KEYS_BY_STEP: dict[str, list[dict[str, Any]]] = {}
+for _e in CATALOG:
+    _KEYS_BY_STEP.setdefault(str(_e["step"]), []).append(_e)
+
+
+def steps() -> list[str]:
+    """Steps that carry an Advanced panel (in wizard order)."""
+    return ["phones", "boot", "map", "steps", "teams", "go"]
+
+
+def catalog_for_step(step: str) -> list[dict[str, Any]]:
+    return list(_KEYS_BY_STEP.get(step, []))
+
+
+def user_settings_path() -> Path:
+    try:
+        from wizard.wizard_paths import app_data_root
+
+        root = app_data_root()
+        return Path(root) / "wizard_farm_settings.json"
+    except Exception:
+        return Path(r"C:\PharmFlow\wizard_farm_settings.json")
+
+
+def load_saved() -> dict[str, str]:
+    path = user_settings_path()
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, TypeError, ValueError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    out: dict[str, str] = {}
+    for key, val in data.items():
+        if isinstance(key, str) and key.startswith("CPHARM_") and val is not None:
+            out[key] = str(val)
+    return out
+
+
+def _write_saved(data: dict[str, str]) -> None:
+    path = user_settings_path()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    except OSError as exc:  # pragma: no cover - filesystem edge
+        raise RuntimeError(f"cannot persist farm settings: {exc}") from exc
+
+
+def _runtime_defaults() -> dict[str, str]:
+    try:
+        from automation.cpharm_farm_config import get_runtime
+
+        return dict(get_runtime())
+    except Exception:
+        return {}
+
+
+def _env_value(key: str) -> str:
+    val = os.environ.get(key)
+    return str(val).strip() if val is not None and str(val).strip() != "" else ""
+
+
+def _default_for(key: str) -> str:
+    """Best default: runtime SSOT if the key lives there, else the EXE env."""
+    val = _runtime_defaults().get(key)
+    if val is not None and str(val).strip() != "":
+        return str(val)
+    return _env_value(key)
+
+
+def effective_values() -> dict[str, dict[str, str]]:
+    """Per catalog key: {value, source} — saved wins, then env, then runtime default."""
+    saved = load_saved()
+    out: dict[str, dict[str, str]] = {}
+    for entry in CATALOG:
+        key = str(entry["key"])
+        if key in saved and str(saved[key]).strip() != "":
+            out[key] = {"value": str(saved[key]), "source": "saved"}
+        else:
+            env = _env_value(key)
+            if env:
+                out[key] = {"value": env, "source": "env"}
+            else:
+                out[key] = {"value": _default_for(key), "source": "default"}
+    return out
+
+
+def _coerce(kind: str, key: str, raw: Any) -> tuple[str | None, str]:
+    """Return (error, value-string). None error means the value is valid."""
+    val = "" if raw is None else str(raw).strip()
+    if val == "":
+        return None, val
+    try:
+        if kind == "int":
+            n = int(float(val))
+            if n < 0:
+                return f"{key}: must be 0 or a positive number", val
+            return None, str(n)
+        if kind == "float":
+            f = float(val)
+            if f < 0:
+                return f"{key}: must be 0 or a positive number", val
+            return None, repr(f) if "." in val else val
+        if kind == "toggle":
+            low = val.lower()
+            if low in ("1", "true", "yes", "on"):
+                return None, "1"
+            if low in ("0", "false", "no", "off"):
+                return None, "0"
+            return f"{key}: expected on/off", val
+        if kind == "select":
+            allowed = [str(o).lower() for o in (entry_options(key) or [])]
+            if allowed and val.lower() not in allowed:
+                return f"{key}: choose one of {', '.join(allowed)}", val
+            return None, val
+        if kind == "csv":
+            parts = [p.strip() for p in val.split(",") if p.strip()]
+            if not parts:
+                return None, ""
+            for p in parts:
+                if float(p) < 0:
+                    return f"{key}: budget values must be 0 or positive", val
+            return None, ",".join(parts)
+        return None, val
+    except (TypeError, ValueError):
+        return f"{key}: not a valid {kind} value", val
+
+
+def entry_options(key: str) -> list[str]:
+    for entry in CATALOG:
+        if entry["key"] == key:
+            return [str(o) for o in (entry.get("options") or [])]
+    return []
+
+
+def save(updates: dict[str, Any] | None, *, note: str = "") -> dict[str, Any]:
+    """Validate + persist user overrides, then apply them live to env/runtime."""
+    if not updates:
+        return {"ok": True, "saved": [], "errors": []}
+    by_key = {str(e["key"]): e for e in CATALOG}
+    errors: list[str] = []
+    cleaned: dict[str, str] = {}
+    for raw_key, raw_val in updates.items():
+        key = str(raw_key or "").strip()
+        entry = by_key.get(key)
+        if entry is None:
+            errors.append(f"{key}: not a farm setting")
+            continue
+        err, val = _coerce(str(entry["kind"]), key, raw_val)
+        if err:
+            errors.append(err)
+            continue
+        cleaned[key] = val
+    if errors:
+        return {"ok": False, "saved": [], "errors": errors}
+    with _LOCK:
+        data = load_saved()
+        data.update(cleaned)
+        if note:
+            data["_note"] = str(note)[:200]
+            data["_updated"] = __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat()
+        _write_saved(data)
+        _apply_to_env(cleaned)
+    return {"ok": True, "saved": sorted(cleaned), "errors": []}
+
+
+def reset(step: str | None = None, keys: list[str] | None = None) -> dict[str, Any]:
+    """Drop saved overrides for a step (or specific keys) so the farm decides again."""
+    keys = [str(k) for k in (keys or [])]
+    if step:
+        keys = [str(e["key"]) for e in catalog_for_step(step)]
+    if not keys:
+        return {"ok": True, "reset": []}
+    with _LOCK:
+        data = load_saved()
+        removed = [k for k in keys if k in data]
+        for k in removed:
+            data.pop(k, None)
+        _write_saved(data)
+        for k in removed:
+            os.environ.pop(k, None)
+    return {"ok": True, "reset": removed}
+
+
+def _apply_to_env(updates: dict[str, str]) -> None:
+    for key, val in updates.items():
+        os.environ[key] = val
+    try:
+        from automation.cpharm_farm_config import merge_runtime
+
+        merge_runtime(dict(updates), note="wizard_farm_settings")
+    except Exception:
+        pass
+
+
+def apply_saved_to_env() -> int:
+    """Set every saved override into os.environ (called by farm_control.start_farm).
+
+    Runs after profile defaults are applied so user tweaks win, and before the
+    unison stack spawns so every lane inherits them as env.
+    """
+    saved = load_saved()
+    if not saved:
+        return 0
+    _apply_to_env(saved)
+    return len(saved)
+
+
+def catalog_payload() -> dict[str, Any]:
+    vals = effective_values()
+    return {
+        "ok": True,
+        "catalog": CATALOG,
+        "values": vals,
+        "saved_keys": sorted(load_saved()),
+        "steps": steps(),
+        "step_titles": STEP_TITLES,
+    }
