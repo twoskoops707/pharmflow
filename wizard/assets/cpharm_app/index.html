@@ -57,12 +57,32 @@
         <!-- 0 Start -->
         <section class="view" id="view-start" data-view="start">
           <header class="view-hero">
-            <div class="kicker"><span class="badge-dot"></span> STEP 1 OF 10 · SETUP</div>
-            <h1>Welcome</h1>
-            <p class="subtitle">Ten steps between you and a running farm. Work them in order — the deck tracks where you are.</p>
+            <div class="kicker"><span class="badge-dot"></span> HOME · QUICK START</div>
+            <h1>Home</h1>
+            <p class="subtitle">Phones up? Hit <strong>Start farm</strong> — the EXE adopts every live phone (MuMu, Android Studio, Docker redroid, real devices) and fixes proxy, injection and Tor problems on its own.</p>
           </header>
           <div class="view-body">
             <div class="main-grid">
+              <section class="panel panel-run-actions">
+                <h2 class="panel-title">Quick start</h2>
+                <div class="action-row action-row-big">
+                  <button type="button" class="btn-go" id="btn-start-farm-home">Start farm</button>
+                  <button type="button" class="btn-go btn-go-secondary" id="btn-open-dash-home">Open dashboard</button>
+                </div>
+                <div class="action-row">
+                  <button type="button" class="btn-ghost" id="btn-spin-test-phone-home">Spin up one phone to test</button>
+                </div>
+                <p class="panel-note">Farms whatever is live on ADB — no roster. Never opens or closes emulators by itself; once running it keeps its phones alive.</p>
+              </section>
+              <section class="panel">
+                <h2 class="panel-title">What the farm fixes by itself</h2>
+                <ul class="instruction-list">
+                  <li><strong>Proxy:</strong> pins each phone's guest proxy to its own Tor exit before every sequence.</li>
+                  <li><strong>Injection:</strong> re-binds the ad-zone injector and clears stale zones mid-run.</li>
+                  <li><strong>Tor:</strong> starts per-phone Tor, enforces unique exit IPs, rotates on failures.</li>
+                  <li><strong>Phones:</strong> a phone that drops mid-run is spun back up automatically.</li>
+                </ul>
+              </section>
               <section class="panel">
                 <h2 class="panel-title">The path</h2>
                 <ol class="instruction-list roadmap-list">
@@ -71,10 +91,6 @@
                   <li><strong>Part 3 · 05–09</strong> Test your site, map it, steps, groups.</li>
                   <li><strong>Part 4 · 10</strong> Run the farm.</li>
                 </ol>
-              </section>
-              <section class="panel">
-                <h2 class="panel-title">Tip</h2>
-                <p class="panel-note">Use MuMu for phones. After <strong>Install</strong>, go to <strong>Phones</strong> and click <strong>Set up my phones</strong> — it installs the browser, hides the emulator look, and applies the ad-zone fix in one pass.</p>
               </section>
             </div>
           </div>

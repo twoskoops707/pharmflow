@@ -1544,6 +1544,56 @@
       });
     }
 
+    // Home quick-start buttons (view-start).
+    const btnStartHome = document.getElementById("btn-start-farm-home");
+    if (btnStartHome && !btnStartHome.dataset.wired) {
+      btnStartHome.dataset.wired = "1";
+      btnStartHome.addEventListener("click", async function () {
+        try {
+          const res = await callApi("Start farm", function (a) {
+            return a.start_farm();
+          });
+          if (res && res.error) {
+            showBackendError(res.error);
+            return;
+          }
+          showToast(res && res.started ? "Farm started — watch the dashboard" : "Farm start triggered");
+        } catch (_e) {
+          /* banner shown */
+        }
+      });
+    }
+
+    const btnDashHome = document.getElementById("btn-open-dash-home");
+    if (btnDashHome && !btnDashHome.dataset.wired) {
+      btnDashHome.dataset.wired = "1";
+      btnDashHome.addEventListener("click", async function () {
+        try {
+          const res = await callApi("Dashboard", function (a) {
+            return a.open_dashboard();
+          });
+          if (res && res.error) showBackendError(res.error);
+        } catch (_e) {
+          /* banner shown */
+        }
+      });
+    }
+
+    const btnSpinHome = document.getElementById("btn-spin-test-phone-home");
+    if (btnSpinHome && !btnSpinHome.dataset.wired) {
+      btnSpinHome.dataset.wired = "1";
+      btnSpinHome.addEventListener("click", async function () {
+        try {
+          const res = await callApi("Spin up test phone", function (a) {
+            return a.spin_up_test_phone();
+          });
+          if (res && res.message) showToast(res.message);
+        } catch (_e) {
+          /* banner shown */
+        }
+      });
+    }
+
     const btnTest = document.getElementById("btn-test-url");
     if (btnTest && !btnTest.dataset.wired) {
       btnTest.dataset.wired = "1";
