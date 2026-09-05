@@ -1635,6 +1635,20 @@ def open_farm_dashboard() -> dict:
     return _run_on_tk(work)
 
 
+def get_farm_health() -> dict:
+    """Session-quality telemetry for the deck's Health view.
+
+    Pure reader: dump-timeout / fallback-tap / paying-fill stats derived from
+    the live farm log and SSP hunter state. Never touches farm state.
+    """
+    try:
+        from automation.farm_health import snapshot
+
+        return snapshot()
+    except Exception as exc:  # noqa: BLE001 — the view must never crash
+        return {"ok": False, "error": str(exc)}
+
+
 # ── Cloud phones + agent (visible from Step 9 → Extra tools) ──
 
 

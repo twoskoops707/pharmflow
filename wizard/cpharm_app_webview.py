@@ -320,6 +320,11 @@ class CPharmAppApi:
 
         return bridge.open_dashboard()
 
+    def get_farm_health(self) -> dict:
+        import cpharm_wizard_bridge as bridge
+
+        return bridge.get_farm_health()
+
     def open_farm_dashboard(self) -> dict:
         import cpharm_wizard_bridge as bridge
 

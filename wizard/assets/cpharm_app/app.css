@@ -1677,3 +1677,62 @@ details.adv-details[open] > summary::before {
 .mc-dot.off {
   background: rgba(255, 255, 255, 0.22);
 }
+
+/* ── Farm health view ─────────────────────────── */
+.health-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
+  gap: 8px;
+}
+.health-card {
+  background: var(--panel, rgba(255, 255, 255, 0.03));
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 4px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.health-card-label {
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.45);
+}
+.health-card-value {
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.1;
+}
+.health-table-wrap {
+  overflow-x: auto;
+}
+.health-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 12px;
+}
+.health-table th {
+  text-align: left;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.45);
+  padding: 6px 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+.health-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  color: var(--ink, #c8d3d8);
+}
+.health-table tr:hover td {
+  background: rgba(255, 255, 255, 0.03);
+}
+.led-ok {
+  background: #3ecfb0 !important;
+  box-shadow: 0 0 8px rgba(62, 207, 176, 0.8);
+}

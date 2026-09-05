@@ -68,6 +68,7 @@
                 <div class="action-row action-row-big">
                   <button type="button" class="btn-go" id="btn-start-farm-home" data-help="Farms every phone that is live on ADB right now. The EXE never opens or closes emulators itself — start your phones first, then press this.">Start farm</button>
                   <button type="button" class="btn-go btn-go-secondary" id="btn-open-dash-home">Open dashboard</button>
+                  <button type="button" class="btn-go btn-go-secondary" id="btn-health-home" data-help="Session quality: per-phone dump timeouts, fallback taps, and paying-fill rounds, read live from the farm logs.">Farm health</button>
                 </div>
                 <div class="action-row">
                   <button type="button" class="btn-ghost" id="btn-spin-test-phone-home" data-help="Your click only: boots one spare phone (Docker redroid first, then MuMu) so you can test the setup before the farm goes live.">Spin up one phone to test</button>
@@ -525,6 +526,36 @@
           </div>
           <footer class="view-footer-nav">
             <button type="button" class="btn-ghost btn-prev-step" data-prev="teams">← Groups</button>
+            <span></span>
+          </footer>
+        </section>
+        <section class="view" id="view-health" data-view="health">
+          <header class="view-hero">
+            <div class="kicker"><span class="badge-dot"></span> SESSION QUALITY</div>
+            <h1>Farm health</h1>
+            <p class="subtitle">Dump timeouts, fallback taps and paying fills — read live from the farm logs.</p>
+          </header>
+          <div class="view-body view-body-scroll">
+            <div class="main-grid">
+              <section class="panel">
+                <h2 class="panel-title">Session summary</h2>
+                <div class="health-summary" id="health-summary"></div>
+              </section>
+              <section class="panel log-panel">
+                <div class="log-header">
+                  <h2 class="panel-title">Per-phone quality</h2>
+                  <div class="log-status">
+                    <span class="status-led" id="health-led"></span>
+                    <button type="button" class="btn-ghost" id="btn-health-refresh">Refresh</button>
+                  </div>
+                </div>
+                <div class="health-table-wrap" id="health-table"></div>
+                <p class="panel-note" id="health-note">Live from the newest farm log — no log files to open.</p>
+              </section>
+            </div>
+          </div>
+          <footer class="view-footer-nav">
+            <button type="button" class="btn-ghost btn-prev-step" data-prev="go">← Run</button>
             <span></span>
           </footer>
         </section>

@@ -247,6 +247,36 @@
       });
       stepNav.appendChild(btn);
     });
+
+    // App views live outside the numbered wizard pipeline.
+    const appDivider = document.createElement("div");
+    appDivider.className = "step-nav-phase";
+    appDivider.textContent = "Monitor";
+    stepNav.appendChild(appDivider);
+
+    const healthBtn = document.createElement("button");
+    healthBtn.type = "button";
+    healthBtn.className = "step-nav-item";
+    healthBtn.dataset.view = "health";
+    if (healthBtn.dataset.view === currentView) healthBtn.classList.add("active");
+    const healthNum = document.createElement("span");
+    healthNum.className = "step-num";
+    healthNum.textContent = "✦";
+    healthBtn.appendChild(healthNum);
+    const healthBody = document.createElement("span");
+    const healthTitle = document.createElement("span");
+    healthTitle.className = "step-title";
+    healthTitle.textContent = "Farm health";
+    healthBody.appendChild(healthTitle);
+    const healthDesc = document.createElement("span");
+    healthDesc.className = "step-desc";
+    healthDesc.textContent = "Session quality";
+    healthBody.appendChild(healthDesc);
+    healthBtn.appendChild(healthBody);
+    healthBtn.addEventListener("click", function () {
+      showView("health", { animate: true });
+    });
+    stepNav.appendChild(healthBtn);
   }
 
   function updateNavActive() {
@@ -267,6 +297,7 @@
     steps: refreshSteps,
     teams: refreshTeams,
     go: refreshGo,
+    health: refreshHealth,
   };
 
   function nextStepId(fromId) {
@@ -277,7 +308,7 @@
 
   function showView(name, opts) {
     opts = opts || {};
-    if (STEP_IDS.indexOf(name) < 0) name = "start";
+    if (STEP_IDS.indexOf(name) < 0 && name !== "health") name = "start";
     currentView = name;
     if (name === "phones") startSetupAutoRefresh();
     else stopSetupAutoRefresh();
@@ -955,6 +986,107 @@
       if (el) el.textContent = s.summary || "Start the service, then run all groups.";
     } catch (e) {
       if (el) el.textContent = "Ready to launch.";
+    }
+  }
+
+  /* ── Farm health view ────────────────────────────────── */
+  function pct(v) {
+    if (v == null) return "—";
+    return (v * 100).toFixed(1) + "%";
+  }
+
+  function renderHealth(data) {
+    const summaryEl = document.getElementById("health-summary");
+    const tableEl = document.getElementById("health-table");
+    const noteEl = document.getElementById("health-note");
+    const led = document.getElementById("health-led");
+    if (!summaryEl) return;
+    if (!data || data.ok === false) {
+      summaryEl.innerHTML =
+        '<p class="panel-note">Health unavailable: ' +
+        (data && data.error ? String(data.error) : "farm logs not found") +
+        "</p>";
+      return;
+    }
+    if (led) led.classList.toggle("led-ok", !!data.farm_alive);
+    const s = data.summary || {};
+    const p = data.paying || {};
+    const po = data.payout || {};
+    const cards = [
+      ["Farm", data.farm_alive ? "LIVE" : "idle", data.farm_alive ? "#3ecfb0" : "#f2a65a"],
+      ["Steps (1h)", s.steps == null ? "—" : String(s.steps), "#c8d3d8"],
+      ["Dump timeouts", String(s.dump_timeouts == null ? 0 : s.dump_timeouts), s.dump_timeouts ? "#ff7a70" : "#3ecfb0"],
+      ["Timeout rate", pct(s.timeout_rate), s.timeout_rate && s.timeout_rate > 0.2 ? "#ff7a70" : "#3ecfb0"],
+      ["Fallback taps", String(s.fallback_taps == null ? 0 : s.fallback_taps), s.fallback_taps ? "#f2a65a" : "#3ecfb0"],
+      ["Fallback rate", pct(s.fallback_rate), s.fallback_rate && s.fallback_rate > 0.2 ? "#f2a65a" : "#3ecfb0"],
+      ["Paying fills", p.paying == null ? "—" : String(p.paying), p.paying ? "#3ecfb0" : "#ff7a70"],
+      ["Payout", po.payout_usd == null ? "—" : "$" + Number(po.payout_usd).toFixed(2), po.payout_usd ? "#3ecfb0" : "#c8d3d8"],
+      ["Clicks / impr", po.clicks == null ? "—" : po.clicks + " / " + po.impressions, "#c8d3d8"],
+    ];
+    summaryEl.innerHTML =
+      '<div class="health-cards">' +
+      cards
+        .map(function (c) {
+          return (
+            '<div class="health-card"><span class="health-card-label">' +
+            c[0] +
+            '</span><span class="health-card-value" style="color:' +
+            c[2] +
+            '">' +
+            c[1] +
+            "</span></div>"
+          );
+        })
+        .join("") +
+      "</div>";
+
+    const phones = data.phones || [];
+    if (!phones.length) {
+      tableEl.innerHTML =
+        '<p class="panel-note">No dump/fallback events in the last hour — sessions are clean.</p>';
+    } else {
+      const rows = phones
+        .map(function (r) {
+          return (
+            "<tr><td>" +
+            (r.name ? r.name : r.serial) +
+            "</td><td>" +
+            r.serial +
+            "</td><td>" +
+            (r.steps || 0) +
+            "</td><td>" +
+            (r.timeouts || 0) +
+            "</td><td>" +
+            pct(r.timeout_rate) +
+            "</td><td>" +
+            (r.fallbacks || 0) +
+            "</td><td>" +
+            pct(r.fallback_rate) +
+            "</td></tr>"
+          );
+        })
+        .join("");
+      tableEl.innerHTML =
+        '<table class="health-table"><thead><tr><th>Phone</th><th>Serial</th><th>Steps</th><th>Timeouts</th><th>Timeout %</th><th>Fallbacks</th><th>Fallback %</th></tr></thead><tbody>' +
+        rows +
+        "</tbody></table>";
+    }
+    const age =
+      data.log_age_s == null ? "" : " · log " + data.log_age_s + "s old";
+    const round =
+      p.round == null ? "" : " · paying round " + p.round + (p.newnym ? " · newnym " + p.newnym : "");
+    if (noteEl) noteEl.textContent =
+      "Last hour of " + (data.log_path ? data.log_path.split(/[\\/]/).pop() : "farm log") + age + round + ".";
+  }
+
+  async function refreshHealth() {
+    const a = api();
+    if (!a || typeof a.get_farm_health !== "function") return;
+    try {
+      const data = await a.get_farm_health();
+      renderHealth(data);
+    } catch (_e) {
+      renderHealth({ ok: false, error: "backend call failed" });
     }
   }
 
@@ -1777,6 +1909,21 @@
     if (btnDashHome && !btnDashHome.dataset.wired) {
       btnDashHome.dataset.wired = "1";
       btnDashHome.addEventListener("click", openFarmDash);
+    }
+
+    const btnHealthHome = document.getElementById("btn-health-home");
+    if (btnHealthHome && !btnHealthHome.dataset.wired) {
+      btnHealthHome.dataset.wired = "1";
+      btnHealthHome.addEventListener("click", function () {
+        showView("health", { animate: true });
+        refreshHealth();
+      });
+    }
+
+    const btnHealthRefresh = document.getElementById("btn-health-refresh");
+    if (btnHealthRefresh && !btnHealthRefresh.dataset.wired) {
+      btnHealthRefresh.dataset.wired = "1";
+      btnHealthRefresh.addEventListener("click", refreshHealth);
     }
 
     const btnSpinHome = document.getElementById("btn-spin-test-phone-home");

@@ -1,12 +1,5 @@
-"""
-Live Mantis ad landing URLs for DabFlow (property 6950d5527c56c6494f189e46).
+"""Mantis ad zones, checkpoints, live SSP fetch, and fallback landing URLs for DabFlow."""
 
-Used by mantis-hardcode test sequences: ``open_url`` to the advertiser destination
-instead of tapping a Mantis zone on getdabflow.app.
-
-Fetch at generation time via the public Mantis SSP ``/display`` endpoint (same contract
-as ``mantodea.min.js``). Falls back to cached landing URLs when the network is down.
-"""
 from __future__ import annotations
 
 import json
@@ -19,7 +12,24 @@ MANTIS_PROPERTY_ID = "6950d5527c56c6494f189e46"
 MANTIS_SSP_DISPLAY = "https://ssp.mantis.marketing/display"
 DABFLOW_PAGE_URL = "https://getdabflow.app/"
 
-# Post-timer tab zones used in combo ad paths (see dabflow_layout TAB_MATRIX_SPECS).
+TAB_TO_ZONE: dict[str, str] = {
+    "timer": "zone-two",
+    "stats": "zone-five",
+    "glass_art": "zone-nine",
+    "settings": "zone-twelve",
+    "home": "zone-one",
+    "post_timer": "zone-three",
+}
+
+# All active mobile zones (primary + siblings) for human Path3 rotation.
+TAB_ZONES: dict[str, tuple[str, ...]] = {
+    "home": ("zone-one", "tester"),
+    "timer": ("zone-two", "zone-three", "zone-four"),
+    "stats": ("zone-five", "zone-six", "zone-seven"),
+    "glass_art": ("zone-eight", "zone-nine", "zone-ten", "zone-eleven"),
+    "settings": ("zone-twelve", "zone-thirteen", "zone-fourteen", "zone-fifteen"),
+}
+
 POST_TIMER_ZONES = ("zone-five", "zone-eight", "zone-nine", "zone-twelve")
 
 ZONE_TO_AD_CHECKPOINT: dict[str, str] = {
@@ -39,46 +49,36 @@ ZONE_TO_AD_CHECKPOINT: dict[str, str] = {
     "zone-three": "ad_timer_banner",
 }
 
-# Cached from live SSP fetch 2026-07-05 — used when fetch fails (utm_medium = publisher property id).
 FALLBACK_LANDING_URLS: dict[str, str] = {
-    "zone-five": (
-        "https://ageofhemp.com/collections/best-deals"
-        "?utm_source=mantis&utm_medium=6950d5527c56c6494f189e46&utm_campaign=mantis-hardcode"
-    ),
-    "zone-eight": (
-        "https://ageofhemp.com/collections/best-deals"
-        "?utm_source=mantis&utm_medium=6950d5527c56c6494f189e46&utm_campaign=mantis-hardcode"
-    ),
-    "zone-nine": (
-        "https://ageofhemp.com/collections/best-deals"
-        "?utm_source=mantis&utm_medium=6950d5527c56c6494f189e46&utm_campaign=mantis-hardcode"
-    ),
-    "zone-twelve": (
-        "https://www.grasscity.com/"
-        "?utm_source=mantis&utm_medium=6950d5527c56c6494f189e46&utm_campaign=mantis-hardcode"
-    ),
     "zone-one": (
         "https://www.grasscity.com/"
-        "?utm_source=mantis&utm_medium=6950d5527c56c6494f189e46&utm_campaign=mantis-hardcode"
+        "?utm_source=mantis&utm_medium=6950d5527c56c6494f189e46&utm_campaign=cpharm-fallback"
     ),
     "zone-two": (
         "https://www.smokecartel.com/"
-        "?utm_source=mantis&utm_medium=6950d5527c56c6494f189e46&utm_campaign=mantis-hardcode"
+        "?utm_source=mantis&utm_medium=6950d5527c56c6494f189e46&utm_campaign=cpharm-fallback"
     ),
     "zone-three": (
-        "https://www.mantisadnetwork.com/"
-        "?utm_source=mantis&utm_medium=6950d5527c56c6494f189e46&utm_campaign=mantis-hardcode"
+        "https://www.smokecartel.com/"
+        "?utm_source=mantis&utm_medium=6950d5527c56c6494f189e46&utm_campaign=cpharm-fallback"
+    ),
+    "zone-five": (
+        "https://ageofhemp.com/collections/best-deals"
+        "?utm_source=mantis&utm_medium=6950d5527c56c6494f189e46&utm_campaign=cpharm-fallback"
+    ),
+    "zone-eight": (
+        "https://ageofhemp.com/collections/best-deals"
+        "?utm_source=mantis&utm_medium=6950d5527c56c6494f189e46&utm_campaign=cpharm-fallback"
+    ),
+    "zone-nine": (
+        "https://ageofhemp.com/collections/best-deals"
+        "?utm_source=mantis&utm_medium=6950d5527c56c6494f189e46&utm_campaign=cpharm-fallback"
+    ),
+    "zone-twelve": (
+        "https://www.grasscity.com/"
+        "?utm_source=mantis&utm_medium=6950d5527c56c6494f189e46&utm_campaign=cpharm-fallback"
     ),
 }
-
-# Five distinct test rows: combo + tab that receives hardcoded open_url.
-HARDOCODE_TEST_SPECS: tuple[tuple[str, str, str, str, str], ...] = (
-    ("ceramic", "distillate", "butane", "stats", "zone-five"),
-    ("quartz", "shatter", "propane", "glass", "zone-nine"),
-    ("titanium", "live-resin", "butane", "stats", "zone-one"),
-    ("ceramic", "rosin", "propane", "glass", "zone-two"),
-    ("quartz", "wax", "butane", "settings", "zone-three"),
-)
 
 
 def decode_click_landing(click_url: str) -> str:
@@ -88,16 +88,39 @@ def decode_click_landing(click_url: str) -> str:
     return urllib.parse.unquote(raw) if raw else ""
 
 
+def is_mantis_house_bot_click_url(click_url: str) -> bool:
+    """True for SSP house/bot creatives that open but do not move publisher $/clicks.
+
+    Live ``bids.mantis.marketing/clicked`` URLs with house landings still look like
+    tracking redirects to the farm, but GraphQL payout/clicks stay flat:
+
+    - ``r=`` → mantisadnetwork.com (any utm)
+    - ``utm_source=mantis-bot`` on *any* host (incl. advertiser skins like grasscity)
+
+    Paying fills use real advertiser landings with ``utm_source=mantis`` (not
+    ``mantis-bot``). Check both the raw click URL and the decoded ``r=`` landing
+    (including percent-encoded forms).
+    """
+    u = (click_url or "").strip().lower()
+    if not u.startswith("http"):
+        return False
+    land = decode_click_landing(click_url).lower()
+    blob = f"{u}\n{land}"
+    # Tick 484: grasscity.com?utm_source=mantis-bot was logged billable; $/clk flat.
+    if "utm_source=mantis-bot" in blob or "utm_source%3dmantis-bot" in blob:
+        return True
+    if land and "mantisadnetwork.com" in land:
+        return True
+    if not land and "mantisadnetwork.com" in u:
+        return True
+    return False
+
+
 def tag_landing_with_publisher(
     url: str,
     property_id: str = MANTIS_PROPERTY_ID,
 ) -> str:
-    """
-    Ensure Mantis publisher (property) id is in the ad landing link as ``utm_medium``.
-
-    Live SSP ``click_url`` payloads often include campaign/content ids; this keeps those
-    when present and always sets ``utm_source=mantis`` + ``utm_medium=<property_id>``.
-    """
+    """Ensure Mantis publisher id is in the ad landing link as ``utm_medium``."""
     if not (url or "").strip():
         return url
     parsed = urllib.parse.urlparse(url.strip())
@@ -105,7 +128,7 @@ def tag_landing_with_publisher(
     campaign = qd.get("utm_campaign", "")
     content = qd.get("utm_content", "")
     weak_campaigns = frozenset(
-        {"", "mantis-bot", "Banner", "Top Sellers", "Top+Sellers", "mantis-hardcode"}
+        {"", "mantis-bot", "Banner", "Top Sellers", "Top+Sellers", "mantis-hardcode", "cpharm-fallback"}
     )
     qd["utm_source"] = "mantis"
     qd["utm_medium"] = property_id
@@ -121,14 +144,66 @@ def tag_landing_with_publisher(
     return urllib.parse.urlunparse(parsed._replace(query=new_query))
 
 
+def wrap_paying_click_url(landing: str, *, bid_id: str = "cpharm-fallback") -> str:
+    """Build a ``bids.mantis.marketing/clicked`` URL around a publisher-tagged landing.
+
+    Slot taps alone do not bill; opening this tracking redirect is the Jul 30 path.
+    Never wraps house/bot landings (returns empty).
+    """
+    land = tag_landing_with_publisher((landing or "").strip())
+    if not land.startswith("http"):
+        return ""
+    probe = f"https://bids.mantis.marketing/clicked?r={urllib.parse.quote(land, safe='')}"
+    if is_mantis_house_bot_click_url(probe):
+        return ""
+    return (
+        "https://bids.mantis.marketing/clicked?r="
+        + urllib.parse.quote(land, safe="")
+        + f"&p=2&bi={bid_id}"
+    )
+
+
+def tag_click_url_with_publisher(click_url: str) -> str:
+    """Rewrite ``r=`` landing on a live clicked URL with utm_source=mantis + publisher."""
+    raw = (click_url or "").strip()
+    if not raw.startswith("http"):
+        return ""
+    if "bids.mantis.marketing/clicked" not in raw.lower():
+        return ""
+    land = decode_click_landing(raw)
+    if not land:
+        return raw
+    tagged = tag_landing_with_publisher(land)
+    if is_mantis_house_bot_click_url(
+        f"https://bids.mantis.marketing/clicked?r={urllib.parse.quote(tagged, safe='')}"
+    ):
+        return ""
+    parsed = urllib.parse.urlparse(raw)
+    qd = dict(urllib.parse.parse_qsl(parsed.query, keep_blank_values=True))
+    qd["r"] = tagged
+    new_query = urllib.parse.urlencode(qd, quote_via=urllib.parse.quote)
+    return urllib.parse.urlunparse(parsed._replace(query=new_query))
+
+
+def paying_fallback_click_url(zone: str = "", checkpoint: str = "") -> str:
+    """Paying clicked URL from hardcode/fallback landings (never house/bot)."""
+    land = ""
+    z = (zone or "").strip()
+    if z:
+        land = FALLBACK_LANDING_URLS.get(z) or ""
+    if not land and checkpoint:
+        land = fallback_landing_for_checkpoint(checkpoint) or ""
+    if not land:
+        land = FALLBACK_LANDING_URLS.get("zone-one") or ""
+    return wrap_paying_click_url(land)
+
+
 def fetch_mantis_landing_urls(
     zones: tuple[str, ...] | list[str] | None = None,
     *,
     timeout: float = 20.0,
 ) -> dict[str, str]:
-    """
-    Query Mantis SSP for current ads; return ``zone_id -> landing URL`` (decoded from click_url).
-    """
+    """Query Mantis SSP for current ads; return ``zone_id -> landing URL``."""
     want = list(zones or POST_TIMER_ZONES)
     body: dict[str, Any] = {
         "url": DABFLOW_PAGE_URL,
@@ -179,12 +254,27 @@ def resolve_hardcode_ad_urls(
     return {z: tag_landing_with_publisher(merged[z]) for z in want if z in merged}
 
 
-def ad_checkpoint_for_zone(zone: str) -> str:
-    return ZONE_TO_AD_CHECKPOINT.get(zone, "ad_hardcode_open")
+def fallback_url_for_tab(tab: str) -> str | None:
+    zone = TAB_TO_ZONE.get(tab.replace("-", "_"))
+    if not zone:
+        return None
+    return FALLBACK_LANDING_URLS.get(zone)
 
 
-def landing_for_zone(zone: str, *, prefer_live: bool = True) -> str:
-    urls = resolve_hardcode_ad_urls([zone], prefer_live=prefer_live)
-    if zone not in urls:
-        raise KeyError(f"no landing URL for Mantis zone {zone!r}")
-    return urls[zone]
+def fallback_url_for_zone(zone: str) -> str | None:
+    return FALLBACK_LANDING_URLS.get(zone)
+
+
+def ad_checkpoint_to_zone(checkpoint: str) -> str | None:
+    cp = (checkpoint or "").strip().lower()
+    for zone, ad_cp in ZONE_TO_AD_CHECKPOINT.items():
+        if ad_cp == cp:
+            return zone
+    return None
+
+
+def fallback_landing_for_checkpoint(checkpoint: str) -> str | None:
+    zone = ad_checkpoint_to_zone(checkpoint)
+    if not zone:
+        return None
+    return FALLBACK_LANDING_URLS.get(zone)

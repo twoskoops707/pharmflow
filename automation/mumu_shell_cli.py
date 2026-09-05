@@ -96,23 +96,41 @@ def harvest_launch_cache() -> dict[str, dict[str, str | int]]:
     return cache
 
 
+_HCS_CACHE: dict[str, tuple[float, bool | None]] = {}
+_HCS_CACHE_TTL_S = 300.0
+_HCS_TIMEOUT_S = 6.0
+
+
 def hcs_compute_present(vm_name: str) -> bool | None:
-    """Return True when ``vmN.gmadoa`` exists in MuMu HCS; None if tool unavailable."""
+    """Return True when ``vmN.gmadoa`` exists in MuMu HCS; None if tool unavailable.
+
+    The hcs tool hangs (20s+ per call) on MuMuPlayerARM when the HCS service is
+    idle, so the result is cached per process and the call is time-boxed — a
+    boot of 12 VMs must not spend 4 minutes in this gate.
+    """
+    now = time.monotonic()
+    hit = _HCS_CACHE.get(vm_name)
+    if hit is not None and now - hit[0] < _HCS_CACHE_TTL_S:
+        return hit[1]
     tool = _HCS_TOOL if _HCS_TOOL.is_file() else None
     if tool is None:
+        _HCS_CACHE[vm_name] = (now, None)
         return None
     try:
         r = subprocess.run(
             [str(tool), "--list", "computesystems"],
             capture_output=True,
             text=True,
-            timeout=20,
+            timeout=_HCS_TIMEOUT_S,
             check=False,
         )
     except (OSError, subprocess.TimeoutExpired):
+        _HCS_CACHE[vm_name] = (now, None)
         return None
     blob = (r.stdout or "") + (r.stderr or "")
-    return vm_name in blob
+    result = vm_name in blob
+    _HCS_CACHE[vm_name] = (now, result)
+    return result
 
 
 def launch_instance_index(idx: int, timeout: float = 120.0) -> tuple[bool, str]:

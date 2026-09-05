@@ -4090,13 +4090,62 @@ def _mumu_get_instances(mgr_path, log_fn=None):
         try:
             from mumu_farm_ops import MuMuFarmOps
 
-            for _inst in MuMuFarmOps().list_instances() or []:
+            # Ground truth for "started": a VM is up when its shell process runs
+            # or its ADB serial answers. The config listing's ``running`` flag
+            # can't see ARM 10.0.2.x serials, which made the boot flow burn a
+            # full 180s wait on every phone.
+            live = set()
+            try:
+                raw = adb("devices", "-l", timeout=10)
+                for line in raw.splitlines()[1:]:
+                    parts = line.split()
+                    if len(parts) >= 2 and parts[1] == "device":
+                        live.add(parts[0])
+            except Exception as exc:  # noqa: BLE001
+                _wiz_debug(f"mumu_get_instances adb devices probe failed: {exc}", log_fn)
+
+            ops = MuMuFarmOps()
+            vms_dir = getattr(ops, "vms_dir", None)
+            try:
+                from automation.mumu_shell_cli import instance_shell_running
+            except Exception:  # noqa: BLE001
+                instance_shell_running = None
+
+            for _inst in ops.list_instances() or []:
+                idx = int(getattr(_inst, "index", 0) or 0)
+                name = str(getattr(_inst, "name", "") or "")
+                serial = str(getattr(_inst, "adb_serial", "") or "")
+                started = bool(getattr(_inst, "running", False)) or (
+                    bool(serial) and serial in live
+                )
+                if instance_shell_running is not None:
+                    try:
+                        if instance_shell_running(idx):
+                            started = True
+                    except Exception:  # noqa: BLE001
+                        pass
+                # MuMuPlayerARM exposes ADB only at the VM's 10.0.2.x NAT
+                # address (AdbHost:AdbPort in misc/state.json), never on the
+                # classic 127.0.0.1:16xxx ports. Point the boot flow at the
+                # real serial so `adb connect` can actually reach the phone.
+                if vms_dir is not None:
+                    state_path = Path(vms_dir) / name / "misc" / "state.json"
+                    try:
+                        state = json.loads(state_path.read_text(encoding="utf-8-sig"))
+                        host = str(state.get("AdbHost") or "").strip()
+                        port = str(state.get("AdbPort") or "5555").strip()
+                        if host.startswith("10.0.2."):
+                            serial = f"{host}:{port}"
+                            if serial in live:
+                                started = True
+                    except (OSError, ValueError, TypeError):
+                        pass
                 instances.append(
                     {
-                        "index": int(getattr(_inst, "index", 0) or 0),
-                        "name": str(getattr(_inst, "name", "") or ""),
-                        "adb_serial": str(getattr(_inst, "adb_serial", "") or ""),
-                        "started": bool(getattr(_inst, "running", False)),
+                        "index": idx,
+                        "name": name,
+                        "adb_serial": serial,
+                        "started": started,
                     }
                 )
         except Exception as exc:  # noqa: BLE001 — best-effort fallback
@@ -9372,24 +9421,25 @@ class BootPage(PageBase):
                             _mumu_launch(mgr, idx, log_fn=None)
                             time.sleep(2)
 
-                        # Wait up to 3 min for Android to boot (skip wait loop if already started)
+                        # Wait up to 3 min for Android to boot (skip wait loop if already started).
+                        # Ground truth is ADB: connect + echo until the phone answers. The
+                        # instance listing's ``started`` flag can't see ARM 10.0.2.x serials,
+                        # so trusting it made every phone burn the full 180s wait.
                         deadline = time.time() + 180
-                        booted   = already_up or inst.get("started", False)
+                        booted   = already_up
                         loop_i = 0
                         while not booted and time.time() < deadline:
                             time.sleep(5)
                             loop_i += 1
-                            fresh = _mumu_get_instances(mgr)
-                            match = next((x for x in fresh if x["index"] == idx), None)
-                            st = bool(match and match["started"])
+                            adb("connect", serial, timeout=8)
+                            check = adb("shell", "echo", "ok", serial=serial, timeout=8)
+                            booted = check.strip() == "ok"
                             if loop_i == 1 or loop_i % 6 == 0:
                                 _wiz_debug(
-                                    f"go_mumu boot_wait idx={idx} iter={loop_i} fresh_n={len(fresh)} "
-                                    f"started={st}",
+                                    f"go_mumu boot_wait idx={idx} iter={loop_i} serial={serial} "
+                                    f"booted={booted}",
                                     self._log_write,
                                 )
-                            if match and match["started"]:
-                                booted = True
 
                         if not booted:
                             _wiz_debug(
