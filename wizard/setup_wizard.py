@@ -4018,10 +4018,9 @@ def _mumu_get_instances(mgr_path, log_fn=None):
         if log_fn:
             log_fn(
                 "  Skipping GUI-only MuMu manager (would open the MuMu window); "
-                "using shell CLI / ADB port scan instead.\n"
+                "using shell CLI / config files / ADB port scan instead.\n"
             )
         _wiz_debug(f"mumu_get_instances dropped GUI-only managers: {[e.name for e in gui_only]}", log_fn)
-
     if log_fn:
         install_root = mgr_path.resolve().parent.parent
         if fb is None:
@@ -4078,6 +4077,30 @@ def _mumu_get_instances(mgr_path, log_fn=None):
                 log_fn(f"  Instance list via fallback: {exe}\n")
             break
 
+    if not instances and gui_only:
+        # GUI-only manager (MuMuPlayerARM): the CLI exes (if any) produced no
+        # usable output, so enumerate VMs from their config files instead of
+        # executing anything. Keeps spin-up working with zero manager windows.
+        if log_fn:
+            log_fn(
+                "  CLI returned no MuMu instances — reading VMs from config "
+                "files (no window opened)...\n"
+            )
+        _wiz_debug("mumu_get_instances: CLI empty, config-file enumeration fallback", log_fn)
+        try:
+            from mumu_farm_ops import MuMuFarmOps
+
+            for _inst in MuMuFarmOps().list_instances() or []:
+                instances.append(
+                    {
+                        "index": int(getattr(_inst, "index", 0) or 0),
+                        "name": str(getattr(_inst, "name", "") or ""),
+                        "adb_serial": str(getattr(_inst, "adb_serial", "") or ""),
+                        "started": bool(getattr(_inst, "running", False)),
+                    }
+                )
+        except Exception as exc:  # noqa: BLE001 — best-effort fallback
+            _wiz_debug(f"mumu_get_instances config fallback failed: {exc}", log_fn)
     if not instances and log_fn:
         log_fn(
             "  Could not parse JSON from manager output — "

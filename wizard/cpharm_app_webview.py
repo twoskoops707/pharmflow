@@ -320,6 +320,11 @@ class CPharmAppApi:
 
         return bridge.open_dashboard()
 
+    def open_farm_dashboard(self) -> dict:
+        import cpharm_wizard_bridge as bridge
+
+        return bridge.open_farm_dashboard()
+
     def run_cloud_phone_command(self, command: str, host: str = "", count: int = 0, verify: bool = False) -> dict:
         import cpharm_wizard_bridge as bridge
 

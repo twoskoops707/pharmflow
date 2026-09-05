@@ -1196,6 +1196,18 @@
     if (el) el.textContent = text;
   }
 
+  // Home quick-start reflects live farm state (called from the HUD poll).
+  function applyHomeFarmState(running) {
+    const btn = document.getElementById("btn-start-farm-home");
+    if (!btn) return;
+    const mode = running ? "running" : "start";
+    if (btn.dataset.mode === mode) return;
+    btn.dataset.mode = mode;
+    btn.textContent = running ? "Farm running — open dashboard" : "Start farm";
+    const stop = document.getElementById("btn-stop-farm-home");
+    if (stop) stop.hidden = !running;
+  }
+
   function fmtMoney(v) {
     const n = Number(v || 0);
     return "$" + n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -1220,6 +1232,7 @@
       const running = !!(h.running || h.external);
       setHudText("hud-farm", running ? "RUN" : "OFF");
       if (lamp) lamp.className = "hud-lamp" + (running ? " run" : " err");
+      applyHomeFarmState(running);
       setHudText("hud-phones", String(h.phones_online || 0));
       setHudText("hud-today", fmtMoney(h.revenue_today_usd));
       setHudText("hud-clicks", String(h.clicks || 0));
@@ -1687,20 +1700,73 @@
       });
     }
 
-    // Home quick-start buttons (view-start).
+    // Home quick-start: Start farm / Farm running → dashboard / Stop farm.
     const btnStartHome = document.getElementById("btn-start-farm-home");
+    const btnStopHome = document.getElementById("btn-stop-farm-home");
+
+    async function openFarmDash() {
+      try {
+        const res = await callApi("Dashboard", function (a) {
+          return a.open_farm_dashboard
+            ? a.open_farm_dashboard()
+            : a.open_dashboard();
+        });
+        if (res && res.error) {
+          showBackendError(res.error);
+          return;
+        }
+        if (res) showToast("Dashboard opened in your browser");
+      } catch (_e) {
+        /* banner shown */
+      }
+    }
+
     if (btnStartHome && !btnStartHome.dataset.wired) {
       btnStartHome.dataset.wired = "1";
       btnStartHome.addEventListener("click", async function () {
+        if (btnStartHome.dataset.mode === "running") {
+          openFarmDash();
+          return;
+        }
         try {
           const res = await callApi("Start farm", function (a) {
             return a.start_farm();
+          });
+          if (res && res.running) {
+            applyHomeFarmState(true);
+            showToast("Farm is already running — opening the dashboard");
+            openFarmDash();
+            return;
+          }
+          if (res && res.error) {
+            showBackendError(res.error);
+            return;
+          }
+          if (res && res.started) {
+            applyHomeFarmState(true);
+            showToast("Farm started — watch the dashboard");
+          } else {
+            showToast("Farm start triggered");
+          }
+        } catch (_e) {
+          /* banner shown */
+        }
+      });
+    }
+
+    if (btnStopHome && !btnStopHome.dataset.wired) {
+      btnStopHome.dataset.wired = "1";
+      btnStopHome.addEventListener("click", async function () {
+        try {
+          const res = await callApi("Stop farm", function (a) {
+            return a.stop_farm();
           });
           if (res && res.error) {
             showBackendError(res.error);
             return;
           }
-          showToast(res && res.started ? "Farm started — watch the dashboard" : "Farm start triggered");
+          applyHomeFarmState(false);
+          showToast(res && res.stopped ? "Farm stopped" : "Stop farm triggered");
         } catch (_e) {
           /* banner shown */
         }
@@ -1710,16 +1776,7 @@
     const btnDashHome = document.getElementById("btn-open-dash-home");
     if (btnDashHome && !btnDashHome.dataset.wired) {
       btnDashHome.dataset.wired = "1";
-      btnDashHome.addEventListener("click", async function () {
-        try {
-          const res = await callApi("Dashboard", function (a) {
-            return a.open_dashboard();
-          });
-          if (res && res.error) showBackendError(res.error);
-        } catch (_e) {
-          /* banner shown */
-        }
-      });
+      btnDashHome.addEventListener("click", openFarmDash);
     }
 
     const btnSpinHome = document.getElementById("btn-spin-test-phone-home");
@@ -1959,20 +2016,7 @@
     const btnDashTeams = document.getElementById("btn-open-dash-teams");
     if (btnDashTeams && !btnDashTeams.dataset.wired) {
       btnDashTeams.dataset.wired = "1";
-      btnDashTeams.addEventListener("click", async function () {
-        try {
-          const res = await callApi("Dashboard", function (a) {
-            return a.open_dashboard();
-          });
-          if (res && res.error) {
-            showBackendError(res.error);
-            return;
-          }
-          if (res && res.ok) showToast("Dashboard opened in browser");
-        } catch (_e) {
-          /* banner shown */
-        }
-      });
+      btnDashTeams.addEventListener("click", openFarmDash);
     }
 
     const btnServer = document.getElementById("btn-start-server");
@@ -2066,20 +2110,7 @@
     const openDash = document.getElementById("btn-open-dash");
     if (openDash && !openDash.dataset.wired) {
       openDash.dataset.wired = "1";
-      openDash.addEventListener("click", async function () {
-        try {
-          const res = await callApi("Dashboard", function (a) {
-            return a.open_dashboard();
-          });
-          if (res && res.error) {
-            showBackendError(res.error);
-            return;
-          }
-          if (res && res.ok) showToast("Dashboard opened in browser");
-        } catch (_e) {
-          /* banner shown */
-        }
-      });
+      openDash.addEventListener("click", openFarmDash);
     }
 
     const btnCloudSetup = document.getElementById("btn-cloud-setup");

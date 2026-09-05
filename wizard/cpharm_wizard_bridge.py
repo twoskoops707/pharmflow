@@ -1598,6 +1598,43 @@ def open_dashboard() -> dict:
     return _run_on_tk(work)
 
 
+def open_farm_dashboard() -> dict:
+    """Open the live farm dashboard (127.0.0.1:8091) when it is up.
+
+    The farm dash is the operator screen the HUD/help text already point at.
+    It runs independently of the wizard control server, so the deck buttons
+    must not gate on that 8080 service. Falls back to the wizard page open
+    when the farm dash is unreachable.
+    """
+    import urllib.request
+    import webbrowser
+
+    FARM_DASH = "http://127.0.0.1:8091/"
+
+    def _reachable(url: str) -> bool:
+        try:
+            with urllib.request.urlopen(url, timeout=2.5):  # noqa: S310 — loopback
+                return True
+        except Exception:
+            return False
+
+    def work() -> dict:
+        if _reachable(FARM_DASH):
+            webbrowser.open(FARM_DASH)
+            return {"ok": True, "opened": True, "dashboard": FARM_DASH}
+        page = launch_page()
+        if bool(page._dashboard_config_reachable()):
+            page._open_dashboard_browser("/")
+            return {"ok": True, "opened": True}
+        return {
+            "ok": False,
+            "error": "Dashboard is not up yet — press Start service (Run step), or start the farm first.",
+            "dashboard": FARM_DASH,
+        }
+
+    return _run_on_tk(work)
+
+
 # ── Cloud phones + agent (visible from Step 9 → Extra tools) ──
 
 
