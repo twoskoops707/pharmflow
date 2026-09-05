@@ -1477,7 +1477,7 @@ details.adv-details[open] > summary::before {
 .help-overlay {
   position: fixed;
   inset: 0;
-  z-index: 500;
+  z-index: 2000;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1590,28 +1590,24 @@ details.adv-details[open] > summary::before {
   display: none !important;
 }
 
-/* ---- hover help: tooltips on inputs, selects, and choices ---- */
-[data-help] {
-  position: relative;
-}
-[data-help]::after {
-  content: attr(data-help);
-  position: absolute;
-  bottom: calc(100% + 9px);
-  left: 50%;
-  transform: translateX(-50%) translateY(3px);
-  z-index: 45;
-  width: max-content;
-  max-width: 300px;
-  padding: 7px 11px;
+/* ---- hover help: tooltips on inputs, selects, and choices -------
+   Rendered as ONE fixed overlay element at the end of <body>, placed by
+   JS from the hovered element's rect. A tooltip can therefore never be
+   clipped by a scroll container, a log terminal, or hidden behind another
+   panel ("window") — it always floats on top of the whole deck. ---- */
+.deck-tooltip {
+  position: fixed;
+  z-index: 9000;
+  max-width: 340px;
+  padding: 8px 12px;
   background: var(--panel2);
   color: var(--text);
   border: 1px solid var(--line2);
   border-radius: var(--rad-sm);
-  box-shadow: 0 6px 18px rgba(5, 8, 12, 0.55);
+  box-shadow: 0 10px 28px rgba(5, 8, 12, 0.6), 0 0 0 1px rgba(61, 154, 120, 0.12);
   font-family: var(--font);
   font-size: 0.82rem;
-  line-height: 1.45;
+  line-height: 1.5;
   font-weight: 400;
   text-transform: none;
   letter-spacing: 0;
@@ -1620,16 +1616,54 @@ details.adv-details[open] > summary::before {
   pointer-events: none;
   opacity: 0;
   visibility: hidden;
-  transition: opacity 0.14s ease, transform 0.14s ease, visibility 0.14s;
+  transition: opacity 0.12s ease, transform 0.12s ease;
+  transform: translateY(2px);
 }
-[data-help]:hover::after,
-[data-help]:focus::after {
+.deck-tooltip.on {
   opacity: 1;
   visibility: visible;
-  transform: translateX(-50%) translateY(0);
+  transform: translateY(0);
 }
 @media (prefers-reduced-motion: reduce) {
-  [data-help]::after {
+  .deck-tooltip {
     transition: none;
   }
+}
+
+/* ---- machine + emulator inventory (Android step) ---- */
+.mc-line {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  margin: 8px 0;
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+.mc-k {
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  font-size: 0.64rem;
+  color: var(--muted);
+  min-width: 86px;
+  flex-shrink: 0;
+}
+.mc-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  margin-right: 6px;
+  vertical-align: 1px;
+  background: var(--muted);
+}
+.mc-dot.ok {
+  background: var(--accent);
+  box-shadow: 0 0 6px rgba(61, 154, 120, 0.8);
+}
+.mc-dot.bad {
+  background: var(--err);
+  box-shadow: 0 0 6px rgba(232, 121, 91, 0.7);
+}
+.mc-dot.off {
+  background: rgba(255, 255, 255, 0.22);
 }

@@ -1050,8 +1050,8 @@ def run_test_url(url: str | None = None) -> dict:
             return {
                 "ok": False,
                 "error": (
-                    "No phones found — start MuMu, turn USB debugging ON, go to Step 4, "
-                    "click Check again, then Set up my phones."
+                    "No phones found — start your emulator (MuMu, Docker redroid, AVD) or plug a real phone, "
+                    "turn USB debugging ON, go to Step 4, click Check again, then Set up my phones."
                 ),
             }
         test_url = (url or "").strip() or load_target_site_url()
@@ -1862,17 +1862,167 @@ def spin_up_test_phone_from_app() -> dict:
 
     Delegates to wizard.farm_control.spin_up_test_phone, which never runs
     automatically and returns immediately (the boot continues in a background
-    thread).
+    thread). Every progress line is streamed to the deck's "boot" log so the
+    operator sees the phone come up live instead of a silent dead-end.
     """
     from wizard.farm_control import spin_up_test_phone as _spin
 
+    def _phone_log(msg: str, level: str = "ok") -> None:
+        _emit_log("boot", f"[test phone] {msg}\n")
+
     def work() -> dict:
         try:
-            return _spin()
+            return _spin(log=_phone_log)
         except Exception as exc:  # noqa: BLE001 — surface to UI
             return {"ok": False, "error": f"spin_up_test_phone error: {exc}"}
 
     return _run_on_tk(work)
+
+
+def get_machine_capabilities() -> dict:
+    """Live machine + emulator inventory for the Android step (ARM64-aware).
+
+    Bounded, best-effort scan: CPU architecture, Docker engine and redroid
+    containers, MuMu instances, Studio AVDs and real USB phones — everything
+    ADB answers right now. Never raises; a broken piece just reads as empty.
+    """
+    import platform
+    import subprocess
+
+    CREATE_NO_WINDOW = 0x08000000 if sys.platform == "win32" else 0
+
+    def _cli(args: list[str], timeout: float = 7.0) -> tuple[int, str]:
+        try:
+            proc = subprocess.run(
+                args,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                creationflags=CREATE_NO_WINDOW,
+            )
+            return proc.returncode, (proc.stdout or "").strip()
+        except Exception:
+            return -1, ""
+
+    out: dict[str, Any] = {
+        "ok": True,
+        "arch": "x64",
+        "arch_label": "x64 (Intel/AMD)",
+        "docker": False,
+        "redroid": {"up": 0, "total": 0},
+        "mumu": {"instances": 0, "online": 0},
+        "avd_online": 0,
+        "usb_online": 0,
+        "tcp_online": 0,
+        "phones_online": 0,
+        "phones": [],
+    }
+
+    mach = (platform.machine() or "").upper()
+    if "ARM" in mach or "AARCH" in mach:
+        out["arch"] = "arm64"
+        out["arch_label"] = "ARM64 (Snapdragon)"
+
+    # Docker engine + redroid containers.
+    redroid_names: list[str] = []
+    code, text = _cli(
+        [
+            "docker",
+            "ps",
+            "-a",
+            "--filter",
+            "name=redroid-",
+            "--format",
+            "{{.Names}}|{{.Status}}",
+        ]
+    )
+    if code == 0 and text:
+        out["docker"] = True
+        for line in text.splitlines():
+            name, _, status = line.partition("|")
+            name = (name or "").strip()
+            if not name:
+                continue
+            redroid_names.append(name)
+            out["redroid"]["total"] += 1
+            status_l = (status or "").lower()
+            if status_l and not status_l.startswith(("exited", "created", "dead")):
+                out["redroid"]["up"] += 1
+
+    # MuMu instances (offline + online) — tolerant; MuMu may not be installed.
+    mumu_live: list[str] = []
+    try:
+        from wizard.mumu_farm_ops import MuMuFarmOps
+    except Exception:  # noqa: BLE001
+        try:
+            from mumu_farm_ops import MuMuFarmOps  # type: ignore[no-redef]
+        except Exception:  # noqa: BLE001
+            MuMuFarmOps = None  # type: ignore[assignment]
+    if MuMuFarmOps is not None:
+        try:
+            farm = MuMuFarmOps()
+        except Exception:
+            farm = None
+        if farm is not None:
+            try:
+                out["mumu"]["instances"] = len(list(farm.list_instances() or []))
+            except Exception:
+                pass
+            try:
+                mumu_live = [
+                    str(d.serial)
+                    for d in farm.enumerate_adb_devices()
+                    if getattr(d, "online", False)
+                ]
+            except Exception:
+                mumu_live = []
+    out["mumu"]["online"] = len(mumu_live)
+
+    # ADB inventory.
+    devices: list[Any] = []
+    try:
+        from automation.adb_wrapper import AdbWrapper
+
+        devices = list(AdbWrapper().devices_detailed() or [])
+    except Exception:
+        devices = []
+
+    redroid_ports = {5555 + idx for idx in range(len(redroid_names))}
+    phones: list[dict[str, Any]] = []
+    for d in devices:
+        serial = str(getattr(d, "serial", "") or "")
+        if not serial:
+            continue
+        online = bool(getattr(d, "online", False))
+        kind = "phone"
+        if serial.startswith("emulator-"):
+            kind = "AVD"
+        elif serial.startswith("127.0.0.1:"):
+            try:
+                port = int(serial.rsplit(":", 1)[1])
+            except (ValueError, IndexError):
+                port = -1
+            if port in redroid_ports:
+                kind = "redroid"
+            elif serial.startswith("127.0.0.1:16"):
+                kind = "MuMu"
+            else:
+                kind = "emu/TCP"
+        elif ":" in serial:
+            kind = "emu/TCP"
+        else:
+            kind = "USB"
+        if online:
+            if kind == "AVD":
+                out["avd_online"] += 1
+            elif kind == "USB":
+                out["usb_online"] += 1
+            elif kind == "emu/TCP":
+                out["tcp_online"] += 1
+        phones.append({"serial": serial, "kind": kind, "online": online})
+    out["phones"] = phones
+    out["phones_online"] = sum(1 for p in phones if p["online"])
+    return out
 
 
 def farm_status_from_app() -> dict:

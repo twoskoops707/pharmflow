@@ -146,18 +146,30 @@
           <header class="view-hero">
             <div class="kicker"><span class="badge-dot"></span> STEP 3 OF 10 · SETUP</div>
             <h1>Android</h1>
-            <p class="subtitle">Android tools and emulator support.</p>
+            <p class="subtitle">Android tooling plus a live inventory of this machine's emulator stacks — arch, Docker redroid, MuMu, Studio AVDs and real USB, whatever the CPU is.</p>
           </header>
           <div class="view-body">
             <div class="main-grid">
               <section class="panel">
                 <h2 class="panel-title">What to do</h2>
                 <ol class="instruction-list">
-                  <li><strong>Most people:</strong> install MuMu and make phones at <strong>900×1600 portrait</strong>.</li>
-                  <li><strong>AVD option:</strong> use Android tools if you're not using MuMu.</li>
+                  <li><strong>Phones run outside the EXE.</strong> The farm never boots or closes emulators by itself — you start your phones, and it adopts whatever answers ADB.</li>
+                  <li><strong>On this ARM64 (Snapdragon) machine</strong> Docker redroid containers run native <span class="mono">arm64-v8a</span> Android; MuMu, Studio AVDs and real USB phones are adopted exactly the same way.</li>
+                  <li>Use the <strong>Machine + emulator inventory</strong> below to see what is actually online right now, then continue to <strong>Phones</strong>.</li>
                 </ol>
+              </section>
+              <section class="panel">
+                <div class="panel-head">
+                  <h2 class="panel-title">Machine + emulator inventory</h2>
+                  <button type="button" class="btn-mini" id="btn-refresh-caps" data-help="Rescans this machine: CPU architecture, Docker engine, redroid containers, MuMu instances, Studio AVDs, and every phone on ADB.">Check again</button>
+                </div>
+                <div id="machine-caps" class="machine-caps">
+                  <p class="panel-note">Scanning this machine…</p>
+                </div>
+              </section>
+              <section class="panel">
                 <h2 class="panel-title">Android tools</h2>
-                <button type="button" class="btn-go" id="btn-android-install" data-help="Installs the Android SDK command-line tools and ADB on this machine so the farm can talk to phones.">Install Android tools (SDK + ADB)</button>
+                <button type="button" class="btn-go" id="btn-android-install" data-help="Installs the Android SDK command-line tools and ADB on this machine so the farm can talk to phones. Docker redroid and MuMu ship their own ADB; this covers Studio AVDs and real devices.">Install Android tools (SDK + ADB)</button>
                 <p class="status-line" id="android-status">Checking SDK…</p>
                 <p class="status-line" id="android-detail"></p>
               </section>
@@ -169,22 +181,7 @@
                     <span id="android-status-label">Ready</span>
                   </div>
                 </div>
-                <p class="panel-note">MuMu only? Skip this and go straight to <strong>Phones</strong>.</p>
-                <details class="panel avd-details avd-details-android">
-                  <summary class="panel-title">Google AVD farm (optional — MuMu users skip)</summary>
-                  <p class="panel-note">Creates Pixel-style virtual devices in the Android SDK. Only use this if you are not using MuMu.</p>
-                  <div class="count-picker" id="count-picker">
-                    <button type="button" data-count="1" data-help="How many phones this farm creates. 1 is the lightest — good for testing.">1</button>
-                    <button type="button" data-count="2" data-help="How many phones this farm creates. 2 balances speed and RAM.">2</button>
-                    <button type="button" data-count="3" class="selected" data-help="How many phones this farm creates. 3 is the safe default on most machines.">3</button>
-                    <button type="button" data-count="5" data-help="How many phones this farm creates. 5 needs a beefy machine with 32 GB+ RAM.">5</button>
-                    <button type="button" data-count="8" data-help="How many phones this farm creates. 8 is heavy — only on a machine with RAM to spare.">8</button>
-                    <button type="button" data-count="10" data-help="How many phones this farm creates. 10 will max out most machines.">10</button>
-                  </div>
-                  <div class="action-row">
-                    <button type="button" class="btn-mini" id="btn-create-farm" data-help="Creates the phone farm with the count above. Emulators boot on this machine only when you press this.">Create phone farm</button>
-                  </div>
-                </details>
+                <p class="panel-note">Setup and phone adoption happen in the <strong>Phones</strong> step. This log only shows SDK/ADB install output.</p>
                 <div class="log-terminal" id="android-log" role="log"></div>
               </section>
             </div>
@@ -207,9 +204,9 @@
               <section class="panel panel-instructions">
                 <h2 class="panel-title">Before you start</h2>
                 <ol class="instruction-list instruction-list-compact phones-instructions">
-                  <li>Start each phone in <strong>MuMu</strong>.</li>
+                  <li>Start your phones in your stack — <strong>MuMu, Android Studio AVD, Docker redroid, or real USB</strong>. The farm adopts anything that answers ADB.</li>
                   <li>Turn on <strong>USB debugging</strong> (Settings → Developer options). Leave it on — PharmFlow needs it; the disguise still applies during setup.</li>
-                  <li>If MuMu shows <strong>Root</strong>, leave it <strong>ON</strong>.</li>
+                  <li>If your emulator has a <strong>Root</strong> toggle, leave it <strong>ON</strong>.</li>
                   <li>Click <strong>Check again</strong>, then <strong>Set up my phones</strong>.</li>
                   <li>PharmFlow installs the browser, disguises each phone, and finishes setup.</li>
                   <li>If asked, restart the phones and run setup again.</li>
@@ -225,7 +222,7 @@
                 <ul class="checklist checklist-scroll" id="checklist"></ul>
                 <div class="phones-wrap">
                   <h2 class="panel-title phones-found-title">Phones found</h2>
-                  <div id="phones-empty" class="phones-empty"><strong>None yet</strong> — start MuMu, turn USB debugging ON, then click Check again</div>
+                  <div id="phones-empty" class="phones-empty"><strong>None yet</strong> — start an emulator (MuMu, Studio AVD, Docker redroid) or plug a real phone, turn USB debugging ON, then click Check again</div>
                   <div id="phone-chips" class="phone-chips" hidden></div>
                 </div>
                 <div class="phones-actions-bar">
@@ -292,7 +289,7 @@
                   <button type="button" class="btn-mini" id="btn-save-site-url">Save</button>
                 </div>
                 <p class="panel-note" id="site-url-hint">Used for Test and default sequences.</p>
-                <p class="panel-note boot-policy-note">PharmFlow never opens or closes emulators by itself. Start your phones in MuMu (or AVD/Docker) — the EXE farms whatever is already live, and once the farm is running it keeps its phones alive.</p>
+                <p class="panel-note boot-policy-note">PharmFlow never opens or closes emulators by itself. Start phones in your stack (MuMu, Docker redroid, Studio AVD, real USB) — the EXE farms whatever is already live on ADB, and once the farm is running it keeps its phones alive.</p>
                 <div class="action-row">
                   <button type="button" class="btn-ghost" id="btn-spin-test-phone" data-help="Your click only: boots one spare phone (Docker redroid first, then MuMu) so you can test the setup before the farm goes live.">Spin up one phone to test</button>
                   <button type="button" class="btn-go btn-go-secondary" id="btn-test-url" data-help="Opens the saved site on the live phones so you can check it renders before farming.">Open site on phones</button>
@@ -484,7 +481,7 @@
                 <ol class="instruction-list">
                   <li>Click <strong>Start automation</strong>.</li>
                   <li>PharmFlow starts the service and runs all groups for you.</li>
-                  <li>Watch the MuMu windows to confirm phones are running.</li>
+                  <li>Watch the phone screens (MuMu, Docker redroid, Studio AVD, real) to confirm phones are running.</li>
                 </ol>
                 <p class="status-line" id="launch-summary"></p>
                 <div class="action-row action-row-big">

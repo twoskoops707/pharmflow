@@ -395,6 +395,11 @@ class CPharmAppApi:
 
         return bridge.get_farm_hud()
 
+    def get_machine_capabilities(self) -> dict:
+        import cpharm_wizard_bridge as bridge
+
+        return bridge.get_machine_capabilities()
+
     # ── Farm settings (Advanced panels) ──
 
     def get_farm_settings(self) -> dict:

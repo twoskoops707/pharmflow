@@ -23,7 +23,6 @@
   let stepComplete = {};
   let setupBusy = false;
   let installBusy = false;
-  let farmCount = 3;
   let setupAutoRefreshTimer = null;
   let setupStatusLockUntilMs = 0;
 
@@ -406,7 +405,7 @@
       if (state && state.go_label) applyGoLabel(state.go_label);
       if (state && state.awaiting_cold_boot) {
         setSetupHint(
-          "Restart needed: stop phones in MuMu, start them again, then click Set up my phones."
+          "Restart needed: stop the phones, start them again, then click Set up my phones."
         );
         if (setupStatus) {
           setupStatus.textContent = "Restart phones, then set up again";
@@ -464,6 +463,109 @@
     }
   }
 
+  /* ── Machine + emulator inventory (Android step, ARM64-aware) ── */
+  async function refreshMachineCaps() {
+    const el = document.getElementById("machine-caps");
+    if (!el) return;
+    const a = api();
+    if (!a || typeof a.get_machine_capabilities !== "function") {
+      el.innerHTML =
+        '<p class="panel-note">Inventory needs the PharmFlow backend — close and reopen PharmFlow.exe.</p>';
+      return;
+    }
+    try {
+      const m = await a.get_machine_capabilities();
+      if (el) el.innerHTML = machineCapsHtml(m);
+    } catch (_e) {
+      el.innerHTML = '<p class="panel-note">Inventory scan failed — click Check again.</p>';
+    }
+  }
+
+  function machineCapsHtml(m) {
+    if (!m || m.ok === false) {
+      return '<p class="panel-note">Scan failed — click Check again.</p>';
+    }
+    const arch = escHtml(m.arch_label || "—");
+    const archNote =
+      m.arch === "arm64"
+        ? "native build — redroid runs arm64-v8a; MuMu / Studio AVDs are adopted as-is"
+        : "standard x64 build";
+    const rd = m.redroid || { up: 0, total: 0 };
+    const mumu = m.mumu || { instances: 0, online: 0 };
+    const avd = Number(m.avd_online) || 0;
+    const usb = Number(m.usb_online) || 0;
+    const tcp = Number(m.tcp_online) || 0;
+    const phones = m.phones || [];
+    let html = "";
+    html +=
+      '<div class="mc-line"><span class="mc-k">CPU</span><span><span class="mc-dot ok"></span><strong>' +
+      arch +
+      "</strong> · " +
+      archNote +
+      "</span></div>";
+    html +=
+      '<div class="mc-line"><span class="mc-k">Docker</span><span><span class="mc-dot ' +
+      (m.docker ? "ok" : "bad") +
+      '"></span>' +
+      (m.docker
+        ? "engine up · <strong>" + rd.up + "/" + rd.total + "</strong> redroid containers up (arm64-v8a)"
+        : "engine down — start Docker Desktop for redroid phones") +
+      "</span></div>";
+    html +=
+      '<div class="mc-line"><span class="mc-k">MuMu</span><span><span class="mc-dot ' +
+      (mumu.instances ? "ok" : "off") +
+      '"></span>' +
+      (mumu.instances
+        ? mumu.instances + " instance(s), <strong>" + mumu.online + "</strong> online"
+        : "none found on this machine") +
+      "</span></div>";
+    html +=
+      '<div class="mc-line"><span class="mc-k">Studio AVD</span><span><span class="mc-dot ' +
+      (avd ? "ok" : "off") +
+      '"></span>' +
+      (avd ? avd + " online" : "none online") +
+      "</span></div>";
+    html +=
+      '<div class="mc-line"><span class="mc-k">Real USB</span><span><span class="mc-dot ' +
+      (usb ? "ok" : "off") +
+      '"></span>' +
+      (usb ? usb + " online" : "none") +
+      "</span></div>";
+    if (tcp > 0) {
+      html +=
+        '<div class="mc-line"><span class="mc-k">Other ADB</span><span><span class="mc-dot ok"></span>' +
+        tcp +
+        " online over ADB TCP</span></div>";
+    }
+    html +=
+      '<div class="mc-line"><span class="mc-k">On ADB</span><span><span class="mc-dot ' +
+      (phones.length ? "ok" : "off") +
+      '"></span><strong>' +
+      phones.length +
+      "</strong> phone(s) the farm can adopt" +
+      (phones.length ? " — start one below, or go to the Test step to spin up a spare" : " — start an emulator or plug a phone") +
+      "</span></div>";
+    if (phones.length) {
+      html +=
+        '<div class="mc-line" style="align-items:flex-start"><span class="mc-k">Live</span><span class="mc-phones">' +
+        phones
+          .map(function (p) {
+            return (
+              '<span class="chip"><span class="mc-dot ' +
+              (p.online ? "ok" : "off") +
+              '"></span>' +
+              escHtml(p.kind || "phone") +
+              " · " +
+              escHtml(p.serial) +
+              "</span>"
+            );
+          })
+          .join("") +
+        "</span></div>";
+    }
+    return html;
+  }
+
   async function refreshPrereqs() {
     try {
       const rows = await callApi("Refresh", function (a) {
@@ -514,6 +616,7 @@
       if (ledEl) ledEl.classList.toggle("on", ready);
       if (ready) stepComplete.android = true;
       updateNavActive();
+      refreshMachineCaps();
     } catch (e) {
       if (statusEl) statusEl.textContent = "Could not read status: " + e;
       if (labelEl) labelEl.textContent = "Status unavailable";
@@ -1192,7 +1295,7 @@
         showToast("Phones are ready. Go to Test.");
       } else {
         setSetupHint(
-          "Something still needs fixing. Read the log. Often you just restart phones in MuMu and run setup again."
+          "Something still needs fixing. Read the log. Often you just restart the phones and run setup again."
         );
         if (setupStatus) {
           setupStatus.dataset.hold = "1";
@@ -1256,6 +1359,71 @@
       showView(id, { animate: true });
     },
   };
+
+  /* ── Floating help tooltips (data-help) ─────────────────
+     One fixed overlay element at the end of <body>, driven by hover /
+     focus. It is never a child of a panel or scroll container, so it can
+     never be clipped or end up behind another "window" in the deck. ---- */
+  const deckTip = document.createElement("div");
+  deckTip.className = "deck-tooltip";
+  deckTip.setAttribute("role", "tooltip");
+  document.body.appendChild(deckTip);
+
+  let tipSrc = null;
+
+  function showTip(el) {
+    tipSrc = el;
+    deckTip.textContent = el.getAttribute("data-help") || "";
+    positionTip(el);
+    requestAnimationFrame(function () {
+      if (tipSrc === el) deckTip.classList.add("on");
+    });
+  }
+
+  function hideTip() {
+    tipSrc = null;
+    deckTip.classList.remove("on");
+  }
+
+  function positionTip(el) {
+    const r = el.getBoundingClientRect();
+    if (!r || (!r.width && !r.height)) return;
+    const pad = 9;
+    const vw = document.documentElement.clientWidth;
+    const vh = document.documentElement.clientHeight;
+    let top = r.top - deckTip.offsetHeight - pad;
+    if (top < 6) top = r.bottom + pad; // flip below when no room above
+    let left = r.left + r.width / 2 - deckTip.offsetWidth / 2;
+    left = Math.max(6, Math.min(left, vw - deckTip.offsetWidth - 6));
+    deckTip.style.left = Math.round(left) + "px";
+    deckTip.style.top = Math.round(Math.max(6, Math.min(top, vh - deckTip.offsetHeight - 6))) + "px";
+  }
+
+  document.addEventListener("mouseover", function (e) {
+    const el = e.target && e.target.closest ? e.target.closest("[data-help]") : null;
+    if (el) showTip(el);
+  });
+  document.addEventListener("mouseout", function (e) {
+    const el = e.target && e.target.closest ? e.target.closest("[data-help]") : null;
+    if (el && el === tipSrc) hideTip();
+  });
+  document.addEventListener("focusin", function (e) {
+    const el = e.target && e.target.closest ? e.target.closest("[data-help]") : null;
+    if (el) showTip(el);
+  });
+  document.addEventListener("focusout", function () {
+    hideTip();
+  });
+  document.addEventListener(
+    "scroll",
+    function () {
+      if (tipSrc) positionTip(tipSrc);
+    },
+    true
+  );
+  window.addEventListener("resize", function () {
+    if (tipSrc) positionTip(tipSrc);
+  });
 
   async function init() {
     wireStaticNav();
@@ -1496,35 +1664,10 @@
       });
     }
 
-    const countPicker = document.getElementById("count-picker");
-    if (countPicker && !countPicker.dataset.wired) {
-      countPicker.dataset.wired = "1";
-      countPicker.querySelectorAll("button").forEach(function (btn) {
-        btn.addEventListener("click", function () {
-          farmCount = parseInt(btn.dataset.count, 10) || 3;
-          countPicker.querySelectorAll("button").forEach(function (b) {
-            b.classList.toggle("selected", b === btn);
-          });
-          const a = requireApi("Farm count");
-          if (a) a.set_phone_farm_count(farmCount);
-        });
-      });
-    }
-
-    const btnFarm = document.getElementById("btn-create-farm");
-    if (btnFarm && !btnFarm.dataset.wired) {
-      btnFarm.dataset.wired = "1";
-      btnFarm.addEventListener("click", async function () {
-        try {
-          await callApi("Create farm", async function (a) {
-            await a.set_phone_farm_count(farmCount);
-            return a.run_create_phone_farm();
-          });
-          showToast("Creating phone farm…");
-        } catch (_e) {
-          /* banner shown */
-        }
-      });
+    const btnRefreshCaps = document.getElementById("btn-refresh-caps");
+    if (btnRefreshCaps && !btnRefreshCaps.dataset.wired) {
+      btnRefreshCaps.dataset.wired = "1";
+      btnRefreshCaps.addEventListener("click", refreshMachineCaps);
     }
 
     const btnSpin = document.getElementById("btn-spin-test-phone");
@@ -1587,7 +1730,13 @@
           const res = await callApi("Spin up test phone", function (a) {
             return a.spin_up_test_phone();
           });
-          if (res && res.message) showToast(res.message);
+          if (res && res.started && !res.busy) {
+            showToast("Spinning up a test phone — progress streams on the Test step");
+            showView("boot", { animate: true });
+          } else if (res && res.message) {
+            showToast(res.message);
+            showView("boot", { animate: true });
+          }
         } catch (_e) {
           /* banner shown */
         }
@@ -1615,7 +1764,7 @@
             return;
           }
           const host = url ? url.replace(/^https?:\/\//, "").split("/")[0] : "site";
-          showToast("Opened " + host + " on phone — check the MuMu screen");
+          showToast("Opened " + host + " on the phones — check the phone screens");
           if (bootLog && res && res.note) appendLog(bootLog, res.note);
         } catch (_e) {
           /* banner shown */
