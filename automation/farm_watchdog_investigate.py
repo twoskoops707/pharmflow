@@ -21,6 +21,24 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 ADB = Path(r"C:\CPharm\bundled\adb.exe")
+
+
+def _helper_py() -> str:
+    """Deps-complete interpreter for fix scripts (cryptography required).
+
+    On ARM64 boxes the PATH python is native-arm64 and has no cryptography
+    wheel, which silently kills fix children (CA/Tor repair). Prefer a
+    system pythonw that can import the full stack.
+    """
+    try:
+        from automation.runtime_paths import helper_python
+
+        found = helper_python()
+        if found:
+            return found
+    except Exception:
+        pass
+    return sys.executable
 FLAGS = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 PAUSE_ADS = LOG / "PAUSE_BOTTOM_ADS_WATCH.flag"
 STICKY_7 = LOG / "FARM_STICKY_7_PHONES.lock"
@@ -427,13 +445,13 @@ def apply_fixes(problems: list[dict[str, str]], ev: dict[str, Any], *, apply: bo
     if "tor_on_inject_port" in ids:
         script = ROOT / "scripts" / "_fix_tor_inject_ports_now.py"
         if script.is_file():
-            code, out = _run([sys.executable, str(script)], timeout=120)
+            code, out = _run([_helper_py(), str(script)], timeout=120)
             fixes.append(f"fix_tor_inject exit={code} {out[-120:]}")
 
     if "adb_timeout_storm" in ids or "seq_all_fail_no_ok" in ids:
         script = ROOT / "scripts" / "_unwedge_uiautomator_now.py"
         if script.is_file():
-            code, out = _run([sys.executable, str(script)], timeout=90)
+            code, out = _run([_helper_py(), str(script)], timeout=90)
             fixes.append(f"unwedge exit={code}")
 
     # Only reload farm when worker down or stuck boot — never on adb timeout alone.

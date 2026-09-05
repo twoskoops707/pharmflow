@@ -48,6 +48,20 @@ def _utc() -> str:
 
 
 def _pyw() -> str:
+    """Deps-complete interpreter (cryptography) for lane children.
+
+    Native-ARM64 Windows python has no cryptography wheel, so spawning with
+    sys.executable on ARM boxes kills every lane child at import. Prefer a
+    system pythonw that can import the full stack.
+    """
+    try:
+        from automation.runtime_paths import helper_python
+
+        found = helper_python()
+        if found:
+            return found
+    except Exception:
+        pass
     pyw = sys.executable.replace("python.exe", "pythonw.exe")
     return pyw if Path(pyw).is_file() else sys.executable
 

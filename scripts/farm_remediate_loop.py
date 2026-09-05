@@ -126,6 +126,27 @@ def _utc() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _remediate_pyw() -> str:
+    """Deps-complete interpreter (cryptography) for farm/dash children.
+
+    Native-ARM64 Windows python has no cryptography wheel, so spawning with
+    sys.executable on ARM boxes kills every child (CA/Tor repair, exit-IP
+    guard) at import. Prefer a system pythonw that can import the full stack.
+    """
+    try:
+        from automation.runtime_paths import helper_python
+
+        found = helper_python()
+        if found:
+            return found
+    except Exception:
+        pass
+    pyw = sys.executable.replace("python.exe", "pythonw.exe")
+    if Path(pyw).is_file():
+        return pyw
+    return sys.executable
+
+
 def _dash_port_ok() -> bool:
     try:
         with socket.create_connection(("127.0.0.1", DASH_PORT), timeout=2.0):
@@ -173,9 +194,7 @@ def ensure_farm_reload_if_flagged() -> list[str]:
     if not farm_script.is_file():
         fixes.append("farm_script_missing")
         return fixes
-    pyw = sys.executable.replace("python.exe", "pythonw.exe")
-    if not Path(pyw).is_file():
-        pyw = sys.executable
+    pyw = _remediate_pyw()
     env = os.environ.copy()
     env["PYTHONPATH"] = str(ROOT)
     try:
@@ -261,9 +280,7 @@ def ensure_dash_up() -> list[str]:
         time.sleep(0.4)
     else:
         fixes.append("DASH_DOWN detected — restarting farm_operator_dash :8091")
-    pyw = sys.executable.replace("python.exe", "pythonw.exe")
-    if not Path(pyw).is_file():
-        pyw = sys.executable
+    pyw = _remediate_pyw()
     env = os.environ.copy()
     env["PYTHONPATH"] = str(ROOT)
     try:
