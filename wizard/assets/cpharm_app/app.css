@@ -69,8 +69,11 @@ body::before {
   z-index: 1;
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
-  min-height: 100dvh;
+  height: 100vh;
+  height: 100dvh;
+  max-height: 100vh;
+  max-height: 100dvh;
+  overflow: hidden;
   max-width: 1280px;
   margin: 0 auto;
   padding: 0 16px 16px;
@@ -314,12 +317,14 @@ body::before {
 .content {
   flex: 1;
   min-height: 0;
+  overflow: hidden;
 }
 
 .view {
   display: none;
   flex-direction: column;
-  min-height: 100%;
+  height: 100%;
+  min-height: 0;
 }
 
 .view.active {
@@ -386,11 +391,16 @@ body::before {
 .view-body {
   flex: 1;
   min-height: 0;
+  /* Every view scrolls its own body (Groups/Teams included). The hero and
+     the footer-nav stay pinned; long content scrolls under them instead of
+     being clipped or unreachable. */
+  overflow-y: auto;
+  padding-right: 4px;
+  overscroll-behavior: contain;
 }
 
 .view-body-scroll {
-  overflow-y: auto;
-  padding-right: 4px;
+  /* Legacy alias — .view-body already scrolls. */
 }
 
 /* ---------- panels ---------- */
