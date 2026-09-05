@@ -1,163 +1,248 @@
-"""Task scheduler for automated sequence runs."""
-
-from __future__ import annotations
-
+"""
+CPharm Scheduler — daily hit quota per phone with random fire-times.
+Per-phone: given hits_per_day, generates N fire-times spread randomly across 24h and executes the sequence.
+"""
+import asyncio
+import datetime
+import json
 import logging
-from datetime import datetime, timezone
+import os
+import re
+import random
+import sys
+import threading
+import time as _time
 from pathlib import Path
-from typing import Any, Callable
 
-from apscheduler.schedulers.background import BackgroundScheduler
-from apscheduler.triggers.cron import CronTrigger
-from apscheduler.triggers.interval import IntervalTrigger
+sys.path.insert(0, str(Path(__file__).parent))
 
-from automation.group_manager import GroupManager
-from automation.group_runner import run_group
-from automation.sequence_paths import resolve_sequence_path
-from automation.sequence_runner import Sequence, SequenceRunner
-from wizard.mumu_farm_ops import MuMuFarmOps
+import human_variation as hv
+import tor_manager
+from sequence_normalize import normalize_automation_steps
 
-logger = logging.getLogger(__name__)
+log = logging.getLogger("scheduler")
+
+# Lazy import — importing ``dashboard`` at module load couples scheduler startup to the full
+# dashboard stack; ``dashboard`` already lazy-imports this module in ``handle_scheduler``.
+_dashboard_mod = None
 
 
-class FarmScheduler:
-    """Schedule automated sequence runs per phone or group."""
+def _dashboard():
+    global _dashboard_mod
+    if _dashboard_mod is None:
+        import dashboard as _d
 
-    def __init__(
-        self,
-        farm: MuMuFarmOps,
-        sequences_dir: Path,
-        group_manager: GroupManager | None = None,
-    ) -> None:
-        self.farm = farm
-        self.sequences_dir = sequences_dir
-        self.groups = group_manager or GroupManager()
-        self.runner = SequenceRunner(farm)
-        self.scheduler = BackgroundScheduler()
-        self._job_log: list[dict[str, Any]] = []
-        self._on_complete: Callable[[dict[str, Any]], None] | None = None
+        _dashboard_mod = _d
+    return _dashboard_mod
 
-    def set_on_complete(self, callback: Callable[[dict[str, Any]], None]) -> None:
-        self._on_complete = callback
+PHONE_SCHED = {}    # serial -> {"hits": N, "times": [epoch], "idx": N}
+RUNNING = {}         # serial -> bool
+_main_loop = None    # event loop captured from async context
+_sched_lock = threading.Lock()
 
-    def start(self) -> None:
-        if not self.scheduler.running:
-            self.scheduler.start()
-            logger.info("Scheduler started")
 
-    def stop(self) -> None:
-        if self.scheduler.running:
-            self.scheduler.shutdown(wait=False)
-            logger.info("Scheduler stopped")
+def _name(serial: str) -> str:
+    try:
+        return next(p["name"] for p in _dashboard().list_phones() if p["serial"] == serial)
+    except StopIteration:
+        return serial
 
-    def schedule_sequence(
-        self,
-        job_id: str,
-        sequence_name: str,
-        phone: str,
-        cron: str | None = None,
-        interval_seconds: int | None = None,
-    ) -> str:
-        """Schedule a sequence by cron expression or interval."""
-        seq_path = resolve_sequence_path(self.sequences_dir, sequence_name)
-        if not seq_path.is_file():
-            raise FileNotFoundError(f"Sequence not found: {sequence_name}")
 
-        def _run() -> None:
-            seq = Sequence.from_json(seq_path)
-            seq.phone = phone
-            report = self.runner.run(seq)
-            entry = {"job_id": job_id, "time": datetime.now(timezone.utc).isoformat(), "report": report}
-            self._job_log.append(entry)
-            logger.info("Scheduled run %s: success=%s", job_id, report.get("success"))
-            if self._on_complete:
-                self._on_complete(entry)
+def _gen_today(hits: int) -> list:
+    mn = datetime.datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
+    offsets = sorted(random.uniform(0, 86400) for _ in range(hits))
+    return [mn + o for o in offsets]
 
-        if cron:
-            trigger = CronTrigger.from_crontab(cron)
-        elif interval_seconds:
-            trigger = IntervalTrigger(seconds=interval_seconds)
+
+_ALLOWED_STEP_TYPES = frozenset({
+    "open_url", "tap", "wait", "swipe", "keyevent",
+    "close_app", "clear_cookies", "type_text",
+    "rotate_identity", "full_reset",
+})
+
+
+def _has_age_verification_marker(steps: list) -> bool:
+    if not isinstance(steps, list):
+        return False
+    for raw in steps:
+        if not isinstance(raw, dict):
+            continue
+        if raw.get("age_verification") is True or raw.get("age_gate") is True:
+            return True
+        marker = str(raw.get("checkpoint", "")).strip().lower()
+        if marker in ("age_verification", "age_gate"):
+            return True
+    return False
+
+
+def _run_steps(serial: str, steps: list):
+    if os.environ.get("CPHARM_SKIP_TOR_WAIT", "").strip().lower() not in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    ):
+        pre = tor_manager.tor_proxy_preflight()
+        if not pre.get("ok"):
+            log.error("[scheduler] Tor unavailable — %s (set CPHARM_SKIP_TOR_WAIT=1 to bypass)", pre.get("error"))
+            return
+        idx = tor_manager.phone_idx_from_adb_serial(serial)
+        log.info("[scheduler] waiting for Tor bootstrap + proxy for %s …", serial)
+        ens = tor_manager.ensure_tor_and_proxy_for_phone(serial, idx)
+        if not ens.get("ok"):
+            log.error("[scheduler] Tor not ready for %s — %s", serial, ens.get("error"))
+            return
+
+    normalized = normalize_automation_steps(list(steps or []))
+    hv_rng = hv.rng_for_run(serial, int(_time.time())) if hv.enabled() else None
+    if not _has_age_verification_marker(normalized):
+        log.warning(
+            "[scheduler] %s sequence missing age verification marker; flagging anomaly",
+            _name(serial),
+        )
+        _broadcast_from_thread(
+            {
+                "type": "log",
+                "msg": f"[scheduler] {_name(serial)} anomaly: sequence missing age verification marker",
+            }
+        )
+    for step in normalized:
+        if not isinstance(step, dict):
+            continue
+        if step.get("type", "") not in _ALLOWED_STEP_TYPES:
+            continue
+        _dashboard().run_sequence_step(serial, step, hv_rng=hv_rng)
+        if hv_rng is not None:
+            _time.sleep(hv.step_gap_seconds(hv_rng))
         else:
-            raise ValueError("Provide cron or interval_seconds")
+            _time.sleep(random.uniform(0.35, 0.55))
+    idx = tor_manager.phone_idx_from_adb_serial(serial)
+    tor_manager.full_identity_reset(serial, idx)
 
-        self.scheduler.add_job(_run, trigger=trigger, id=job_id, replace_existing=True)
-        return job_id
 
-    def schedule_group(self, group_name: str) -> list[str]:
-        """Schedule all phones in a group using group's cron and sequence."""
-        group = self.groups.get_group(group_name)
-        if not group:
-            raise KeyError(f"Group not found: {group_name}")
-        job_ids: list[str] = []
-        for phone in group.phones:
-            if not group.sequence:
-                continue
-            job_id = f"group_{group_name}_{phone}"
-            cron = group.schedule_cron or "0 */6 * * *"
-            self.schedule_sequence(job_id, group.sequence, phone, cron=cron)
-            job_ids.append(job_id)
-        return job_ids
+def _broadcast_from_thread(msg: dict):
+    if _main_loop is not None:
+        asyncio.run_coroutine_threadsafe(_dashboard().broadcast(msg), _main_loop)
 
-    def reload_schedules(self) -> int:
-        """Register cron jobs for every group with a non-empty ``schedule_cron``."""
-        prefix = "group_cron_"
-        for job in list(self.scheduler.get_jobs()):
-            if job.id.startswith(prefix):
-                self.remove_job(job.id)
 
-        scheduled = 0
-        for summary in self.groups.list_groups():
-            group = self.groups.get_group(summary["name"])
-            if not group:
-                continue
-            cron = (group.schedule_cron or "").strip()
-            if not cron:
-                continue
-            group_name = group.name
-            job_id = f"{prefix}{group_name}"
+def _sched_loop(serial: str, steps: list, hits_per_day: int):
+    log.info("[scheduler] %s started (%s hits/day)", _name(serial), hits_per_day)
+    if hits_per_day <= 0:
+        log.info("[scheduler] %s stopping — hits_per_day<=0 (would busy-spin)", _name(serial))
+        with _sched_lock:
+            RUNNING.pop(serial, None)
+        return
+    while True:
+        with _sched_lock:
+            if not RUNNING.get(serial, False):
+                break
+            info  = PHONE_SCHED.get(serial, {})
+            times = list(info.get("times", []))
+            idx   = info.get("idx", 0)
 
-            def _run(gn: str = group_name, jid: str = job_id) -> None:
-                report = run_group(self.farm, self.groups, self.runner, gn)
-                entry = {
-                    "job_id": jid,
-                    "time": datetime.now(timezone.utc).isoformat(),
-                    "report": report,
-                }
-                self._job_log.append(entry)
-                logger.info(
-                    "Scheduled group %s: success=%s iterations=%s",
-                    gn,
-                    report.get("success"),
-                    report.get("iterations"),
-                )
-                if self._on_complete:
-                    self._on_complete(entry)
+        now = _time.time()
+        mn_today = datetime.datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
 
-            try:
-                trigger = CronTrigger.from_crontab(cron)
-            except ValueError as exc:
-                logger.warning("Invalid cron %r for group %s: %s", cron, group_name, exc)
-                continue
-            self.scheduler.add_job(_run, trigger=trigger, id=job_id, replace_existing=True)
-            scheduled += 1
-            logger.info("Scheduled group %s with cron %r", group_name, cron)
-        return scheduled
+        if not times or (times and times[0] < mn_today):
+            new_times = _gen_today(hits_per_day)
+            with _sched_lock:
+                PHONE_SCHED[serial] = {"hits": hits_per_day, "times": new_times, "idx": 0}
+            log.info("[scheduler] %s new day schedule: %s hits", _name(serial), len(new_times))
+            _broadcast_from_thread({
+                "type": "scheduler_update", "serial": serial,
+                "hits_per_day": hits_per_day, "times": new_times})
+            continue
 
-    def remove_job(self, job_id: str) -> None:
+        if idx >= len(times):
+            _broadcast_from_thread({"type": "scheduler_done_today", "serial": serial})
+            _time.sleep(random.uniform(60, 300))
+            continue
+
+        wait = times[idx] - now
+        if wait > 0:
+            _time.sleep(min(wait, 30))
+            continue
+
+        log.info("[scheduler] %s firing [%s/%s]", _name(serial), idx + 1, len(times))
+        _broadcast_from_thread({
+            "type": "scheduler_tick", "serial": serial,
+            "count": idx + 1, "total": len(times)})
+        _run_steps(serial, steps)
+        with _sched_lock:
+            if serial in PHONE_SCHED:
+                PHONE_SCHED[serial]["idx"] = idx + 1
+        _time.sleep(1)
+
+    with _sched_lock:
+        RUNNING.pop(serial, None)
+    log.info("[scheduler] %s stopped", _name(serial))
+
+
+async def handle_scheduler(path: str, body_bytes: bytes, method: str = "POST"):
+    global _main_loop
+    _main_loop = asyncio.get_running_loop()
+
+    data = {}
+    if body_bytes and method != "GET":
         try:
-            self.scheduler.remove_job(job_id)
-        except Exception as exc:
-            logger.warning("Failed to remove job %s: %s", job_id, exc)
+            data = json.loads(body_bytes)
+        except Exception:
+            pass
 
-    def list_jobs(self) -> list[dict[str, Any]]:
-        jobs = []
-        for job in self.scheduler.get_jobs():
-            jobs.append({
-                "id": job.id,
-                "next_run": str(job.next_run_time) if job.next_run_time else None,
-                "trigger": str(job.trigger),
-            })
-        return jobs
+    _SERIAL_RE = re.compile(r'^[A-Za-z0-9._:\-]+$')
 
-    def get_job_log(self, limit: int = 50) -> list[dict[str, Any]]:
-        return self._job_log[-limit:]
+    if path == "/api/scheduler/generate":
+        serials = [s for s in data.get("serials", []) if _SERIAL_RE.match(str(s))]
+        try:
+            hits = max(0, min(int(data.get("hits_per_day", 0)), 1440))
+        except (TypeError, ValueError):
+            return _dashboard().json_err("hits_per_day must be an integer")
+        result = {}
+        for s in serials:
+            times = _gen_today(hits)
+            with _sched_lock:
+                PHONE_SCHED[s] = {"hits": hits, "times": times, "idx": 0}
+            result[s] = [datetime.datetime.fromtimestamp(t).strftime("%H:%M") for t in times[:12]]
+        return _dashboard().json_ok({"schedule": result})
+
+    if path == "/api/scheduler/start":
+        serials = [s for s in data.get("serials", []) if _SERIAL_RE.match(str(s))]
+        steps   = data.get("steps", [])
+        try:
+            hits = max(0, min(int(data.get("hits_per_day", 0)), 1440))
+        except (TypeError, ValueError):
+            return _dashboard().json_err("hits_per_day must be an integer")
+        started = []
+        with _sched_lock:
+            for s in serials:
+                if RUNNING.get(s, False):
+                    continue
+                RUNNING[s] = True
+                t = threading.Thread(target=_sched_loop, args=(s, steps, hits), daemon=True)
+                t.start()
+                started.append(s)
+        return _dashboard().json_ok({"started": started})
+
+    if path == "/api/scheduler/stop":
+        with _sched_lock:
+            for k in list(RUNNING):
+                RUNNING[k] = False
+        return _dashboard().json_ok({"ok": True})
+
+    if path == "/api/scheduler/status":
+        with _sched_lock:
+            snapshot = {s: dict(info) for s, info in PHONE_SCHED.items()}
+            running_snap = dict(RUNNING)
+        out = {}
+        for s, info in snapshot.items():
+            times = info.get("times", [])
+            idx   = info.get("idx", 0)
+            out[s] = {
+                "hits_per_day": info.get("hits", 0),
+                "fired_today":  idx,
+                "remaining":    max(0, len(times) - idx),
+                "running":      running_snap.get(s, False),
+            }
+        return _dashboard().json_ok(out)
+
+    return _dashboard().json_ok({"ok": False, "error": "unknown route"})

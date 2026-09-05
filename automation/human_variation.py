@@ -1,14 +1,19 @@
 """
 Per-device human-like variance: same step semantics, stable RNG per (serial, cycle).
 
-Enable via ``CPHARM_HUMAN_VARIATION=1`` (always on for Mantis farm profitability).
+Enable via config/env (see ``config.HUMAN_VARIATION`` / ``CPHARM_HUMAN_VARIATION``).
+
+Scheduling uses a separate stable RNG (see :func:`schedule_rng`) so a given phone's
+fire times for a calendar day are reproducible across process restarts when the
+quota is unchanged—better for unattended runs than reshuffling on every boot.
 """
 from __future__ import annotations
 
 import hashlib
-import os
 import random
 from typing import Optional
+
+from config import HUMAN_VARIATION
 
 # Tune: wait duration multiplier is uniform in [1 - WAIT_SPREAD, 1 + WAIT_SPREAD]
 WAIT_SPREAD = 0.08
@@ -60,8 +65,7 @@ def _digest_blake2b_or_sha256(data: bytes, *, digest_size: int = 8, key: bytes |
 
 
 def enabled() -> bool:
-    raw = os.environ.get("CPHARM_HUMAN_VARIATION", "1").strip().lower()
-    return raw in ("1", "true", "yes", "on")
+    return bool(HUMAN_VARIATION)
 
 
 def stable_seed(serial: str, cycle: int) -> int:

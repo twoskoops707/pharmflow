@@ -1,61 +1,37 @@
-"""Tests for automation/scheduler.py cron registration."""
+"""Tests for automation/scheduler.py (live quota scheduler)."""
 
 from __future__ import annotations
 
 import unittest
-from unittest.mock import MagicMock, patch
 
-from automation.group_manager import GroupManager, PhoneGroup
-from automation.scheduler import FarmScheduler
+from automation.scheduler import _gen_today, _has_age_verification_marker
 
 
-class SchedulerReloadTests(unittest.TestCase):
-    def test_reload_schedules_registers_group_cron(self) -> None:
-        farm = MagicMock()
-        runner = MagicMock()
-        groups = GroupManager.__new__(GroupManager)
-        groups.groups = {
-            "TeamA": PhoneGroup(
-                name="TeamA",
-                phones=["Phone-1"],
-                schedule_cron="0 */6 * * *",
-            )
-        }
-        groups.list_groups = lambda: [{"name": "TeamA", "schedule_cron": "0 */6 * * *"}]
-        groups.get_group = lambda name: groups.groups.get(name)
+class SchedulerCoreTests(unittest.TestCase):
+    def test_gen_today_spreads_hits_across_day(self) -> None:
+        times = _gen_today(12)
+        self.assertEqual(len(times), 12)
+        # All fire-times fall within the next 24h and are unique.
+        self.assertEqual(len(set(times)), 12)
+        span = max(times) - min(times)
+        self.assertGreater(span, 0)
 
-        sched = FarmScheduler(farm, MagicMock(), groups)
-        sched.runner = runner
-        sched.start()
+    def test_gen_today_zero_hits(self) -> None:
+        self.assertEqual(_gen_today(0), [])
 
-        with patch("automation.scheduler.run_group", return_value={"success": True}) as mock_run:
-            n = sched.reload_schedules()
-            self.assertEqual(n, 1)
-            jobs = sched.list_jobs()
-            self.assertEqual(len(jobs), 1)
-            self.assertEqual(jobs[0]["id"], "group_cron_TeamA")
-
-            # Execute the scheduled callable once (APScheduler stores it on the job)
-            job = sched.scheduler.get_job("group_cron_TeamA")
-            assert job is not None
-            job.func()
-            mock_run.assert_called_once()
-
-        sched.stop()
-
-    def test_reload_skips_empty_cron(self) -> None:
-        farm = MagicMock()
-        groups = GroupManager.__new__(GroupManager)
-        groups.groups = {"TeamB": PhoneGroup(name="TeamB", phones=[], schedule_cron="")}
-        groups.list_groups = lambda: [{"name": "TeamB"}]
-        groups.get_group = lambda name: groups.groups.get(name)
-
-        sched = FarmScheduler(farm, MagicMock(), groups)
-        sched.start()
-        self.assertEqual(sched.reload_schedules(), 0)
-        self.assertEqual(sched.list_jobs(), [])
-        sched.stop()
+    def test_age_verification_marker_detection(self) -> None:
+        self.assertTrue(
+            _has_age_verification_marker([{"type": "tap", "age_verification": True}])
+        )
+        self.assertTrue(
+            _has_age_verification_marker([{"type": "wait", "age_gate": True}])
+        )
+        self.assertTrue(
+            _has_age_verification_marker([{"type": "tap", "checkpoint": "age_gate"}])
+        )
+        self.assertFalse(_has_age_verification_marker([{"type": "tap"}, {"type": "wait"}]))
+        self.assertFalse(_has_age_verification_marker(None))
 
 
 if __name__ == "__main__":
-    unittest.main()
+    unittest.main()

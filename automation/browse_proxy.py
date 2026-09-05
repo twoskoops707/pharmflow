@@ -1,26 +1,44 @@
-"""Browse proxy modes — scramble (default) clears Tor so Mantis ads can fill."""
+"""
+Browse proxy modes for getdabflow / Mantis ad runs.
 
+``desktop_prefs.json``:
+  ``browse_proxy_mode``: ``tor`` | ``scramble`` | ``direct`` | ``upstream``
+  ``phone_upstream_proxies``: optional list parallel to ``phone_serials``
+    (``http://user:pass@host:port`` — local forwarder adds auth for Android)
+
+Env override: ``CPHARM_BROWSE_PROXY_MODE``.
+"""
 from __future__ import annotations
 
+import base64
 import json
 import logging
 import os
+import re
+import select
+import socket
+import socketserver
+import threading
 import time
-from pathlib import Path
 from typing import Callable
+from urllib.parse import urlparse
 
-logger = logging.getLogger(__name__)
+log = logging.getLogger(__name__)
 
+UPSTREAM_HTTP_BASE = 8130
 LogFn = Callable[[str], None]
+
+_forwarder_lock = threading.Lock()
+_forwarder_threads: dict[int, threading.Thread] = {}
+_forwarder_stop: dict[int, threading.Event] = {}
+
 _VALID_MODES = frozenset({"tor", "scramble", "direct", "upstream"})
-# Android settings get returns these when proxy is cleared / unset.
-_CLEARED_PROXY_VALUES = frozenset({"", ":0", "null", "none", "undefined"})
 
 
-def _prefs_path() -> Path:
-    from wizard.wizard_paths import desktop_prefs_file
+def _prefs_path():
+    from config import REC_DIR
 
-    return desktop_prefs_file()
+    return REC_DIR / "desktop_prefs.json"
 
 
 def load_browse_prefs() -> dict:
@@ -34,7 +52,7 @@ def load_browse_prefs() -> dict:
     return {}
 
 
-def save_browse_prefs(**updates: object) -> dict:
+def save_browse_prefs(**updates) -> dict:
     data = load_browse_prefs()
     data.update(updates)
     p = _prefs_path()
@@ -63,7 +81,23 @@ def browse_proxy_mode_label(mode: str | None = None) -> str:
     }.get(m, m)
 
 
+def upstream_proxy_url_for_phone(phone_idx: int) -> str | None:
+    prefs = load_browse_prefs()
+    lst = prefs.get("phone_upstream_proxies")
+    if not isinstance(lst, list):
+        return None
+    if phone_idx < 0 or phone_idx >= len(lst):
+        return None
+    raw = str(lst[phone_idx] or "").strip()
+    return raw or None
+
+
+def upstream_local_port(phone_idx: int) -> int:
+    return UPSTREAM_HTTP_BASE + int(phone_idx)
+
+
 def sync_browse_proxy_env_from_prefs() -> str:
+    """Copy prefs mode into ``CPHARM_BROWSE_PROXY_MODE`` when env unset."""
     if os.environ.get("CPHARM_BROWSE_PROXY_MODE", "").strip():
         return browse_proxy_mode()
     mode = browse_proxy_mode()
@@ -71,25 +105,210 @@ def sync_browse_proxy_env_from_prefs() -> str:
     return mode
 
 
-def dabflow_browse_active() -> bool:
-    """True when getdabflow browse should bypass Tor (scramble/direct/upstream)."""
-    return browse_proxy_mode() in ("scramble", "direct", "upstream")
+def _parse_upstream_url(url: str) -> tuple[str, int, str | None]:
+    u = urlparse(url.strip())
+    if u.scheme not in ("http", "https", ""):
+        raise ValueError(f"unsupported upstream scheme: {u.scheme}")
+    host = u.hostname or ""
+    port = u.port or (443 if u.scheme == "https" else 80)
+    if not host:
+        raise ValueError("upstream proxy missing host")
+    auth = None
+    if u.username:
+        user = u.username
+        pwd = u.password or ""
+        token = base64.b64encode(f"{user}:{pwd}".encode()).decode("ascii")
+        auth = f"Basic {token}"
+    return host, int(port), auth
+
+
+class _UpstreamProxyHandler(socketserver.BaseRequestHandler):
+    upstream_host: str = ""
+    upstream_port: int = 0
+    proxy_auth: str | None = None
+
+    def handle(self) -> None:
+        client = self.request
+        try:
+            client.settimeout(120)
+            header = b""
+            while b"\r\n\r\n" not in header and len(header) < 65536:
+                chunk = client.recv(4096)
+                if not chunk:
+                    return
+                header += chunk
+            first_line = header.split(b"\r\n", 1)[0].decode("latin-1", errors="replace")
+            parts = first_line.split()
+            if len(parts) < 2:
+                return
+            method, target = parts[0].upper(), parts[1]
+            up = socket.create_connection((self.upstream_host, self.upstream_port), timeout=60)
+            up.settimeout(120)
+            if method == "CONNECT":
+                host_port = target
+                req = f"CONNECT {host_port} HTTP/1.1\r\nHost: {host_port}\r\n"
+                if self.proxy_auth:
+                    req += f"Proxy-Authorization: {self.proxy_auth}\r\n"
+                req += "\r\n"
+                up.sendall(req.encode("latin-1"))
+                resp = b""
+                while b"\r\n\r\n" not in resp and len(resp) < 65536:
+                    chunk = up.recv(4096)
+                    if not chunk:
+                        return
+                    resp += chunk
+                if b" 200 " not in resp.split(b"\r\n", 1)[0]:
+                    client.sendall(resp)
+                    return
+                client.sendall(b"HTTP/1.1 200 Connection Established\r\n\r\n")
+                self._relay(client, up)
+            else:
+                up.sendall(header)
+                self._relay(client, up)
+        except OSError as exc:
+            log.debug("upstream forwarder client error: %s", exc)
+        finally:
+            try:
+                client.close()
+            except OSError:
+                pass
+
+    @staticmethod
+    def _relay(a: socket.socket, b: socket.socket) -> None:
+        sockets = [a, b]
+        while True:
+            try:
+                readable, _, _ = select.select(sockets, [], [], 120)
+            except (OSError, ValueError):
+                break
+            if not readable:
+                break
+            for sock in readable:
+                other = b if sock is a else a
+                try:
+                    data = sock.recv(65536)
+                except OSError:
+                    return
+                if not data:
+                    return
+                try:
+                    other.sendall(data)
+                except OSError:
+                    return
+
+
+def _make_handler_class(host: str, port: int, auth: str | None):
+    return type(
+        "UpstreamProxyHandler",
+        (_UpstreamProxyHandler,),
+        {"upstream_host": host, "upstream_port": port, "proxy_auth": auth},
+    )
+
+
+def stop_upstream_forwarder(phone_idx: int) -> None:
+    with _forwarder_lock:
+        ev = _forwarder_stop.pop(int(phone_idx), None)
+        if ev:
+            ev.set()
+        _forwarder_threads.pop(int(phone_idx), None)
+
+
+def ensure_upstream_forwarder(phone_idx: int, upstream_url: str) -> dict:
+    """Start local unauthenticated HTTP proxy → authenticated upstream."""
+    idx = int(phone_idx)
+    host, port, auth = _parse_upstream_url(upstream_url)
+    listen_port = upstream_local_port(idx)
+    with _forwarder_lock:
+        t = _forwarder_threads.get(idx)
+        if t and t.is_alive():
+            return {"ok": True, "port": listen_port, "reused": True}
+        stop_upstream_forwarder(idx)
+        stop_ev = threading.Event()
+        handler = _make_handler_class(host, port, auth)
+
+        def _serve() -> None:
+            try:
+                with socketserver.ThreadingTCPServer(
+                    ("127.0.0.1", listen_port),
+                    handler,
+                ) as srv:
+                    srv.daemon_threads = True
+                    srv.timeout = 1.0
+                    while not stop_ev.is_set():
+                        srv.handle_request()
+            except OSError as exc:
+                log.warning("upstream forwarder stopped phone_idx=%s: %s", idx, exc)
+
+        th = threading.Thread(target=_serve, name=f"cpharm-upstream-{idx}", daemon=True)
+        _forwarder_stop[idx] = stop_ev
+        _forwarder_threads[idx] = th
+        th.start()
+    deadline = time.time() + 5.0
+    while time.time() < deadline:
+        try:
+            with socket.create_connection(("127.0.0.1", listen_port), timeout=0.3):
+                return {"ok": True, "port": listen_port, "upstream": f"{host}:{port}"}
+        except OSError:
+            time.sleep(0.05)
+    return {"ok": False, "port": listen_port, "error": "forwarder did not bind in time"}
+
+
+def _farmbrowser_set_proxy(serial: str, host: str, port: int, proxy_type: str = "http") -> bool:
+    """Use FarmBrowser's ADB broadcast interface to set proxy directly.
+
+    Returns ``True`` when the broadcast was sent successfully.
+    Falls back silently when FarmBrowser is not installed.
+    """
+    try:
+        from browser_adb import farmbrowser_control_broadcast
+
+        result = farmbrowser_control_broadcast(
+            serial, "set_proxy",
+            {"host": host, "port": port, "type": proxy_type},
+        )
+        if result.get("ok"):
+            log.debug("FarmBrowser proxy set via broadcast serial=%s %s:%s", serial, host, port)
+            return True
+        log.debug("FarmBrowser broadcast failed serial=%s: %s", serial, result)
+    except ImportError:
+        pass
+    return False
+
+
+def _farmbrowser_clear_proxy(serial: str) -> bool:
+    """Clear FarmBrowser's proxy via ADB broadcast."""
+    try:
+        from browser_adb import farmbrowser_control_broadcast
+
+        result = farmbrowser_control_broadcast(serial, "clear_proxy")
+        return bool(result.get("ok"))
+    except ImportError:
+        pass
+    return False
+
+
+def _farmbrowser_rotate_identity(serial: str) -> str:
+    """Rotate FarmBrowser identity via ADB broadcast. Returns identity name."""
+    try:
+        from browser_adb import farmbrowser_control_broadcast
+
+        result = farmbrowser_control_broadcast(serial, "rotate_identity")
+        return result.get("result", "")
+    except ImportError:
+        pass
+    return ""
 
 
 def prepare_browse_session(
-    adb: object,
     serial: str,
     phone_idx: int,
     log_fn: LogFn | None = None,
-    *,
-    force_clear_tor: bool = False,
-    kick_browser: bool = True,
 ) -> dict:
-    """Clear Tor proxy before getdabflow when not in tor mode.
+    """Apply browse mode before getdabflow ``open_url``.
 
-    force_clear_tor: temporary ad-fill window — clear device proxy even when
-    farm mode is Tor / unique-exit (used by pause_tor_for_ads only).
-    kick_browser: when False, only clear the proxy (keep the open tab alive).
+    When FarmBrowser is the active browser, proxy changes are pushed directly
+    to the app via ADB broadcast (``FarmBrowserReceiver``) — faster and more
+    reliable than ADB ``settings put global http_proxy``.
     """
     log = log_fn or (lambda _m: None)
     mode = browse_proxy_mode()
@@ -97,470 +316,108 @@ def prepare_browse_session(
     idx = int(phone_idx)
     out: dict = {"mode": mode}
 
-    # Scramble/direct/upstream: clear Tor so SSP/Mantis ads can fill (desktop_prefs
-    # recommended path). Unique-exit still applies at isolate_before_sequence
-    # (fresh IP/IMEI/fingerprint); do not keep Tor attached during DabFlow browse
-    # or creatives never appear (especially Firefox — no CDP paint).
-    if mode == "tor" and not force_clear_tor:
+    # Detect FarmBrowser presence
+    try:
+        from browser_adb import farmbrowser_installed
+
+        has_fb = farmbrowser_installed(ser)
+    except ImportError:
+        has_fb = False
+    out["farmbrowser"] = has_fb
+
+    if mode == "tor":
+        # Even in Tor mode, FarmBrowser should know about the proxy so it can
+        # display the indicator and route traffic.  The ADB-level http_proxy
+        # already points at the host Tor tunnel — FarmBrowser auto-detects it.
         out["skipped"] = True
-        out["reason"] = "tor"
-        log(f"Browse proxy: keeping Tor (tor) serial={ser}")
+        if has_fb:
+            # Rotate identity on each Tor session for maximum stealth
+            out["identity_rotated"] = bool(_farmbrowser_rotate_identity(ser))
         return out
 
-    from automation.tor_manager import TorManager
+    import tor_manager as tm
 
-    tor = TorManager(adb)  # type: ignore[arg-type]
-    failed = tor.clear_all_proxies_on_devices([ser])
-    if failed:
-        out["clear_proxy_failed"] = failed
-        log(f"Browse proxy: clear proxy issues on {failed}")
-    if kick_browser:
-        tor.kick_default_browser_after_proxy_teardown([ser])
-    if force_clear_tor and mode == "tor":
-        log(
-            f"Browse proxy: temporary direct for ad fill "
-            f"(mode={mode} kick={kick_browser}) serial={ser}"
-        )
-        out["force_clear_tor"] = True
-    else:
+    try:
+        tm.clear_all_proxies_on_devices([ser])
+        tm.kick_default_browser_after_proxy_teardown([ser])
+    except Exception as exc:
+        log(f"Browse proxy: clear Tor proxy failed serial={ser} — {exc}")
+        out["clear_error"] = str(exc)
+
+    # Clear FarmBrowser's internal proxy when switching modes
+    if has_fb:
+        _farmbrowser_clear_proxy(ser)
+
+    if mode == "upstream":
+        url = upstream_proxy_url_for_phone(idx)
+        if url:
+            fwd = ensure_upstream_forwarder(idx, url)
+            out["forwarder"] = fwd
+            if fwd.get("ok"):
+                applied = tm.apply_host_http_proxy_adb(ser, idx, int(fwd["port"]))
+                out["http_proxy"] = applied
+                log(f"Browse proxy: upstream serial={ser} local={fwd['port']}")
+                # Also push proxy directly to FarmBrowser for immediate use
+                if has_fb:
+                    _farmbrowser_set_proxy(ser, "127.0.0.1", int(fwd["port"]), "http")
+                try:
+                    import emulator_ad_mode as eam
+
+                    out["scramble"] = eam.scramble_device_session(ser, idx, log_fn=log)
+                except Exception as exc:
+                    out["scramble_error"] = str(exc)
+            else:
+                log(f"Browse proxy: upstream forwarder failed — {fwd.get('error')}")
+        else:
+            log(f"Browse proxy: upstream mode but no proxy URL for phone_idx={idx} — using scramble")
+            mode = "scramble"
+            out["mode"] = "scramble"
+
+    if mode in ("scramble", "direct"):
         log(f"Browse proxy: {mode} (direct internet) serial={ser}")
+        if mode == "scramble":
+            try:
+                import emulator_ad_mode as eam
 
-    if mode == "scramble" and kick_browser:
-        try:
-            from automation import emulator_ad_mode as eam
-
-            out["scramble"] = eam.scramble_device_session(adb, ser, idx, log_fn=log)  # type: ignore[arg-type]
-        except Exception as exc:
-            log(f"Browse proxy: scramble failed serial={ser} — {exc}")
-            out["scramble_error"] = str(exc)
+                out["scramble"] = eam.scramble_device_session(ser, idx, log_fn=log)
+            except Exception as exc:
+                log(f"Browse proxy: scramble failed serial={ser} — {exc}")
+                out["scramble_error"] = str(exc)
+        # Rotate FarmBrowser identity on scramble for extra diversity
+        if has_fb:
+            out["identity_rotated"] = bool(_farmbrowser_rotate_identity(ser))
 
     out["ok"] = True
     return out
 
 
-def guest_proxy_healthy(value: str, phone_idx: int | None = None) -> bool:
-    """True when Android http_proxy is a usable 127.0.0.1:<port> (not :0/null/empty)."""
-    raw = (value or "").strip()
-    if not raw or raw.lower() in _CLEARED_PROXY_VALUES or raw.endswith(":0"):
-        return False
-    if not raw.startswith("127.0.0.1:"):
-        return False
-    try:
-        port = int(raw.split(":", 1)[1])
-    except (IndexError, ValueError):
-        return False
-    if port <= 0:
-        return False
-    if phone_idx is None:
-        return True
-    want = expected_guest_proxy_ports(int(phone_idx))
-    return port in want
-
-
-def expected_guest_proxy_ports(phone_idx: int) -> set[int]:
-    """Accept inject port when enabled, else Tor HTTPTunnelPort (either is routable)."""
-    from automation.tor_manager import phone_http_port
-
-    ports = {int(phone_http_port(phone_idx))}
-    try:
-        from automation.mantis_inject_proxy import inject_enabled, phone_inject_port
-
-        if inject_enabled():
-            ports.add(int(phone_inject_port(phone_idx)))
-    except Exception:
-        pass
-    return ports
-
-
-# Last browser package per serial — so Tor restore pins Tor for Firefox/DDG, not MITM.
-# Persisted to disk: the proxy watcher is a *separate process* and used to always
-# re-pin inject (8218+), wiping Tor pins and freezing Firefox/DDG on HSTS cert errors.
-_serial_browser_pkg: dict[str, str] = {}
-_BROWSER_PKG_PATH = Path(r"C:\CPharm\logs\serial_browser_pkg.json")
-# Browsers that must NOT use guest MITM inject (8218+). Firefox/DDG reject our
-# CA; Brave often shows "not safe website" even after system CA install (own
-# trust / HTTPS upgrades). Brave still gets ads via Chromium CDP paint.
-_MITM_SKIP_PACKAGES = frozenset(
-    {
-        "org.mozilla.firefox",
-        "com.duckduckgo.mobile.android",
-    }
-)
-
-# Chromium-family packages that support DevTools remote paint (not MITM).
-_CDP_PAINT_PACKAGES = frozenset(
-    {
-        "org.chromium.chrome",
-        "com.brave.browser",
-        "com.android.chrome",
-        "com.chrome.browser",
-    }
-)
-
-
-def _load_browser_pkg_disk() -> dict[str, str]:
-    try:
-        if _BROWSER_PKG_PATH.is_file():
-            data = json.loads(_BROWSER_PKG_PATH.read_text(encoding="utf-8"))
-            if isinstance(data, dict):
-                return {str(k): str(v) for k, v in data.items() if v}
-    except (OSError, json.JSONDecodeError, TypeError, ValueError):
-        pass
-    return {}
-
-
-def _save_browser_pkg_disk() -> None:
-    try:
-        _BROWSER_PKG_PATH.parent.mkdir(parents=True, exist_ok=True)
-        merged = _load_browser_pkg_disk()
-        merged.update(_serial_browser_pkg)
-        _BROWSER_PKG_PATH.write_text(json.dumps(merged, indent=2) + "\n", encoding="utf-8")
-    except OSError:
-        pass
-
-
-def remember_browser_package(serial: str, package: str | None) -> None:
-    ser = str(serial)
-    pkg = (package or "").strip()
-    if pkg:
-        _serial_browser_pkg[ser] = pkg
-    else:
-        _serial_browser_pkg.pop(ser, None)
-    _save_browser_pkg_disk()
-
-
-def browser_package_for_serial(serial: str) -> str | None:
-    ser = str(serial)
-    if ser in _serial_browser_pkg:
-        return _serial_browser_pkg[ser]
-    disk = _load_browser_pkg_disk()
-    pkg = disk.get(ser)
-    if pkg:
-        _serial_browser_pkg[ser] = pkg
-    return pkg
-
-
-def detect_foreground_browser_package(adb: object, serial: str) -> str | None:
-    """Best-effort package from the resumed activity (watcher fallback)."""
-    try:
-        out = (
-            adb.shell(  # type: ignore[union-attr]
-                "dumpsys activity activities",
-                serial=serial,
-                timeout=8.0,
-            ).stdout
-            or ""
-        )
-    except Exception:
-        return None
-    for line in out.splitlines():
-        low = line.lower()
-        if "topresumedactivity" not in low and "mresumedactivity" not in low:
-            continue
-        for pkg in (
-            "org.mozilla.firefox",
-            "com.duckduckgo.mobile.android",
-            "com.brave.browser",
-            "com.android.chrome",
-            "org.chromium.chrome",
-            "com.chrome.browser",
-        ):
-            if pkg in low:
-                return pkg
-    return None
-
-
-def resolve_browser_package(adb: object | None, serial: str, explicit: str | None = None) -> str | None:
-    """Resolve active browser for proxy pinning.
-
-    Foreground wins over stale in-memory/disk remember. The proxy watcher is a
-    long-lived process; without this it kept Chromium in RAM and re-pinned
-    inject (8218+) onto Firefox/DDG/Brave after the farm switched browsers.
-    """
-    pkg = (explicit or "").strip()
-    if pkg:
-        return pkg
-    remembered = browser_package_for_serial(serial)
-    if adb is None:
-        return remembered
-    detected = detect_foreground_browser_package(adb, serial)
-    if detected:
-        if detected != remembered:
-            remember_browser_package(serial, detected)
-        return detected
-    return remembered
-
-
-def skips_mitm(browser_package: str | None) -> bool:
-    pkg = (browser_package or "").strip().lower()
-    if not pkg:
-        return False
-    return pkg in _MITM_SKIP_PACKAGES or pkg.endswith(".firefox")
-
-
-def supports_cdp_paint(browser_package: str | None) -> bool:
-    """True when Mantis creatives can be painted via Chromium DevTools Protocol."""
-    pkg = (browser_package or "").strip().lower()
-    if not pkg:
-        return False
-    if pkg in _CDP_PAINT_PACKAGES:
-        return True
-    return "chromium" in pkg or pkg.endswith(".chrome")
-
-
-def expected_guest_proxy(phone_idx: int, browser_package: str | None = None) -> str:
-    """Preferred guest http_proxy endpoint.
-
-    Chromium → inject 8218+ (MITM paints Mantis creatives when CA trusted).
-    Brave/Firefox/DuckDuckGo → never MITM. Scramble/direct → clear (:0);
-    Brave still paints via CDP; FF/DDG rely on real SSP. Tor mode → Tor 8118+.
-    """
-    mode = browse_proxy_mode()
-    if skips_mitm(browser_package):
-        if mode in ("scramble", "direct", "upstream"):
-            return ""
-        from automation.tor_manager import phone_http_port
-
-        return f"127.0.0.1:{int(phone_http_port(phone_idx))}"
-    try:
-        from automation.mantis_inject_proxy import inject_enabled, phone_inject_port
-
-        if inject_enabled():
-            return f"127.0.0.1:{int(phone_inject_port(phone_idx))}"
-    except Exception:
-        pass
-    if mode in ("scramble", "direct", "upstream"):
-        return ""
-    from automation.tor_manager import phone_http_port
-
-    return f"127.0.0.1:{int(phone_http_port(phone_idx))}"
-
-
-def _read_guest_proxy(adb: object, serial: str) -> str:
-    try:
-        return (
-            adb.shell("settings get global http_proxy", serial=serial).stdout or ""  # type: ignore[union-attr]
-        ).strip()
-    except Exception:
-        return ""
-
-
 def restore_browse_session(
-    adb: object,
     serial: str,
     phone_idx: int,
     log_fn: LogFn | None = None,
 ) -> dict:
-    """Restore Tor after ad browse when mode is tor."""
+    """After ad browse / close — restore Tor when mode is ``tor``."""
     log = log_fn or (lambda _m: None)
     mode = browse_proxy_mode()
-    # Scramble/direct stay off Tor so ads keep filling; isolation already rotated IP.
     if mode != "tor":
         log(f"Browse proxy: keeping {mode} (no Tor restore) serial={serial}")
         return {"skipped": True, "reason": mode}
     try:
-        from automation.tor_manager import TorManager
+        import tor_manager as tm
 
-        tor = TorManager(adb)  # type: ignore[arg-type]
-        tor.start_phone_tor(int(phone_idx), str(serial))
-        # Ad-fill clears to :0; start_phone_tor can race. Always pin inject (or Tor) port.
-        proxy = pin_guest_proxy(
-            adb,
-            str(serial),
-            int(phone_idx),
-            attempts=3,
-            browser_package=browser_package_for_serial(str(serial)),
-        )
-        if not guest_proxy_healthy(proxy, int(phone_idx)):
-            proxy = pin_guest_proxy(
-                adb,
-                str(serial),
-                int(phone_idx),
-                attempts=3,
-                browser_package=browser_package_for_serial(str(serial)),
-            )
-        log(f"Browse proxy: Tor restored serial={serial} http_proxy={proxy}")
-        ok = guest_proxy_healthy(proxy, int(phone_idx))
-        return {"ok": ok, "http_proxy": proxy}
+        result = tm.ensure_tor_and_proxy_for_phone(str(serial), int(phone_idx))
+        log(f"Browse proxy: Tor restored serial={serial}")
+        return {"ok": bool(result.get("ok", True)), "tor": result}
     except Exception as exc:
         log(f"Browse proxy: Tor restore failed serial={serial} — {exc}")
         return {"ok": False, "error": str(exc)}
 
 
-def restore_inject_after_identity(
-    adb: object,
-    serial: str,
-    phone_idx: int,
-    *,
-    browser_package: str | None = None,
-    attempts: int = 3,
-) -> str:
-    """Re-pin guest proxy after scramble/identity wipe that cleared ``:0``.
-
-    Chromium mid-seq must never linger on ``:0``/null when inject is armed —
-    ``prepare_browse_session`` / onboarding wipe intentionally clear Tor, then
-    this restores inject (8218+) before long Tor NEWNYM or Lawnchair idle.
-    Firefox/Brave/Opera/DDG keep ``:0`` in scramble/direct (MITM-skip).
-    """
-    ser = str(serial)
-    idx = int(phone_idx)
-    pkg = resolve_browser_package(adb, ser, browser_package)
-    if pkg:
-        remember_browser_package(ser, pkg)
-
-    if skips_mitm(pkg):
-        # MITM-skip browsers: :0/direct is correct under scramble/direct/upstream.
-        return pin_guest_proxy(
-            adb, ser, idx, attempts=attempts, browser_package=pkg
-        )
-
-    try:
-        from automation.mantis_inject_proxy import ensure_inject_for_phone, inject_enabled
-
-        if inject_enabled():
-            for inj_try in range(max(1, int(attempts))):
-                try:
-                    info = ensure_inject_for_phone(
-                        adb, ser, idx, install_ca=False
-                    )
-                    endpoint = (info.get("endpoint") or "").strip()
-                    if info.get("ok") and guest_proxy_healthy(endpoint, idx):
-                        pinned = pin_guest_proxy(
-                            adb, ser, idx, attempts=2, browser_package=pkg
-                        )
-                        if guest_proxy_healthy(pinned, idx):
-                            logger.info(
-                                "inject restored after identity serial=%s "
-                                "phone=%d endpoint=%s",
-                                ser,
-                                idx,
-                                pinned,
-                            )
-                            return pinned
-                except Exception as exc:
-                    logger.warning(
-                        "inject restore retry %d/%d serial=%s: %s",
-                        inj_try + 1,
-                        attempts,
-                        ser,
-                        exc,
-                    )
-                if inj_try + 1 < attempts:
-                    time.sleep(0.6 * (inj_try + 1))
-    except Exception as exc:
-        logger.warning("inject restore soft-fail serial=%s: %s", ser, exc)
-
-    pinned = pin_guest_proxy(adb, ser, idx, attempts=attempts, browser_package=pkg)
-    if not guest_proxy_healthy(pinned, idx) and not skips_mitm(pkg):
-        logger.warning(
-            "inject restore still unhealthy serial=%s phone=%d proxy=%r pkg=%s",
-            ser,
-            idx,
-            pinned,
-            pkg,
-        )
-    return pinned
-
-
-def pin_guest_proxy(
-    adb: object,
-    serial: str,
-    phone_idx: int,
-    *,
-    attempts: int = 3,
-    browser_package: str | None = None,
-) -> str:
-    """Idempotently force guest http_proxy to the right port for this browser.
-
-    Never treat :0 / null / empty as success when a real port is required.
-    When expected_guest_proxy returns "" (scramble/direct for Firefox/DDG),
-    clear the guest proxy so SSP ads can fill without Tor/MITM cert failures.
-    """
-    idx = int(phone_idx)
-    ser = str(serial)
-    pkg = resolve_browser_package(adb, ser, browser_package)
-    want = expected_guest_proxy(idx, browser_package=pkg)
-    tries = max(1, int(attempts))
-    last = ""
-
-    if not want:
-        for attempt in range(tries):
-            try:
-                adb.shell("settings put global http_proxy :0", serial=ser)  # type: ignore[union-attr]
-            except Exception as exc:
-                logger.debug("clear proxy failed serial=%s: %s", ser, exc)
-            last = _read_guest_proxy(adb, ser)
-            if not last or last.lower() in _CLEARED_PROXY_VALUES or last.endswith(":0"):
-                return ":0"
-            if attempt + 1 < tries:
-                time.sleep(0.12 * (attempt + 1))
-        return last if last else ":0"
-
-    want_port = int(want.rsplit(":", 1)[-1])
-
-    # Inject listen ports are 8218+; Tor HTTPTunnel is 8118+.
-    use_inject = False
-    try:
-        from automation.mantis_inject_proxy import inject_enabled, phone_inject_port
-
-        use_inject = (
-            bool(inject_enabled())
-            and not skips_mitm(pkg)
-            and want_port == int(phone_inject_port(idx))
-        )
-    except Exception:
-        use_inject = False
-
-    for attempt in range(tries):
-        cur = _read_guest_proxy(adb, ser)
-        if guest_proxy_healthy(cur, idx) and cur == want:
-            return cur
-
-        applied = False
-        if use_inject:
-            try:
-                # Always (re)install farm CA — Brave/Chromium "not safe" when
-                # inject is armed without a trusted CA on the guest.
-                from automation.mantis_inject_proxy import ensure_inject_for_phone
-
-                ensure_inject_for_phone(adb, ser, idx, install_ca=False)
-                # CRITICAL: verify adb reverse tunnel exists -- ADB restarts destroy them
-                from automation.mantis_inject_proxy import verify_reverse_tunnel
-                if not verify_reverse_tunnel(adb, ser, want_port):
-                    logger.warning("REVERSE TUNNEL MISSING port=%d serial=%s — re-establishing", want_port, ser)
-                    adb.reverse(str(want_port), str(want_port), serial=ser)  # type: ignore[union-attr]
-                applied = True
-            except Exception as exc:
-                logger.debug("pin inject failed serial=%s: %s", ser, exc)
-
-        if not applied:
-            from automation.tor_manager import phone_http_port
-
-            port = int(phone_http_port(idx)) if not use_inject else want_port
-            try:
-                adb.reverse(str(port), str(port), serial=ser)  # type: ignore[union-attr]
-            except Exception:
-                pass
-            try:
-                adb.set_http_proxy("127.0.0.1", port, serial=ser)  # type: ignore[union-attr]
-                applied = True
-            except Exception as exc:
-                logger.debug("pin tor proxy failed serial=%s: %s", ser, exc)
-
-        last = _read_guest_proxy(adb, ser)
-        if guest_proxy_healthy(last, idx) and (last == want or last.endswith(f":{want_port}")):
-            return last
-        if attempt + 1 < tries:
-            time.sleep(0.12 * (attempt + 1))
-
-    if guest_proxy_healthy(last, idx):
-        return last
-    logger.warning(
-        "pin_guest_proxy still unhealthy serial=%s phone=%d last=%r want=%s pkg=%s",
-        ser,
-        idx,
-        last,
-        want,
-        browser_package,
-    )
-    return last if last else ":0"
+def dabflow_browse_active(serial: str | None = None) -> bool:
+    """True when dabflow should bypass Tor (scramble/direct/upstream)."""
+    mode = browse_proxy_mode()
+    if mode in ("scramble", "direct", "upstream"):
+        return True
+    if mode == "tor":
+        return False
+    return False

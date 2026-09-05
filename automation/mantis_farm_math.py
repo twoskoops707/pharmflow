@@ -16,8 +16,8 @@ IMPRESSIONS_PER_VISIT_DEFAULT = 22.0
 DEFAULT_DAILY_VISITS_4: tuple[int, ...] = (173, 148, 141, 119)  # sum 581
 DEFAULT_DAILY_ADS_4: tuple[int, ...] = (5, 4, 4, 3)  # sum 16 (soft start; hard cap 40)
 
-AD_CLICKS_SOFT_CAP = 9999
-AD_CLICKS_HARD_CAP = 9999
+AD_CLICKS_SOFT_CAP = 20
+AD_CLICKS_HARD_CAP = 40
 VISITS_PER_CLICK_TARGET_LO = 30.0
 VISITS_PER_CLICK_TARGET_HI = 45.0
 CTR_IMPR_TARGET_LO = 0.15  # percent
@@ -27,17 +27,6 @@ EVCPM_GREEN = 2.0
 EVCPM_YELLOW = 1.0
 ECPM_GREEN = 0.15
 ECPM_RED = 0.05
-
-# Day profit targets — floor = keep over $40; push toward stretch $100.
-# payout ≈ impressions × eCPM ÷ 1000 — not click count.
-# Jul 29 actual: 9,266 impr · eCPM $3.74 · **$34.65** (do not aim $12 docs floor).
-TARGET_IMPR_REALISTIC = 16000
-TARGET_ECPM_REALISTIC = 3.50  # near Jul 29 realized
-TARGET_PROFIT_REALISTIC_USD = 40.0  # floor — keep over $40
-TARGET_IMPR_STRONG = 18000
-TARGET_ECPM_STRONG = 4.00
-TARGET_PROFIT_STRONG_USD = 100.0  # strong day / primary push (was 55; 55→floor280→295 undid caps)
-TARGET_PROFIT_STRETCH_USD = 100.0  # stretch == strong for $100 operator days
 
 StatusColor = Literal["GREEN", "YELLOW", "RED", "EMPTY"]
 
