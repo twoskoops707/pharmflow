@@ -890,6 +890,23 @@ def _is_mumu_gui_path(path: Path | str) -> bool:
     return n in ("mumuplayer.exe", "mumunxmain.exe")
 
 
+# MuMu "manager" binaries that are GUI apps (WinUI shell), never CLIs.
+# Executing them with any argument opens the MuMu Player manager window —
+# on MuMuPlayerARM the user sees this as "PharmFlow opened MuMu at start".
+# Discovery and state refreshes must never run them; only legacy shell CLIs
+# (MuMuManager.exe under shell\ / nx_main\) or ADB port scans are allowed.
+MUMU_GUI_MANAGER_EXES = {
+    "nemux-shell-winui.manager.exe",
+    "nemux-shell-winui.manager",
+}
+
+
+def _is_gui_only_manager(path: Path | str) -> bool:
+    """True when the path is a GUI-only MuMu manager that must never be executed."""
+    n = Path(path).name.lower()
+    return n in MUMU_GUI_MANAGER_EXES
+
+
 # Daily scheduler default (per-phone override lives on Groups page).
 DEFAULT_HITS_PER_DAY = 720
 DEFAULT_SEQUENCE_BASE_W = 900
@@ -3992,6 +4009,18 @@ def _mumu_get_instances(mgr_path, log_fn=None):
     exes: list[Path] = [mgr_path]
     if fb and fb.resolve() != mgr_path.resolve():
         exes.append(fb)
+    # Never execute a GUI-only manager (nemux-shell-winui.Manager.exe): running it
+    # opens the MuMu Player manager window. Discovery falls back to the legacy
+    # shell CLI below or, when none exists, the caller's ADB port scan.
+    gui_only = [e for e in exes if _is_gui_only_manager(e)]
+    if gui_only:
+        exes = [e for e in exes if not _is_gui_only_manager(e)]
+        if log_fn:
+            log_fn(
+                "  Skipping GUI-only MuMu manager (would open the MuMu window); "
+                "using shell CLI / ADB port scan instead.\n"
+            )
+        _wiz_debug(f"mumu_get_instances dropped GUI-only managers: {[e.name for e in gui_only]}", log_fn)
 
     if log_fn:
         install_root = mgr_path.resolve().parent.parent
@@ -4094,9 +4123,34 @@ def _mumu_get_instances_cached(mgr_path, log_fn=None):
 
 
 def _mumu_launch(mgr_path, index, log_fn=None):
-    """Launch a MuMuPlayer instance by index."""
+    """Launch a MuMuPlayer instance by index.
+
+    GUI-only managers (nemux-shell-winui.Manager.exe) are never executed —
+    they would open the MuMu manager window instead of a phone. Prefer the
+    legacy shell CLI, then the ARM shell launcher, before giving up.
+    """
     if log_fn:
         log_fn(f"  Launching MuMu instance {index}…\n")
+    mgr_path = Path(mgr_path)
+    if _is_gui_only_manager(mgr_path):
+        fb = _mumu_shell_manager_fallback(mgr_path)
+        if fb:
+            if log_fn:
+                log_fn(f"  Using shell CLI fallback: {fb.name}\n")
+            mgr_path = fb
+        else:
+            if log_fn:
+                log_fn(
+                    "  GUI-only manager without shell CLI — using ARM shell launcher...\n"
+                )
+            try:
+                from automation.mumu_shell_cli import launch_instance_index
+
+                return launch_instance_index(int(index), timeout=120.0)[0]
+            except Exception as exc:  # noqa: BLE001
+                if log_fn:
+                    log_fn(f"  ARM shell launch failed: {exc}\n")
+                return False
     ok, out = _mumu_run(mgr_path, "control", "-v", str(index), "launch", timeout=30)
     return ok
 
