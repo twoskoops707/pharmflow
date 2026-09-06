@@ -858,17 +858,71 @@ def write_adb_flags(vms_dir: Path, instance_name: str, profile: FingerprintProfi
     logger.info("Layers 2+3 patched: %s", path)
 
 
-def apply_browser_fingerprint_adb(
-    shell_fn: Callable[[str], str],
-    profile: FingerprintProfile,
-) -> None:
-    """Layer 4: Browser fingerprint via adb settings (MuMu Browser)."""
+def _apply_browser_ua_shell_fn(shell_fn: Callable[[str], str], profile: FingerprintProfile) -> None:
+    """Layer 4 (VM-config path): browser UA via an injected shell callable."""
     if is_skip_fingerprint():
         return
     shell_fn(f"settings put global user_agent '{profile.user_agent}'")
     shell_fn(f"settings put secure user_agent '{profile.user_agent}'")
     flags = browser_flags_for_profile(profile)
     shell_fn(f"settings put global cpharm_browser_flags '{flags}'")
+
+
+def apply_browser_fingerprint_adb(
+    serial: str,
+    profile: dict | None = None,
+    *,
+    farm_index: int | None = None,
+    enable_dabflow_cdp: bool | None = None,
+) -> dict:
+    """Layer 4 (per-phone): write retail browser UA/flags over ADB.
+
+    Mirrors the proven CPharm implementation: profile resolution by serial
+    (with farm_index fallback), optional dabflow CDP flag, chromium flags
+    push, and a fresh android_id per application.
+    """
+    prof = profile or profile_for_serial(serial, farm_index=farm_index)
+    ua = build_mobile_user_agent(prof)
+    cdp_port: int | None = None
+    if enable_dabflow_cdp is not False:
+        try:
+            try:
+                from automation.dabflow_mantis_client_patch import (
+                    DEVICE_CDP_PORT,
+                    patch_enabled_from_env,
+                    patch_enabled_from_prefs,
+                )
+            except ImportError:  # flat import when automation/ is on sys.path
+                from dabflow_mantis_client_patch import (
+                    DEVICE_CDP_PORT,
+                    patch_enabled_from_env,
+                    patch_enabled_from_prefs,
+                )
+
+            on = enable_dabflow_cdp
+            if on is None:
+                try:
+                    from automation.dabflow_mantis_client_patch import load_desktop_prefs
+
+                    pref = patch_enabled_from_prefs(load_desktop_prefs())
+                    on = pref if pref is not None else patch_enabled_from_env()
+                except Exception:
+                    on = patch_enabled_from_env()
+            if on:
+                cdp_port = DEVICE_CDP_PORT
+        except Exception:
+            cdp_port = None
+    written = write_chromium_flags(serial, prof, cdp_port=cdp_port)
+    try:
+        _shell(serial, "settings", "put", "secure", "android_id", _random_android_id(), timeout=12)
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+    return {
+        "user_agent_written": written,
+        "profile": prof["key"],
+        "model": prof["model"],
+        "user_agent": ua,
+    }
 
 
 def read_getprop_snapshot(getprop_fn: Callable[[str], str]) -> dict[str, str]:
@@ -919,7 +973,7 @@ def apply_mumu_vm_fingerprints(
         write_adb_flags(vms_dir, name, profile)
         shell_fn = shell_map.get(name)
         if shell_fn:
-            apply_browser_fingerprint_adb(shell_fn, profile)
+            _apply_browser_ua_shell_fn(shell_fn, profile)
         applied[name] = profile
         logger.info("Applied MuMu VM fingerprint for %s (%s %s)", name, profile.brand, profile.model)
 
