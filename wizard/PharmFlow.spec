@@ -14,10 +14,16 @@ _webview_datas, _webview_binaries, _webview_hidden = collect_all("webview")
 
 # Farm operator dash (scripts/farm_operator_dash.py) runs in-process when no
 # capable system python is found, so flask + deps must ship inside the EXE.
-_dash_datas, _dash_binaries, _dash_hidden = collect_all("flask")
-_dash_extra = (collect_all("werkzeug") + collect_all("jinja2")
-               + collect_all("markupsafe") + collect_all("itsdangerous")
-               + collect_all("click") + collect_all("blinker"))
+# Each collect_all returns a 3-tuple (datas, binaries, hiddenimports); merge
+# element-wise — never tuple-+ the triples together (flattens, breaks unpack).
+_dash_parts = [
+    collect_all(name)
+    for name in ("flask", "werkzeug", "jinja2", "markupsafe",
+                 "itsdangerous", "click", "blinker")
+]
+_dash_datas = [item for _d, _b, _h in _dash_parts for item in _d]
+_dash_binaries = [item for _d, _b, _h in _dash_parts for item in _b]
+_dash_hidden = [item for _d, _b, _h in _dash_parts for item in _h]
 
 # On ARM64 Windows, pywebview's edgechromium backend LoadLibrary's
 # WebView2Loader.dll from PATH / MEI root. collect_all embeds it under
@@ -137,16 +143,14 @@ _hidden = (
     ]
     + collect_submodules("webview")
     + list(_webview_hidden)
-    + list(_dash_hidden)
-    + [name for _d, _b, _h in _dash_extra for name in _h]
+    + _dash_hidden
 )
 
 a = Analysis(
     ["cpharm_desktop.py"],
     pathex=[".", "..", "../automation", "../tools"],
     binaries=list(_webview_binaries) + list(_webview_root_binaries)
-    + list(_dash_binaries)
-    + [bin_pair for _d, _bins, _h in _dash_extra for bin_pair in _bins],
+    + _dash_binaries,
     datas=[
         ("assets", "assets"),
         ("assets/cpharm_app", "assets/cpharm_app"),
@@ -164,8 +168,7 @@ a = Analysis(
         ("../docker_guard.py", "."),
     ]
     + list(_webview_datas)
-    + list(_dash_datas)
-    + [data_pair for _datas, _b, _h in _dash_extra for data_pair in _datas]
+    + _dash_datas
     + _browser_apk_datas
     + _wizard_py_datas,
     hiddenimports=_hidden,
