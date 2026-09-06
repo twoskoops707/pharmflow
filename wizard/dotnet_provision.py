@@ -152,6 +152,12 @@ def _activate_coreclr(root: Path) -> bool:
 
 def _activate_netfx() -> bool:
     """Load pythonnet against the built-in .NET Framework (no downloads)."""
+    # clr_loader only ships amd64/x86 ClrLoader.dll — native ARM64 Python cannot
+    # load them (WinError 0xc1). Skip so ARM64 goes straight to coreclr + netcore
+    # WebView2 WinForms DLLs (see PharmFlow.spec bundled/webview2_netcore).
+    if _machine_arch() == "arm64":
+        logger.info("skipping netfx on arm64 (no ARM64 ClrLoader.dll in clr_loader)")
+        return False
     try:
         import pythonnet
 
