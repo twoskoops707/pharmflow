@@ -189,6 +189,46 @@ class CPharmAppApi:
 
         return bridge.get_automation_info()
 
+    def cursor_get_sequence(self) -> dict:
+        import cpharm_wizard_bridge as bridge
+
+        return bridge.cursor_get_sequence()
+
+    def cursor_add_step(self, step: dict | None = None) -> dict:
+        import cpharm_wizard_bridge as bridge
+
+        return bridge.cursor_add_step(step)
+
+    def cursor_update_step(self, i: int, step: dict | None = None) -> dict:
+        import cpharm_wizard_bridge as bridge
+
+        return bridge.cursor_update_step(i, step)
+
+    def cursor_remove_step(self, i: int) -> dict:
+        import cpharm_wizard_bridge as bridge
+
+        return bridge.cursor_remove_step(i)
+
+    def cursor_move_step(self, i: int, dir: int = 1) -> dict:
+        import cpharm_wizard_bridge as bridge
+
+        return bridge.cursor_move_step(i, dir)
+
+    def cursor_add_group(self) -> dict:
+        import cpharm_wizard_bridge as bridge
+
+        return bridge.cursor_add_group()
+
+    def cursor_remove_group(self, i: int) -> dict:
+        import cpharm_wizard_bridge as bridge
+
+        return bridge.cursor_remove_group(i)
+
+    def cursor_rename_group(self, i: int, name: str = "") -> dict:
+        import cpharm_wizard_bridge as bridge
+
+        return bridge.cursor_rename_group(i, name)
+
     def run_edit_default_sequence(self) -> dict:
         import cpharm_wizard_bridge as bridge
 
@@ -249,6 +289,16 @@ class CPharmAppApi:
         import cpharm_wizard_bridge as bridge
 
         return bridge.run_add_group()
+
+    def boot_all_phones(self) -> dict:
+        import cpharm_wizard_bridge as bridge
+
+        return bridge.boot_all_phones()
+
+    def remove_group(self, index: int) -> dict:
+        import cpharm_wizard_bridge as bridge
+
+        return bridge.remove_group(int(index))
 
     def run_humanize_all_sequences(self) -> dict:
         import cpharm_wizard_bridge as bridge

@@ -21,8 +21,8 @@ def main() -> int:
     from cpharm_wizard_bridge import WIZARD_STEPS
     from setup_wizard import CPharmWizard
 
-    if len(WIZARD_STEPS) != 9:
-        return _fail(f"WIZARD_STEPS has {len(WIZARD_STEPS)} entries, expected 9")
+    if len(WIZARD_STEPS) != 10:
+        return _fail(f"WIZARD_STEPS has {len(WIZARD_STEPS)} entries, expected 10")
     if len(CPharmWizard.PAGES) != 9:
         return _fail(f"CPharmWizard.PAGES has {len(CPharmWizard.PAGES)} entries, expected 9")
     for i, step in enumerate(WIZARD_STEPS):
@@ -98,15 +98,26 @@ def main() -> int:
     webview_src = (_WIZARD / "cpharm_app_webview.py").read_text(encoding="utf-8")
     if "run_startup_cleanup(first_time=False)" not in webview_src:
         return _fail("main WebView must not kill MuMu on startup (first_time=False)")
-    if "PerPhoneSequenceEditor" not in bridge_src.split("def run_edit_default_sequence")[1].split("\ndef open_sequence_builder")[0]:
-        return _fail("run_edit_default_sequence must open PerPhoneSequenceEditor directly")
+    # Deck-native path: cursor_* endpoints + headless builder/groups (no Tk page windows).
+    for fn in (
+        "cursor_get_sequence",
+        "cursor_add_step",
+        "cursor_add_group",
+        "cursor_remove_group",
+        "cursor_rename_group",
+        "boot_all_phones",
+    ):
+        if f"def {fn}" not in bridge_src:
+            return _fail(f"cpharm_wizard_bridge missing {fn}")
     for fn in ("open_sequence_builder", "open_groups_manager"):
         block = bridge_src.split(f"def {fn}", 1)
         if len(block) < 2:
             return _fail(f"cpharm_wizard_bridge missing {fn}")
         head = block[1].split("\ndef ", 1)[0]
-        if "_open_wizard_page_window" not in head:
-            return _fail(f"{fn} must open a dedicated tk page window")
+        if "_open_wizard_page_window" in head:
+            return _fail(f"{fn} must stay deck-native (no Tk page window)")
+        if '"deck"' not in head and "'deck'" not in head:
+            return _fail(f"{fn} must return a deck navigation hint")
 
     print("smoke_audit_flow: OK")
     return 0

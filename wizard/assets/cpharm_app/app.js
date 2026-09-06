@@ -295,10 +295,416 @@
     boot: refreshBoot,
     map: refreshMap,
     steps: refreshSteps,
+    builder: refreshBuilder,
     teams: refreshTeams,
     go: refreshGo,
     health: refreshHealth,
   };
+
+  /* ── In-deck sequence builder (cursor_* bridge) ───────── */
+  let builderSelectedIndex = -1;
+
+  const BUILDER_STEP_TYPES = [
+    "open_url",
+    "launch_app",
+    "tap",
+    "wait",
+    "swipe",
+    "keyevent",
+    "close_app",
+    "type_text",
+    "clear_cookies",
+    "rotate_identity",
+  ];
+
+  const BUILDER_FIELD_SCHEMA = {
+    open_url: [
+      { key: "url", label: "Website URL", type: "text", def: "https://getdabflow.app" },
+      { key: "post_wait_secs", label: "After-open wait (sec)", type: "text", def: "" },
+    ],
+    launch_app: [
+      { key: "package", label: "Package name", type: "text", def: "com.example.app" },
+      { key: "post_wait_secs", label: "After-open wait (sec)", type: "text", def: "" },
+    ],
+    tap: [
+      { key: "x", label: "X", type: "number", def: "540" },
+      { key: "y", label: "Y", type: "number", def: "1280" },
+      { key: "retries", label: "Retries", type: "number", def: "2" },
+      { key: "jitter", label: "Jitter ±px", type: "number", def: "24" },
+      { key: "pre_wait_ms", label: "Pre-wait ms", type: "number", def: "0" },
+    ],
+    wait: [{ key: "seconds", label: "Seconds", type: "number", def: "5" }],
+    swipe: [
+      { key: "x1", label: "Start X", type: "number", def: "540" },
+      { key: "y1", label: "Start Y", type: "number", def: "1600" },
+      { key: "x2", label: "End X", type: "number", def: "540" },
+      { key: "y2", label: "End Y", type: "number", def: "400" },
+      { key: "ms", label: "Speed ms", type: "number", def: "600" },
+    ],
+    keyevent: [{ key: "key", label: "Key", type: "text", def: "BACK" }],
+    close_app: [{ key: "package", label: "Package (optional)", type: "text", def: "" }],
+    type_text: [{ key: "text", label: "Text", type: "text", def: "hello world" }],
+    clear_cookies: [],
+    rotate_identity: [],
+  };
+
+  function stepSummaryLine(step) {
+    if (!step || typeof step !== "object") return "(invalid)";
+    const t = step.type || "?";
+    const bits = [t];
+    if (t === "open_url" && step.url) bits.push(String(step.url).slice(0, 48));
+    else if (t === "launch_app" && step.package) bits.push(String(step.package));
+    else if (t === "tap") bits.push((step.x != null ? step.x : "?") + "," + (step.y != null ? step.y : "?"));
+    else if (t === "wait" && step.seconds != null) bits.push(String(step.seconds) + "s");
+    else if (t === "swipe")
+      bits.push(
+        (step.x1 != null ? step.x1 : "?") +
+          "," +
+          (step.y1 != null ? step.y1 : "?") +
+          "→" +
+          (step.x2 != null ? step.x2 : "?") +
+          "," +
+          (step.y2 != null ? step.y2 : "?")
+      );
+    else if (t === "keyevent" && step.key) bits.push(String(step.key));
+    else if (t === "close_app" && step.package) bits.push(String(step.package));
+    else if (t === "type_text" && step.text) bits.push(JSON.stringify(String(step.text).slice(0, 32)));
+    if (step.post_wait_secs != null && step.post_wait_secs !== "") bits.push("+" + step.post_wait_secs + "s");
+    return bits.join(" · ");
+  }
+
+  function ensureStepsPreview() {
+    return document.getElementById("steps-preview");
+  }
+
+  function renderStepsPreview(steps) {
+    const el = ensureStepsPreview();
+    if (!el) return;
+    el.innerHTML = "";
+    if (!steps || !steps.length) {
+      const p = document.createElement("p");
+      p.className = "panel-note";
+      p.textContent = "No steps yet — open Builder to add some.";
+      el.appendChild(p);
+      return;
+    }
+    const ul = document.createElement("ul");
+    ul.className = "steps-preview-list";
+    steps.forEach(function (step, i) {
+      const li = document.createElement("li");
+      li.textContent = i + 1 + ". " + stepSummaryLine(step);
+      ul.appendChild(li);
+    });
+    el.appendChild(ul);
+  }
+
+  function ensureBuilderDom() {
+    const list = document.getElementById("builder-step-list");
+    const typeSel = document.getElementById("builder-step-type");
+    const fields = document.getElementById("builder-step-fields");
+    const btnAdd = document.getElementById("btn-builder-add");
+    const btnUpdate = document.getElementById("btn-builder-update");
+    if (!list || !typeSel || !fields || !btnAdd || !btnUpdate) return null;
+    return { list: list, typeSel: typeSel, fields: fields, btnAdd: btnAdd, btnUpdate: btnUpdate };
+  }
+
+  function rebuildBuilderFields(type, values) {
+    const fields = document.getElementById("builder-step-fields");
+    if (!fields) return;
+    values = values || {};
+    fields.innerHTML = "";
+    const schema = BUILDER_FIELD_SCHEMA[type] || [];
+    if (!schema.length) {
+      const note = document.createElement("p");
+      note.className = "panel-note";
+      note.textContent =
+        type === "clear_cookies"
+          ? "Clears browser cookies — no extra fields."
+          : type === "rotate_identity"
+          ? "Rotates identity — no extra fields."
+          : "No fields for this step type.";
+      fields.appendChild(note);
+      return;
+    }
+    schema.forEach(function (f) {
+      const row = document.createElement("div");
+      row.className = "site-url-row";
+      row.style.marginTop = "6px";
+      const lab = document.createElement("label");
+      lab.className = "browser-picker-label";
+      lab.htmlFor = "builder-field-" + f.key;
+      lab.textContent = f.label;
+      lab.style.minWidth = "120px";
+      const input = document.createElement("input");
+      input.id = "builder-field-" + f.key;
+      input.className = "site-url-input";
+      input.dataset.key = f.key;
+      input.type = f.type === "number" ? "number" : "text";
+      if (f.type === "number") input.step = "any";
+      const raw = values[f.key];
+      input.value = raw != null && raw !== "" ? String(raw) : f.def != null ? String(f.def) : "";
+      row.appendChild(lab);
+      row.appendChild(input);
+      fields.appendChild(row);
+    });
+  }
+
+  function collectBuilderStep() {
+    const typeSel = document.getElementById("builder-step-type");
+    const type = (typeSel && typeSel.value) || "wait";
+    const step = { type: type };
+    const fields = document.getElementById("builder-step-fields");
+    if (!fields) return step;
+    fields.querySelectorAll("[data-key]").forEach(function (input) {
+      const key = input.dataset.key;
+      const v = String(input.value || "").trim();
+      if (v === "") return;
+      if (key === "post_wait_secs") {
+        const n = parseFloat(v);
+        if (!Number.isNaN(n)) step[key] = Math.min(120, Math.max(0, n));
+        return;
+      }
+      if (key === "pre_wait_ms" || key === "seconds") {
+        const n = parseFloat(v);
+        step[key] = Number.isNaN(n) ? v : n;
+        return;
+      }
+      if (input.type === "number") {
+        const n = parseInt(v, 10);
+        step[key] = Number.isNaN(n) ? v : n;
+        return;
+      }
+      step[key] = v;
+    });
+    return step;
+  }
+
+  function fillBuilderFormFromStep(step) {
+    const typeSel = document.getElementById("builder-step-type");
+    if (!typeSel || !step) return;
+    const t = step.type || "wait";
+    if (BUILDER_STEP_TYPES.indexOf(t) >= 0) typeSel.value = t;
+    else typeSel.value = "wait";
+    rebuildBuilderFields(typeSel.value, step);
+  }
+
+  function renderBuilderStepList(steps) {
+    const list = document.getElementById("builder-step-list");
+    if (!list) return;
+    list.innerHTML = "";
+    if (!steps || !steps.length) {
+      const li = document.createElement("li");
+      li.className = "groups-list-empty";
+      li.textContent = "No steps yet — pick a type and click Add step.";
+      list.appendChild(li);
+      return;
+    }
+    steps.forEach(function (step, i) {
+      const li = document.createElement("li");
+      li.dataset.index = String(i);
+      if (i === builderSelectedIndex) li.classList.add("builder-step-selected");
+      const line = document.createElement("span");
+      line.className = "group-line";
+      line.innerHTML = "<strong>#" + (i + 1) + "</strong> " + escHtml(stepSummaryLine(step));
+      const actions = document.createElement("span");
+      actions.className = "builder-step-actions";
+      actions.style.display = "flex";
+      actions.style.gap = "4px";
+      actions.style.flexShrink = "0";
+      [
+        { act: "up", label: "Up", cls: "btn-mini" },
+        { act: "down", label: "Down", cls: "btn-mini" },
+        { act: "edit", label: "Edit", cls: "btn-mini" },
+        { act: "del", label: "Delete", cls: "btn-ghost" },
+      ].forEach(function (b) {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = b.cls;
+        btn.textContent = b.label;
+        btn.dataset.builderAct = b.act;
+        btn.dataset.index = String(i);
+        actions.appendChild(btn);
+      });
+      li.appendChild(line);
+      li.appendChild(actions);
+      list.appendChild(li);
+    });
+  }
+
+  async function refreshBuilder() {
+    ensureAdvanced("builder");
+    const dom = ensureBuilderDom();
+    wireBuilderControls();
+    if (!dom) return;
+    const a = api();
+    if (!a || typeof a.cursor_get_sequence !== "function") {
+      renderBuilderStepList([]);
+      showToast("Sequence bridge not ready yet");
+      return;
+    }
+    try {
+      const res = await a.cursor_get_sequence();
+      const steps = (res && res.steps) || [];
+      renderBuilderStepList(steps);
+      if (builderSelectedIndex >= steps.length) builderSelectedIndex = -1;
+      if (!dom.typeSel.dataset.fieldsInit) {
+        rebuildBuilderFields(dom.typeSel.value || "open_url", {});
+        dom.typeSel.dataset.fieldsInit = "1";
+      }
+      if (steps.length) stepComplete.builder = true;
+      updateNavActive();
+    } catch (e) {
+      renderBuilderStepList([]);
+      showToast("Could not load sequence: " + e);
+    }
+  }
+
+  function wireBuilderControls() {
+    const typeSel = document.getElementById("builder-step-type");
+    if (typeSel && !typeSel.dataset.wired) {
+      typeSel.dataset.wired = "1";
+      if (!typeSel.options.length) {
+        BUILDER_STEP_TYPES.forEach(function (t) {
+          const o = document.createElement("option");
+          o.value = t;
+          o.textContent = t;
+          typeSel.appendChild(o);
+        });
+      }
+      typeSel.addEventListener("change", function () {
+        rebuildBuilderFields(typeSel.value, {});
+      });
+    }
+
+    const btnAdd = document.getElementById("btn-builder-add");
+    if (btnAdd && !btnAdd.dataset.wired) {
+      btnAdd.dataset.wired = "1";
+      btnAdd.addEventListener("click", async function () {
+        const a = requireApi("Add step");
+        if (!a || typeof a.cursor_add_step !== "function") {
+          showToast("Add step not available");
+          return;
+        }
+        try {
+          const step = collectBuilderStep();
+          const res = await a.cursor_add_step(step);
+          if (res && res.error) {
+            showBackendError(res.error);
+            return;
+          }
+          builderSelectedIndex = -1;
+          showToast("Step added");
+          await refreshBuilder();
+          await refreshSteps();
+        } catch (_e) {
+          /* banner shown */
+        }
+      });
+    }
+
+    const btnUpdate = document.getElementById("btn-builder-update");
+    if (btnUpdate && !btnUpdate.dataset.wired) {
+      btnUpdate.dataset.wired = "1";
+      btnUpdate.addEventListener("click", async function () {
+        if (builderSelectedIndex < 0) {
+          showToast("Select a step with Edit first");
+          return;
+        }
+        const a = requireApi("Update step");
+        if (!a || typeof a.cursor_update_step !== "function") {
+          showToast("Update step not available");
+          return;
+        }
+        try {
+          const step = collectBuilderStep();
+          const res = await a.cursor_update_step(builderSelectedIndex, step);
+          if (res && res.error) {
+            showBackendError(res.error);
+            return;
+          }
+          showToast("Step updated");
+          await refreshBuilder();
+          await refreshSteps();
+        } catch (_e) {
+          /* banner shown */
+        }
+      });
+    }
+
+    const btnClear = document.getElementById("btn-builder-clear-sel");
+    if (btnClear && !btnClear.dataset.wired) {
+      btnClear.dataset.wired = "1";
+      btnClear.addEventListener("click", function () {
+        builderSelectedIndex = -1;
+        const typeSel2 = document.getElementById("builder-step-type");
+        rebuildBuilderFields((typeSel2 && typeSel2.value) || "open_url", {});
+        refreshBuilder();
+      });
+    }
+
+    const list = document.getElementById("builder-step-list");
+    if (list && !list.dataset.wired) {
+      list.dataset.wired = "1";
+      list.addEventListener("click", async function (ev) {
+        const btn = ev.target && ev.target.closest ? ev.target.closest("[data-builder-act]") : null;
+        if (!btn) return;
+        const act = btn.dataset.builderAct;
+        const idx = parseInt(btn.dataset.index, 10);
+        if (Number.isNaN(idx)) return;
+        const a = requireApi("Builder");
+        if (!a) return;
+        try {
+          if (act === "edit") {
+            if (typeof a.cursor_get_sequence !== "function") return;
+            const res = await a.cursor_get_sequence();
+            const steps = (res && res.steps) || [];
+            const step = steps[idx];
+            if (!step) return;
+            builderSelectedIndex = idx;
+            fillBuilderFormFromStep(step);
+            renderBuilderStepList(steps);
+            showToast("Editing step #" + (idx + 1));
+            return;
+          }
+          if (act === "del") {
+            if (typeof a.cursor_remove_step !== "function") {
+              showToast("Remove step not available");
+              return;
+            }
+            const res = await a.cursor_remove_step(idx);
+            if (res && res.error) {
+              showBackendError(res.error);
+              return;
+            }
+            if (builderSelectedIndex === idx) builderSelectedIndex = -1;
+            else if (builderSelectedIndex > idx) builderSelectedIndex -= 1;
+            showToast("Step removed");
+            await refreshBuilder();
+            await refreshSteps();
+            return;
+          }
+          if (act === "up" || act === "down") {
+            if (typeof a.cursor_move_step !== "function") {
+              showToast("Move step not available");
+              return;
+            }
+            const dir = act === "up" ? -1 : 1;
+            const res = await a.cursor_move_step(idx, dir);
+            if (res && res.error) {
+              showToast(res.error);
+              return;
+            }
+            if (builderSelectedIndex === idx) builderSelectedIndex = idx + dir;
+            else if (builderSelectedIndex === idx + dir) builderSelectedIndex = idx;
+            await refreshBuilder();
+            await refreshSteps();
+          }
+        } catch (_e) {
+          /* banner shown */
+        }
+      });
+    }
+  }
 
   function nextStepId(fromId) {
     const idx = STEP_IDS.indexOf(fromId);
@@ -662,26 +1068,73 @@
     if (!groups.length) {
       const li = document.createElement("li");
       li.className = "groups-list-empty";
-      li.textContent = "No groups yet. Click Manage groups.";
+      li.textContent = "No groups yet. Click Add group.";
       list.appendChild(li);
       return;
     }
-    groups.forEach(function (g) {
+    const canRemove = groups.length > 1;
+    groups.forEach(function (g, gi) {
       const li = document.createElement("li");
+      li.className = "group-row";
+      li.dataset.index = String(gi);
       const connected = g.phone_count || 0;
       const configured = g.configured_count || connected;
       let extra = "";
       if (configured > connected) {
-        extra = " (" + configured + " saved in config, " + connected + " connected now)";
+        extra = " (" + configured + " saved, " + connected + " connected)";
       }
-      li.innerHTML =
-        "<strong>" +
-        (g.name || "Group") +
-        "</strong> — " +
-        connected +
-        " phone" +
-        (connected === 1 ? "" : "s") +
-        extra;
+
+      const line = document.createElement("span");
+      line.className = "group-line";
+      line.style.display = "flex";
+      line.style.alignItems = "center";
+      line.style.gap = "8px";
+
+      const nameInput = document.createElement("input");
+      nameInput.type = "text";
+      nameInput.className = "group-name-input";
+      nameInput.value = g.name || "Group";
+      nameInput.dataset.groupName = String(gi);
+      nameInput.setAttribute("aria-label", "Group name");
+
+      const meta = document.createElement("span");
+      meta.className = "panel-note";
+      meta.style.margin = "0";
+      meta.style.whiteSpace = "nowrap";
+      meta.textContent =
+        connected + " phone" + (connected === 1 ? "" : "s") + extra;
+
+      line.appendChild(nameInput);
+      line.appendChild(meta);
+
+      const actions = document.createElement("span");
+      actions.style.display = "flex";
+      actions.style.gap = "4px";
+      actions.style.flexShrink = "0";
+
+      const saveBtn = document.createElement("button");
+      saveBtn.type = "button";
+      saveBtn.className = "btn-mini";
+      saveBtn.textContent = "Save";
+      saveBtn.dataset.renameGroup = String(gi);
+      saveBtn.setAttribute("data-help", "Rename this group in the saved config.");
+      actions.appendChild(saveBtn);
+
+      if (canRemove) {
+        const removeBtn = document.createElement("button");
+        removeBtn.type = "button";
+        removeBtn.className = "btn-mini btn-remove-group";
+        removeBtn.textContent = "Remove";
+        removeBtn.dataset.removeGroup = String(gi);
+        removeBtn.setAttribute(
+          "data-help",
+          "Remove this group from the saved config. Phones are not touched."
+        );
+        actions.appendChild(removeBtn);
+      }
+
+      li.appendChild(line);
+      li.appendChild(actions);
       list.appendChild(li);
     });
   }
@@ -942,17 +1395,33 @@
 
   async function refreshSteps() {
     ensureAdvanced("steps");
+    ensureStepsPreview();
     const a = api();
     if (!a) return;
     const el = document.getElementById("steps-summary");
     try {
-      const info = await a.get_automation_info();
+      let count = 0;
+      let hasSteps = false;
+      if (typeof a.get_automation_info === "function") {
+        const info = await a.get_automation_info();
+        hasSteps = !!(info && info.has_steps);
+        count = (info && info.count) || 0;
+      }
+      if (typeof a.cursor_get_sequence === "function") {
+        const seq = await a.cursor_get_sequence();
+        const steps = (seq && seq.steps) || [];
+        count = (seq && seq.count != null) ? seq.count : steps.length;
+        hasSteps = count > 0;
+        renderStepsPreview(steps);
+      } else {
+        renderStepsPreview([]);
+      }
       if (el) {
-        el.textContent = info.has_steps
-          ? info.count + " step(s) in default sequence."
+        el.textContent = hasSteps
+          ? count + " step(s) in default sequence."
           : "No default steps yet.";
       }
-      if (info.has_steps) stepComplete.steps = true;
+      if (hasSteps) stepComplete.steps = true;
       updateNavActive();
     } catch (e) {
       if (el) el.textContent = "Could not load: " + e;
@@ -1832,6 +2301,61 @@
       });
     }
 
+    const btnBootAll = document.getElementById("btn-boot-all");
+    if (btnBootAll && !btnBootAll.dataset.wired) {
+      btnBootAll.dataset.wired = "1";
+      btnBootAll.addEventListener("click", async function () {
+        const a = requireApi("Boot all phones");
+        if (!a) return;
+        if (typeof a.boot_all_phones !== "function") {
+          showToast("Boot-all not ready yet — waiting on bridge");
+          return;
+        }
+        try {
+          const res = await a.boot_all_phones();
+          if (res && res.error) {
+            showBackendError(res.error);
+            if (bootLog) appendLog(bootLog, res.error);
+            return;
+          }
+          const msg = (res && res.message) || "Booting phones — progress streams below";
+          showToast(msg);
+          if (bootLog) appendLog(bootLog, msg);
+          showView("boot", { animate: true });
+        } catch (_e) {
+          /* banner shown */
+        }
+      });
+    }
+
+    const btnBootAllHome = document.getElementById("btn-boot-all-home");
+    if (btnBootAllHome && !btnBootAllHome.dataset.wired) {
+      btnBootAllHome.dataset.wired = "1";
+      btnBootAllHome.addEventListener("click", async function () {
+        const a = requireApi("Boot all phones");
+        if (!a) return;
+        if (typeof a.boot_all_phones !== "function") {
+          showToast("Boot-all not ready yet — waiting on bridge");
+          return;
+        }
+        try {
+          const res = await a.boot_all_phones();
+          if (res && res.error) {
+            showBackendError(res.error);
+            if (bootLog) appendLog(bootLog, res.error);
+            return;
+          }
+          const msg =
+            (res && res.message) || "Booting phones — progress streams on the Test step";
+          showToast(msg);
+          if (bootLog) appendLog(bootLog, msg);
+          showView("boot", { animate: true });
+        } catch (_e) {
+          /* banner shown */
+        }
+      });
+    }
+
     // Home quick-start: Start farm / Farm running → dashboard / Stop farm.
     const btnStartHome = document.getElementById("btn-start-farm-home");
     const btnStopHome = document.getElementById("btn-stop-farm-home");
@@ -2003,41 +2527,17 @@
     const btnEditSeq = document.getElementById("btn-edit-sequence");
     if (btnEditSeq && !btnEditSeq.dataset.wired) {
       btnEditSeq.dataset.wired = "1";
-      btnEditSeq.addEventListener("click", async function () {
-        try {
-          showToast("Opening editor...");
-          const res = await callApi("Edit sequence", function (a) {
-            return a.run_edit_default_sequence();
-          });
-          if (res && res.error) {
-            showBackendError(res.error);
-            return;
-          }
-          if (res && res.ok !== false) {
-            showToast("Editor window opened — it may appear in front of this app");
-            await refreshSteps();
-          }
-        } catch (_e) {
-          /* banner shown */
-        }
+      btnEditSeq.addEventListener("click", function () {
+        showView("builder", { animate: true });
+        refreshBuilder();
       });
     }
     const btnOpenBuilder = document.getElementById("btn-open-builder");
     if (btnOpenBuilder && !btnOpenBuilder.dataset.wired) {
       btnOpenBuilder.dataset.wired = "1";
-      btnOpenBuilder.addEventListener("click", async function () {
-        try {
-          const res = await callApi("Sequence builder", function (a) {
-            return a.open_sequence_builder();
-          });
-          if (res && res.error) {
-            showBackendError(res.error);
-            return;
-          }
-          showToast("Builder window opened");
-        } catch (_e) {
-          /* banner shown */
-        }
+      btnOpenBuilder.addEventListener("click", function () {
+        showView("builder", { animate: true });
+        refreshBuilder();
       });
     }
     const btnLoadSeq = document.getElementById("btn-load-sequence");
@@ -2068,6 +2568,7 @@
           if (res && res.ok) {
             showToast("Loaded " + (res.count || 0) + " step(s)");
             await refreshSteps();
+            await refreshBuilder();
           }
         } catch (_e) {
           /* banner shown */
@@ -2109,19 +2610,9 @@
     const btnManageGroups = document.getElementById("btn-manage-groups");
     if (btnManageGroups && !btnManageGroups.dataset.wired) {
       btnManageGroups.dataset.wired = "1";
-      btnManageGroups.addEventListener("click", async function () {
-        try {
-          const res = await callApi("Manage groups", function (a) {
-            return a.open_groups_manager();
-          });
-          if (res && res.error) {
-            showBackendError(res.error);
-            return;
-          }
-          showToast("Groups window opened");
-        } catch (_e) {
-          /* banner shown */
-        }
+      btnManageGroups.addEventListener("click", function () {
+        showView("teams", { animate: true });
+        refreshTeams();
       });
     }
 
@@ -2131,13 +2622,20 @@
       btnAddGroup.addEventListener("click", async function () {
         try {
           const res = await callApi("Add group", function (a) {
+            if (typeof a.cursor_add_group === "function") return a.cursor_add_group();
             return a.run_add_group();
           });
+          if (res && res.error) {
+            showBackendError(res.error);
+            return;
+          }
           if (res) {
             const sumEl = document.getElementById("teams-summary");
             if (sumEl) sumEl.textContent = groupsSummaryText(res);
             renderGroupsList(res);
             showToast("Group added");
+            stepComplete.teams = true;
+            updateNavActive();
           }
         } catch (_e) {
           /* banner shown */
@@ -2181,7 +2679,7 @@
             showBackendError(res.error);
             return;
           }
-          showToast("Run window opened");
+          showToast("Service started");
           await openDashboardWhenReady();
         } catch (e) {
           showBackendError(String(e));
@@ -2204,13 +2702,76 @@
             showBackendError(res.error);
             return;
           }
-          showToast("Run window opened");
+          showToast("Groups started");
           stepComplete.go = true;
           updateNavActive();
         } catch (e) {
           showBackendError(String(e));
         } finally {
           setBusy(runLed, runStatus, false);
+        }
+      });
+    }
+
+    // Groups list: rename (Save) + Remove via cursor_* (no Tk window).
+    const groupsList = document.getElementById("groups-list");
+    if (groupsList && !groupsList.dataset.removeWired) {
+      groupsList.dataset.removeWired = "1";
+      groupsList.addEventListener("click", async function (ev) {
+        const renameBtn = ev.target.closest("[data-rename-group]");
+        if (renameBtn) {
+          const idx = parseInt(renameBtn.getAttribute("data-rename-group"), 10);
+          if (Number.isNaN(idx)) return;
+          const row = renameBtn.closest("li");
+          const input = row && row.querySelector("[data-group-name]");
+          const name = input ? String(input.value || "").trim() : "";
+          const a = api();
+          if (!a || typeof a.cursor_rename_group !== "function") {
+            showBackendError("Rename group unavailable — update the app.");
+            return;
+          }
+          try {
+            const res = await a.cursor_rename_group(idx, name);
+            if (res && res.error) {
+              showBackendError(res.error);
+              return;
+            }
+            const sumEl = document.getElementById("teams-summary");
+            if (sumEl) sumEl.textContent = groupsSummaryText(res);
+            renderGroupsList(res);
+            showToast("Group renamed");
+          } catch (_e) {
+            /* banner shown */
+          }
+          return;
+        }
+        const btn = ev.target.closest("[data-remove-group]");
+        if (!btn) return;
+        const idx = parseInt(btn.getAttribute("data-remove-group"), 10);
+        if (Number.isNaN(idx)) return;
+        const a = api();
+        const removeFn =
+          a && typeof a.cursor_remove_group === "function"
+            ? a.cursor_remove_group.bind(a)
+            : a && typeof a.remove_group === "function"
+            ? a.remove_group.bind(a)
+            : null;
+        if (!removeFn) {
+          showBackendError("Remove group unavailable — update the app.");
+          return;
+        }
+        try {
+          const res = await removeFn(idx);
+          if (res && res.error) {
+            showBackendError(res.error);
+            return;
+          }
+          const sumEl = document.getElementById("teams-summary");
+          if (sumEl) sumEl.textContent = groupsSummaryText(res);
+          renderGroupsList(res);
+          showToast("Group removed" + (res && res.removed ? ": " + res.removed : ""));
+        } catch (_e) {
+          /* banner shown */
         }
       });
     }
@@ -2228,7 +2789,7 @@
             showBackendError(res.error);
             return;
           }
-          showToast("Run window opened — automation starting");
+          showToast("Automation started");
           stepComplete.go = true;
           updateNavActive();
         } catch (e) {

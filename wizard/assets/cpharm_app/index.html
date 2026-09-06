@@ -71,6 +71,7 @@
                   <button type="button" class="btn-go btn-go-secondary" id="btn-health-home" data-help="Session quality: per-phone dump timeouts, fallback taps, and paying-fill rounds, read live from the farm logs.">Farm health</button>
                 </div>
                 <div class="action-row">
+                  <button type="button" class="btn-go btn-go-secondary" id="btn-boot-all-home" data-help="Cold-boots / adopts all MuMu phones via bridge.">Boot all phones</button>
                   <button type="button" class="btn-ghost" id="btn-spin-test-phone-home" data-help="Your click only: boots one spare phone (Docker redroid first, then MuMu) so you can test the setup before the farm goes live.">Spin up one phone to test</button>
                   <button type="button" class="btn-ghost" id="btn-stop-farm-home" hidden data-help="Stops the running farm: farm lanes, watchdog and money lanes wind down. Phones you started yourself stay on.">Stop farm</button>
                 </div>
@@ -229,6 +230,7 @@
                 </div>
                 <div class="phones-actions-bar">
                   <button type="button" class="btn-go btn-go-compact" id="btn-go" data-help="Walks the live phones through setup: browser install, ADB keys, Tor per phone. Skips phones already set up.">Set up my phones</button>
+                  <button type="button" class="btn-go btn-go-secondary" id="btn-boot-all" data-help="Cold-boots / adopts all MuMu phones via bridge.">Boot all phones</button>
                 </div>
               </section>
 
@@ -375,19 +377,20 @@
                 <h2 class="panel-title">What to do</h2>
                 <ol class="instruction-list">
                   <li>Setup usually creates steps for you — if so, skip this.</li>
-                  <li>Otherwise click <strong>Edit default sequence</strong>.</li>
+                  <li>Otherwise open the <strong>in-deck editor</strong> on Builder, or jump there below.</li>
                 </ol>
                 <h2 class="panel-title">Default sequence</h2>
                 <p class="status-line" id="steps-summary">No default steps defined.</p>
+                <ul class="steps-preview" id="steps-preview"></ul>
                 <div class="action-row">
-                  <button type="button" class="btn-go" id="btn-edit-sequence" data-help="Opens the default sequence for editing before it goes live.">Edit default sequence</button>
+                  <button type="button" class="btn-go" id="btn-edit-sequence" data-help="Opens the in-deck sequence editor (Builder) so you can add, edit, or reorder steps without leaving the deck.">Edit in Builder</button>
                   <button type="button" class="btn-mini" id="btn-load-sequence" data-help="Loads a sequence from disk (JSON).">Load file</button>
                   <button type="button" class="btn-mini" id="btn-save-sequence" data-help="Saves the current sequence to disk so you can reuse it later.">Save as</button>
                 </div>
               </section>
               <section class="panel">
                 <h2 class="panel-title">About steps</h2>
-                <p class="panel-note">A sequence is a list of taps. New phones use this list by default.</p>
+                <p class="panel-note">A sequence is a list of taps. New phones use this list by default. Preview above; edit on <strong>Builder</strong>.</p>
               </section>
             </div>
           </div>
@@ -397,28 +400,48 @@
           </footer>
         </section>
 
-        <!-- 6 Builder -->
+        <!-- 7 Builder -->
         <section class="view" id="view-builder" data-view="builder">
           <header class="view-hero">
             <div class="kicker"><span class="badge-dot"></span> STEP 8 OF 10 · TEST</div>
             <h1>Builder</h1>
-            <p class="subtitle">Optional: build a custom sequence.</p>
+            <p class="subtitle">Edit the default sequence in-deck — add, update, or clear steps.</p>
           </header>
-          <div class="view-body">
-            <div class="main-grid">
-              <section class="panel">
-                <h2 class="panel-title">What to do</h2>
-                <p class="panel-note">Most people skip this step — the default sequence covers the money path.</p>
-                <h2 class="panel-title">Sequence builder</h2>
-                <p class="panel-note">Open the full editor only if you need custom behavior.</p>
-                <div class="action-row">
-                  <button type="button" class="btn-go" id="btn-open-builder">Open sequence builder</button>
-                  <button type="button" class="btn-mini btn-prev-inline" data-prev="steps">← Back to Steps</button>
+          <div class="view-body view-body-scroll">
+            <div class="main-grid main-grid-builder">
+              <section class="panel panel-builder-list" id="builder-editor">
+                <div class="panel-head">
+                  <h2 class="panel-title">Sequence steps</h2>
+                  <button type="button" class="btn-mini" id="btn-open-builder" data-help="Reloads the step list from the current default sequence.">Reload steps</button>
                 </div>
+                <ul class="step-editor-list" id="builder-step-list"></ul>
+                <p class="panel-note">Select a step to edit it, or add a new one below. Most people keep the money-path defaults.</p>
               </section>
-              <section class="panel">
-                <h2 class="panel-title">Timing</h2>
-                <p class="panel-note">Add more natural timing later from <strong>Groups</strong>.</p>
+              <section class="panel panel-builder-form">
+                <h2 class="panel-title">Step form</h2>
+                <form id="builder-step-form" class="builder-step-form" autocomplete="off" onsubmit="return false;">
+                  <div class="step-field-row">
+                    <label class="step-field-label" for="builder-step-type">Type</label>
+                    <select id="builder-step-type" class="browser-select" aria-label="Step type">
+                      <option value="open_url">Open URL</option>
+                      <option value="launch_app">Launch app</option>
+                      <option value="tap">Tap</option>
+                      <option value="wait">Wait</option>
+                      <option value="swipe">Swipe</option>
+                      <option value="keyevent">Keyevent</option>
+                      <option value="close_app">Close app</option>
+                      <option value="clear_cookies">Clear cookies</option>
+                      <option value="rotate_identity">Rotate identity</option>
+                      <option value="type_text">Type text</option>
+                    </select>
+                  </div>
+                  <div id="builder-step-fields" class="builder-step-fields"></div>
+                  <div class="action-row builder-form-actions">
+                    <button type="button" class="btn-go" id="btn-builder-add">Add step</button>
+                    <button type="button" class="btn-go btn-go-secondary" id="btn-builder-update" disabled hidden>Update selected</button>
+                    <button type="button" class="btn-mini" id="btn-builder-clear-sel">Clear selection</button>
+                  </div>
+                </form>
               </section>
             </div>
           </div>
@@ -428,7 +451,7 @@
           </footer>
         </section>
 
-        <!-- 7 Groups -->
+        <!-- 8 Groups -->
         <section class="view" id="view-teams" data-view="teams">
           <header class="view-hero">
             <div class="kicker"><span class="badge-dot"></span> STEP 9 OF 10 · TEST</div>
@@ -440,7 +463,7 @@
               <section class="panel">
                 <h2 class="panel-title">What to do</h2>
                 <ol class="instruction-list">
-                  <li>Open <strong>Manage groups</strong>.</li>
+                  <li>Rename or remove groups in the list below — manage them here in the deck.</li>
                   <li>Put each phone in one group.</li>
                   <li>Add a group only if you need one.</li>
                   <li>Then go to <strong>Run</strong>.</li>
@@ -449,7 +472,7 @@
                 <p class="status-line" id="teams-summary">No groups yet.</p>
                 <ul class="groups-list" id="groups-list"></ul>
                 <div class="action-row">
-                  <button type="button" class="btn-go" id="btn-manage-groups">Manage groups</button>
+                  <button type="button" class="btn-go" id="btn-manage-groups" data-help="Refreshes the groups list from farm state.">Refresh groups</button>
                   <button type="button" class="btn-mini" id="btn-add-group">Add group</button>
                   <button type="button" class="btn-mini" id="btn-humanize">Natural timing — all phones</button>
                 </div>

@@ -1219,6 +1219,204 @@ def get_automation_info() -> dict:
     return _run_on_tk(work)
 
 
+def _sync_default_steps_to_seq_page(steps: list) -> None:
+    """Keep hidden Steps page in sync so load/save dialogs see the same list."""
+    try:
+        page = wizard()._pages[5]
+        page._seq_steps.clear()
+        page._seq_steps.extend(list(steps))
+    except Exception:
+        pass
+
+
+def cursor_get_sequence() -> dict:
+    """Deck-native: return default_steps for the in-webview sequence editor."""
+
+    def work() -> dict:
+        from setup_wizard import state
+
+        _reload_persisted_wizard_state()
+        steps = list(state.get("default_steps") or [])
+        return {"ok": True, "steps": steps, "count": len(steps)}
+
+    return _run_on_tk(work)
+
+
+def cursor_add_step(step: dict | None = None) -> dict:
+    def work() -> dict:
+        from setup_wizard import _apply_default_steps_to_template_phones, _normalize_sequence_steps, state
+
+        _reload_persisted_wizard_state()
+        raw = step if isinstance(step, dict) else {"type": "wait", "seconds": 2.0}
+        normalized = _normalize_sequence_steps([raw])
+        new_step = normalized[0] if normalized else dict(raw)
+        steps = list(state.get("default_steps") or [])
+        steps.append(new_step)
+        state["default_steps"] = steps
+        _apply_default_steps_to_template_phones()
+        _sync_default_steps_to_seq_page(steps)
+        _persist_editor_state()
+        return {"ok": True, "count": len(steps), "steps": steps}
+
+    return _run_on_tk(work)
+
+
+def cursor_update_step(i: int, step: dict | None = None) -> dict:
+    def work() -> dict:
+        from setup_wizard import _apply_default_steps_to_template_phones, _normalize_sequence_steps, state
+
+        _reload_persisted_wizard_state()
+        steps = list(state.get("default_steps") or [])
+        idx = int(i)
+        if idx < 0 or idx >= len(steps):
+            return {"ok": False, "error": f"Step index out of range: {idx}"}
+        if not isinstance(step, dict):
+            return {"ok": False, "error": "step must be an object"}
+        normalized = _normalize_sequence_steps([step])
+        steps[idx] = normalized[0] if normalized else dict(step)
+        state["default_steps"] = steps
+        _apply_default_steps_to_template_phones()
+        _sync_default_steps_to_seq_page(steps)
+        _persist_editor_state()
+        return {"ok": True, "count": len(steps), "steps": steps}
+
+    return _run_on_tk(work)
+
+
+def cursor_remove_step(i: int) -> dict:
+    def work() -> dict:
+        from setup_wizard import _apply_default_steps_to_template_phones, state
+
+        _reload_persisted_wizard_state()
+        steps = list(state.get("default_steps") or [])
+        idx = int(i)
+        if idx < 0 or idx >= len(steps):
+            return {"ok": False, "error": f"Step index out of range: {idx}"}
+        steps.pop(idx)
+        state["default_steps"] = steps
+        _apply_default_steps_to_template_phones()
+        _sync_default_steps_to_seq_page(steps)
+        _persist_editor_state()
+        return {"ok": True, "count": len(steps), "steps": steps}
+
+    return _run_on_tk(work)
+
+
+def cursor_move_step(i: int, dir: int = 1) -> dict:
+    def work() -> dict:
+        from setup_wizard import _apply_default_steps_to_template_phones, state
+
+        _reload_persisted_wizard_state()
+        steps = list(state.get("default_steps") or [])
+        idx = int(i)
+        delta = int(dir)
+        j = idx + delta
+        if idx < 0 or idx >= len(steps):
+            return {"ok": False, "error": f"Step index out of range: {idx}"}
+        if j < 0 or j >= len(steps):
+            return {"ok": False, "error": "Cannot move step further"}
+        steps[idx], steps[j] = steps[j], steps[idx]
+        state["default_steps"] = steps
+        _apply_default_steps_to_template_phones()
+        _sync_default_steps_to_seq_page(steps)
+        _persist_editor_state()
+        return {"ok": True, "count": len(steps), "steps": steps}
+
+    return _run_on_tk(work)
+
+
+def cursor_add_group() -> dict:
+    """Deck-native: append a group with the exact Tk GroupsPage shape."""
+
+    def work() -> dict:
+        from setup_wizard import (
+            DEFAULT_HITS_PER_DAY,
+            DEFAULT_SEQUENCE_BASE_H,
+            DEFAULT_SEQUENCE_BASE_W,
+            _normalize_all_groups,
+            _profile_key,
+            state,
+        )
+
+        _prepare_editor_state()
+        _normalize_all_groups()
+        n = len(state["groups"]) + 1
+        default_steps = state.get("default_steps", [])
+        phones_map: dict = {}
+        for p in state.get("phones", []):
+            if not isinstance(p, dict):
+                continue
+            ser = (p.get("serial") or "").strip()
+            if not ser:
+                continue
+            phones_map[ser] = {
+                "steps": list(default_steps),
+                "hits_per_day": DEFAULT_HITS_PER_DAY,
+                "use_default_template": True,
+                "explicit_override": False,
+                "sequence_base_w": DEFAULT_SEQUENCE_BASE_W,
+                "sequence_base_h": DEFAULT_SEQUENCE_BASE_H,
+                "sequence_profile_key": _profile_key(DEFAULT_SEQUENCE_BASE_W, DEFAULT_SEQUENCE_BASE_H),
+                "sequence_playlist": [],
+                "sequence_playlist_secondary": [],
+                "sequence_playlist_mode": "series",
+                "sequence_playlist_shuffle": "none",
+            }
+        state["groups"].append(
+            {
+                "name": f"Group {n}",
+                "phones": phones_map,
+                "stagger_secs": 30,
+                "repeat": 1,
+                "repeat_forever": False,
+            }
+        )
+        _persist_editor_state()
+        return {"ok": True, **_groups_detail_from_state()}
+
+    return _run_on_tk(work)
+
+
+def cursor_remove_group(i: int) -> dict:
+    def work() -> dict:
+        from setup_wizard import _normalize_all_groups, state
+
+        _prepare_editor_state()
+        _normalize_all_groups()
+        groups = state.get("groups") or []
+        if len(groups) <= 1:
+            return {"ok": False, "error": "Need at least one group.", **_groups_detail_from_state()}
+        idx = int(i)
+        if idx < 0 or idx >= len(groups):
+            return {"ok": False, "error": f"Group index out of range: {idx}", **_groups_detail_from_state()}
+        groups.pop(idx)
+        state["groups"] = groups
+        _persist_editor_state()
+        return {"ok": True, **_groups_detail_from_state()}
+
+    return _run_on_tk(work)
+
+
+def cursor_rename_group(i: int, name: str = "") -> dict:
+    def work() -> dict:
+        from setup_wizard import _normalize_all_groups, state
+
+        _prepare_editor_state()
+        _normalize_all_groups()
+        groups = state.get("groups") or []
+        idx = int(i)
+        if idx < 0 or idx >= len(groups):
+            return {"ok": False, "error": f"Group index out of range: {idx}", **_groups_detail_from_state()}
+        new_name = (name or "").strip() or f"Group {idx + 1}"
+        g = groups[idx]
+        if isinstance(g, dict):
+            g["name"] = new_name
+        _persist_editor_state()
+        return {"ok": True, **_groups_detail_from_state()}
+
+    return _run_on_tk(work)
+
+
 def run_edit_default_sequence() -> dict:
     def work() -> dict:
         from setup_wizard import PerPhoneSequenceEditor, _apply_default_steps_to_template_phones, state
@@ -1250,32 +1448,114 @@ def run_edit_default_sequence() -> dict:
 
 
 def open_sequence_builder() -> dict:
-    def work() -> dict:
-        return _open_wizard_page_window(6, "CPharm — Builder", width=1220, height=980)
-
-    return _spawn_with_visible_fallback(6, fallback=lambda: _run_on_tk(work))
+    """Legacy name — deck navigates to builder view; no Tk window."""
+    return {"ok": True, "deck": "builder"}
 
 
 def open_groups_manager() -> dict:
-    def work() -> dict:
-        return _open_wizard_page_window(7, "CPharm — Groups", width=1240, height=1000)
+    """Legacy name — deck navigates to teams view; no Tk window."""
+    return {"ok": True, "deck": "teams"}
 
-    return _spawn_with_visible_fallback(7, fallback=lambda: _run_on_tk(work))
+
+def boot_all_phones() -> dict:
+    """Boot every stopped MuMu ARM phone and wait for ADB — headless, no Tk.
+
+    Uses the same proven helpers as the classic wizard's _boot_all
+    (_find_mumu_manager → _mumu_get_instances → _mumu_launch → adb connect/echo
+    wait), so the deck's Boot button drives the real launch path without opening
+    any Tk window or page object. Runs in a daemon thread; per-phone progress
+    streams to the deck's boot log via _emit_log("boot", …).
+    """
+
+    def work() -> None:
+        import time as _time
+
+        from setup_wizard import (
+            _find_mumu_manager,
+            _mumu_get_instances,
+            _mumu_launch,
+            adb,
+        )
+
+        def log(msg: str) -> None:
+            _emit_log("boot", msg if msg.endswith("\n") else msg + "\n")
+
+        mgr = _find_mumu_manager()
+        if not mgr:
+            log("MuMu manager tool not found — install MuMuPlayer ARM first.")
+            _emit_log("boot", "BOOT FAILED: no manager\n")
+            return
+        instances = _mumu_get_instances(mgr, log_fn=log)
+        if not instances:
+            log("No MuMu instances found — open MuMu once so it creates its VMs.")
+            _emit_log("boot", "BOOT FAILED: no instances\n")
+            return
+        booted: list[str] = []
+        already: list[str] = []
+        failed: list[str] = []
+        for inst in instances:
+            idx = inst["index"]
+            name = inst["name"]
+            serial = inst["adb_serial"]
+            if inst.get("started"):
+                log(f"{name}: already running ({serial})")
+                already.append(name)
+                continue
+            log(f"{name}: launching (instance {idx})…")
+            try:
+                _mumu_launch(mgr, idx, log_fn=None)
+            except Exception as exc:  # noqa: BLE001 — keep booting the rest
+                log(f"{name}: launch failed: {exc}")
+                failed.append(name)
+                continue
+            _time.sleep(2)
+            deadline = _time.time() + 180
+            up = False
+            while _time.time() < deadline:
+                _time.sleep(5)
+                adb("connect", serial, timeout=8)
+                check = adb("shell", "echo", "ok", serial=serial, timeout=8)
+                up = check.strip() == "ok"
+                if up:
+                    break
+            if up:
+                log(f"{name}: ADB up on {serial}")
+                booted.append(name)
+            else:
+                log(f"{name}: no ADB answer after 180s — moving on")
+                failed.append(name)
+        total = len(booted) + len(already)
+        log(f"BOOT COMPLETE: {total} phone(s) up, {len(failed)} failed.")
+
+    threading.Thread(target=work, daemon=True, name="boot-all-phones").start()
+    return {"ok": True, "started": True}
+
+
+def remove_group(index: int) -> dict:
+    """Remove group ``index`` from persisted wizard state — deck-native, no Tk."""
+
+    def work() -> dict:
+        from setup_wizard import state
+
+        _prepare_editor_state()
+        groups = state.get("groups") or []
+        idx = int(index)
+        if idx < 0 or idx >= len(groups):
+            return {
+                "ok": False,
+                "error": f"Group index {idx} out of range ({len(groups)} groups).",
+            }
+        removed = groups.pop(idx)
+        _persist_editor_state()
+        detail = _groups_detail_from_state()
+        return {"ok": True, "removed": removed.get("name") or f"Group {idx + 1}", **detail}
+
+    return _run_on_tk(work)
 
 
 def run_add_group() -> dict:
-    def work() -> dict:
-        _prepare_editor_state()
-        page = _page(7)
-        page.on_enter()
-        page._add_group()
-        _persist_editor_state()
-        return _groups_detail_from_state()
-
-    detail = _run_on_tk(work)
-    if isinstance(detail, dict):
-        return {"ok": True, **detail}
-    return {"ok": True}
+    """Compat wrapper — deck uses cursor_add_group (no Tk Groups window)."""
+    return cursor_add_group()
 
 
 def run_humanize_all_sequences() -> dict:
@@ -1489,82 +1769,102 @@ def get_browse_mode() -> dict:
 
 
 def start_server() -> dict:
+    """Start the control server on the hidden Launch page — no Tk Run window."""
+
     def work() -> dict:
-        result = _open_wizard_page_window(8, "CPharm — Run", width=1240, height=1000)
-        page = _window_page(_page_windows.get(8)) or launch_page()
+        page = launch_page()
         page.on_enter()
         if hasattr(page, "_start_server"):
             page._start_server()
-        if isinstance(result, dict):
-            result["started"] = True
-            return result
         return {"ok": True, "started": True}
 
-    return _spawn_with_visible_fallback(
-        8, action="start_server", success_augment={"started": True}, fallback=lambda: _run_on_tk(work)
-    )
+    return _run_on_tk(work)
 
 
 def start_server_and_open_dashboard() -> dict:
+    """Start service + open dashboard without spawning a visible Tk Run window."""
+
     def work() -> dict:
-        result = _open_wizard_page_window(8, "CPharm — Run", width=1240, height=1000)
-        page = _window_page(_page_windows.get(8)) or launch_page()
+        page = launch_page()
         page.on_enter()
         if hasattr(page, "_start_server"):
             page._start_server()
         # _start_server is intentionally asynchronous; waiting here blocks the Tk
         # event loop and prevents the server thread's UI callbacks from running.
-        # Open the browser from the page once the normal readiness poll succeeds.
         opened = False
         if hasattr(page, "_open_dashboard_browser"):
             page.after(250, lambda: page._open_dashboard_browser("/"))
             opened = True
-        out = dict(result) if isinstance(result, dict) else {"ok": True}
-        out["dashboard_opened"] = opened
+        out: dict[str, Any] = {"ok": True, "started": True, "dashboard_opened": opened}
         if not opened:
             out["message"] = "Server starting — click Open dashboard in a moment."
         return out
 
-    return _spawn_with_visible_fallback(
-        8,
-        action="start_server_and_open_dashboard",
-        success_augment={"started": True, "dashboard_opened": True},
-        fallback=lambda: _run_on_tk(work),
-    )
+    return _run_on_tk(work)
 
 
 def run_all_groups() -> dict:
+    """Boot phones (when codebuff lands boot_all_phones), then start service + run groups.
+
+    No Tk Run window — progress streams to the deck go-log via LaunchPage wiring.
+    """
+    boot_res: dict | None = None
+    boot_fn = globals().get("boot_all_phones")
+    if callable(boot_fn):
+        try:
+            boot_res = boot_fn()
+        except Exception as exc:  # noqa: BLE001
+            return {"ok": False, "error": f"boot_all_phones failed: {exc}"}
+        if isinstance(boot_res, dict) and boot_res.get("ok") is False:
+            return {
+                "ok": False,
+                "error": boot_res.get("error") or "boot_all_phones failed",
+                "boot": boot_res,
+            }
+
     def work() -> dict:
-        result = _open_wizard_page_window(8, "CPharm — Run", width=1240, height=1000)
-        page = _window_page(_page_windows.get(8)) or launch_page()
+        page = launch_page()
         page.on_enter()
+        try:
+            if hasattr(page, "_dashboard_config_reachable") and not page._dashboard_config_reachable():
+                if hasattr(page, "_start_server"):
+                    page._start_server()
+        except Exception:
+            if hasattr(page, "_start_server"):
+                page._start_server()
         if hasattr(page, "_run_groups"):
             page._run_groups()
-        if isinstance(result, dict):
-            result["started"] = True
-            return result
-        return {"ok": True, "started": True}
+        out: dict[str, Any] = {"ok": True, "started": True}
+        if boot_res is not None:
+            out["boot"] = boot_res
+        return out
 
-    return _spawn_with_visible_fallback(
-        8, action="run_groups", success_augment={"started": True}, fallback=lambda: _run_on_tk(work)
-    )
+    return _run_on_tk(work)
 
 
 def start_automation_one_click() -> dict:
+    """One-click automation on the hidden Launch page — no Tk Run window."""
+    boot_fn = globals().get("boot_all_phones")
+    if callable(boot_fn):
+        try:
+            boot_res = boot_fn()
+            if isinstance(boot_res, dict) and boot_res.get("ok") is False:
+                return {
+                    "ok": False,
+                    "error": boot_res.get("error") or "boot_all_phones failed",
+                    "boot": boot_res,
+                }
+        except Exception as exc:  # noqa: BLE001
+            return {"ok": False, "error": f"boot_all_phones failed: {exc}"}
+
     def work() -> dict:
-        result = _open_wizard_page_window(8, "CPharm — Run", width=1240, height=1000)
-        page = _window_page(_page_windows.get(8)) or launch_page()
+        page = launch_page()
         page.on_enter()
         if hasattr(page, "_start_automation_one_click"):
             page._start_automation_one_click()
-        if isinstance(result, dict):
-            result["started"] = True
-            return result
         return {"ok": True, "started": True}
 
-    return _spawn_with_visible_fallback(
-        8, action="start_automation", success_augment={"started": True}, fallback=lambda: _run_on_tk(work)
-    )
+    return _run_on_tk(work)
 
 
 def fix_phone_internet() -> dict:
