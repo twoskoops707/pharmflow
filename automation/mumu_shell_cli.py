@@ -151,18 +151,19 @@ def launch_instance_index(idx: int, timeout: float = 120.0) -> tuple[bool, str]:
     entry = cache.get(str(idx)) or {}
     thumb = str(entry.get("thumb") or "").strip()
     token = str(entry.get("t") or "").strip()
-    if thumb and token:
-        arg = f"--VmIndex {idx} --ThumbnailName {thumb} --T {token}"
-    elif thumb:
-        arg = f"--VmIndex {idx} --ThumbnailName {thumb}"
-    else:
-        arg = f"--VmIndex {idx}"
+    # Pass discrete argv tokens — a single joined string is one argument on
+    # Windows and MuMu silently fails to start (shell never sticks, AdbHost stays empty).
+    cmd: list[str] = [str(exe), "--VmIndex", str(idx)]
+    if thumb:
+        cmd += ["--ThumbnailName", thumb]
+    if token:
+        cmd += ["--T", token]
     flags = 0
     if sys.platform == "win32":
         flags = int(getattr(subprocess, "DETACHED_PROCESS", 0) or 0)
     try:
         subprocess.Popen(
-            [str(exe), arg],
+            cmd,
             cwd=str(exe.parent),
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
