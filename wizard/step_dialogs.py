@@ -94,6 +94,14 @@ def describe_step(step: dict[str, Any]) -> str:
     return f"{action}  {desc}".strip()
 
 
+def _safe_hits_per_day(raw: Any, default: int = 0) -> int:
+    """Parse hits_per_day without crashing the editor on bad/float strings."""
+    try:
+        return max(0, int(float(raw)))
+    except (TypeError, ValueError):
+        return default
+
+
 def normalize_step(step: dict[str, Any]) -> dict[str, Any]:
     """Normalize prior flat `type` steps into FamFlow `{action, params}`."""
     if not isinstance(step, dict):
@@ -300,7 +308,7 @@ class PerPhoneSequenceEditor(tk.Toplevel):
         self._mode = tk.StringVar(value=str(phone_ent.get("sequence_playlist_mode") or "ordered"))
         self._shuffle = tk.StringVar(value=str(phone_ent.get("sequence_playlist_shuffle") or SHUFFLE_NONE))
         self._use_set_b = tk.BooleanVar(value=bool(self._playlist_b))
-        self._hits = tk.StringVar(value=str(int(phone_ent.get("hits_per_day") or 0)))
+        self._hits = tk.StringVar(value=str(_safe_hits_per_day(phone_ent.get("hits_per_day"), 0)))
         self._dirty = False
         self._show_playlist = show_playlist
         self._phone_wm_size = phone_wm_size
@@ -700,10 +708,15 @@ class PerPhoneSequenceEditor(tk.Toplevel):
         payload = {
             "name": Path(path).stem,
             "phone": self._phone_name,
-            "author_width": 900,
-            "author_height": 1600,
+            "author_width": AUTHOR_WIDTH,
+            "author_height": AUTHOR_HEIGHT,
             "steps": self._draft,
         }
+        try:
+            payload["author_width"] = int(self._base_w_var.get())
+            payload["author_height"] = int(self._base_h_var.get())
+        except (tk.TclError, ValueError, TypeError):
+            pass
         Path(path).write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
         messagebox.showinfo("Saved", f"Wrote {path}", parent=self)
 
@@ -827,8 +840,8 @@ class PerPhoneSequenceEditor(tk.Toplevel):
             ):
                 return
         try:
-            hits = int(self._hits.get().strip() or "0")
-        except ValueError:
+            hits = _safe_hits_per_day(self._hits.get().strip() or "0", 0)
+        except Exception:
             hits = 0
         self._ent["steps"] = copy.deepcopy(self._draft)
         self._ent["sequence_playlist"] = list(self._playlist)

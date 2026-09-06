@@ -23,6 +23,48 @@ if str(_WIZ) not in sys.path:
 
 import setup_startup_cleanup as cleanup  # noqa: E402
 
+try:
+    import psutil
+except ImportError:  # pragma: no cover
+    psutil = None  # type: ignore[assignment]
+
+# Never kill Freebuff / Codebuff agent hosts (bun desktop + related).
+_FREEBUFF_MARKERS = (
+    "freebuff",
+    "codebuff",
+    "@codebuff/freebuff-desktop",
+    "codebufffreebuff-desktop",
+    "codebuff/freebuff",
+)
+
+
+def _freebuff_protected_pids() -> set[int]:
+    """PIDs for Freebuff bun / @codebuff freebuff-desktop — must never be killed."""
+    if psutil is None:
+        return set()
+    protected: set[int] = set()
+    try:
+        for proc in psutil.process_iter(["pid", "name", "cmdline", "exe"]):
+            try:
+                pid = int(proc.info.get("pid") or 0)
+                if pid <= 0:
+                    continue
+                name = (proc.info.get("name") or "").lower()
+                exe = (proc.info.get("exe") or "").lower()
+                cmd_parts = proc.info.get("cmdline") or []
+                cmd = " ".join(str(x) for x in cmd_parts).lower()
+                blob = f"{name} {exe} {cmd}"
+                is_bun = name in ("bun.exe", "bun") or name.endswith("bun.exe") or "/bun" in exe.replace("\\", "/")
+                if any(m in blob for m in _FREEBUFF_MARKERS) or (
+                    is_bun and ("codebuff" in blob or "freebuff" in blob)
+                ):
+                    protected.add(pid)
+            except (psutil.Error, TypeError, ValueError):
+                continue
+    except (psutil.Error, OSError):
+        return protected
+    return protected
+
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Close stale MuMu / adb / CPharm processes.")
@@ -48,7 +90,22 @@ def main() -> int:
     def log(msg: str) -> None:
         print(msg)
 
-    summary = cleanup.run_startup_cleanup(first_time=first_time, log=log)
+    # Expand protected set so Freebuff bun / freebuff-desktop survive cleanup.
+    freebuff_pids = _freebuff_protected_pids()
+    _orig_protected = cleanup._protected_pids
+
+    def _protected_with_freebuff(my_pid: int) -> set[int]:
+        return _orig_protected(my_pid) | freebuff_pids
+
+    cleanup._protected_pids = _protected_with_freebuff  # type: ignore[assignment]
+    try:
+        summary = cleanup.run_startup_cleanup(first_time=first_time, log=log)
+    finally:
+        cleanup._protected_pids = _orig_protected  # type: ignore[assignment]
+
+    if freebuff_pids:
+        log(f"  protected Freebuff/codebuff pids: {sorted(freebuff_pids)}")
+
     print("")
     print(cleanup.format_cleanup_log_line(summary))
     if summary.get("failed"):

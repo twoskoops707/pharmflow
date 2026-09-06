@@ -11,7 +11,10 @@ from wizard.gui.path_selector import PathSelectorWindow
 from wizard.path_store import PROGRAM_ADB, PROGRAM_MUMU, PROGRAM_MUMU_MANAGER, PROGRAM_TOR
 from wizard.path_utils import (
     DetectionResult,
+    apply_adb_path,
     apply_for_program,
+    apply_mumu_path,
+    apply_tor_path,
     auto_detect_adb,
     auto_detect_mumu,
     auto_detect_tor,
@@ -32,9 +35,6 @@ __all__ = [
     "detect_with_fallback",
 ]
 
-# Re-export apply/auto helpers for existing imports
-from wizard.path_utils import apply_adb_path, apply_mumu_path, apply_tor_path  # noqa: E402
-
 
 def detect_with_fallback(
     parent: Any,
@@ -47,6 +47,12 @@ def detect_with_fallback(
     """Try auto-detect; offer manual browse when detection fails."""
     result = auto_detect_function()
     if result.found:
+        # Persist auto-detected paths (Tor/ADB locate previously returned found
+        # without save_config, so the next launch forgot them).
+        if result.path:
+            applied = apply_for_program(program_name, result.path)
+            if applied.found:
+                return applied
         return result
 
     if not allow_manual:

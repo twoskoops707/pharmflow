@@ -325,6 +325,41 @@ class CPharmAppApi:
         self._window: Any = None
         self._setup_api: Any = None
 
+    def _bridge_call(self, name: str, *args: Any, **kwargs: Any) -> dict:
+        """Invoke a bridge endpoint; never raise — always ``{ok,...}`` or wrap lists."""
+        try:
+            import cpharm_wizard_bridge as bridge
+
+            fn = getattr(bridge, name, None)
+            if not callable(fn):
+                return {"ok": False, "error": f"Bridge has no method {name}"}
+            result = fn(*args, **kwargs)
+            if isinstance(result, dict):
+                return result
+            if isinstance(result, list):
+                return {"ok": True, "items": result}
+            if result is None:
+                return {"ok": True}
+            return {"ok": True, "data": result}
+        except Exception as exc:  # noqa: BLE001 — WebView must get a dict, not a throw
+            return {"ok": False, "error": str(exc)[:500]}
+
+    def _setup_call(self, method: str, *args: Any, **kwargs: Any) -> dict:
+        if self._setup_api is None:
+            return {"ok": False, "error": "Setup API not bound yet — wait for window bind"}
+        try:
+            fn = getattr(self._setup_api, method, None)
+            if not callable(fn):
+                return {"ok": False, "error": f"Setup API has no method {method}"}
+            result = fn(*args, **kwargs)
+            if isinstance(result, dict):
+                return result
+            if isinstance(result, list):
+                return {"ok": True, "items": result}
+            return {"ok": True, "data": result}
+        except Exception as exc:  # noqa: BLE001
+            return {"ok": False, "error": str(exc)[:500]}
+
     def bind_window(self, window: Any) -> None:
         global _active_window
         _active_window = window
@@ -348,171 +383,121 @@ class CPharmAppApi:
         bridge.register_webview_window(window)
 
     def get_wizard_steps(self) -> list:
-        import cpharm_wizard_bridge as bridge
-
-        return bridge.get_wizard_steps()
+        return self._bridge_call("get_wizard_steps").get("items") or []
 
     def get_journey_state(self) -> dict:
-        import cpharm_wizard_bridge as bridge
-
-        return bridge.get_journey_state()
+        return self._bridge_call("get_journey_state")
 
     def navigate_wizard_page(self, index: int) -> dict:
-        import cpharm_wizard_bridge as bridge
+        return self._bridge_call("navigate_wizard_page", index)
 
-        return bridge.navigate_wizard_page(index)
+    def navigate_wizard_step(self, step_id: str) -> dict:
+        return self._bridge_call("navigate_wizard_step", step_id)
 
     def get_setup_state(self) -> dict:
-        return self._setup_api.get_state()
+        return self._setup_call("get_state")
 
     def run_setup_action(self, action: str) -> dict:
-        return self._setup_api.run_action(action)
+        return self._setup_call("run_action", action)
 
     def run_setup(self) -> dict:
-        return self._setup_api.run_setup()
+        return self._setup_call("run_setup")
 
     def install_chromium(self) -> dict:
-        return self._setup_api.install_chromium()
+        return self._setup_call("install_chromium")
 
     def browser_apk_options(self) -> list:
-        return self._setup_api.browser_apk_options()
+        out = self._setup_call("browser_apk_options")
+        return out.get("items") if out.get("ok") and isinstance(out.get("items"), list) else []
 
     def install_browser(self, browser_id: str, serial: str = "") -> dict:
-        return self._setup_api.install_browser(str(browser_id or ""), str(serial or ""))
+        return self._setup_call("install_browser", str(browser_id or ""), str(serial or ""))
 
     def live_phone_options(self) -> list:
-        return self._setup_api.live_phone_options()
+        out = self._setup_call("live_phone_options")
+        return out.get("items") if out.get("ok") and isinstance(out.get("items"), list) else []
 
     def get_prereq_status(self) -> list:
-        import cpharm_wizard_bridge as bridge
-
-        return bridge.scan_prereqs()
+        out = self._bridge_call("scan_prereqs")
+        return out.get("items") if out.get("ok") and isinstance(out.get("items"), list) else []
 
     def run_install_all(self) -> dict:
-        import cpharm_wizard_bridge as bridge
-
-        return bridge.run_install_all()
+        return self._bridge_call("run_install_all")
 
     def get_android_status(self) -> dict:
-        import cpharm_wizard_bridge as bridge
-
-        return bridge.get_android_status()
+        return self._bridge_call("get_android_status")
 
     def run_android_install(self) -> dict:
-        import cpharm_wizard_bridge as bridge
-
-        return bridge.run_android_install()
+        return self._bridge_call("run_android_install")
 
     def set_phone_farm_count(self, count: int) -> dict:
-        import cpharm_wizard_bridge as bridge
-
-        return bridge.set_phone_farm_count(count)
+        return self._bridge_call("set_phone_farm_count", count)
 
     def run_create_phone_farm(self) -> dict:
-        import cpharm_wizard_bridge as bridge
-
-        return bridge.run_create_phone_farm()
+        return self._bridge_call("run_create_phone_farm")
 
     def spin_up_test_phone(self) -> dict:
-        import cpharm_wizard_bridge as bridge
-
-        return bridge.spin_up_test_phone_from_app()
+        return self._bridge_call("spin_up_test_phone_from_app")
 
     def run_test_url(self, url: str = "") -> dict:
-        import cpharm_wizard_bridge as bridge
-
-        return bridge.run_test_url(url or None)
+        return self._bridge_call("run_test_url", url or None)
 
     def get_site_settings(self) -> dict:
-        import cpharm_wizard_bridge as bridge
-
-        return bridge.get_site_settings()
+        return self._bridge_call("get_site_settings")
 
     def save_site_url(self, url: str) -> dict:
-        import cpharm_wizard_bridge as bridge
-
-        return bridge.save_site_url(url)
+        return self._bridge_call("save_site_url", url)
 
     def scan_site(self, url: str = "") -> dict:
-        import cpharm_wizard_bridge as bridge
-
-        return bridge.scan_site(url)
+        return self._bridge_call("scan_site", url)
 
     def apply_site_sequence(self, url: str = "") -> dict:
-        import cpharm_wizard_bridge as bridge
-
-        return bridge.apply_site_sequence(url)
+        return self._bridge_call("apply_site_sequence", url)
 
     def get_automation_info(self) -> dict:
-        import cpharm_wizard_bridge as bridge
-
-        return bridge.get_automation_info()
+        return self._bridge_call("get_automation_info")
 
     def cursor_get_sequence(self) -> dict:
-        import cpharm_wizard_bridge as bridge
-
-        return bridge.cursor_get_sequence()
+        return self._bridge_call("cursor_get_sequence")
 
     def cursor_add_step(self, step: dict | None = None) -> dict:
-        import cpharm_wizard_bridge as bridge
-
-        return bridge.cursor_add_step(step)
+        return self._bridge_call("cursor_add_step", step)
 
     def cursor_update_step(self, i: int, step: dict | None = None) -> dict:
-        import cpharm_wizard_bridge as bridge
-
-        return bridge.cursor_update_step(i, step)
+        return self._bridge_call("cursor_update_step", i, step)
 
     def cursor_remove_step(self, i: int) -> dict:
-        import cpharm_wizard_bridge as bridge
-
-        return bridge.cursor_remove_step(i)
+        return self._bridge_call("cursor_remove_step", i)
 
     def cursor_move_step(self, i: int, dir: int = 1) -> dict:
-        import cpharm_wizard_bridge as bridge
-
-        return bridge.cursor_move_step(i, dir)
+        return self._bridge_call("cursor_move_step", i, dir)
 
     def cursor_add_group(self) -> dict:
-        import cpharm_wizard_bridge as bridge
-
-        return bridge.cursor_add_group()
+        return self._bridge_call("cursor_add_group")
 
     def cursor_remove_group(self, i: int) -> dict:
-        import cpharm_wizard_bridge as bridge
-
-        return bridge.cursor_remove_group(i)
+        return self._bridge_call("cursor_remove_group", i)
 
     def cursor_rename_group(self, i: int, name: str = "") -> dict:
-        import cpharm_wizard_bridge as bridge
-
-        return bridge.cursor_rename_group(i, name)
+        return self._bridge_call("cursor_rename_group", i, name)
 
     def run_edit_default_sequence(self) -> dict:
-        import cpharm_wizard_bridge as bridge
-
-        return bridge.run_edit_default_sequence()
+        return self._bridge_call("run_edit_default_sequence")
 
     def open_sequence_builder(self) -> dict:
-        import cpharm_wizard_bridge as bridge
-
-        return bridge.open_sequence_builder()
+        return self._bridge_call("open_sequence_builder")
 
     def run_load_default_sequence(self) -> dict:
-        import cpharm_wizard_bridge as bridge
-
-        return bridge.run_load_default_sequence()
+        return self._bridge_call("run_load_default_sequence")
 
     def run_save_default_sequence(self) -> dict:
-        import cpharm_wizard_bridge as bridge
-
-        return bridge.run_save_default_sequence()
+        return self._bridge_call("run_save_default_sequence")
 
     def pick_sequence_json(self, save: bool = False) -> dict:
         import webview
 
         if not self._window:
-            return {"cancelled": True}
+            return {"ok": False, "cancelled": True, "error": "No window bound"}
         file_types = ("JSON sequences (*.json)", "All files (*.*)")
         try:
             if save:
@@ -528,165 +513,109 @@ class CPharmAppApi:
                     file_types=file_types,
                 )
         except Exception as exc:
-            return {"cancelled": True, "error": str(exc)}
+            return {"ok": False, "cancelled": True, "error": str(exc)}
         if not result:
-            return {"cancelled": True}
+            return {"ok": False, "cancelled": True}
         path = result[0] if isinstance(result, (list, tuple)) else result
-        return {"path": str(path)}
+        return {"ok": True, "path": str(path)}
 
     def load_sequence_from_path(self, path: str) -> dict:
-        import cpharm_wizard_bridge as bridge
-
-        return bridge.load_sequence_from_path(path)
+        return self._bridge_call("load_sequence_from_path", path)
 
     def save_sequence_to_path(self, path: str) -> dict:
-        import cpharm_wizard_bridge as bridge
-
-        return bridge.save_sequence_to_path(path)
+        return self._bridge_call("save_sequence_to_path", path)
 
     def run_add_group(self) -> dict:
-        import cpharm_wizard_bridge as bridge
-
-        return bridge.run_add_group()
+        return self._bridge_call("run_add_group")
 
     def boot_all_phones(self) -> dict:
-        import cpharm_wizard_bridge as bridge
-
-        return bridge.boot_all_phones()
+        return self._bridge_call("boot_all_phones")
 
     def remove_group(self, index: int) -> dict:
-        import cpharm_wizard_bridge as bridge
-
-        return bridge.remove_group(int(index))
+        return self._bridge_call("remove_group", index)
 
     def run_humanize_all_sequences(self) -> dict:
-        import cpharm_wizard_bridge as bridge
-
-        return bridge.run_humanize_all_sequences()
+        return self._bridge_call("run_humanize_all_sequences")
 
     def open_groups_manager(self) -> dict:
-        import cpharm_wizard_bridge as bridge
-
-        return bridge.open_groups_manager()
+        return self._bridge_call("open_groups_manager")
 
     def get_groups_detail(self) -> dict:
-        import cpharm_wizard_bridge as bridge
-
-        return bridge.get_groups_detail()
+        return self._bridge_call("get_groups_detail")
 
     def get_groups_summary(self) -> dict:
-        import cpharm_wizard_bridge as bridge
-
-        return bridge.get_groups_summary()
+        return self._bridge_call("get_groups_summary")
 
     def is_dashboard_ready(self) -> dict:
-        import cpharm_wizard_bridge as bridge
-
-        return bridge.is_dashboard_ready()
+        return self._bridge_call("is_dashboard_ready")
 
     def get_launch_summary(self) -> dict:
-        import cpharm_wizard_bridge as bridge
-
-        return bridge.get_launch_summary()
+        return self._bridge_call("get_launch_summary")
 
     def get_browse_mode(self) -> dict:
-        import cpharm_wizard_bridge as bridge
-
-        return bridge.get_browse_mode()
+        return self._bridge_call("get_browse_mode")
 
     def save_browse_mode(self, mode: str) -> dict:
-        import cpharm_wizard_bridge as bridge
-
-        return bridge.save_browse_mode(mode)
+        return self._bridge_call("save_browse_mode", mode)
 
     def start_server(self) -> dict:
-        import cpharm_wizard_bridge as bridge
-
-        return bridge.start_server()
+        return self._bridge_call("start_server")
 
     def start_server_and_open_dashboard(self) -> dict:
-        import cpharm_wizard_bridge as bridge
-
-        return bridge.start_server_and_open_dashboard()
+        return self._bridge_call("start_server_and_open_dashboard")
 
     def run_all_groups(self) -> dict:
-        import cpharm_wizard_bridge as bridge
-
-        return bridge.run_all_groups()
+        return self._bridge_call("run_all_groups")
 
     def start_automation_one_click(self) -> dict:
-        import cpharm_wizard_bridge as bridge
-
-        return bridge.start_automation_one_click()
+        return self._bridge_call("start_automation_one_click")
 
     def fix_phone_internet(self) -> dict:
-        import cpharm_wizard_bridge as bridge
-
-        return bridge.fix_phone_internet()
+        return self._bridge_call("fix_phone_internet")
 
     def open_dashboard(self) -> dict:
-        import cpharm_wizard_bridge as bridge
-
-        return bridge.open_dashboard()
+        return self._bridge_call("open_dashboard")
 
     def get_farm_health(self) -> dict:
-        import cpharm_wizard_bridge as bridge
-
-        return bridge.get_farm_health()
+        return self._bridge_call("get_farm_health")
 
     def open_farm_dashboard(self) -> dict:
-        import cpharm_wizard_bridge as bridge
-
-        return bridge.open_farm_dashboard()
+        return self._bridge_call("open_farm_dashboard")
 
     def run_cloud_phone_command(self, command: str, host: str = "", count: int = 0, verify: bool = False) -> dict:
-        import cpharm_wizard_bridge as bridge
-
-        return bridge.run_cloud_phone_command(command, host, count, verify=verify)
+        return self._bridge_call("run_cloud_phone_command", command, host, count, verify=verify)
 
     def cloud_phone_setup(self, host: str, count: int = 8) -> dict:
-        import cpharm_wizard_bridge as bridge
-
-        return bridge.cloud_phone_setup(host, count)
+        return self._bridge_call("cloud_phone_setup", host, count)
 
     def cloud_phone_status(self, host: str = "") -> dict:
-        import cpharm_wizard_bridge as bridge
-
-        return bridge.cloud_phone_status(host)
+        return self._bridge_call("cloud_phone_status", host)
 
     def agent_status(self) -> dict:
-        import cpharm_wizard_bridge as bridge
-
-        return bridge.agent_status()
+        return self._bridge_call("agent_status")
 
     def run_cloud_agent(self, goal: str, apply: bool = False, base: str = "", model: str = "", max_steps: int = 12) -> dict:
-        import cpharm_wizard_bridge as bridge
-
-        return bridge.run_cloud_agent(goal, apply=apply, base=base, model=model, max_steps=max_steps)
+        return self._bridge_call("run_cloud_agent", goal, apply=apply, base=base, model=model, max_steps=max_steps)
 
     def cloud_agent_config(self) -> dict:
-        import cpharm_wizard_bridge as bridge
-
-        return bridge.cloud_agent_config()
+        return self._bridge_call("cloud_agent_config")
 
     def save_cloud_agent_config(self, base: str = "", model: str = "", api_key: str = "") -> dict:
-        import cpharm_wizard_bridge as bridge
-
-        return bridge.save_cloud_agent_config(base, model, api_key)
+        return self._bridge_call("save_cloud_agent_config", base, model, api_key)
 
     def open_advanced_wizard(self) -> dict:
-        import cpharm_wizard_bridge as bridge
-
-        bridge.open_advanced_wizard()
+        out = self._bridge_call("open_advanced_wizard")
+        if out.get("ok") is False:
+            return out
         return {"ok": True}
 
     def get_dragon_scroll(self) -> list:
         return self.get_wizard_steps()
 
     def navigate_chapter(self, index: int) -> dict:
-        import cpharm_wizard_bridge as bridge
-
-        bridge.navigate_wizard_chapter(index)
+        out = self._bridge_call("navigate_wizard_chapter", index)
+        if out.get("ok") is False:
+            return out
         return {"ok": True}
 
 
@@ -695,46 +624,45 @@ class CPharmAppApi:
 
 
     def start_farm(self, profile_slug: str = "", hours: float = 0) -> dict:
-        import cpharm_wizard_bridge as bridge
-
-        return bridge.start_farm_from_app(str(profile_slug or ""), float(hours or 0))
+        return self._bridge_call("start_farm_from_app", str(profile_slug or ""), float(hours or 0))
 
     def stop_farm(self) -> dict:
-        import cpharm_wizard_bridge as bridge
-
-        return bridge.stop_farm_from_app()
+        return self._bridge_call("stop_farm_from_app")
 
     def farm_status(self) -> dict:
-        import cpharm_wizard_bridge as bridge
-
-        return bridge.farm_status_from_app()
+        return self._bridge_call("farm_status_from_app")
 
     def get_farm_hud(self) -> dict:
-        import cpharm_wizard_bridge as bridge
-
-        return bridge.get_farm_hud()
+        return self._bridge_call("get_farm_hud")
 
     def get_machine_capabilities(self) -> dict:
-        import cpharm_wizard_bridge as bridge
-
-        return bridge.get_machine_capabilities()
+        return self._bridge_call("get_machine_capabilities")
 
     # ── Farm settings (Advanced panels) ──
 
     def get_farm_settings(self) -> dict:
-        from wizard.farm_settings import catalog_payload
+        try:
+            from wizard.farm_settings import catalog_payload
 
-        return catalog_payload()
+            return catalog_payload()
+        except Exception as exc:  # noqa: BLE001
+            return {"ok": False, "error": str(exc)[:500]}
 
     def save_farm_settings(self, updates: dict | None = None) -> dict:
-        from wizard.farm_settings import save
+        try:
+            from wizard.farm_settings import save
 
-        return save(updates or {}, note="wizard_advanced_panel")
+            return save(updates or {}, note="wizard_advanced_panel")
+        except Exception as exc:  # noqa: BLE001
+            return {"ok": False, "error": str(exc)[:500]}
 
     def reset_farm_settings(self, step: str = "", keys: list | None = None) -> dict:
-        from wizard.farm_settings import reset
+        try:
+            from wizard.farm_settings import reset
 
-        return reset(step or None, keys or None)
+            return reset(step or None, keys or None)
+        except Exception as exc:  # noqa: BLE001
+            return {"ok": False, "error": str(exc)[:500]}
 
 
 def _build_native_menu(api: "CPharmAppApi") -> list:

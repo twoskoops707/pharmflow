@@ -1801,8 +1801,10 @@ def _install_group_apk_once(group: dict, serial: str, group_name: str, iteration
             timeout=180,
             creationflags=_ADB_SUBPROC_FLAGS,
         )
-        ok = bool(r) and "Success" in (r.stdout or "")
-    except (OSError, subprocess.TimeoutExpired):
+        # capture_output=True yields bytes — str "Success" in bytes raises TypeError.
+        out = (r.stdout or b"") + (r.stderr or b"")
+        ok = bool(r) and r.returncode == 0 and b"Success" in out
+    except (OSError, subprocess.TimeoutExpired, TypeError):
         ok = False
     invalidate_cache(serial)
     asyncio.run_coroutine_threadsafe(
@@ -3374,12 +3376,9 @@ async def handle_post(path: str, body: bytes) -> bytes:
             name    = group.get("name", "Group")
             phone_map = group.get("phones", {})   # {serial: {steps:[...]}}
             base_serials = _online_serials_for_group(group, set(all_phones.keys()))
-            if _group_skip_serials:
-                # Phones whose Tor failed preflight run this pass anyway? No —
-                # they'd hit the same failure mid-step. Exclude them now, but in
-                # forever mode retry them every iteration (see _retry_skipped_async)
-                # so a phone whose Tor boots late still joins the farm.
-                serials = [s for s in base_serials if s not in _group_skip_serials]
+            # Always bind serials — previously only set inside `if _group_skip_serials`,
+            # so the happy path (empty skip set) raised NameError before any phone ran.
+            serials = [s for s in base_serials if s not in _group_skip_serials]
 
             def _retry_skipped_async() -> None:
                 """Re-check skipped phones in the background; rejoin them when ready.
@@ -3417,52 +3416,67 @@ async def handle_post(path: str, body: bytes) -> bytes:
             forever = rv if isinstance(rv, bool) else str(rv).lower() == "true"
             repeat = _effective_group_repeat(group, repeat, forever)
 
-            asyncio.run_coroutine_threadsafe(
-                broadcast({"type": "log", "msg": f"[{name}] Starting on {len(serials)} phone(s)"}),
-                loop)
-            if not serials:
+            try:
                 asyncio.run_coroutine_threadsafe(
-                    broadcast({
-                        "type": "log",
-                        "msg": f"[{name}] No running phone matched this group — check Boot / Start all phones",
-                    }),
-                    loop,
-                )
+                    broadcast({"type": "log", "msg": f"[{name}] Starting on {len(serials)} phone(s)"}),
+                    loop)
+                if not serials:
+                    asyncio.run_coroutine_threadsafe(
+                        broadcast({
+                            "type": "log",
+                            "msg": f"[{name}] No running phone matched this group — check Boot / Start all phones",
+                        }),
+                        loop,
+                    )
 
-            def _run_one_phone(serial, iteration):
-                if not _running_groups.get(name):
-                    return
-                try:
-                    phone_name = all_phones[serial]["name"]
-                    pmap = group.get("phones") or {}
-                    ent = _phone_entry_for_serial(pmap, serial) or {}
-                    _set_phone_run(name, serial, state="running", iteration=iteration, result="")
-                    inline = _inline_steps_fallback(group, ent)
-                    _install_group_apk_once(group, serial, name, iteration, loop)
-                    chunks = resolve_step_chunks(ent, iteration, serial, inline)
-                    if not chunks:
-                        phone_steps, pl_from = _phone_steps_for_run(group, serial, iteration)
-                        chunks = [(phone_steps, pl_from)]
-                    cycle = iteration * 1_000_003 + (_hv.stable_seed(serial, 0) & 0xFFFFF)
-                    gap_rng = _hv.rng_for_run(serial, cycle + 77)
-                    ran_any = False
-                    rotate_every = _rotate_every_sequence_enabled()
-                    for ci, (phone_steps, pl_from) in enumerate(chunks):
-                        if not _running_groups.get(name):
-                            break
-                        if ci > 0:
-                            gap = _hv.sequence_start_gap_seconds(gap_rng)
-                            _interruptible_sleep(gap, lambda: _running_groups.get(name, False))
-                        pl_note = f" playlist={pl_from}" if pl_from else ""
-                        asyncio.run_coroutine_threadsafe(
-                            broadcast({"type": "log",
-                                           "msg": f"[{name}] Run {iteration+1} on {phone_name} "
-                                           f"({len(phone_steps)} steps){pl_note}"}), loop)
-                        _run_steps_adb(phone_steps, serial, name, iteration)
-                        ran_any = ran_any or bool(phone_steps)
-                        # Rotate fingerprint/proxy/Tor/IMEI after EVERY sequence so a
-                        # fresh identity drives each run (not just playlist-cycle end).
-                        if ran_any and rotate_every:
+                def _run_one_phone(serial, iteration):
+                    if not _running_groups.get(name):
+                        return
+                    try:
+                        phone_name = all_phones[serial]["name"]
+                        pmap = group.get("phones") or {}
+                        ent = _phone_entry_for_serial(pmap, serial) or {}
+                        _set_phone_run(name, serial, state="running", iteration=iteration, result="")
+                        inline = _inline_steps_fallback(group, ent)
+                        _install_group_apk_once(group, serial, name, iteration, loop)
+                        chunks = resolve_step_chunks(ent, iteration, serial, inline)
+                        if not chunks:
+                            phone_steps, pl_from = _phone_steps_for_run(group, serial, iteration)
+                            chunks = [(phone_steps, pl_from)]
+                        cycle = iteration * 1_000_003 + (_hv.stable_seed(serial, 0) & 0xFFFFF)
+                        gap_rng = _hv.rng_for_run(serial, cycle + 77)
+                        ran_any = False
+                        rotate_every = _rotate_every_sequence_enabled()
+                        for ci, (phone_steps, pl_from) in enumerate(chunks):
+                            if not _running_groups.get(name):
+                                break
+                            if ci > 0:
+                                gap = _hv.sequence_start_gap_seconds(gap_rng)
+                                _interruptible_sleep(gap, lambda: _running_groups.get(name, False))
+                            pl_note = f" playlist={pl_from}" if pl_from else ""
+                            asyncio.run_coroutine_threadsafe(
+                                broadcast({"type": "log",
+                                               "msg": f"[{name}] Run {iteration+1} on {phone_name} "
+                                               f"({len(phone_steps)} steps){pl_note}"}), loop)
+                            _run_steps_adb(phone_steps, serial, name, iteration)
+                            ran_any = ran_any or bool(phone_steps)
+                            # Rotate fingerprint/proxy/Tor/IMEI after EVERY sequence so a
+                            # fresh identity drives each run (not just playlist-cycle end).
+                            if ran_any and rotate_every:
+                                idx = _phone_idx_from_serial(serial)
+                                asyncio.run_coroutine_threadsafe(
+                                    broadcast({"type": "log",
+                                               "msg": f"[{name}] New identity on {phone_name}…"}), loop)
+                                tor_manager.full_identity_reset(serial, idx)
+                                _bump_phone_rotation(serial)
+                                asyncio.run_coroutine_threadsafe(
+                                    broadcast({"type": "log",
+                                               "msg": f"[{name}] {phone_name} identity reset ✓"}), loop)
+                        at_cycle_end = (
+                            not isinstance(ent, dict)
+                            or is_playlist_cycle_end(ent, iteration)
+                        )
+                        if ran_any and at_cycle_end and not rotate_every:
                             idx = _phone_idx_from_serial(serial)
                             asyncio.run_coroutine_threadsafe(
                                 broadcast({"type": "log",
@@ -3472,113 +3486,105 @@ async def handle_post(path: str, body: bytes) -> bytes:
                             asyncio.run_coroutine_threadsafe(
                                 broadcast({"type": "log",
                                            "msg": f"[{name}] {phone_name} identity reset ✓"}), loop)
-                    at_cycle_end = (
-                        not isinstance(ent, dict)
-                        or is_playlist_cycle_end(ent, iteration)
-                    )
-                    if ran_any and at_cycle_end and not rotate_every:
-                        idx = _phone_idx_from_serial(serial)
+                        _set_phone_run(name, serial, state="done", iteration=iteration, result="completed")
+                    except Exception as e:
+                        log.exception("group run failed serial=%s", serial)
+                        _set_phone_run(name, serial, state="error", iteration=iteration, result=str(e))
                         asyncio.run_coroutine_threadsafe(
                             broadcast({"type": "log",
-                                       "msg": f"[{name}] New identity on {phone_name}…"}), loop)
-                        tor_manager.full_identity_reset(serial, idx)
-                        _bump_phone_rotation(serial)
-                        asyncio.run_coroutine_threadsafe(
-                            broadcast({"type": "log",
-                                       "msg": f"[{name}] {phone_name} identity reset ✓"}), loop)
-                    _set_phone_run(name, serial, state="done", iteration=iteration, result="completed")
-                except Exception as e:
-                    log.exception("group run failed serial=%s", serial)
-                    _set_phone_run(name, serial, state="error", iteration=iteration, result=str(e))
-                    asyncio.run_coroutine_threadsafe(
-                        broadcast({"type": "log",
-                                   "msg": f"[{name}] ERROR on {serial}: {e!s}"}),
-                        loop,
-                    )
-
-            iteration = 0
-            while _running_groups.get(name) and (forever or iteration < repeat):
-                # Forever mode: phones skipped at preflight may have recovered
-                # (Tor bootstrap finished, ADB settled) — let them rejoin.
-                if forever and _group_skip_serials and iteration > 0:
-                    threading.Thread(
-                        target=_retry_skipped_async, daemon=True).start()
-                # Emulators churn IPs constantly (reboots reassign 10.0.2.x).
-                # Re-sync to LIVE ADB every iteration so dropped phones are
-                # swapped for their replacements instead of going stale — the
-                # farm follows the phones, never a frozen serial list.
-                live_now = {p["serial"] for p in list_phones() if p["running"]}
-                if base_serials and live_now:
-                    serials = [
-                        s for s in base_serials
-                        if s in live_now and s not in _group_skip_serials
-                    ]
-                    # Pick up emulator IP churn: if a configured slot's serial
-                    # vanished, re-map that slot onto a live replacement.
-                    missing = [s for s in base_serials if s not in live_now]
-                    if missing:
-                        extras = [s for s in sorted(live_now) if s not in base_serials]
-                        if extras:
-                            for i, old_s in enumerate(missing):
-                                if i < len(extras):
-                                    serials.append(extras[i])
-                                    log.info(
-                                        "[%s] slot churn: %s → %s (live ADB re-sync)",
-                                        name, old_s, extras[i],
-                                    )
-                if iteration > 0:
-                    pause_rng = _hv.rng_for_run(name, iteration * 1_003)
-                    pause = _iteration_start_pause_seconds(group, iteration, pause_rng)
-                    if pause > 0:
-                        _interruptible_sleep(pause, lambda: _running_groups.get(name, False))
-                threads = []
-                for i, serial in enumerate(serials):
-                    if not _running_groups.get(name):
-                        break
-                    if i > 0:
-                        eff = _hv.group_stagger_seconds(
-                            group, _hv.rng_for_run(serial, iteration * 10_000 + i)
-                        )
-                        if eff > 0:
-                            _interruptible_sleep(eff, lambda: _running_groups.get(name, False))
-                    t = threading.Thread(
-                        target=_run_one_phone, args=(serial, iteration), daemon=True)
-                    t.start()
-                    threads.append(t)
-                for t in threads:
-                    t.join(timeout=300)
-                # Every-sequence rotation churns exit IPs — re-verify uniqueness
-                # after each iteration so two phones can never share an IP for long.
-                if not _cpharm_skip_tor_wait() and len(serials) > 1 and _unique_exit_ips_enabled():
-                    uniq = tor_manager.ensure_unique_exit_ips(
-                        serials, max_attempts=3, timeout=10.0
-                    )
-                    log.info(
-                        "[%s] post-iteration unique exit IPs: unique=%s rotations=%s",
-                        name, uniq.get("unique"), uniq.get("rotations"),
-                    )
-                    if uniq.get("rotations"):
-                        asyncio.run_coroutine_threadsafe(
-                            broadcast(
-                                {
-                                    "type": "log",
-                                    "msg": (
-                                        f"[{name}] Rotated {uniq['rotations']} phone(s) to keep "
-                                        "unique exit IPs"
-                                    ),
-                                }
-                            ),
+                                       "msg": f"[{name}] ERROR on {serial}: {e!s}"}),
                             loop,
                         )
-                iteration += 1
 
-            asyncio.run_coroutine_threadsafe(
-                broadcast({"type": "log",
-                           "msg": f"[{name}] Done ✓" if _running_groups.get(name)
-                                  else f"[{name}] Stopped"}), loop)
-            _running_groups.pop(name, None)
-            asyncio.run_coroutine_threadsafe(
-                broadcast({"type": "groups_status", "running": _groups_status_running_names()}), loop)
+                iteration = 0
+                while _running_groups.get(name) and (forever or iteration < repeat):
+                    # Forever mode: phones skipped at preflight may have recovered
+                    # (Tor bootstrap finished, ADB settled) — let them rejoin.
+                    if forever and _group_skip_serials and iteration > 0:
+                        threading.Thread(
+                            target=_retry_skipped_async, daemon=True).start()
+                    # Emulators churn IPs constantly (reboots reassign 10.0.2.x).
+                    # Re-sync to LIVE ADB every iteration so dropped phones are
+                    # swapped for their replacements instead of going stale — the
+                    # farm follows the phones, never a frozen serial list.
+                    live_now = {p["serial"] for p in list_phones() if p["running"]}
+                    if base_serials and live_now:
+                        serials = [
+                            s for s in base_serials
+                            if s in live_now and s not in _group_skip_serials
+                        ]
+                        # Pick up emulator IP churn: if a configured slot's serial
+                        # vanished, re-map that slot onto a live replacement.
+                        missing = [s for s in base_serials if s not in live_now]
+                        if missing:
+                            extras = sorted(
+                                (s for s in live_now if s not in base_serials),
+                                key=_slot_sort_key,
+                            )
+                            if extras:
+                                for i, old_s in enumerate(missing):
+                                    if i < len(extras):
+                                        serials.append(extras[i])
+                                        log.info(
+                                            "[%s] slot churn: %s → %s (live ADB re-sync)",
+                                            name, old_s, extras[i],
+                                        )
+                    if iteration > 0:
+                        pause_rng = _hv.rng_for_run(name, iteration * 1_003)
+                        pause = _iteration_start_pause_seconds(group, iteration, pause_rng)
+                        if pause > 0:
+                            _interruptible_sleep(pause, lambda: _running_groups.get(name, False))
+                    threads = []
+                    for i, serial in enumerate(serials):
+                        if not _running_groups.get(name):
+                            break
+                        if i > 0:
+                            eff = _hv.group_stagger_seconds(
+                                group, _hv.rng_for_run(serial, iteration * 10_000 + i)
+                            )
+                            if eff > 0:
+                                _interruptible_sleep(eff, lambda: _running_groups.get(name, False))
+                        t = threading.Thread(
+                            target=_run_one_phone, args=(serial, iteration), daemon=True)
+                        t.start()
+                        threads.append(t)
+                    for t in threads:
+                        t.join(timeout=300)
+                    # Every-sequence rotation churns exit IPs — re-verify uniqueness
+                    # after each iteration so two phones can never share an IP for long.
+                    if not _cpharm_skip_tor_wait() and len(serials) > 1 and _unique_exit_ips_enabled():
+                        uniq = tor_manager.ensure_unique_exit_ips(
+                            serials, max_attempts=3, timeout=10.0
+                        )
+                        log.info(
+                            "[%s] post-iteration unique exit IPs: unique=%s rotations=%s",
+                            name, uniq.get("unique"), uniq.get("rotations"),
+                        )
+                        if uniq.get("rotations"):
+                            asyncio.run_coroutine_threadsafe(
+                                broadcast(
+                                    {
+                                        "type": "log",
+                                        "msg": (
+                                            f"[{name}] Rotated {uniq['rotations']} phone(s) to keep "
+                                            "unique exit IPs"
+                                        ),
+                                    }
+                                ),
+                                loop,
+                            )
+                    iteration += 1
+
+                asyncio.run_coroutine_threadsafe(
+                    broadcast({"type": "log",
+                               "msg": f"[{name}] Done ✓" if _running_groups.get(name)
+                                      else f"[{name}] Stopped"}), loop)
+            finally:
+                # Always clear running flag — uncaught errors previously left the
+                # group stuck as "running" forever in status / WebSocket panels.
+                _running_groups.pop(name, None)
+                asyncio.run_coroutine_threadsafe(
+                    broadcast({"type": "groups_status", "running": _groups_status_running_names()}), loop)
 
         def _start_groups_pipeline() -> None:
             try:

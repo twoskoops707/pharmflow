@@ -173,13 +173,7 @@ def _pick_retail_identity(*, avoid_model: str = "") -> DeviceIdentity:
     build_id = "UNKNOWN"
     fp = (base.get("fingerprint") or "").strip()
     if fp and "/" in fp:
-        parts = fp.split("/")
-        if len(parts) >= 3 and ":" in parts[2]:
-            # google/panther/panther:14/AP2A... → build id after second slash segment
-            build_part = parts[3] if len(parts) > 3 else parts[2].split(":")[-1]
-            build_id = build_part.split(":")[0] if build_part else "UNKNOWN"
-        elif len(parts) >= 4:
-            build_id = parts[3].split(":")[0]
+        build_id = _build_id_from_fingerprint(fp)
     release = "13"
     m = re.search(r":(\d+)/", fp)
     if m:
@@ -225,15 +219,25 @@ def read_secure_android_id(adb: AdbWrapper, serial: str) -> str:
     return _clean_prop(getattr(out, "stdout", "") or "")
 
 
+def _build_id_from_fingerprint(fp: str) -> str:
+    """Extract build id from AOSP fingerprint ``brand/product/device:rel/id/...``."""
+    parts = (fp or "").split("/")
+    # google/panther/panther:14/AP2A.240805.005/12025142:user/release-keys
+    # parts[3] is the build id — parts[1] is the product name (wrong).
+    if len(parts) > 3:
+        return parts[3].split(":")[0] or "UNKNOWN"
+    if len(parts) >= 3 and ":" in parts[2]:
+        return parts[2].split(":")[-1] or "UNKNOWN"
+    return "UNKNOWN"
+
+
 def read_device_identity(adb: AdbWrapper, serial: str) -> DeviceIdentity:
     """Read brand/model/build from the phone — each MuMu VM may differ."""
     build_id = _clean_prop(adb.getprop("ro.build.id", serial=serial))
     if not build_id:
         fp = _clean_prop(adb.getprop("ro.build.fingerprint", serial=serial))
         if fp and "/" in fp:
-            parts = fp.split("/")
-            if len(parts) >= 2:
-                build_id = parts[1].split(":")[0] if ":" in parts[1] else parts[1]
+            build_id = _build_id_from_fingerprint(fp)
     return DeviceIdentity(
         brand=_clean_prop(adb.getprop("ro.product.brand", serial=serial)),
         manufacturer=_clean_prop(adb.getprop("ro.product.manufacturer", serial=serial)),

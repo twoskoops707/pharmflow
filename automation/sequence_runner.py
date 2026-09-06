@@ -96,6 +96,7 @@ from automation.humanize import (
 )
 from automation.sequence_paths import resolve_sequence_path
 from automation.web_viewport import element_center, remap_y
+from automation import tor_manager
 from wizard.mumu_farm_ops import MuMuFarmOps
 
 logger = logging.getLogger(__name__)
@@ -241,6 +242,7 @@ class StepAction(str, Enum):
     KEYEVENT = "keyevent"
     KEY = "key"
     BACK = "back"
+    FULL_RESET = "full_reset"
 
 
 @dataclass
@@ -319,6 +321,7 @@ def _legacy_params(step: dict[str, Any]) -> dict[str, Any]:
         "seconds",
         "duration_ms",
         "duration",
+        "ms",
         "url",
         "command",
         "code",
@@ -337,6 +340,8 @@ def _legacy_params(step: dict[str, Any]) -> dict[str, Any]:
         params["y2"] = params.pop("y_end")
     if "duration" in params and "duration_ms" not in params:
         params["duration_ms"] = params.pop("duration")
+    if "ms" in params and "duration_ms" not in params:
+        params["duration_ms"] = params["ms"]
     return params
 
 
@@ -783,8 +788,8 @@ class SequenceRunner:
                     except Exception as exc:
                         logger.debug("ad nudge soft-fail: %s", exc)
                 skip_fg = should_skip_content_tap(self.farm.adb, serial)
-                if skip_fg and (is_ad_tap or is_age_gate):
-                    # Lawnchair often steals FG mid-Path3; recover browser then recheck.
+                pkg = ""
+                if skip_fg:
                     try:
                         br = get_sequence_browser(phone)
                         pkg = (
@@ -792,6 +797,11 @@ class SequenceRunner:
                             or (br.package if br else "")
                             or "org.chromium.chrome"
                         )
+                    except Exception:
+                        pkg = (sequence.preferred_browser or "").strip() or "org.chromium.chrome"
+                if skip_fg and (is_ad_tap or is_age_gate):
+                    # Lawnchair often steals FG mid-Path3; recover browser then recheck.
+                    try:
                         was_fg = skip_fg
                         bring_browser_foreground_dabflow(self.farm.adb, serial, pkg)
                         time.sleep(0.35)
@@ -837,9 +847,8 @@ class SequenceRunner:
                     )
                     result["skipped_foreign_fg"] = skip_fg
                     result["coords"] = (x, y)
-                    # Age-gate taps MUST succeed (under-21 = farm dead).
-                    # Other taps: soft-OK so the sequence continues.
-                    if is_age_gate:
+                    # Age-gate and Path3 ad taps MUST succeed (soft-OK skips billing).
+                    if is_age_gate or is_ad_tap:
                         result["ok"] = False
                         result["error"] = f"foreign_fg:{skip_fg}"
                     else:
@@ -1159,6 +1168,7 @@ class SequenceRunner:
                             pin_exc,
                         )
                 else:
+                    prof = None
                     try:
                         prof = self.farm.rotate_identity(phone)
                     except Exception as exc:
@@ -1201,7 +1211,8 @@ class SequenceRunner:
                         else:
                             result["ok"] = False
                             result["error"] = "phone missing after rotate_identity"
-                    result["imei"] = getattr(prof, "imei", "")
+                    if prof is not None:
+                        result["imei"] = getattr(prof, "imei", "")
                     by_phone = getattr(self.farm, "_last_exit_ip_rotate_by_phone", None)
                     ip_info = by_phone.get(phone) if isinstance(by_phone, dict) else None
                     if ip_info is None:
@@ -1301,8 +1312,19 @@ class SequenceRunner:
                 result["ok"] = r.ok
                 result["output"] = r.stdout
             elif action == StepAction.KEYEVENT:
-                r = self.farm.adb.keyevent(int(p["code"]), serial=serial)
+                code = int(p.get("code", p.get("key", 0)))
+                r = self.farm.adb.keyevent(code, serial=serial)
                 result["ok"] = r.ok
+            elif action == StepAction.FULL_RESET:
+                _ri = self._resolve_phone(phone) or getattr(self.farm, "instances", {}).get(phone)
+                phone_idx = _inst_phone_idx(_ri) if _ri is not None else 0
+                reset = tor_manager.full_identity_reset(serial, phone_idx)
+                result["ok"] = True
+                if isinstance(reset, dict):
+                    result["reset"] = reset
+                    # Treat failed NEWNYM as soft warning — identity ADB still applied.
+                    if reset.get("tor_circuit_rotated") is False:
+                        result["warning"] = "tor_circuit_rotated=false"
             else:
                 result["ok"] = False
                 result["error"] = f"Unknown action: {action}"

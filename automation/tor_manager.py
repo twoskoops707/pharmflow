@@ -6,10 +6,13 @@ import ipaddress
 import json
 import logging
 import os
+import random
 import re
+import shutil
 import signal
 import socket
 import subprocess
+import tempfile
 import threading
 import time
 import urllib.error
@@ -17,11 +20,13 @@ import urllib.request
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Optional
 
 from automation.adb_wrapper import AdbWrapper
+from automation.browser_adb import browser_pkg_for_clear
 from automation.config import (
-    TOR_CONTROL_BASE,
+    REC_DIR,
+    TOR_DIR,
     TOR_HTTP_TUNNEL_BASE,
     TOR_SOCKS_BASE,
     UNIQUE_EXIT_IP_RETRIES,
@@ -38,6 +43,7 @@ if TYPE_CHECKING:
     pass
 
 logger = logging.getLogger(__name__)
+log = logger
 
 GUEST_PROXY_HOST = "127.0.0.1"
 _IP_CHECK_URLS = (
@@ -176,17 +182,20 @@ class ExitIpRotateResult:
 
 
 def phone_http_port(phone_index: int) -> int:
-    """Per-phone HTTPTunnelPort: 8118, 8119, 8120, ..."""
-    return TOR_HTTP_TUNNEL_BASE + phone_index
+    """Per-phone HTTPTunnelPort — must match standalone ``HTTP_TUNNEL_BASE`` (may auto-shift)."""
+    # Looked up at call time so the shifted base assigned later in this module applies.
+    return int(globals().get("HTTP_TUNNEL_BASE", TOR_HTTP_TUNNEL_BASE)) + phone_index
 
 
 def phone_socks_port(phone_index: int) -> int:
-    return TOR_SOCKS_BASE + phone_index
+    """Per-phone SocksPort — must match standalone ``BASE_PORT`` (may auto-shift)."""
+    return int(globals().get("BASE_PORT", TOR_SOCKS_BASE)) + phone_index
 
 
 def phone_control_port(phone_index: int) -> int:
-    """Per-phone ControlPort for SIGNAL NEWNYM: 9151, 9152, ..."""
-    return TOR_CONTROL_BASE + phone_index
+    """Per-phone ControlPort for SIGNAL NEWNYM — standalone uses BASE_PORT+1000+idx."""
+    base = int(globals().get("BASE_PORT", TOR_SOCKS_BASE))
+    return base + 1000 + phone_index
 
 
 def guest_proxy_endpoint(phone_index: int) -> str:
@@ -1087,8 +1096,13 @@ class TorManager:
                 continue
             ser = str(serial)
             try:
-                port = phone_http_port(0)
-                self.adb.reverse_remove(str(port), serial=ser)
+                # Clear reverse for every phone tunnel — only removing idx 0 left
+                # stale adb reverse mappings on phones 1..N after teardown.
+                for idx in range(32):
+                    try:
+                        self.adb.reverse_remove(str(phone_http_port(idx)), serial=ser)
+                    except Exception:
+                        pass
             except Exception:
                 pass
             for key in self._PROXY_GLOBAL_KEYS:
@@ -1621,7 +1635,9 @@ def phone_idx_from_adb_serial(serial: str) -> int:
                 return max(0, idx)
             m = re.match(r"^10\.0\.2\.(\d+):\d+$", s)
             if m:
-                return min(7, int(m.group(1)) // 10)
+                # Arbitrary MuMu guest octets (e.g. 187/132/198) must not collapse
+                # onto the same Tor slot — old `min(7, octet // 10)` mapped many to 7.
+                return int(m.group(1)) % 64
         return 0
     except (IndexError, ValueError):
         return 0
@@ -2248,6 +2264,12 @@ def start_tor_for_phone(phone_idx: int) -> int:
     If no standalone binary exists but Tor Browser's SOCKS is up, returns **9150**
     (SOCKS only; :func:`http_proxy_port_for_phone_idx` is then ``None``).
     """
+    lock = _bootstrap_lock_for(phone_idx)
+    with lock:
+        return _start_tor_for_phone_locked(phone_idx)
+
+
+def _start_tor_for_phone_locked(phone_idx: int) -> int:
     tor_bin = _resolve_tor_binary()
     socks_port = BASE_PORT + phone_idx
     ctrl_port = BASE_PORT + 1000 + phone_idx

@@ -76,14 +76,32 @@ def _pick_tab(serial: str, rng: random.Random) -> str:
     return rng.choice(pool)
 
 
-def _human_scroll(adb: Any, serial: str, rng: random.Random, passes: int) -> None:
+def _scale_xy(scale_fn: Any | None, x: int, y: int) -> tuple[int, int]:
+    if scale_fn is None:
+        return x, y
+    try:
+        sx, sy = scale_fn(x, y)
+        return int(sx), int(sy)
+    except Exception:
+        return x, y
+
+
+def _human_scroll(
+    adb: Any,
+    serial: str,
+    rng: random.Random,
+    passes: int,
+    scale_fn: Any | None = None,
+) -> None:
     for _ in range(max(0, passes)):
         x = 420 + rng.randint(-40, 40)
         y1 = 1180 + rng.randint(-60, 40)
         y2 = 420 + rng.randint(-40, 80)
+        sx, sy1 = _scale_xy(scale_fn, x, y1)
+        _, sy2 = _scale_xy(scale_fn, x, y2)
         dur = 380 + rng.randint(0, 160)
         try:
-            adb.swipe(x, y1, x, y2, dur, serial=serial)
+            adb.swipe(sx, sy1, sx, sy2, dur, serial=serial)
         except Exception:
             break
         time.sleep(0.35 + rng.random() * 0.45)
@@ -95,6 +113,7 @@ def human_scroll_ad_landing(
     *,
     rng: random.Random | None = None,
     passes: int | None = None,
+    scale_fn: Any | None = None,
 ) -> dict[str, Any]:
     """After ad click: slowly scroll the landing/offer page to the bottom.
 
@@ -112,9 +131,11 @@ def human_scroll_ad_landing(
         # Long, slow upward flick (finger moves down→up content).
         y1 = 1320 + r.randint(-40, 40)
         y2 = 380 + r.randint(-50, 60)
+        sx, sy1 = _scale_xy(scale_fn, x, y1)
+        _, sy2 = _scale_xy(scale_fn, x, y2)
         dur = 720 + r.randint(0, 480)  # 0.7–1.2s human drag
         try:
-            adb.swipe(x, y1, x, y2, dur, serial=serial)
+            adb.swipe(sx, sy1, sx, sy2, dur, serial=serial)
         except Exception as exc:
             logger.warning(
                 "ad-landing scroll soft-fail serial=%s pass=%d: %s", serial, i + 1, exc
@@ -198,7 +219,7 @@ def human_path3_ad_engage(
         passes = r.choice((0, 0, 1))
     else:
         passes = r.choice((0, 1, 1, 2))
-    _human_scroll(adb, serial, r, passes)
+    _human_scroll(adb, serial, r, passes, scale_fn=scale_fn)
     out["scrolls"] = passes
     time.sleep(2.0 + r.random() * 2.0)
 

@@ -11,6 +11,7 @@ from wizard.path_store import (
     PROGRAM_MUMU,
     PROGRAM_MUMU_MANAGER,
     PROGRAM_TOR,
+    load_saved_paths,
     remember_path,
 )
 from wizard.wizard_paths import (
@@ -111,6 +112,11 @@ def auto_detect_mumu() -> DetectionResult:
     root = detect_mumu_root()
     if root:
         return DetectionResult(found=True, path=str(root), detail=str(root))
+    # Fall back to manually remembered install roots (saved_paths.json).
+    for raw in reversed(load_saved_paths().get(PROGRAM_MUMU, [])):
+        normalized = normalize_mumu_path(raw)
+        if normalized:
+            return DetectionResult(found=True, path=str(normalized), detail=str(normalized))
     return DetectionResult(found=False, detail="MuMu not found")
 
 
@@ -118,6 +124,10 @@ def auto_detect_mumu_manager() -> DetectionResult:
     mgr = mumu_manager_exe()
     if mgr and mgr.is_file():
         return DetectionResult(found=True, path=str(mgr), detail=str(mgr))
+    for raw in reversed(load_saved_paths().get(PROGRAM_MUMU_MANAGER, [])):
+        p = Path(raw)
+        if p.is_file():
+            return DetectionResult(found=True, path=str(p), detail=str(p))
     return DetectionResult(found=False, detail="MuMuManager.exe not found")
 
 
@@ -125,6 +135,10 @@ def auto_detect_tor() -> DetectionResult:
     tor = tor_binary_path()
     if tor.is_file():
         return DetectionResult(found=True, path=str(tor), detail=str(tor))
+    for raw in reversed(load_saved_paths().get(PROGRAM_TOR, [])):
+        normalized = normalize_tor_path(raw)
+        if normalized:
+            return DetectionResult(found=True, path=str(normalized), detail=str(normalized))
     return DetectionResult(found=False, detail="tor.exe not found")
 
 
@@ -132,6 +146,10 @@ def auto_detect_adb() -> DetectionResult:
     adb = bundled_adb_path()
     if adb.is_file():
         return DetectionResult(found=True, path=str(adb), detail=str(adb))
+    for raw in reversed(load_saved_paths().get(PROGRAM_ADB, [])):
+        normalized = normalize_adb_path(raw)
+        if normalized:
+            return DetectionResult(found=True, path=str(normalized), detail=str(normalized))
     return DetectionResult(found=False, detail="adb.exe not found")
 
 

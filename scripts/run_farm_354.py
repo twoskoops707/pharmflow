@@ -38,6 +38,7 @@ sys.path.insert(0, str(ROOT))
 
 import automation.no_window  # noqa: E402,F401  (kill child console-window flashes)
 from automation.farm_visit_caps import apply_runtime_overrides_to_env  # noqa: E402
+from automation.farm_pause import farm_halted  # noqa: E402
 
 # Sticky money-day Path3 (CAP/GAP/ads/FALLBACK/FORCE_DIRECT/…) from
 # farm_runtime_overrides.json MUST win before setdefaults — soft-recycle /
@@ -822,10 +823,19 @@ def _load_daily_budget() -> dict[str, object]:
     except (OSError, json.JSONDecodeError, TypeError):
         raw = {}
     if str(raw.get("date") or "") != today:
-        return {"date": today, "phones": {str(i): _empty_phone_budget() for i in range(4)}}
+        return {"date": today, "phones": {str(i): _empty_phone_budget() for i in range(8)}}
     phones_raw = raw.get("phones") if isinstance(raw.get("phones"), dict) else {}
     phones: dict[str, dict[str, int]] = {}
-    for i in range(6):
+    # Preserve every phone index on disk (8+ phone farms used to lose idx>=6
+    # every load, resetting visit/ad counters mid-day).
+    max_idx = 5
+    if isinstance(phones_raw, dict):
+        for key in phones_raw:
+            try:
+                max_idx = max(max_idx, int(str(key)))
+            except (TypeError, ValueError):
+                continue
+    for i in range(max_idx + 1):
         key = str(i)
         row = phones_raw.get(key) if isinstance(phones_raw, dict) else None
         if not isinstance(row, dict):
@@ -1024,7 +1034,38 @@ def _secs_until_local_midnight() -> float:
 
 
 def _stop_requested() -> bool:
-    return os.environ.get("CPHARM_FARM_STOP", "0").strip().lower() in ("1", "true", "yes", "on")
+    """True when env, sticky overrides, or pause/kill-switch ask the farm to stop.
+
+    Dash/kill-switch write CPHARM_FARM_STOP into farm_runtime_overrides.json and
+    engage farm_halted(); the worker process env is not rewritten mid-run, so
+    env-only checks left sequences running after soft stop.
+    """
+    if os.environ.get("CPHARM_FARM_STOP", "0").strip().lower() in ("1", "true", "yes", "on"):
+        return True
+    try:
+        if farm_halted():
+            return True
+    except Exception:
+        pass
+    try:
+        log_dir = Path(
+            os.environ.get("CPHARM_LOGS")
+            or os.environ.get("CPHARM_LOG_DIR")
+            or r"C:\CPharm\logs"
+        )
+        ov_path = log_dir / "farm_runtime_overrides.json"
+        if ov_path.is_file():
+            ov = json.loads(ov_path.read_text(encoding="utf-8-sig"))
+            if isinstance(ov, dict) and str(ov.get("CPHARM_FARM_STOP") or "").strip().lower() in (
+                "1",
+                "true",
+                "yes",
+                "on",
+            ):
+                return True
+    except (OSError, json.JSONDecodeError, TypeError, ValueError):
+        pass
+    return False
 
 
 _BROWSER_STEM_TAGS = ("chromium", "firefox", "brave", "duckduckgo", "opera")

@@ -65,8 +65,17 @@ def expected_combination_count() -> int:
     return load_mapping().combination_count()
 
 
+def sequences_output_root() -> Path:
+    """Durable sequences root — matches regenerate_base_sequences (frozen vs dev)."""
+    if getattr(sys, "frozen", False):
+        durable = automation_dir() / "recordings" / "sequences"
+        durable.mkdir(parents=True, exist_ok=True)
+        return durable
+    return sequences_dir()
+
+
 def count_base_sequences(root: Path | None = None) -> int:
-    base = (root or sequences_dir()) / "base"
+    base = (root or sequences_output_root()) / "base"
     if not base.is_dir():
         return 0
     return sum(1 for p in base.rglob("*.json") if "smoke" not in p.parts)
@@ -167,13 +176,8 @@ def apply_farm_prefs_to_environ(prefs: dict[str, Any] | None = None) -> None:
 
 
 def regenerate_base_sequences(*, preset: str = "moderate") -> tuple[int, Path]:
-    """Write full combinatorial base sequences under sequences_dir()/base."""
-    root = sequences_dir()
-    # Never regenerate into a one-file EXE temp extract dir — prefer durable C:\\CPharm tree.
-    if getattr(sys, "frozen", False):
-        durable = automation_dir() / "recordings" / "sequences"
-        durable.mkdir(parents=True, exist_ok=True)
-        root = durable
+    """Write full combinatorial base sequences under sequences_output_root()/base."""
+    root = sequences_output_root()
     out_dir = root / "base"
     count = write_sequences(out_dir, preset=preset, base_only=True, clean=True)
     write_catalog(root / "sequence_catalog.md")
@@ -259,9 +263,10 @@ def _regen_clicked(app: Any) -> None:
         app._log("Regenerate already running…", "warn")
         return
     expected = expected_combination_count()
+    out_root = sequences_output_root() / "base"
     if not messagebox.askyesno(
         "Regenerate legacy catalog",
-        f"Rewrite legacy combinatorial base sequences under:\n{sequences_dir() / 'base'}\n\n"
+        f"Rewrite legacy combinatorial base sequences under:\n{out_root}\n\n"
         f"Expected count: {expected}\nPrefer Site Interview for new sites. Continue?",
         parent=app,
     ):
@@ -275,17 +280,18 @@ def _regen_clicked(app: Any) -> None:
             count, out_dir = regenerate_base_sequences()
             app.after(
                 0,
-                lambda: (
-                    app._log(f"Generated {count} sequences → {out_dir}", "ok"),
+                lambda c=count, d=out_dir: (
+                    app._log(f"Generated {c} sequences → {d}", "ok"),
                     _refresh_status(app),
                     setattr(app, "_dabflow_regen_busy", False),
                 ),
             )
         except Exception as exc:
+            err_msg = str(exc)
             app.after(
                 0,
-                lambda: (
-                    app._log(f"Regenerate failed: {exc}", "err"),
+                lambda msg=err_msg: (
+                    app._log(f"Regenerate failed: {msg}", "err"),
                     setattr(app, "_dabflow_regen_busy", False),
                 ),
             )
@@ -294,7 +300,10 @@ def _regen_clicked(app: Any) -> None:
 
 
 def _open_catalog(app: Any) -> None:
-    path = sequences_dir() / "sequence_catalog.md"
+    path = sequences_output_root() / "sequence_catalog.md"
+    if not path.is_file():
+        alt = sequences_dir() / "sequence_catalog.md"
+        path = alt if alt.is_file() else path
     if not path.is_file():
         alt = bundle_root() / "automation" / "recordings" / "sequences" / "sequence_catalog.md"
         path = alt if alt.is_file() else path

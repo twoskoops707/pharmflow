@@ -10,6 +10,7 @@ CPharm.exe Start Farm spawns THIS script (not ensure_farm / remediator soup).
 """
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
@@ -31,7 +32,7 @@ from automation.cpharm_farm_config import (  # noqa: E402
     reset_runtime,
 )
 
-from automation.cpharm_unison_dedupe import dedupe_keep_newest, pids_for_script  # noqa: E402
+from automation.cpharm_unison_dedupe import dedupe_keep_newest  # noqa: E402
 
 LANES: tuple[tuple[str, str], ...] = (
     ("farm", "run_farm_354.py"),
@@ -66,6 +67,30 @@ def _pyw() -> str:
     return pyw if Path(pyw).is_file() else sys.executable
 
 
+def _pid_alive_is_supervisor(pid: int) -> bool:
+    """True only if *pid* is still this supervisor script (not a recycled PID)."""
+    if pid <= 0:
+        return False
+    try:
+        import psutil
+    except ImportError:
+        # No psutil: existence probe only (best effort).
+        try:
+            os.kill(pid, 0)
+            return True
+        except (OSError, ProcessLookupError):
+            return False
+    try:
+        proc = psutil.Process(pid)
+        if not proc.is_running():
+            return False
+        cmd = " ".join(str(x) for x in (proc.cmdline() or []))
+        return "cpharm_unison_supervisor.py" in cmd and "-c" not in cmd
+    except Exception:
+        # AccessDenied / race: do not claim a foreign PID is the supervisor.
+        return False
+
+
 def _lane_pids() -> dict[str, list[int]]:
     out: dict[str, list[int]] = {name: [] for name, _ in LANES}
     try:
@@ -85,6 +110,15 @@ def _lane_pids() -> dict[str, list[int]]:
     return out
 
 
+def _have_process_scan() -> bool:
+    try:
+        import psutil  # noqa: F401
+
+        return True
+    except ImportError:
+        return False
+
+
 def _spawn_lane(name: str, script: str) -> int | None:
     path = ROOT / "scripts" / script
     if not path.is_file():
@@ -97,7 +131,7 @@ def _spawn_lane(name: str, script: str) -> int | None:
         [_pyw(), "-u", str(path)],
         cwd=str(ROOT),
         env=env,
-        creationflags=FLAGS,
+        creationflags=FLAGS if sys.platform == "win32" else 0,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         close_fds=True,
@@ -107,6 +141,11 @@ def _spawn_lane(name: str, script: str) -> int | None:
 
 def _ensure_lanes() -> list[str]:
     notes: list[str] = []
+    # Without a process scanner, refuse to spawn — otherwise every interval
+    # forks another copy of every lane (respawn storm).
+    if not _have_process_scan():
+        notes.append("skip_spawn_no_psutil")
+        return notes
     for _name, script in LANES:
         extras = dedupe_keep_newest(script)
         for pid in extras:
@@ -139,7 +178,7 @@ def _ensure_freebuff_queue() -> list[str]:
             capture_output=True,
             text=True,
             timeout=30,
-            creationflags=FLAGS,
+            creationflags=FLAGS if sys.platform == "win32" else 0,
         )
         if proc.returncode == 0:
             notes.append("freebuff_queue_assigned")
@@ -164,9 +203,12 @@ def _kill_legacy_stack() -> list[str]:
         import psutil
 
         for proc in psutil.process_iter(["pid", "cmdline"]):
-            cmd = " ".join(str(x) for x in (proc.info.get("cmdline") or []))
+            try:
+                cmd = " ".join(str(x) for x in (proc.info.get("cmdline") or []))
+            except (psutil.Error, TypeError, ValueError):
+                continue
             for needle in retire:
-                if needle in cmd:
+                if needle in cmd and "-c" not in cmd:
                     try:
                         proc.terminate()
                         killed.append(f"{needle}:{proc.info['pid']}")
@@ -182,10 +224,13 @@ def main() -> int:
     if PID_FILE.is_file():
         try:
             old = int(PID_FILE.read_text(encoding="utf-8").strip())
-            os.kill(old, 0)
-            print("cpharm_unison_supervisor already running", flush=True)
-            return 0
-        except (OSError, ValueError, ProcessLookupError):
+        except (OSError, ValueError):
+            old = 0
+            PID_FILE.unlink(missing_ok=True)
+        else:
+            if _pid_alive_is_supervisor(old):
+                print("cpharm_unison_supervisor already running", flush=True)
+                return 0
             PID_FILE.unlink(missing_ok=True)
     PID_FILE.write_text(str(os.getpid()), encoding="utf-8")
     reset_runtime(note="unison_start")
@@ -200,16 +245,26 @@ def main() -> int:
     )
     try:
         while True:
-            notes = _kill_legacy_stack() + _ensure_lanes()
+            try:
+                notes = _kill_legacy_stack() + _ensure_lanes()
+            except Exception as exc:
+                # Uncaught lane ensure used to kill the supervisor; stealth /
+                # keep-alive then respawned → crash/respawn loop.
+                print(f"{_utc()} ensure_lanes soft-fail: {exc}", flush=True)
+                time.sleep(max(20.0, INTERVAL_S))
+                continue
             if notes:
-                STATE_FILE.write_text(
-                    __import__("json").dumps(
-                        {"ts": _utc(), "notes": notes, "pids": _lane_pids()},
-                        indent=2,
+                try:
+                    STATE_FILE.write_text(
+                        json.dumps(
+                            {"ts": _utc(), "notes": notes, "pids": _lane_pids()},
+                            indent=2,
+                        )
+                        + "\n",
+                        encoding="utf-8",
                     )
-                    + "\n",
-                    encoding="utf-8",
-                )
+                except OSError as exc:
+                    print(f"{_utc()} state write soft-fail: {exc}", flush=True)
                 print(f"{_utc()} {' '.join(notes[:10])}", flush=True)
             time.sleep(max(20.0, INTERVAL_S))
     except KeyboardInterrupt:

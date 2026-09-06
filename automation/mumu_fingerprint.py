@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
 import random
 import re
+import shutil
 import string
 import subprocess
+import tempfile
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -390,11 +393,16 @@ def generate_imei() -> str:
     tac = random.choice(["35332510", "35693803", "35226005", "35428910", "35875505"])
     serial = "".join(str(random.randint(0, 9)) for _ in range(6))
     base = tac + serial
-    digits = [int(d) for d in base]
-    total = sum(
-        d * 2 - 9 if d * 2 > 9 else d * 2 if i % 2 == 0 else d
-        for i, d in enumerate(reversed(digits))
-    )
+    # Luhn over the 14-digit body: double every second digit from the right.
+    # (A chained ternary previously applied the >9 fold even on non-doubled digits.)
+    total = 0
+    for i, ch in enumerate(reversed(base)):
+        d = int(ch)
+        if i % 2 == 0:
+            d *= 2
+            if d > 9:
+                d -= 9
+        total += d
     check = (10 - (total % 10)) % 10
     return base + str(check)
 
@@ -1172,8 +1180,17 @@ def profile_for_model(model: str) -> dict | None:
     if not norm:
         return None
     for p in RETAIL_PROFILE_POOL:
-        for m in p.get("match", ()):
-            mn = _norm_model(m)
+        # Prefer explicit match aliases; always include the profile's model too
+        # (pool entries historically had no "match" key — matching only that
+        # made every getprop-based lookup fall through to hash/farm index).
+        candidates = list(p.get("match") or ())
+        model_name = p.get("model")
+        if model_name:
+            candidates.append(model_name)
+        for m in candidates:
+            mn = _norm_model(str(m))
+            if not mn:
+                continue
             if norm == mn or mn in norm or norm in mn:
                 return dict(p)
     return None
@@ -1235,7 +1252,7 @@ def build_chromium_flags(profile: dict, *, cdp_port: int | None = None) -> str:
 
 
 def _random_imei() -> str:
-    return "".join(str(random.randint(0, 9)) for _ in range(15))
+    return generate_imei()
 
 
 
@@ -1250,8 +1267,27 @@ def _random_android_id() -> str:
 
 
 
+MUMU_INSTALL_CANDIDATES: tuple[Path, ...] = (
+    Path(r"C:\Program Files\Netease\MuMuPlayerARM"),
+    Path(r"C:\Program Files\Netease\MuMuPlayer"),
+    Path(r"C:\Program Files (x86)\Netease\MuMuPlayerARM"),
+    Path(r"C:\Program Files (x86)\Netease\MuMuPlayer"),
+)
+
+
 def find_mumu_vms_root() -> Path | None:
-    for root in MUMU_INSTALL_CANDIDATES:
+    env = (os.environ.get("CPHARM_MUMU_ROOT") or "").strip()
+    roots: list[Path] = [Path(env)] if env else []
+    detected = detect_mumu_root()
+    if detected:
+        roots.append(Path(detected))
+    roots.extend(MUMU_INSTALL_CANDIDATES)
+    seen: set[str] = set()
+    for root in roots:
+        key = str(root).lower()
+        if key in seen:
+            continue
+        seen.add(key)
         vms = root / "vms"
         if vms.is_dir():
             return vms
@@ -1384,8 +1420,6 @@ def patch_mumu_setting_json(
 
     bak = setting_path.with_suffix(setting_path.suffix + f".bak-fp-{int(os.path.getmtime(setting_path))}")
     try:
-        import shutil
-
         shutil.copy2(setting_path, bak)
         setting_path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
         result["patched"] = True
@@ -1398,7 +1432,6 @@ def patch_mumu_setting_json(
 
 def write_chromium_flags(serial: str, profile: dict, *, cdp_port: int | None = None) -> bool:
     flags = build_chromium_flags(profile, cdp_port=cdp_port)
-    import tempfile
 
     try:
         exe = adb_executable()
@@ -1508,7 +1541,25 @@ def apply_fingerprint_all_serials(
     results: list[dict] = []
     vm_results: list[dict] = []
     if patch_vms:
-        vm_results = apply_mumu_vm_fingerprints(log_fn=log_fn)
+        # Patch each MuMu setting.json via the dict-profile path. Do NOT call
+        # apply_mumu_vm_fingerprints(log_fn=...) — that API requires vms_dir +
+        # phone_names and a TypeError aborted the entire "fix all phones" path.
+        paths = scan_mumu_setting_paths()
+        if log_fn and paths:
+            log_fn(f"  Patching {len(paths)} MuMu VM setting.json file(s)…")
+        for i, path in enumerate(paths):
+            prof = profile_for_index(i)
+            try:
+                row = patch_mumu_setting_json(path, prof, randomize_ids=True)
+            except (OSError, TypeError, ValueError, KeyError) as exc:
+                row = {"patched": False, "error": str(exc)}
+            row = dict(row)
+            row.setdefault("path", str(path))
+            vm_results.append(row)
+            if log_fn and row.get("patched"):
+                log_fn(f"  VM {path.parent.name}: patched")
+            elif log_fn and row.get("error"):
+                log_fn(f"  VM {path.parent.name}: ERROR {row['error']}")
 
     any_vm_patched = any(r.get("patched") for r in vm_results)
     if log_fn and serials:

@@ -15,7 +15,7 @@ import json
 import os
 import re
 import time
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any
 
 LOG_DIR = os.environ.get("CPHARM_LOGS", r"C:\CPharm\logs")
@@ -169,6 +169,11 @@ def _phones(parsed: dict) -> list[dict]:
 
     rows = sorted(serials.values(), key=lambda r: r["serial"])
     for row in rows:
+        # Near-event step matching undercounts; once a VM name is known, use its totals.
+        if row["name"]:
+            vm_steps = step_by_vm.get(row["name"], 0)
+            if vm_steps > int(row["steps"] or 0):
+                row["steps"] = vm_steps
         row["timeout_rate"] = round(row["timeouts"] / row["steps"], 3) if row["steps"] else None
         row["fallback_rate"] = round(row["fallbacks"] / row["steps"], 3) if row["steps"] else None
         if row["last_seen"]:

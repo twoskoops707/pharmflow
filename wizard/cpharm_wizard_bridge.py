@@ -100,8 +100,47 @@ WIZARD_STEPS: list[dict[str, Any]] = [
 
 _STEP_ID_TO_INDEX = {s["id"]: s["index"] for s in WIZARD_STEPS}
 
+# Deck has 10 steps (includes native "map"); CPharmWizard.PAGES has 9 Tk pages.
+# Never use deck indices as PAGES indices — "map" shifts steps/builder/teams/go by +1.
+_DECK_ID_TO_PAGE: dict[str, int | None] = {
+    "start": 0,
+    "install": 1,
+    "android": 2,
+    "phones": 3,
+    "boot": 4,
+    "map": None,  # deck-native Site Map — no Tk page
+    "steps": 5,
+    "builder": 6,
+    "teams": 7,
+    "go": 8,
+}
+
 _webview_window: Any = None
 _webview_hide_depth = 0
+
+
+def _tk_page_index_for_step(
+    step_id: str | None = None, deck_index: int | None = None
+) -> int | None:
+    """Map a deck step id/index to a CPharmWizard.PAGES index (or None if deck-only)."""
+    sid = str(step_id or "").strip().lower()
+    if sid and sid in _DECK_ID_TO_PAGE:
+        return _DECK_ID_TO_PAGE[sid]
+    if deck_index is not None:
+        try:
+            di = int(deck_index)
+        except (TypeError, ValueError):
+            return 0
+        if 0 <= di < len(WIZARD_STEPS):
+            return _DECK_ID_TO_PAGE.get(str(WIZARD_STEPS[di].get("id") or ""))
+    return 0
+
+
+def _as_index(value: Any, *, label: str = "index") -> tuple[int | None, str | None]:
+    try:
+        return int(value), None
+    except (TypeError, ValueError):
+        return None, f"Invalid {label}: {value!r}"
 
 
 def register_webview_window(window: Any) -> None:
@@ -175,9 +214,11 @@ def _restore_webview_from_tk() -> None:
 
 _tk_root: tk.Tk | None = None
 _wizard: Any = None
+_tk_thread_ident: int | None = None
 _ready = threading.Event()
 _boot_error: str | None = None
 _call_queue: queue.Queue = queue.Queue()
+_boot_all_lock = threading.Lock()
 _log_callbacks: list[Callable[[str, str], None]] = []
 _page_windows: dict[int, Any] = {}
 _lift_pump_active = False
@@ -306,7 +347,11 @@ def _spawn_with_visible_fallback(
 def open_classic_wizard(step_id: str = "steps", *, auto_action: str | None = None) -> dict:
     """Open a visible editor window on the tk bridge thread (must not spawn a second Tk())."""
     step_id = str(step_id or "steps").strip().lower()
-    idx = _STEP_ID_TO_INDEX.get(step_id, 0)
+    page_idx = _tk_page_index_for_step(step_id)
+    if page_idx is None:
+        # Deck-only step (e.g. Site Map) — no classic Tk page to open.
+        return {"ok": True, "deck": step_id, "mode": "deck"}
+    idx = int(page_idx)
 
     def work() -> dict:
         from setup_wizard import BG, CPharmWizard
@@ -337,7 +382,7 @@ def open_classic_wizard(step_id: str = "steps", *, auto_action: str | None = Non
                     win.after(250, lambda: wiz_host._pages[8]._start_automation_one_click())
                 return {"ok": True, "reused": True, "mode": "classic", "step": step_id}
             except Exception as exc:
-                return {"ok": False, "error": f"Could not reuse {title} window: {exc}"}
+                return {"ok": False, "error": f"Could not reuse Wizard window: {exc}"}
 
         assert _tk_root is not None
         from cpharm_version import instance_title
@@ -673,8 +718,9 @@ def _ensure_tk_thread() -> None:
         return
 
     def boot() -> None:
-        global _tk_root, _wizard, _boot_error
+        global _tk_root, _wizard, _boot_error, _tk_thread_ident
         try:
+            _tk_thread_ident = threading.get_ident()
             root = tk.Tk()
             root.title("CPharm backend")
             root.withdraw()
@@ -769,13 +815,35 @@ def _wire_launch_log(page: Any) -> None:
 
 
 def _run_on_tk(fn: Callable, *args, **kwargs) -> Any:
+    """Run ``fn`` on the Tk bridge thread.
+
+    Calling from the Tk thread itself runs ``fn`` inline (avoids deadlock when a
+    pump callback re-enters). Cross-thread callers wait up to 600s; timeout
+    returns ``{ok: False, error: ...}`` instead of raising ``queue.Empty``.
+    """
     _ensure_tk_thread()
+    if _tk_thread_ident is not None and threading.get_ident() == _tk_thread_ident:
+        return fn(*args, **kwargs)
     done: queue.Queue = queue.Queue(maxsize=1)
     _call_queue.put((fn, args, kwargs, done))
-    result = done.get(timeout=600)
+    try:
+        result = done.get(timeout=600)
+    except queue.Empty:
+        return {"ok": False, "error": "Timed out waiting for UI thread (600s)"}
     if isinstance(result, Exception):
         raise result
     return result
+
+
+def _safe_run_on_tk(fn: Callable, *args, **kwargs) -> dict:
+    """Like ``_run_on_tk`` but never raises — always returns a dict with ok/error."""
+    try:
+        result = _run_on_tk(fn, *args, **kwargs)
+    except Exception as exc:  # noqa: BLE001 — surface to WebView as error dict
+        return {"ok": False, "error": str(exc)[:500]}
+    if isinstance(result, dict):
+        return result
+    return {"ok": True, "data": result}
 
 
 def _run_async_on_tk(fn: Callable, *args, **kwargs) -> None:
@@ -809,16 +877,34 @@ def get_wizard_steps() -> list[dict]:
 
 def navigate_wizard_page(index: int) -> dict:
     def work() -> dict:
-        idx = max(0, min(int(index), len(wizard()._pages) - 1))
-        wizard()._show(idx)
-        step = WIZARD_STEPS[idx] if idx < len(WIZARD_STEPS) else {}
-        return {"ok": True, "index": idx, "id": step.get("id", "")}
+        deck_idx, err = _as_index(index, label="page index")
+        if err or deck_idx is None:
+            return {"ok": False, "error": err or "Invalid page index"}
+        step = WIZARD_STEPS[deck_idx] if 0 <= deck_idx < len(WIZARD_STEPS) else {}
+        page_idx = _tk_page_index_for_step(step.get("id") if step else None, deck_idx)
+        if page_idx is None:
+            return {
+                "ok": True,
+                "index": deck_idx,
+                "id": step.get("id", "") if step else "",
+                "tk": False,
+            }
+        pages = wizard()._pages
+        page_idx = max(0, min(int(page_idx), len(pages) - 1))
+        wizard()._show(page_idx)
+        return {
+            "ok": True,
+            "index": deck_idx,
+            "id": step.get("id", "") if step else "",
+            "page": page_idx,
+        }
 
-    return _run_on_tk(work)
+    return _safe_run_on_tk(work)
 
 
 def navigate_wizard_step(step_id: str) -> dict:
-    idx = _STEP_ID_TO_INDEX.get(str(step_id or "").strip().lower(), 0)
+    sid = str(step_id or "").strip().lower()
+    idx = _STEP_ID_TO_INDEX.get(sid, 0)
     return navigate_wizard_page(idx)
 
 
@@ -1214,9 +1300,9 @@ def get_automation_info() -> dict:
 
         _reload_persisted_wizard_state()
         steps = list(state.get("default_steps") or [])
-        return {"count": len(steps), "has_steps": bool(steps)}
+        return {"ok": True, "count": len(steps), "has_steps": bool(steps)}
 
-    return _run_on_tk(work)
+    return _safe_run_on_tk(work)
 
 
 def _sync_default_steps_to_seq_page(steps: list) -> None:
@@ -1239,7 +1325,7 @@ def cursor_get_sequence() -> dict:
         steps = list(state.get("default_steps") or [])
         return {"ok": True, "steps": steps, "count": len(steps)}
 
-    return _run_on_tk(work)
+    return _safe_run_on_tk(work)
 
 
 def cursor_add_step(step: dict | None = None) -> dict:
@@ -1258,7 +1344,7 @@ def cursor_add_step(step: dict | None = None) -> dict:
         _persist_editor_state()
         return {"ok": True, "count": len(steps), "steps": steps}
 
-    return _run_on_tk(work)
+    return _safe_run_on_tk(work)
 
 
 def cursor_update_step(i: int, step: dict | None = None) -> dict:
@@ -1267,7 +1353,9 @@ def cursor_update_step(i: int, step: dict | None = None) -> dict:
 
         _reload_persisted_wizard_state()
         steps = list(state.get("default_steps") or [])
-        idx = int(i)
+        idx, err = _as_index(i, label="step index")
+        if err or idx is None:
+            return {"ok": False, "error": err or "Invalid step index"}
         if idx < 0 or idx >= len(steps):
             return {"ok": False, "error": f"Step index out of range: {idx}"}
         if not isinstance(step, dict):
@@ -1280,7 +1368,7 @@ def cursor_update_step(i: int, step: dict | None = None) -> dict:
         _persist_editor_state()
         return {"ok": True, "count": len(steps), "steps": steps}
 
-    return _run_on_tk(work)
+    return _safe_run_on_tk(work)
 
 
 def cursor_remove_step(i: int) -> dict:
@@ -1289,7 +1377,9 @@ def cursor_remove_step(i: int) -> dict:
 
         _reload_persisted_wizard_state()
         steps = list(state.get("default_steps") or [])
-        idx = int(i)
+        idx, err = _as_index(i, label="step index")
+        if err or idx is None:
+            return {"ok": False, "error": err or "Invalid step index"}
         if idx < 0 or idx >= len(steps):
             return {"ok": False, "error": f"Step index out of range: {idx}"}
         steps.pop(idx)
@@ -1299,7 +1389,7 @@ def cursor_remove_step(i: int) -> dict:
         _persist_editor_state()
         return {"ok": True, "count": len(steps), "steps": steps}
 
-    return _run_on_tk(work)
+    return _safe_run_on_tk(work)
 
 
 def cursor_move_step(i: int, dir: int = 1) -> dict:
@@ -1308,8 +1398,12 @@ def cursor_move_step(i: int, dir: int = 1) -> dict:
 
         _reload_persisted_wizard_state()
         steps = list(state.get("default_steps") or [])
-        idx = int(i)
-        delta = int(dir)
+        idx, err = _as_index(i, label="step index")
+        if err or idx is None:
+            return {"ok": False, "error": err or "Invalid step index"}
+        delta, derr = _as_index(dir, label="dir")
+        if derr or delta is None:
+            return {"ok": False, "error": derr or "Invalid dir"}
         j = idx + delta
         if idx < 0 or idx >= len(steps):
             return {"ok": False, "error": f"Step index out of range: {idx}"}
@@ -1322,7 +1416,7 @@ def cursor_move_step(i: int, dir: int = 1) -> dict:
         _persist_editor_state()
         return {"ok": True, "count": len(steps), "steps": steps}
 
-    return _run_on_tk(work)
+    return _safe_run_on_tk(work)
 
 
 def cursor_add_group() -> dict:
@@ -1374,7 +1468,7 @@ def cursor_add_group() -> dict:
         _persist_editor_state()
         return {"ok": True, **_groups_detail_from_state()}
 
-    return _run_on_tk(work)
+    return _safe_run_on_tk(work)
 
 
 def cursor_remove_group(i: int) -> dict:
@@ -1383,18 +1477,25 @@ def cursor_remove_group(i: int) -> dict:
 
         _prepare_editor_state()
         _normalize_all_groups()
-        groups = state.get("groups") or []
+        groups = list(state.get("groups") or [])
         if len(groups) <= 1:
             return {"ok": False, "error": "Need at least one group.", **_groups_detail_from_state()}
-        idx = int(i)
+        idx, err = _as_index(i, label="group index")
+        if err or idx is None:
+            return {"ok": False, "error": err or "Invalid group index", **_groups_detail_from_state()}
         if idx < 0 or idx >= len(groups):
             return {"ok": False, "error": f"Group index out of range: {idx}", **_groups_detail_from_state()}
-        groups.pop(idx)
+        removed = groups.pop(idx)
         state["groups"] = groups
         _persist_editor_state()
-        return {"ok": True, **_groups_detail_from_state()}
+        removed_name = (
+            (removed.get("name") or "").strip()
+            if isinstance(removed, dict)
+            else ""
+        ) or f"Group {idx + 1}"
+        return {"ok": True, "removed": removed_name, **_groups_detail_from_state()}
 
-    return _run_on_tk(work)
+    return _safe_run_on_tk(work)
 
 
 def cursor_rename_group(i: int, name: str = "") -> dict:
@@ -1404,17 +1505,20 @@ def cursor_rename_group(i: int, name: str = "") -> dict:
         _prepare_editor_state()
         _normalize_all_groups()
         groups = state.get("groups") or []
-        idx = int(i)
+        idx, err = _as_index(i, label="group index")
+        if err or idx is None:
+            return {"ok": False, "error": err or "Invalid group index", **_groups_detail_from_state()}
         if idx < 0 or idx >= len(groups):
             return {"ok": False, "error": f"Group index out of range: {idx}", **_groups_detail_from_state()}
-        new_name = (name or "").strip() or f"Group {idx + 1}"
         g = groups[idx]
-        if isinstance(g, dict):
-            g["name"] = new_name
+        if not isinstance(g, dict):
+            return {"ok": False, "error": f"Group at {idx} is not an object", **_groups_detail_from_state()}
+        new_name = (name or "").strip() or f"Group {idx + 1}"
+        g["name"] = new_name
         _persist_editor_state()
         return {"ok": True, **_groups_detail_from_state()}
 
-    return _run_on_tk(work)
+    return _safe_run_on_tk(work)
 
 
 def run_edit_default_sequence() -> dict:
@@ -1466,6 +1570,8 @@ def boot_all_phones() -> dict:
     any Tk window or page object. Runs in a daemon thread; per-phone progress
     streams to the deck's boot log via _emit_log("boot", …).
     """
+    if not _boot_all_lock.acquire(blocking=False):
+        return {"ok": False, "error": "Boot already in progress", "started": False}
 
     def work() -> None:
         import time as _time
@@ -1480,77 +1586,76 @@ def boot_all_phones() -> dict:
         def log(msg: str) -> None:
             _emit_log("boot", msg if msg.endswith("\n") else msg + "\n")
 
-        mgr = _find_mumu_manager()
-        if not mgr:
-            log("MuMu manager tool not found — install MuMuPlayer ARM first.")
-            _emit_log("boot", "BOOT FAILED: no manager\n")
-            return
-        instances = _mumu_get_instances(mgr, log_fn=log)
-        if not instances:
-            log("No MuMu instances found — open MuMu once so it creates its VMs.")
-            _emit_log("boot", "BOOT FAILED: no instances\n")
-            return
-        booted: list[str] = []
-        already: list[str] = []
-        failed: list[str] = []
-        for inst in instances:
-            idx = inst["index"]
-            name = inst["name"]
-            serial = inst["adb_serial"]
-            if inst.get("started"):
-                log(f"{name}: already running ({serial})")
-                already.append(name)
-                continue
-            log(f"{name}: launching (instance {idx})…")
-            try:
-                _mumu_launch(mgr, idx, log_fn=None)
-            except Exception as exc:  # noqa: BLE001 — keep booting the rest
-                log(f"{name}: launch failed: {exc}")
-                failed.append(name)
-                continue
-            _time.sleep(2)
-            deadline = _time.time() + 180
-            up = False
-            while _time.time() < deadline:
-                _time.sleep(5)
-                adb("connect", serial, timeout=8)
-                check = adb("shell", "echo", "ok", serial=serial, timeout=8)
-                up = check.strip() == "ok"
+        try:
+            mgr = _find_mumu_manager()
+            if not mgr:
+                log("MuMu manager tool not found — install MuMuPlayer ARM first.")
+                _emit_log("boot", "BOOT FAILED: no manager\n")
+                return
+            instances = _mumu_get_instances(mgr, log_fn=log)
+            if not instances:
+                log("No MuMu instances found — open MuMu once so it creates its VMs.")
+                _emit_log("boot", "BOOT FAILED: no instances\n")
+                return
+            booted: list[str] = []
+            already: list[str] = []
+            failed: list[str] = []
+            for inst in instances:
+                idx = inst["index"]
+                name = inst["name"]
+                serial = inst["adb_serial"]
+                if inst.get("started"):
+                    log(f"{name}: already running ({serial})")
+                    already.append(name)
+                    continue
+                log(f"{name}: launching (instance {idx})…")
+                try:
+                    _mumu_launch(mgr, idx, log_fn=None)
+                except Exception as exc:  # noqa: BLE001 — keep booting the rest
+                    log(f"{name}: launch failed: {exc}")
+                    failed.append(name)
+                    continue
+                _time.sleep(2)
+                deadline = _time.time() + 180
+                up = False
+                while _time.time() < deadline:
+                    _time.sleep(5)
+                    adb("connect", serial, timeout=8)
+                    check = adb("shell", "echo", "ok", serial=serial, timeout=8)
+                    up = check.strip() == "ok"
+                    if up:
+                        break
                 if up:
-                    break
-            if up:
-                log(f"{name}: ADB up on {serial}")
-                booted.append(name)
-            else:
-                log(f"{name}: no ADB answer after 180s — moving on")
-                failed.append(name)
-        total = len(booted) + len(already)
-        log(f"BOOT COMPLETE: {total} phone(s) up, {len(failed)} failed.")
+                    log(f"{name}: ADB up on {serial}")
+                    booted.append(name)
+                else:
+                    log(f"{name}: no ADB answer after 180s — moving on")
+                    failed.append(name)
+            total = len(booted) + len(already)
+            log(f"BOOT COMPLETE: {total} phone(s) up, {len(failed)} failed.")
+        except Exception as exc:  # noqa: BLE001 — never silent-fail the boot worker
+            log(f"BOOT FAILED: {exc}")
+            _emit_log("boot", f"BOOT FAILED: {exc}\n")
+        finally:
+            try:
+                _boot_all_lock.release()
+            except RuntimeError:
+                pass
 
-    threading.Thread(target=work, daemon=True, name="boot-all-phones").start()
+    try:
+        threading.Thread(target=work, daemon=True, name="boot-all-phones").start()
+    except Exception as exc:  # noqa: BLE001
+        try:
+            _boot_all_lock.release()
+        except RuntimeError:
+            pass
+        return {"ok": False, "error": f"Could not start boot thread: {exc}", "started": False}
     return {"ok": True, "started": True}
 
 
 def remove_group(index: int) -> dict:
-    """Remove group ``index`` from persisted wizard state — deck-native, no Tk."""
-
-    def work() -> dict:
-        from setup_wizard import state
-
-        _prepare_editor_state()
-        groups = state.get("groups") or []
-        idx = int(index)
-        if idx < 0 or idx >= len(groups):
-            return {
-                "ok": False,
-                "error": f"Group index {idx} out of range ({len(groups)} groups).",
-            }
-        removed = groups.pop(idx)
-        _persist_editor_state()
-        detail = _groups_detail_from_state()
-        return {"ok": True, "removed": removed.get("name") or f"Group {idx + 1}", **detail}
-
-    return _run_on_tk(work)
+    """Remove group ``index`` — same semantics as ``cursor_remove_group`` (keep ≥1)."""
+    return cursor_remove_group(index)
 
 
 def run_add_group() -> dict:
@@ -1701,9 +1806,9 @@ def get_groups_detail() -> dict:
 
         _reload_persisted_wizard_state()
         _normalize_all_groups()
-        return _groups_detail_from_state()
+        return {"ok": True, **_groups_detail_from_state()}
 
-    return _run_on_tk(work)
+    return _safe_run_on_tk(work)
 
 
 def get_groups_summary() -> dict:
@@ -1720,9 +1825,9 @@ def is_dashboard_ready() -> dict:
             running = proc is not None and proc.poll() is None
         except Exception:
             running = ready
-        return {"ready": ready, "server_running": running or ready}
+        return {"ok": True, "ready": ready, "server_running": running or ready}
 
-    return _run_on_tk(work)
+    return _safe_run_on_tk(work)
 
 
 def get_launch_summary() -> dict:
@@ -1733,9 +1838,9 @@ def get_launch_summary() -> dict:
             txt = page._summary.get("1.0", "end").strip()
         except Exception:
             pass
-        return {"summary": txt}
+        return {"ok": True, "summary": txt}
 
-    return _run_on_tk(work)
+    return _safe_run_on_tk(work)
 
 
 def save_browse_mode(mode: str) -> dict:
@@ -1752,7 +1857,7 @@ def save_browse_mode(mode: str) -> dict:
         os.environ["CPHARM_BROWSE_PROXY_MODE"] = mode_l
         return {"ok": True, "mode": mode_l, "label": bp.browse_proxy_mode_label(mode_l)}
 
-    return _run_on_tk(work)
+    return _safe_run_on_tk(work)
 
 
 def get_browse_mode() -> dict:
@@ -1763,50 +1868,58 @@ def get_browse_mode() -> dict:
         import browse_proxy as bp
 
         m = bp.browse_proxy_mode()
-        return {"mode": m, "label": bp.browse_proxy_mode_label(m)}
+        return {"ok": True, "mode": m, "label": bp.browse_proxy_mode_label(m)}
 
-    return _run_on_tk(work)
+    return _safe_run_on_tk(work)
 
 
 def start_server() -> dict:
     """Start the control server on the hidden Launch page — no Tk Run window."""
 
     def work() -> dict:
-        page = launch_page()
-        page.on_enter()
-        if hasattr(page, "_start_server"):
-            page._start_server()
-        return {"ok": True, "started": True}
+        try:
+            page = launch_page()
+            page.on_enter()
+            if hasattr(page, "_start_server"):
+                page._start_server()
+            return {"ok": True, "started": True}
+        except Exception as exc:  # noqa: BLE001
+            return {"ok": False, "error": str(exc)[:500]}
 
-    return _run_on_tk(work)
+    return _safe_run_on_tk(work)
 
 
 def start_server_and_open_dashboard() -> dict:
     """Start service + open dashboard without spawning a visible Tk Run window."""
 
     def work() -> dict:
-        page = launch_page()
-        page.on_enter()
-        if hasattr(page, "_start_server"):
-            page._start_server()
-        # _start_server is intentionally asynchronous; waiting here blocks the Tk
-        # event loop and prevents the server thread's UI callbacks from running.
-        opened = False
-        if hasattr(page, "_open_dashboard_browser"):
-            page.after(250, lambda: page._open_dashboard_browser("/"))
-            opened = True
-        out: dict[str, Any] = {"ok": True, "started": True, "dashboard_opened": opened}
-        if not opened:
-            out["message"] = "Server starting — click Open dashboard in a moment."
-        return out
+        try:
+            page = launch_page()
+            page.on_enter()
+            if hasattr(page, "_start_server"):
+                page._start_server()
+            # _start_server is intentionally asynchronous; waiting here blocks the Tk
+            # event loop and prevents the server thread's UI callbacks from running.
+            opened = False
+            if hasattr(page, "_open_dashboard_browser"):
+                page.after(250, lambda: page._open_dashboard_browser("/"))
+                opened = True
+            out: dict[str, Any] = {"ok": True, "started": True, "dashboard_opened": opened}
+            if not opened:
+                out["message"] = "Server starting — click Open dashboard in a moment."
+            return out
+        except Exception as exc:  # noqa: BLE001
+            return {"ok": False, "error": str(exc)[:500]}
 
-    return _run_on_tk(work)
+    return _safe_run_on_tk(work)
 
 
 def run_all_groups() -> dict:
-    """Boot phones (when codebuff lands boot_all_phones), then start service + run groups.
+    """Boot phones (async), then start service + run groups on the Tk thread.
 
     No Tk Run window — progress streams to the deck go-log via LaunchPage wiring.
+    Boot runs off-thread so it cannot deadlock the Tk pump; group start still
+    goes through ``_safe_run_on_tk`` and returns ``{ok:false,error}`` on failure.
     """
     boot_res: dict | None = None
     boot_fn = globals().get("boot_all_phones")
@@ -1823,23 +1936,36 @@ def run_all_groups() -> dict:
             }
 
     def work() -> dict:
-        page = launch_page()
-        page.on_enter()
         try:
-            if hasattr(page, "_dashboard_config_reachable") and not page._dashboard_config_reachable():
+            page = launch_page()
+            page.on_enter()
+            try:
+                if hasattr(page, "_dashboard_config_reachable") and not page._dashboard_config_reachable():
+                    if hasattr(page, "_start_server"):
+                        page._start_server()
+            except Exception as start_exc:  # noqa: BLE001 — try start anyway, keep error
                 if hasattr(page, "_start_server"):
-                    page._start_server()
-        except Exception:
-            if hasattr(page, "_start_server"):
-                page._start_server()
-        if hasattr(page, "_run_groups"):
-            page._run_groups()
-        out: dict[str, Any] = {"ok": True, "started": True}
-        if boot_res is not None:
-            out["boot"] = boot_res
-        return out
+                    try:
+                        page._start_server()
+                    except Exception as exc2:  # noqa: BLE001
+                        return {
+                            "ok": False,
+                            "error": f"start_server failed: {start_exc}; retry: {exc2}",
+                            "boot": boot_res,
+                        }
+            if hasattr(page, "_run_groups"):
+                page._run_groups()
+            out: dict[str, Any] = {"ok": True, "started": True}
+            if boot_res is not None:
+                out["boot"] = boot_res
+            return out
+        except Exception as exc:  # noqa: BLE001
+            err: dict[str, Any] = {"ok": False, "error": str(exc)[:500]}
+            if boot_res is not None:
+                err["boot"] = boot_res
+            return err
 
-    return _run_on_tk(work)
+    return _safe_run_on_tk(work)
 
 
 def start_automation_one_click() -> dict:
@@ -1858,13 +1984,16 @@ def start_automation_one_click() -> dict:
             return {"ok": False, "error": f"boot_all_phones failed: {exc}"}
 
     def work() -> dict:
-        page = launch_page()
-        page.on_enter()
-        if hasattr(page, "_start_automation_one_click"):
-            page._start_automation_one_click()
-        return {"ok": True, "started": True}
+        try:
+            page = launch_page()
+            page.on_enter()
+            if hasattr(page, "_start_automation_one_click"):
+                page._start_automation_one_click()
+            return {"ok": True, "started": True}
+        except Exception as exc:  # noqa: BLE001
+            return {"ok": False, "error": str(exc)[:500]}
 
-    return _run_on_tk(work)
+    return _safe_run_on_tk(work)
 
 
 def fix_phone_internet() -> dict:

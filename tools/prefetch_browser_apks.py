@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import sys
 from pathlib import Path
 
@@ -28,7 +29,16 @@ for _p in (str(_ROOT), str(_ROOT / "automation"), str(_ROOT / "wizard")):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-from automation.browser_apk_catalog import BROWSER_APK_SPECS  # noqa: E402
+from automation.browser_apk_catalog import (  # noqa: E402
+    BROWSER_APK_SPECS,
+    _http_download,
+    resolve_brave_apk_url,
+    resolve_chromium_apk_url,
+    resolve_chromium_snapshot_apk_url,
+    resolve_duckduckgo_apk_url,
+    resolve_firefox_apk_url,
+    resolve_opera_apk_url,
+)
 
 
 def _progress(msg: str) -> None:
@@ -74,21 +84,16 @@ def main() -> int:
     (out / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     print(f"\nEmbedded {len(results)} browser(s) in {out}")
     print(json.dumps(manifest, indent=2))
+    # Chromium may fail (mirrors down); other browsers must embed for offline CI builds.
+    critical_fail = [t for t in failures if t != "chromium"]
+    if critical_fail:
+        print(f"CRITICAL: failed to embed {critical_fail}", flush=True)
+        return 1
     return 0
 
 
 def _download_spec(spec, dest: Path) -> Path:
     """Download one browser APK. Chromium goes through its resolver chain."""
-    from automation.browser_apk_catalog import (
-        _http_download,
-        resolve_brave_apk_url,
-        resolve_chromium_apk_url,
-        resolve_chromium_snapshot_apk_url,
-        resolve_duckduckgo_apk_url,
-        resolve_firefox_apk_url,
-        resolve_opera_apk_url,
-    )
-
     resolvers = {
         "chromium": (resolve_chromium_apk_url, resolve_chromium_snapshot_apk_url),
         "firefox": (resolve_firefox_apk_url,),
@@ -117,8 +122,6 @@ def _download_spec(spec, dest: Path) -> Path:
 
 def _copy_farmbrowser(dest: Path) -> Path:
     """Embed the prebuilt FarmBrowser APK (no public mirror exists for it)."""
-    import shutil
-
     sources = [
         _ROOT / "bundled" / "farmbrowser-debug.apk",
         Path(r"C:\CPharm\apks\farmbrowser-debug.apk"),

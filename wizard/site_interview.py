@@ -418,10 +418,12 @@ def _interview_suggest_ai(app: Any) -> None:
 
             app.after(0, on_ui)
         except Exception as exc:
+            # Bind message before except clears `exc` (Py3); else after() NameError leaves busy stuck.
+            err_msg = str(exc)
             app.after(
                 0,
-                lambda: (
-                    app._log(f"AI suggest failed: {exc}", "err"),
+                lambda msg=err_msg: (
+                    app._log(f"AI suggest failed: {msg}", "err"),
                     setattr(app, "_si_busy", False),
                 ),
             )
@@ -504,10 +506,11 @@ def _interview_generate(app: Any) -> None:
                 ),
             )
         except Exception as exc:
+            err_msg = str(exc)
             app.after(
                 0,
-                lambda: (
-                    app._log(f"Site Interview failed: {exc}", "err"),
+                lambda msg=err_msg: (
+                    app._log(f"Site Interview failed: {msg}", "err"),
                     setattr(app, "_si_busy", False),
                 ),
             )

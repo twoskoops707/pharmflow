@@ -66,11 +66,16 @@ def _as_int(v: Any, default: int = 0) -> int:
 
 def _hv_spreads() -> tuple[float, float]:
     """(WAIT_SPREAD, PRE_WAIT_SPREAD) from human_variation when automation is importable."""
+    try:
+        from automation.human_variation import PRE_WAIT_SPREAD, WAIT_SPREAD
+
+        return (float(WAIT_SPREAD), float(PRE_WAIT_SPREAD))
+    except (ImportError, ModuleNotFoundError, AttributeError, TypeError, ValueError) as e:
+        _seq_debug_once("human_variation spreads", e)
+    # Fallback: optional path hack when package import fails but file exists beside repo.
     root = Path(__file__).resolve().parent.parent / "automation"
     if not (root / "human_variation.py").is_file():
         return (0.08, 0.06)
-    import sys
-
     ap = str(root)
     if ap not in sys.path:
         sys.path.insert(0, ap)
@@ -79,18 +84,22 @@ def _hv_spreads() -> tuple[float, float]:
 
         return (float(WAIT_SPREAD), float(PRE_WAIT_SPREAD))
     except (ImportError, ModuleNotFoundError, AttributeError, TypeError, ValueError) as e:
-        _seq_debug_once("human_variation spreads", e)
+        _seq_debug_once("human_variation spreads (path)", e)
         return (0.08, 0.06)
 
 
 def _maybe_normalize_steps(steps: list) -> list:
     """Coerce numeric fields when automation package is available."""
+    try:
+        from automation.sequence_normalize import normalize_automation_steps
+
+        return normalize_automation_steps(steps)
+    except (ImportError, ModuleNotFoundError, AttributeError, TypeError, ValueError) as e:
+        _seq_debug_once("normalize_automation_steps", e)
     root = Path(__file__).resolve().parent.parent / "automation"
     mod = root / "sequence_normalize.py"
     if not mod.is_file():
         return steps
-    import sys
-
     ap = str(root)
     if ap not in sys.path:
         sys.path.insert(0, ap)
@@ -99,7 +108,7 @@ def _maybe_normalize_steps(steps: list) -> list:
 
         return normalize_automation_steps(steps)
     except (ImportError, ModuleNotFoundError, AttributeError, TypeError, ValueError) as e:
-        _seq_debug_once("normalize_automation_steps", e)
+        _seq_debug_once("normalize_automation_steps (path)", e)
         return steps
 
 
@@ -159,9 +168,9 @@ def humanize_steps(
         elif t == "swipe":
             ms = _as_int(bag.get("ms", bag.get("duration_ms", 400)), 400)
             new_ms = max(1, min(5000, int(ms * r.uniform(0.9, 1.1))))
-            if "duration_ms" in bag and "ms" not in bag:
+            if "duration_ms" in bag:
                 bag["duration_ms"] = new_ms
-            else:
+            if "ms" in bag or "duration_ms" not in bag:
                 bag["ms"] = new_ms
         out.append(step)
     return _maybe_normalize_steps(out)

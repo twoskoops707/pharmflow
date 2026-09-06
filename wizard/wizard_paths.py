@@ -15,13 +15,19 @@ logger = logging.getLogger(__name__)
 CPHARM_WINDOWS_ROOT = Path(r"C:\CPharm")
 
 MUMU_SEARCH_PATHS: list[Path] = [
-    Path(os.environ.get("CPHARM_MUMU_ROOT", "")),
-    Path(r"C:\Program Files\Netease\MuMuPlayer"),
-    Path(r"C:\Program Files\Netease\MuMuPlayerGlobal"),
-    Path(r"C:\Program Files (x86)\Netease\MuMuPlayer"),
-    Path(os.environ.get("LOCALAPPDATA", "")) / "MuMuPlayer",
-    # ARM last — never prefer it on Intel/AMD x64 transfer PCs.
-    Path(r"C:\Program Files\Netease\MuMuPlayerARM"),
+    Path(p)
+    for p in (
+        os.environ.get("CPHARM_MUMU_ROOT", "").strip(),
+        r"C:\Program Files\Netease\MuMuPlayer",
+        r"C:\Program Files\Netease\MuMuPlayerGlobal",
+        r"C:\Program Files (x86)\Netease\MuMuPlayer",
+        str(Path(os.environ.get("LOCALAPPDATA", "").strip() or "") / "MuMuPlayer")
+        if (os.environ.get("LOCALAPPDATA") or "").strip()
+        else "",
+        # ARM last — never prefer it on Intel/AMD x64 transfer PCs.
+        r"C:\Program Files\Netease\MuMuPlayerARM",
+    )
+    if p and p not in (".", "")
 ]
 
 
@@ -209,7 +215,7 @@ def save_config(data: dict[str, Any]) -> None:
 
 
 def save_desktop_prefs(phone_order: list[str]) -> None:
-    prefs = {
+    prefs: dict[str, Any] = {
         "phone_order": phone_order,
         "tor_slot_order": phone_order,
         "browse_proxy_mode": "scramble",
@@ -230,8 +236,16 @@ def save_desktop_prefs(phone_order: list[str]) -> None:
     if path.is_file():
         try:
             existing = json.loads(path.read_text(encoding="utf-8"))
-            if isinstance(existing.get("farm"), dict):
-                prefs["farm"] = {**prefs["farm"], **existing["farm"]}
+            if isinstance(existing, dict):
+                # Preserve operator overrides; only force phone/tor order from this call.
+                merged = {**prefs, **existing}
+                merged["phone_order"] = phone_order
+                merged["tor_slot_order"] = phone_order
+                if isinstance(existing.get("farm"), dict):
+                    merged["farm"] = {**prefs["farm"], **existing["farm"]}
+                else:
+                    merged["farm"] = prefs["farm"]
+                prefs = merged
         except (json.JSONDecodeError, OSError):
             pass
     path.write_text(json.dumps(prefs, indent=2) + "\n", encoding="utf-8")

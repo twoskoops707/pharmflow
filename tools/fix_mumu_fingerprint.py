@@ -9,10 +9,10 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-for sub in ("automation", "wizard"):
-    p = ROOT / sub
-    if str(p) not in sys.path:
-        sys.path.insert(0, str(p))
+# ROOT first so `import automation.*` package imports resolve (dir-only inserts break).
+for _p in (str(ROOT), str(ROOT / "wizard"), str(ROOT / "automation")):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
 import mumu_farm_ops as farm  # noqa: E402
 

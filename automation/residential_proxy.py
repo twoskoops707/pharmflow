@@ -9,6 +9,7 @@ Falls back to next proxy in pool if current one fails health check.
 
 from __future__ import annotations
 
+import base64
 import logging
 import os
 import socket
@@ -82,6 +83,7 @@ class ResidentialProxyPool:
         self._assignments: dict[int, int] = {}  # phone_index -> proxy index
         self._load_counter = 0
         self._loaded_path: Path | None = None
+        self._loaded_mtime: float = 0.0
 
     def _ensure_loaded(self) -> None:
         """Load proxy list if not yet loaded or file changed."""
@@ -96,8 +98,13 @@ class ResidentialProxyPool:
         except OSError:
             return
 
-        if self._loaded_path == PROXY_LIST_PATH and self._load_counter > 0:
-            return  # Already loaded
+        # Must compare mtime — operators edit the list while the farm runs.
+        if (
+            self._loaded_path == PROXY_LIST_PATH
+            and self._load_counter > 0
+            and mtime == self._loaded_mtime
+        ):
+            return  # Already loaded and unchanged
 
         proxies: list[_ProxyEntry] = []
         try:
@@ -105,6 +112,7 @@ class ResidentialProxyPool:
                 line = line.strip()
                 if not line or line.startswith("#"):
                     continue
+                # host:port[:user[:password...]] — password may contain ':'
                 parts = line.split(":")
                 if len(parts) >= 2:
                     host = parts[0].strip()
@@ -113,7 +121,7 @@ class ResidentialProxyPool:
                     except ValueError:
                         continue
                     user = parts[2].strip() if len(parts) > 2 else ""
-                    pw = parts[3].strip() if len(parts) > 3 else ""
+                    pw = ":".join(parts[3:]).strip() if len(parts) > 3 else ""
                     proxies.append(_ProxyEntry(host, port, user, pw))
         except OSError as exc:
             logger.error("Failed to read proxy list %s: %s", PROXY_LIST_PATH, exc)
@@ -123,7 +131,14 @@ class ResidentialProxyPool:
             with self._lock:
                 self._proxies = proxies
                 self._loaded_path = PROXY_LIST_PATH
+                self._loaded_mtime = mtime
                 self._load_counter += 1
+                # Drop assignments that point past the new list length.
+                self._assignments = {
+                    phone: idx
+                    for phone, idx in self._assignments.items()
+                    if idx < len(proxies)
+                }
             logger.info("Loaded %d residential proxies from %s", len(proxies), PROXY_LIST_PATH)
 
     @property
@@ -224,7 +239,6 @@ def connect_via_residential(proxy: _ProxyEntry, dest_host: str, dest_port: int, 
     # Build CONNECT request with optional proxy auth
     auth_header = ""
     if proxy.has_auth:
-        import base64
         creds = base64.b64encode(f"{proxy.user}:{proxy.password}".encode()).decode()
         auth_header = f"Proxy-Authorization: Basic {creds}\r\n"
 
@@ -248,7 +262,11 @@ def connect_via_residential(proxy: _ProxyEntry, dest_host: str, dest_port: int, 
         resp += chunk
 
     status_line = resp.split(b"\r\n", 1)[0]
-    if b" 200 " in status_line:
+    # Proxies often reply "HTTP/1.1 200" or "HTTP/1.0 200 Connection established"
+    # — requiring a trailing space after 200 rejected the bare "… 200" form.
+    parts = status_line.split()
+    ok = len(parts) >= 2 and parts[1] == b"200"
+    if ok:
         proxy.mark_ok()
         return sock
     else:

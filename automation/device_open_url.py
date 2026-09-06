@@ -22,6 +22,10 @@ specific app (including Chrome when installed), pass e.g.
 
 from __future__ import annotations
 
+import subprocess
+
+from automation.adb_paths import adb_executable
+
 __all__ = ["am_start_view_url_argv", "_component_is_chrome", "_component_is_farmbrowser"]
 
 # Optional shell debug (host): ``adb -s SERIAL shell dumpsys window windows`` (see mCurrentFocus);
@@ -82,19 +86,7 @@ def _pick_farmbrowser_component(serial: str) -> str | None:
     Resolves the actual Activity name so we don't hardcode it and break on
     debug vs release builds.
     """
-    import subprocess
-    import os
-    import shutil
-
-    # Resolve adb
-    sdk = os.environ.get("ANDROID_HOME") or os.environ.get("LOCALAPPDATA", "")
-    adb = os.path.join(sdk, "platform-tools", "adb.exe" if os.name == "nt" else "adb")
-    if not os.path.isfile(adb):
-        w = shutil.which("adb")
-        if w:
-            adb = w
-        else:
-            adb = "adb"
+    adb = adb_executable()
 
     for pkg in _FARMBROWSER_PACKAGES:
         try:

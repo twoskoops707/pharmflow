@@ -18,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 import human_variation as hv
 import tor_manager
+from config import SCHEDULE_SPREAD
 from sequence_normalize import normalize_automation_steps
 
 log = logging.getLogger("scheduler")
@@ -49,7 +50,27 @@ def _name(serial: str) -> str:
 
 
 def _gen_today(hits: int) -> list:
+    """Generate ``hits`` fire epochs for today.
+
+    Honors ``config.SCHEDULE_SPREAD`` (organic Dirichlet spacings vs uniform) so the
+    dashboard setting actually changes fire-time clustering.
+    """
     mn = datetime.datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
+    if hits <= 0:
+        return []
+    if SCHEDULE_SPREAD == "organic" and hits > 1:
+        # Dirichlet-like spacings: gamma samples → normalize to 86400s window.
+        weights = [random.gammavariate(1.2, 1.0) for _ in range(hits)]
+        total = sum(weights) or 1.0
+        offsets = []
+        acc = 0.0
+        for w in weights:
+            acc += (w / total) * 86400.0
+            offsets.append(acc)
+        # Jitter slightly so hits are not locked to exact cumulative edges.
+        offsets = [max(0.0, min(86399.0, o + random.uniform(-90, 90))) for o in offsets]
+        offsets.sort()
+        return [mn + o for o in offsets]
     offsets = sorted(random.uniform(0, 86400) for _ in range(hits))
     return [mn + o for o in offsets]
 
@@ -215,6 +236,11 @@ async def handle_scheduler(path: str, body_bytes: bytes, method: str = "POST"):
         started = []
         with _sched_lock:
             for s in serials:
+                # Regenerate when missing or hits_per_day changed — otherwise start
+                # kept a stale generate() schedule with a different hit count.
+                info = PHONE_SCHED.get(s) or {}
+                if info.get("hits") != hits or not info.get("times"):
+                    PHONE_SCHED[s] = {"hits": hits, "times": _gen_today(hits), "idx": 0}
                 if RUNNING.get(s, False):
                     continue
                 RUNNING[s] = True

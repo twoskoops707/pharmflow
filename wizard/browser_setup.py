@@ -73,13 +73,16 @@ def _adb_exe() -> str:
 
 def _adb(serial: str, *args: str, timeout: float = 30) -> str:
     exe = _adb_exe()
-    r = subprocess.run(
-        [exe, "-s", serial, *args],
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-        creationflags=_SUBPROC_FLAGS,
-    )
+    try:
+        r = subprocess.run(
+            [exe, "-s", serial, *args],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            creationflags=_SUBPROC_FLAGS,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
     return (r.stdout or "") + (r.stderr or "")
 
 
@@ -235,6 +238,7 @@ def download_official_chromium_apk(
             )
             if not member:
                 log("  Download failed: ChromePublic.apk not in zip.")
+                tmp_zip.unlink(missing_ok=True)
                 return None
             dest.write_bytes(zf.read(member))
         tmp_zip.unlink(missing_ok=True)
@@ -272,7 +276,7 @@ def find_sideload_apk(serial: str | None = None) -> tuple[Path, str] | None:
     preferred_abi = default_chromium_abi(serial=serial) if serial else None
     if preferred_abi:
         named = bundled_dir() / chromium_apk_filename(preferred_abi)
-        if named.is_file():
+        if named.is_file() and apk_matches_abi(named, preferred_abi):
             return named, CHROMIUM_PUBLIC_PKG
     for folder in bundled_search_dirs():
         if not folder.is_dir():
@@ -564,10 +568,11 @@ def ensure_browser(
         log(f"  Installing Chromium on {serial} (getdabflow.app ads need it)…")
     else:
         existing = pick_browser_pkg(serial)
-        if existing:
+        # Stock AOSP Browser has no CDP / empty ad slots — never treat as ready.
+        if existing and existing != AOSP_STOCK_BROWSER and is_dabflow_capable_browser(existing):
             return True, existing, f"Using {browser_label(existing)}"
 
-    if dabflow or pick_browser_pkg(serial) == AOSP_STOCK_BROWSER:
+    if dabflow or pick_browser_pkg(serial) in (None, AOSP_STOCK_BROWSER):
         log(
             f"  Stock/MuMu-only browser cannot run DabFlow Mantis ads — "
             "installing Chromium…"
@@ -615,15 +620,20 @@ def reset_chromium_session(serial: str, log: LogFn | None = None) -> bool:
     log = log or (lambda _m: None)
     if not chromium_reset_enabled():
         return False
-    if not pkg_installed(serial, CHROMIUM_PUBLIC_PKG):
+    clear_pkg = None
+    if pkg_installed(serial, CHROMIUM_PUBLIC_PKG):
+        clear_pkg = CHROMIUM_PUBLIC_PKG
+    elif pkg_installed(serial, CHROME_PKG):
+        clear_pkg = CHROME_PKG
+    if not clear_pkg:
         return False
-    log("    Chromium: clear all tabs, history, cache, cookies…")
-    _adb(serial, "shell", "am", "force-stop", CHROMIUM_PUBLIC_PKG, timeout=12)
+    log(f"    {browser_label(clear_pkg)}: clear all tabs, history, cache, cookies…")
+    _adb(serial, "shell", "am", "force-stop", clear_pkg, timeout=12)
     time.sleep(0.35)
-    out = _adb(serial, "shell", "pm", "clear", CHROMIUM_PUBLIC_PKG, timeout=45)
+    out = _adb(serial, "shell", "pm", "clear", clear_pkg, timeout=45)
     ok = "success" in (out or "").lower()
     if not ok and (out or "").strip():
-        log(f"    Chromium pm clear: {(out or '').strip()[:120]}")
+        log(f"    {browser_label(clear_pkg)} pm clear: {(out or '').strip()[:120]}")
     try:
         from wizard_paths import automation_on_sys_path
 
@@ -802,7 +812,8 @@ from urllib.request import urlopen
 from automation.adb_wrapper import AdbWrapper
 from automation.browser_adb import is_chromium_available
 from automation.config import BROWSER_CHROMIUM, CHROMIUM_DOWNLOAD_URL
-from wizard.wizard_paths import bundled_dir, chrome_apk_path
+from wizard.wizard_paths import chrome_apk_path
+# Keep module-level bundled_dir() (install-root) — do not shadow with wizard_paths.bundled_dir.
 logger = logging.getLogger(__name__)
 CHROMIUM_SNAPSHOT_URL = (
     "https://www.googleapis.com/storage/v1/b/chromium-browser-snapshots/o"

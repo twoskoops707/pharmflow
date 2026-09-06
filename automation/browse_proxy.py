@@ -184,6 +184,7 @@ _MITM_SKIP_PACKAGES = frozenset(
     {
         "org.mozilla.firefox",
         "com.duckduckgo.mobile.android",
+        "com.brave.browser",
     }
 )
 

@@ -166,6 +166,14 @@ def ensure_farm_reload_if_flagged() -> list[str]:
     if not flag.is_file():
         return []
     fixes: list[str] = ["FARM_RELOAD_FARM.flag seen"]
+    # Do not kill mid-sequence — keep flag so reload retries when actives drain.
+    prog = load_json(PROGRESS)
+    act = prog.get("active_sequences") or prog.get("active_keys") or prog.get("active") or []
+    if isinstance(act, dict):
+        act = list(act.keys())
+    if isinstance(act, list) and act:
+        fixes.append("SKIP_RELOAD active_sequences_present")
+        return fixes
     try:
         flag.unlink(missing_ok=True)
     except OSError:
@@ -181,7 +189,7 @@ def ensure_farm_reload_if_flagged() -> list[str]:
     killed: list[int] = []
     for p in psutil.process_iter(["pid", "cmdline"]):
         cmd = " ".join(p.info.get("cmdline") or [])
-        if "run_farm_354" in cmd:
+        if "run_farm_354" in cmd and "-c" not in cmd:
             try:
                 p.kill()
                 killed.append(int(p.info["pid"]))
@@ -212,7 +220,7 @@ def ensure_farm_reload_if_flagged() -> list[str]:
     env["CPHARM_FARM_UNIQUE_SEQ"] = "1"
     try:
         proc = subprocess.Popen(
-            [pyw, "-u", str(farm_script)],
+            [pyw, "-u", str(farm_script), "--hours", "0.0"],
             cwd=str(ROOT),
             env=env,
             creationflags=int(getattr(subprocess, "CREATE_NO_WINDOW", 0) or 0) or 0x08000000,
@@ -886,7 +894,7 @@ def reconnect_missing(online: list[str]) -> list[str]:
 
 def load_json(path: Path) -> dict:
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        return json.loads(path.read_text(encoding="utf-8-sig"))
     except Exception:
         return {}
 
@@ -1073,7 +1081,12 @@ def cycle() -> dict:
 
     # Farm owns taps while sequences run — remediator must not am_start/age_gate mid-seq.
     prog = load_json(PROGRESS)
-    actives = prog.get("active") or prog.get("active_sequences") or []
+    actives = (
+        prog.get("active_sequences")
+        or prog.get("active_keys")
+        or prog.get("active")
+        or []
+    )
     if isinstance(actives, dict):
         actives = list(actives.keys())
     n_actives = len(actives) if isinstance(actives, list) else 0

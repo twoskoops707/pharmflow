@@ -131,7 +131,11 @@ def _registry_install_dirs() -> list[Path]:
                     continue
                 for val_name in ("InstallLocation", "InstallDir", "DisplayIcon"):
                     try:
-                        loc = Path(str(winreg.QueryValueEx(sub, val_name)[0]).strip('"'))
+                        raw = str(winreg.QueryValueEx(sub, val_name)[0]).strip().strip('"')
+                        # DisplayIcon is often ``C:\...\MuMuPlayer.exe,0``
+                        if "," in raw:
+                            raw = raw.rsplit(",", 1)[0].strip().strip('"')
+                        loc = Path(raw)
                         if loc.is_file():
                             loc = loc.parent
                         if loc.is_dir():

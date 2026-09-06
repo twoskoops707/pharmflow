@@ -210,9 +210,19 @@ def _ads_csv_sum(raw: object) -> int:
 
 def _money_path3_floor(log: Path) -> tuple[int, int, int]:
     money = _load_json(log / "_money_day_path3_aggressive.json")
-    cap = _as_int(money.get("cap"), 0) or 36
-    # Default 8; aggressive money-day file can raise (e.g. 14 while behind).
-    hr = _as_int(money.get("per_hour"), 0) or 8
+    # Preserve explicit 0 (cap/hr can be intentionally zero). `or 36` / `or 8` coerced 0→default.
+    if "cap" in money and money.get("cap") is not None and str(money.get("cap")).strip() != "":
+        cap = _as_int(money.get("cap"), 0)
+    else:
+        cap = 36
+    if (
+        "per_hour" in money
+        and money.get("per_hour") is not None
+        and str(money.get("per_hour")).strip() != ""
+    ):
+        hr = _as_int(money.get("per_hour"), 0)
+    else:
+        hr = 8
     # 0 is valid (parallel Path3). Do not treat numeric 0 as missing (or → 12).
     if "gap" in money and money.get("gap") is not None and str(money.get("gap")).strip() != "":
         gap = _as_int(money.get("gap"), 0)

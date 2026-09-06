@@ -817,6 +817,12 @@ from wizard.wizard_paths import (
 logger = _logging_fb.getLogger(__name__)
 ADB_PORT_BASE = 16384
 ADB_PORT_STRIDE = 32
+# One ARM cold-launch at a time — parallel start_phone wedges HCN (Wait For AsyncTask).
+_ARM_BOOT_LOCK = threading.Lock()
+# Snapdragon cold-boot ADB can take 2–4 min after shell launch.
+_ARM_ADB_WAIT_ALREADY_S = 45.0
+_ARM_ADB_WAIT_AFTER_LAUNCH_S = 240.0
+
 
 @dataclass
 class MuMuInstance:
@@ -833,11 +839,13 @@ class MuMuInstance:
     config: PhoneConfig | None = None
 
     def __post_init__(self) -> None:
-        if not self.adb_serial:
-            port = ADB_PORT_BASE + self.index * ADB_PORT_STRIDE
-            self.adb_serial = f"127.0.0.1:{port}"
+        # Do NOT invent classic 127.0.0.1:16384+N when serial is unknown.
+        # On MuMu ARM that false serial marks live 10.0.2.x phones as "offline"
+        # and triggers duplicate cold-launches / wrong-phone selection.
         if not self.config:
-            self.config = PhoneConfig(name=self.name, index=self.index, adb_serial=self.adb_serial)
+            self.config = PhoneConfig(
+                name=self.name, index=self.index, adb_serial=self.adb_serial or ""
+            )
 
 
 class MuMuFarmOps:
@@ -1098,14 +1106,9 @@ class MuMuFarmOps:
                     pass
                 elif any(d.online and d.serial == prev.adb_serial for d in live_devices):
                     return prev.adb_serial
-            # Last resort: unclaimed serial not bound to another mpid (stable sort by IP).
-            leftovers = sorted(
-                d.serial
-                for d in live_devices
-                if d.online and d.serial.startswith("10.0.2.") and _free(d.serial)
-                and d.serial not in mpid_bound
-            )
-            return leftovers[0] if leftovers else ""
+            # Do NOT assign leftovers[0] — that maps the wrong phone onto this VM
+            # (vm8→vm0 style) and poisons remediator + inject. Leave unresolved.
+            return ""
 
         identity_keys = self._setting_identity_keys(vm_path) if vm_path else []
         for dev in live_devices:
@@ -1504,22 +1507,9 @@ class MuMuFarmOps:
     def start_phone(self, name: str) -> bool:
         """Start an emulator instance and wait for its live ADB serial."""
         if self._is_arm_backend():
-            self.refresh_serials()
-            inst = self.get_phone(name)
-            if inst and inst.adb_serial and self.adb.wait_for_device(inst.adb_serial, timeout=12.0):
-                inst.running = True
-                return True
-            from automation.mumu_shell_cli import launch_instance_index, phone_vm_index
-
-            idx = phone_vm_index(name, inst.index if inst else 0)
-            logger.info("ARM start: single-VM shell launch idx=%s name=%s (no mass restart)", idx, name)
-            ok, _detail = launch_instance_index(idx, timeout=120.0)
-            self.refresh_serials()
-            inst = self.get_phone(name)
-            if inst and inst.adb_serial and self.adb.wait_for_device(inst.adb_serial, timeout=90.0):
-                inst.running = True
-                return True
-            return bool(ok)
+            # Serial boot guarantee — never mass-launch concurrent ARM VMs.
+            with _ARM_BOOT_LOCK:
+                return self._start_phone_arm(name)
         result = self._run_manager("api", "launch", f"--name={name}")
         inst = self.get_phone(name)
         if inst:
@@ -1529,6 +1519,80 @@ class MuMuFarmOps:
             if inst:
                 inst.running = True
         return result.returncode == 0
+
+    def _arm_usable_serial(self, name: str, inst: MuMuInstance | None) -> str:
+        """Prefer state.json AdbHost; never treat classic localhost as ARM serial."""
+        arm = self._arm_adb_serial_from_state(name)
+        if arm:
+            return arm
+        ser = str(inst.adb_serial if inst else "").strip()
+        if ser.startswith("127.0.0.1:"):
+            return ""
+        return ser
+
+    def _start_phone_arm(self, name: str) -> bool:
+        """Cold/warm start one MuMu ARM VM; wait ARM-realistic ADB timeouts."""
+        from automation.mumu_shell_cli import (
+            instance_shell_running,
+            launch_instance_index,
+            phone_vm_index,
+        )
+
+        self.refresh_serials()
+        inst = self.get_phone(name)
+        idx = phone_vm_index(name, inst.index if inst else 0)
+        serial = self._arm_usable_serial(name, inst)
+        if serial and inst:
+            inst.adb_serial = serial
+            if inst.config is not None:
+                inst.config.adb_serial = serial
+
+        # Warm path: already online — 45s is enough to confirm, not 12s.
+        if serial and self.adb.wait_for_device(serial, timeout=_ARM_ADB_WAIT_ALREADY_S):
+            if inst:
+                inst.running = True
+            return True
+
+        # Shell already up (slow Snapdragon boot) — wait, do NOT re-launch.
+        if instance_shell_running(idx):
+            logger.info(
+                "ARM start: shell already running idx=%s name=%s — waiting for ADB",
+                idx,
+                name,
+            )
+            return self._wait_arm_adb(name, timeout=_ARM_ADB_WAIT_AFTER_LAUNCH_S)
+
+        logger.info(
+            "ARM start: single-VM shell launch idx=%s name=%s (no mass restart)",
+            idx,
+            name,
+        )
+        ok, _detail = launch_instance_index(idx, timeout=120.0)
+        if not ok and not instance_shell_running(idx):
+            return False
+        # Cold boot on Snapdragon often needs 2–4 min before AdbHost is live.
+        return self._wait_arm_adb(name, timeout=_ARM_ADB_WAIT_AFTER_LAUNCH_S)
+
+    def _wait_arm_adb(self, name: str, *, timeout: float) -> bool:
+        """Poll state.json AdbHost + wait_for_device until online or deadline."""
+        deadline = time.monotonic() + max(30.0, float(timeout))
+        while time.monotonic() < deadline:
+            self.refresh_serials()
+            inst = self.get_phone(name)
+            serial = self._arm_usable_serial(name, inst)
+            if serial:
+                if inst:
+                    inst.adb_serial = serial
+                    if inst.config is not None:
+                        inst.config.adb_serial = serial
+                slice_s = min(20.0, max(5.0, deadline - time.monotonic()))
+                if self.adb.wait_for_device(serial, timeout=slice_s):
+                    if inst:
+                        inst.running = True
+                    return True
+            else:
+                time.sleep(5.0)
+        return False
 
     def bootstrap_phone(self, name: str) -> None:
         """Connect ADB, start phone, apply fingerprint, and configure Tor."""
@@ -1648,7 +1712,7 @@ class MuMuFarmOps:
         self.refresh_serials()
         inst = self.instances.get(name) or self.get_phone(name)
         if inst:
-            if not self.adb.wait_for_device(inst.adb_serial, timeout=90.0):
+            if not self.adb.wait_for_device(inst.adb_serial, timeout=_ARM_ADB_WAIT_AFTER_LAUNCH_S):
                 logger.warning("Device %s not online after rotate", inst.adb_serial)
 
             def shell_fn(cmd: str) -> str:

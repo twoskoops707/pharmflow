@@ -34,6 +34,7 @@ _farm_thread: threading.Thread | None = None
 _digest_thread: threading.Thread | None = None
 _digest_stop = threading.Event()
 _farm_lock = threading.RLock()
+_helper_lock = threading.RLock()
 _PHONE_NAMES = tuple(f"vm{i}.gmadoa" for i in range(12))
 _TABLET_PHONE = "vm4.gmadoa"
 _STICKY_OVERRIDES = Path(r"C:\CPharm\logs\farm_runtime_overrides.json")
@@ -46,6 +47,17 @@ _HELPER_SPECS: tuple[tuple[str, tuple[str, ...], str], ...] = (
     ("suppress_console_flash.py", (), "suppress_console_flash.py"),
     ("farm_operator_dash.py", (), "farm_operator_dash.py"),
     ("cpharm_unison_supervisor.py", (), "cpharm_unison_supervisor.py"),
+)
+# stop_farm must tear down the whole stack — start_farm never sets _farm_proc.
+_STOP_FARM_NEEDLES = (
+    "cpharm_unison_supervisor.py",
+    "farm_operator_dash.py",
+    "suppress_console_flash.py",
+    "run_farm_354.py",
+    "run_farm_cycles.py",
+    "cpharm_stealth_guard.py",
+    "farm_watchdog.py",
+    "agent_unison_freebuff_loop.py",
 )
 _helper_procs: dict[str, subprocess.Popen[Any]] = {}
 _helper_threads: dict[str, threading.Thread] = {}
@@ -108,10 +120,13 @@ def _resolve_helper_python(*, requires: str = "psutil") -> str | None:
     """
     if not getattr(sys, "frozen", False):
         exe = sys.executable
+        # Prefer pythonw when it has the package; if pythonw is flask-less
+        # (common on ARM PATH installs) fall back to python.exe instead of
+        # returning None and silently dropping to a broken in-process dash.
         if os.name == "nt" and exe.lower().endswith("python.exe"):
             pyw = exe[:-10] + "pythonw.exe"
-            if Path(pyw).is_file():
-                return pyw if _python_can_import(pyw, requires) else None
+            if Path(pyw).is_file() and _python_can_import(pyw, requires):
+                return pyw
         return exe if _python_can_import(exe, requires) else None
 
     local = Path(os.environ.get("LOCALAPPDATA", ""))
@@ -148,6 +163,20 @@ def _resolve_helper_python(*, requires: str = "psutil") -> str | None:
 
 
 def _helper_already_alive(needle: str) -> bool:
+    """True when a helper matching *needle* is already our child or on the bus.
+
+    Checks owned ``_helper_procs`` first (psutil cmdline is often AccessDenied
+    right after spawn). Skips ``python -c`` probe processes so an import probe
+    cannot look like a live dash/unison worker.
+    """
+    for name, proc in list(_helper_procs.items()):
+        if needle not in name and name not in needle:
+            continue
+        try:
+            if proc.poll() is None:
+                return True
+        except OSError:
+            continue
     try:
         import psutil
     except ImportError:
@@ -159,7 +188,11 @@ def _helper_already_alive(needle: str) -> bool:
             pid = int(proc.info.get("pid") or 0)
             if pid in {0, self_pid}:
                 continue
-            cmd = " ".join(str(x) for x in (proc.info.get("cmdline") or []))
+            parts = [str(x) for x in (proc.info.get("cmdline") or [])]
+            # Needle can appear inside a ``-c "…farm_operator_dash…"`` probe.
+            if any(p == "-c" for p in parts):
+                continue
+            cmd = " ".join(parts)
             if needle in cmd:
                 return True
         except (psutil.Error, TypeError, ValueError):
@@ -214,58 +247,69 @@ def ensure_operator_stack(*, log: Callable[[str, str], None] | None = None) -> l
             log(msg, level)
         notes.append(f"{level}:{msg}")
 
-    root = bundle_root()
-    spawn_kw = hidden_run_kwargs()
-    # Helper lanes have different package needs — the dash needs flask, the rest
-    # need psutil. Resolve per-helper so a flask-less python never silently
-    # kills the dash at startup (proven failure on this ARM64 box).
-    _helper_requires = {
-        "farm_operator_dash.py": "flask",
-    }
-    helper_py_by_require: dict[str, str | None] = {}
+    with _helper_lock:
+        root = bundle_root()
+        spawn_kw = hidden_run_kwargs()
+        # Helper lanes have different package needs — the dash needs flask, the rest
+        # need psutil. Resolve per-helper so a flask-less python never silently
+        # kills the dash at startup (proven failure on this ARM64 box).
+        _helper_requires = {
+            "farm_operator_dash.py": "flask",
+        }
+        helper_py_by_require: dict[str, str | None] = {}
 
-    def _helper_python_for(name: str) -> str | None:
-        req = _helper_requires.get(name, "psutil")
-        if req not in helper_py_by_require:
-            helper_py_by_require[req] = _resolve_helper_python(requires=req)
-            if helper_py_by_require[req]:
-                _log(f"operator helpers ({req}) via {helper_py_by_require[req]}", "ok")
+        def _helper_python_for(name: str) -> str | None:
+            req = _helper_requires.get(name, "psutil")
+            if req not in helper_py_by_require:
+                helper_py_by_require[req] = _resolve_helper_python(requires=req)
+                if helper_py_by_require[req]:
+                    _log(f"operator helpers ({req}) via {helper_py_by_require[req]}", "ok")
+                else:
+                    _log(f"no system python with {req} — {name} runs in-process", "warn")
+            return helper_py_by_require[req]
+
+        for name, argv_extra, needle in _HELPER_SPECS:
+            if name == "run_mantis_inject_proxies.py":
+                argv_extra = ("--phones", str(_inject_span()))
+            if _helper_already_alive(needle):
+                _log(f"operator stack already up: {name}", "ok")
+                continue
+            script = _helper_script_path(name)
+            if script is None:
+                _log(f"operator stack missing: {name}", "err")
+                continue
+            env = os.environ.copy()
+            env["PYTHONPATH"] = str(root) + os.pathsep + env.get("PYTHONPATH", "")
+            env.setdefault("CPHARM_FARM_STOP", "0")
+            helper_py = _helper_python_for(name)
+            if helper_py:
+                try:
+                    proc = subprocess.Popen(
+                        [helper_py, "-u", str(script), *argv_extra],
+                        cwd=str(root if (root / "automation").is_dir() else script.parent.parent),
+                        env=env,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        **spawn_kw,
+                    )
+                    # Flask-less / bad PYTHONPATH dies in <1s with DEVNULL — surface it.
+                    time.sleep(0.7)
+                    if proc.poll() is not None:
+                        _log(
+                            f"spawn {name} died immediately (code={proc.returncode}) "
+                            "— trying in-process",
+                            "warn",
+                        )
+                        _spawn_helper_thread(name, script, argv_extra, log=log)
+                    else:
+                        _helper_procs[name] = proc
+                        _log(f"spawned {name} pid={proc.pid}", "ok")
+                except OSError as exc:
+                    _log(f"spawn {name} failed: {exc} — trying in-process", "warn")
+                    _spawn_helper_thread(name, script, argv_extra, log=log)
             else:
-                _log(f"no system python with {req} — {name} runs in-process", "warn")
-        return helper_py_by_require[req]
-
-    for name, argv_extra, needle in _HELPER_SPECS:
-        if name == "run_mantis_inject_proxies.py":
-            argv_extra = ("--phones", str(_inject_span()))
-        if _helper_already_alive(needle):
-            _log(f"operator stack already up: {name}", "ok")
-            continue
-        script = _helper_script_path(name)
-        if script is None:
-            _log(f"operator stack missing: {name}", "err")
-            continue
-        env = os.environ.copy()
-        env["PYTHONPATH"] = str(root) + os.pathsep + env.get("PYTHONPATH", "")
-        env.setdefault("CPHARM_FARM_STOP", "0")
-        helper_py = _helper_python_for(name)
-        if helper_py:
-            try:
-                proc = subprocess.Popen(
-                    [helper_py, "-u", str(script), *argv_extra],
-                    cwd=str(root if (root / "automation").is_dir() else script.parent.parent),
-                    env=env,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    **spawn_kw,
-                )
-                _helper_procs[name] = proc
-                _log(f"spawned {name} pid={proc.pid}", "ok")
-            except OSError as exc:
-                _log(f"spawn {name} failed: {exc} — trying in-process", "warn")
                 _spawn_helper_thread(name, script, argv_extra, log=log)
-        else:
-            _spawn_helper_thread(name, script, argv_extra, log=log)
-    return notes
+        return notes
 
 
 OPERATOR_DASH_URL = "http://127.0.0.1:8091/"
@@ -275,7 +319,7 @@ _dash_browser_opened = False
 def open_operator_dashboard(
     *,
     log: Callable[[str, str], None] | None = None,
-    wait_s: float = 25.0,
+    wait_s: float = 45.0,
     open_browser: bool = False,
 ) -> bool:
     """Ensure operator dash is listening on :8091.
@@ -381,6 +425,9 @@ def farm_running() -> bool:
             return True
         if _farm_thread is not None and _farm_thread.is_alive():
             return True
+    # In-process / owned-child unison counts — start_farm never sets _farm_proc.
+    if _helper_already_alive("cpharm_unison_supervisor.py"):
+        return True
     try:
         from automation.cpharm_unison_dedupe import pids_for_script
 
@@ -389,6 +436,59 @@ def farm_running() -> bool:
     except ImportError:
         pass
     return external_python_farm_running()
+
+
+def _kill_farm_stack(*, log: Callable[[str, str], None] | None = None) -> list[int]:
+    """Terminate owned helper Popen children + matching stack needles."""
+
+    def _log(msg: str, level: str = "ok") -> None:
+        if log:
+            log(msg, level)
+
+    killed: list[int] = []
+    with _helper_lock:
+        for name, proc in list(_helper_procs.items()):
+            try:
+                if proc.poll() is None:
+                    pid = int(proc.pid)
+                    try:
+                        proc.terminate()
+                        try:
+                            proc.wait(timeout=5)
+                        except subprocess.TimeoutExpired:
+                            proc.kill()
+                    except OSError:
+                        pass
+                    killed.append(pid)
+            except (OSError, TypeError, ValueError):
+                pass
+            _helper_procs.pop(name, None)
+    try:
+        import psutil
+    except ImportError:
+        if killed:
+            _log(f"stopped owned helper pids={killed}", "ok")
+        return killed
+    self_pid = os.getpid()
+    for proc in psutil.process_iter(["pid", "cmdline"]):
+        try:
+            pid = int(proc.info.get("pid") or 0)
+            if pid in {0, self_pid} or pid in killed:
+                continue
+            parts = [str(x) for x in (proc.info.get("cmdline") or [])]
+            if any(p == "-c" for p in parts):
+                continue
+            cmd = " ".join(parts)
+            if not any(needle in cmd for needle in _STOP_FARM_NEEDLES):
+                continue
+            proc.kill()
+            killed.append(pid)
+        except (psutil.Error, TypeError, ValueError, OSError):
+            continue
+    if killed:
+        _log(f"farm stack stopped pids={killed}", "ok")
+        time.sleep(0.8)
+    return killed
 
 
 def _apply_sticky_overrides() -> None:
@@ -712,6 +812,10 @@ def start_farm(
         os.environ["CPHARM_UNISON_MODE"] = "1"
         # Unison owns farm + stealth + watchdog — do not also spawn run_farm_354 here.
         ensure_operator_stack(log=log)
+        if not farm_running():
+            _log("Farm stack failed to arm (unison/helpers not alive)", "err")
+            clear_exe_owned()
+            return False
         _log("Farm unison stack armed (farm/stealth/watchdog)", "ok")
         _start_digest(profile, log)
         threading.Thread(
@@ -731,6 +835,7 @@ def stop_farm(*, log: Callable[[str, str], None] | None = None) -> bool:
 
     with _farm_lock:
         _digest_stop.set()
+        os.environ["CPHARM_FARM_STOP"] = "1"
         stopped = False
         if _farm_proc is not None and _farm_proc.poll() is None:
             pid = _farm_proc.pid
@@ -747,8 +852,11 @@ def stop_farm(*, log: Callable[[str, str], None] | None = None) -> bool:
             _log(f"Farm stopped (was pid={pid})", "ok")
             stopped = True
         if _farm_thread is not None and _farm_thread.is_alive():
-            os.environ["CPHARM_FARM_STOP"] = "1"
             _log("Farm stop requested (in-process thread will exit on next cycle)", "warn")
+            stopped = True
+        # Unison path: start_farm never sets _farm_proc — tear down helpers too.
+        stack_killed = _kill_farm_stack(log=log)
+        if stack_killed:
             stopped = True
         clear_exe_owned()
         if not stopped:
@@ -894,12 +1002,19 @@ def spin_up_test_phone(*, log: Callable[[str, str], None] | None = None) -> dict
                 for d in farm.enumerate_adb_devices()
                 if getattr(d, "online", False)
             }
+
+            def _looks_offline(inst: Any) -> bool:
+                ser = str(getattr(inst, "adb_serial", None) or "").strip()
+                # Invented classic localhost serials are never live on MuMu ARM.
+                if not ser or ser.startswith("127.0.0.1:"):
+                    return True
+                return ser not in live_serials
+
             offline = sorted(
                 (
                     i
                     for i in insts
-                    if (i.name or "").startswith("vm")
-                    and (not getattr(i, "adb_serial", None) or i.adb_serial not in live_serials)
+                    if (i.name or "").startswith("vm") and _looks_offline(i)
                 ),
                 key=lambda i: i.index,
             )

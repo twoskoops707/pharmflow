@@ -303,6 +303,10 @@
 
   /* ── In-deck sequence builder (cursor_* bridge) ───────── */
   let builderSelectedIndex = -1;
+  let builderMutationBusy = false;
+  let groupMutationBusy = false;
+  let bootAllBusy = false;
+  let runActionBusy = false;
 
   const BUILDER_STEP_TYPES = [
     "open_url",
@@ -382,20 +386,24 @@
     if (!el) return;
     el.innerHTML = "";
     if (!steps || !steps.length) {
-      const p = document.createElement("p");
-      p.className = "panel-note";
-      p.textContent = "No steps yet — open Builder to add some.";
-      el.appendChild(p);
+      const li = document.createElement("li");
+      li.className = "groups-list-empty";
+      li.textContent = "No steps yet — open Builder to add some.";
+      el.appendChild(li);
       return;
     }
-    const ul = document.createElement("ul");
-    ul.className = "steps-preview-list";
     steps.forEach(function (step, i) {
       const li = document.createElement("li");
       li.textContent = i + 1 + ". " + stepSummaryLine(step);
-      ul.appendChild(li);
+      el.appendChild(li);
     });
-    el.appendChild(ul);
+  }
+
+  function setBuilderUpdateVisible(on) {
+    const btn = document.getElementById("btn-builder-update");
+    if (!btn) return;
+    btn.hidden = !on;
+    btn.disabled = !on;
   }
 
   function ensureBuilderDom() {
@@ -497,38 +505,50 @@
       li.className = "groups-list-empty";
       li.textContent = "No steps yet — pick a type and click Add step.";
       list.appendChild(li);
+      setBuilderUpdateVisible(false);
       return;
     }
     steps.forEach(function (step, i) {
       const li = document.createElement("li");
+      li.className = "step-row" + (i === builderSelectedIndex ? " active" : "");
       li.dataset.index = String(i);
-      if (i === builderSelectedIndex) li.classList.add("builder-step-selected");
       const line = document.createElement("span");
-      line.className = "group-line";
-      line.innerHTML = "<strong>#" + (i + 1) + "</strong> " + escHtml(stepSummaryLine(step));
+      line.className = "step-row-label";
+      line.innerHTML =
+        '<span class="step-row-type">#' +
+        (i + 1) +
+        "</span>" +
+        escHtml(stepSummaryLine(step));
       const actions = document.createElement("span");
-      actions.className = "builder-step-actions";
-      actions.style.display = "flex";
-      actions.style.gap = "4px";
-      actions.style.flexShrink = "0";
+      actions.className = "step-row-actions";
       [
-        { act: "up", label: "Up", cls: "btn-mini" },
-        { act: "down", label: "Down", cls: "btn-mini" },
-        { act: "edit", label: "Edit", cls: "btn-mini" },
-        { act: "del", label: "Delete", cls: "btn-ghost" },
+        { act: "up", label: "Up" },
+        { act: "down", label: "Down" },
+        { act: "edit", label: "Edit" },
+        { act: "del", label: "Delete" },
       ].forEach(function (b) {
         const btn = document.createElement("button");
         btn.type = "button";
-        btn.className = b.cls;
         btn.textContent = b.label;
         btn.dataset.builderAct = b.act;
         btn.dataset.index = String(i);
+        btn.setAttribute(
+          "data-help",
+          b.act === "up"
+            ? "Move this step earlier in the sequence."
+            : b.act === "down"
+            ? "Move this step later in the sequence."
+            : b.act === "edit"
+            ? "Load this step into the form so you can change it."
+            : "Delete this step from the default sequence."
+        );
         actions.appendChild(btn);
       });
       li.appendChild(line);
       li.appendChild(actions);
       list.appendChild(li);
     });
+    setBuilderUpdateVisible(builderSelectedIndex >= 0);
   }
 
   async function refreshBuilder() {
@@ -545,8 +565,8 @@
     try {
       const res = await a.cursor_get_sequence();
       const steps = (res && res.steps) || [];
-      renderBuilderStepList(steps);
       if (builderSelectedIndex >= steps.length) builderSelectedIndex = -1;
+      renderBuilderStepList(steps);
       if (!dom.typeSel.dataset.fieldsInit) {
         rebuildBuilderFields(dom.typeSel.value || "open_url", {});
         dom.typeSel.dataset.fieldsInit = "1";
@@ -580,16 +600,19 @@
     if (btnAdd && !btnAdd.dataset.wired) {
       btnAdd.dataset.wired = "1";
       btnAdd.addEventListener("click", async function () {
+        if (builderMutationBusy) return;
         const a = requireApi("Add step");
         if (!a || typeof a.cursor_add_step !== "function") {
           showToast("Add step not available");
           return;
         }
+        builderMutationBusy = true;
+        btnAdd.disabled = true;
         try {
           const step = collectBuilderStep();
           const res = await a.cursor_add_step(step);
-          if (res && res.error) {
-            showBackendError(res.error);
+          if (res && (res.error || res.ok === false)) {
+            showBackendError((res && res.error) || "Add step failed");
             return;
           }
           builderSelectedIndex = -1;
@@ -598,6 +621,9 @@
           await refreshSteps();
         } catch (_e) {
           /* banner shown */
+        } finally {
+          builderMutationBusy = false;
+          btnAdd.disabled = false;
         }
       });
     }
@@ -606,6 +632,7 @@
     if (btnUpdate && !btnUpdate.dataset.wired) {
       btnUpdate.dataset.wired = "1";
       btnUpdate.addEventListener("click", async function () {
+        if (builderMutationBusy) return;
         if (builderSelectedIndex < 0) {
           showToast("Select a step with Edit first");
           return;
@@ -615,11 +642,13 @@
           showToast("Update step not available");
           return;
         }
+        builderMutationBusy = true;
+        btnUpdate.disabled = true;
         try {
           const step = collectBuilderStep();
           const res = await a.cursor_update_step(builderSelectedIndex, step);
-          if (res && res.error) {
-            showBackendError(res.error);
+          if (res && (res.error || res.ok === false)) {
+            showBackendError((res && res.error) || "Update step failed");
             return;
           }
           showToast("Step updated");
@@ -627,6 +656,9 @@
           await refreshSteps();
         } catch (_e) {
           /* banner shown */
+        } finally {
+          builderMutationBusy = false;
+          setBuilderUpdateVisible(builderSelectedIndex >= 0);
         }
       });
     }
@@ -636,6 +668,7 @@
       btnClear.dataset.wired = "1";
       btnClear.addEventListener("click", function () {
         builderSelectedIndex = -1;
+        setBuilderUpdateVisible(false);
         const typeSel2 = document.getElementById("builder-step-type");
         rebuildBuilderFields((typeSel2 && typeSel2.value) || "open_url", {});
         refreshBuilder();
@@ -648,6 +681,7 @@
       list.addEventListener("click", async function (ev) {
         const btn = ev.target && ev.target.closest ? ev.target.closest("[data-builder-act]") : null;
         if (!btn) return;
+        if (builderMutationBusy && btn.dataset.builderAct !== "edit") return;
         const act = btn.dataset.builderAct;
         const idx = parseInt(btn.dataset.index, 10);
         if (Number.isNaN(idx)) return;
@@ -666,14 +700,15 @@
             showToast("Editing step #" + (idx + 1));
             return;
           }
+          builderMutationBusy = true;
           if (act === "del") {
             if (typeof a.cursor_remove_step !== "function") {
               showToast("Remove step not available");
               return;
             }
             const res = await a.cursor_remove_step(idx);
-            if (res && res.error) {
-              showBackendError(res.error);
+            if (res && (res.error || res.ok === false)) {
+              showBackendError((res && res.error) || "Remove step failed");
               return;
             }
             if (builderSelectedIndex === idx) builderSelectedIndex = -1;
@@ -690,8 +725,8 @@
             }
             const dir = act === "up" ? -1 : 1;
             const res = await a.cursor_move_step(idx, dir);
-            if (res && res.error) {
-              showToast(res.error);
+            if (res && (res.error || res.ok === false)) {
+              showToast((res && res.error) || "Move step failed");
               return;
             }
             if (builderSelectedIndex === idx) builderSelectedIndex = idx + dir;
@@ -701,6 +736,8 @@
           }
         } catch (_e) {
           /* banner shown */
+        } finally {
+          if (act !== "edit") builderMutationBusy = false;
         }
       });
     }
@@ -1045,6 +1082,11 @@
     const ledEl = document.getElementById("android-led");
     try {
       const st = await a.get_android_status();
+      if (!st || typeof st !== "object") {
+        if (statusEl) statusEl.textContent = "Status unavailable";
+        if (labelEl) labelEl.textContent = "Status unavailable";
+        return;
+      }
       const ready = Boolean(st.ready);
       const statusText = st.status || (ready ? "Android tools ready" : "SDK not found");
       if (statusEl) statusEl.textContent = statusText;
@@ -1202,6 +1244,10 @@
     const testBtn = document.getElementById("btn-test-url");
     try {
       const s = await a.get_site_settings();
+      if (!s || typeof s !== "object" || s.ok === false) {
+        if (hint) hint.textContent = "Enter your site URL above, then click Save.";
+        return;
+      }
       if (input && s.url) input.value = s.url;
       if (hint) {
         hint.textContent = s.host
@@ -1224,6 +1270,7 @@
     const input = document.getElementById("map-url-input");
     try {
       const s = await a.get_site_settings();
+      if (!s || typeof s !== "object" || s.ok === false) return;
       if (input && s.url && !input.value.trim()) input.value = s.url;
     } catch (_e) {
       /* optional */
@@ -1248,7 +1295,11 @@
       "<span><strong>" + mapData.pages_scanned + "</strong> pages</span>" +
       "<span><strong>" + mapData.total_internal_links + "</strong> internal links</span>" +
       "<span><strong>" + mapData.total_forms + "</strong> " + (mapData.total_forms === 1 ? "form" : "forms") + "</span>" +
-      "<span class=\"map-slow\">scanned in " + (mapData.duration_ms / 1000).toFixed(1) + "s</span>" +
+      "<span class=\"map-slow\">scanned in " +
+      (Number(mapData.duration_ms) > 0
+        ? (Number(mapData.duration_ms) / 1000).toFixed(1) + "s"
+        : "—") +
+      "</span>" +
       "</div>";
     html += '<div class="map-page-grid">';
     (mapData.pages || []).forEach(function (pg) {
@@ -1350,7 +1401,15 @@
           }
           renderMapResults(res);
           status(res.pages_scanned + " page(s) mapped, " + res.total_forms + (res.total_forms === 1 ? " form" : " forms") + " found", "ok");
-          logLine("Mapped " + res.pages_scanned + " page(s) on " + res.host + " in " + (res.duration_ms / 1000).toFixed(1) + "s");
+          logLine(
+            "Mapped " +
+              res.pages_scanned +
+              " page(s) on " +
+              res.host +
+              (Number(res.duration_ms) > 0
+                ? " in " + (Number(res.duration_ms) / 1000).toFixed(1) + "s"
+                : "")
+          );
           if (res.errors && res.errors.length) {
             logLine(res.errors.length + " page(s) unreachable — " + res.errors[0].url + " (" + res.errors[0].error + ")");
           }
@@ -1386,6 +1445,10 @@
           logLine("Saved " + res.steps + "-step starter sequence to " + res.path);
           logLine(res.note || "");
           showToast("Starter sequence is now your default — refine in Steps");
+          stepComplete.map = true;
+          updateNavActive();
+          await refreshSteps();
+          await refreshBuilder();
         } catch (_e) {
           status("Generate failed", "bad");
         }
@@ -1435,6 +1498,11 @@
     const el = document.getElementById("teams-summary");
     try {
       const s = await (a.get_groups_detail ? a.get_groups_detail() : a.get_groups_summary());
+      if (!s || typeof s !== "object") {
+        if (el) el.textContent = "Could not load groups.";
+        renderGroupsList({ groups: [] });
+        return;
+      }
       if (el) el.textContent = groupsSummaryText(s);
       renderGroupsList(s);
       if (s.group_count > 0) stepComplete.teams = true;
@@ -1452,7 +1520,10 @@
     try {
       await a.save_browse_mode("scramble");
       const s = await a.get_launch_summary();
-      if (el) el.textContent = s.summary || "Start the service, then run all groups.";
+      if (el) {
+        el.textContent =
+          (s && s.summary) || "Start the service, then run all groups.";
+      }
     } catch (e) {
       if (el) el.textContent = "Ready to launch.";
     }
@@ -1475,6 +1546,9 @@
         '<p class="panel-note">Health unavailable: ' +
         (data && data.error ? String(data.error) : "farm logs not found") +
         "</p>";
+      if (tableEl) tableEl.innerHTML = "";
+      if (led) led.classList.remove("led-ok");
+      if (noteEl) noteEl.textContent = "Health data unavailable.";
       return;
     }
     if (led) led.classList.toggle("led-ok", !!data.farm_alive);
@@ -1510,35 +1584,37 @@
       "</div>";
 
     const phones = data.phones || [];
-    if (!phones.length) {
-      tableEl.innerHTML =
-        '<p class="panel-note">No dump/fallback events in the last hour — sessions are clean.</p>';
-    } else {
-      const rows = phones
-        .map(function (r) {
-          return (
-            "<tr><td>" +
-            (r.name ? r.name : r.serial) +
-            "</td><td>" +
-            r.serial +
-            "</td><td>" +
-            (r.steps || 0) +
-            "</td><td>" +
-            (r.timeouts || 0) +
-            "</td><td>" +
-            pct(r.timeout_rate) +
-            "</td><td>" +
-            (r.fallbacks || 0) +
-            "</td><td>" +
-            pct(r.fallback_rate) +
-            "</td></tr>"
-          );
-        })
-        .join("");
-      tableEl.innerHTML =
-        '<table class="health-table"><thead><tr><th>Phone</th><th>Serial</th><th>Steps</th><th>Timeouts</th><th>Timeout %</th><th>Fallbacks</th><th>Fallback %</th></tr></thead><tbody>' +
-        rows +
-        "</tbody></table>";
+    if (tableEl) {
+      if (!phones.length) {
+        tableEl.innerHTML =
+          '<p class="panel-note">No dump/fallback events in the last hour — sessions are clean.</p>';
+      } else {
+        const rows = phones
+          .map(function (r) {
+            return (
+              "<tr><td>" +
+              escHtml(r.name ? r.name : r.serial) +
+              "</td><td>" +
+              escHtml(r.serial) +
+              "</td><td>" +
+              (r.steps || 0) +
+              "</td><td>" +
+              (r.timeouts || 0) +
+              "</td><td>" +
+              pct(r.timeout_rate) +
+              "</td><td>" +
+              (r.fallbacks || 0) +
+              "</td><td>" +
+              pct(r.fallback_rate) +
+              "</td></tr>"
+            );
+          })
+          .join("");
+        tableEl.innerHTML =
+          '<table class="health-table"><thead><tr><th>Phone</th><th>Serial</th><th>Steps</th><th>Timeouts</th><th>Timeout %</th><th>Fallbacks</th><th>Fallback %</th></tr></thead><tbody>' +
+          rows +
+          "</tbody></table>";
+      }
     }
     const age =
       data.log_age_s == null ? "" : " · log " + data.log_age_s + "s old";
@@ -2019,13 +2095,19 @@
   });
   document.addEventListener("mouseout", function (e) {
     const el = e.target && e.target.closest ? e.target.closest("[data-help]") : null;
-    if (el && el === tipSrc) hideTip();
+    if (!el || el !== tipSrc) return;
+    const to = e.relatedTarget;
+    if (to && typeof el.contains === "function" && el.contains(to)) return;
+    hideTip();
   });
   document.addEventListener("focusin", function (e) {
     const el = e.target && e.target.closest ? e.target.closest("[data-help]") : null;
     if (el) showTip(el);
   });
-  document.addEventListener("focusout", function () {
+  document.addEventListener("focusout", function (e) {
+    const to = e.relatedTarget;
+    if (to && tipSrc && typeof tipSrc.contains === "function" && tipSrc.contains(to)) return;
+    if (to && to.closest && to.closest("[data-help]")) return;
     hideTip();
   });
   document.addEventListener(
@@ -2099,7 +2181,14 @@
         window.CPharmSetup.setBusy(true);
         try {
           const res = await a.run_setup();
-          if (res && res.error === "busy") window.CPharmSetup.setBusy(false);
+          // Only async start leaves busy=true until onComplete; any failure must clear it.
+          if (!res || res.error || res.ok === false || !res.started) {
+            window.CPharmSetup.setBusy(false);
+            if (res && (res.error || res.ok === false) && res.error !== "busy") {
+              showBackendError(res.error || "Set up phones failed");
+              appendLog(setupLog, res.error || "Set up phones failed");
+            }
+          }
         } catch (e) {
           appendLog(setupLog, "Setup error: " + e);
           window.CPharmSetup.setBusy(false);
@@ -2196,8 +2285,14 @@
         );
         try {
           const res = await api.install_browser(id, serial);
-          if (res && res.error === "busy") {
+          if (!res || res.error || res.ok === false || res.error === "busy") {
             window.CPharmSetup.setBusy(false);
+            if (res && res.error && res.error !== "busy") {
+              showBackendError(res.error);
+              appendLog(setupLog, res.error);
+            } else if (res && res.error === "busy") {
+              appendLog(setupLog, "A phone setup/install is already running.");
+            }
             return;
           }
           // Result summary arrives async via onBrowserComplete when the thread
@@ -2257,23 +2352,35 @@
     if (btnAndroid && !btnAndroid.dataset.wired) {
       btnAndroid.dataset.wired = "1";
       btnAndroid.addEventListener("click", async function () {
+        if (btnAndroid.dataset.busy === "1") return;
         const androidLog = document.getElementById("android-log");
         const androidLed = document.getElementById("android-led");
         const androidLabel = document.getElementById("android-status-label");
         if (androidLog) androidLog.textContent = "";
         if (androidLed) androidLed.classList.remove("on");
         if (androidLabel) androidLabel.textContent = "Installing…";
+        btnAndroid.dataset.busy = "1";
+        btnAndroid.disabled = true;
         try {
           const res = await callApi("Android install", function (a) {
             return a.run_android_install();
           });
           if (androidLog && res && res.log) appendLog(androidLog, res.log);
           if (androidLog && res && res.message) appendLog(androidLog, res.message);
-          showToast("Installing Android SDK…");
-          await refreshAndroid();
+          if (res && (res.error || res.ok === false)) {
+            showBackendError(res.error || "Android install failed");
+            if (androidLabel) androidLabel.textContent = "Install failed";
+            showToast(res.error || "Android install failed");
+          } else {
+            showToast("Installing Android SDK…");
+            await refreshAndroid();
+          }
         } catch (e) {
           if (androidLog) appendLog(androidLog, "Android install failed: " + e);
           if (androidLabel) androidLabel.textContent = "Install failed";
+        } finally {
+          btnAndroid.dataset.busy = "0";
+          btnAndroid.disabled = false;
         }
       });
     }
@@ -2305,17 +2412,20 @@
     if (btnBootAll && !btnBootAll.dataset.wired) {
       btnBootAll.dataset.wired = "1";
       btnBootAll.addEventListener("click", async function () {
+        if (bootAllBusy) return;
         const a = requireApi("Boot all phones");
         if (!a) return;
         if (typeof a.boot_all_phones !== "function") {
           showToast("Boot-all not ready yet — waiting on bridge");
           return;
         }
+        bootAllBusy = true;
+        btnBootAll.disabled = true;
         try {
           const res = await a.boot_all_phones();
-          if (res && res.error) {
-            showBackendError(res.error);
-            if (bootLog) appendLog(bootLog, res.error);
+          if (res && (res.error || res.ok === false)) {
+            showBackendError((res && res.error) || "Boot failed");
+            if (bootLog) appendLog(bootLog, (res && res.error) || "Boot failed");
             return;
           }
           const msg = (res && res.message) || "Booting phones — progress streams below";
@@ -2324,6 +2434,9 @@
           showView("boot", { animate: true });
         } catch (_e) {
           /* banner shown */
+        } finally {
+          bootAllBusy = false;
+          btnBootAll.disabled = false;
         }
       });
     }
@@ -2332,17 +2445,20 @@
     if (btnBootAllHome && !btnBootAllHome.dataset.wired) {
       btnBootAllHome.dataset.wired = "1";
       btnBootAllHome.addEventListener("click", async function () {
+        if (bootAllBusy) return;
         const a = requireApi("Boot all phones");
         if (!a) return;
         if (typeof a.boot_all_phones !== "function") {
           showToast("Boot-all not ready yet — waiting on bridge");
           return;
         }
+        bootAllBusy = true;
+        btnBootAllHome.disabled = true;
         try {
           const res = await a.boot_all_phones();
-          if (res && res.error) {
-            showBackendError(res.error);
-            if (bootLog) appendLog(bootLog, res.error);
+          if (res && (res.error || res.ok === false)) {
+            showBackendError((res && res.error) || "Boot failed");
+            if (bootLog) appendLog(bootLog, (res && res.error) || "Boot failed");
             return;
           }
           const msg =
@@ -2352,6 +2468,9 @@
           showView("boot", { animate: true });
         } catch (_e) {
           /* banner shown */
+        } finally {
+          bootAllBusy = false;
+          btnBootAllHome.disabled = false;
         }
       });
     }
@@ -2367,8 +2486,8 @@
             ? a.open_farm_dashboard()
             : a.open_dashboard();
         });
-        if (res && res.error) {
-          showBackendError(res.error);
+        if (res && (res.error || res.ok === false)) {
+          showBackendError((res && res.error) || "Dashboard open failed");
           return;
         }
         if (res) showToast("Dashboard opened in your browser");
@@ -2394,8 +2513,8 @@
             openFarmDash();
             return;
           }
-          if (res && res.error) {
-            showBackendError(res.error);
+          if (res && (res.error || res.ok === false)) {
+            showBackendError((res && res.error) || "Start farm failed");
             return;
           }
           if (res && res.started) {
@@ -2417,8 +2536,8 @@
           const res = await callApi("Stop farm", function (a) {
             return a.stop_farm();
           });
-          if (res && res.error) {
-            showBackendError(res.error);
+          if (res && (res.error || res.ok === false)) {
+            showBackendError((res && res.error) || "Stop farm failed");
             return;
           }
           applyHomeFarmState(false);
@@ -2486,9 +2605,9 @@
           const res = await callApi("Test URL", function (a) {
             return a.run_test_url(url || "");
           });
-          if (res && res.error) {
-            showBackendError(res.error);
-            if (bootLog) appendLog(bootLog, res.error);
+          if (res && (res.error || res.ok === false)) {
+            showBackendError((res && res.error) || "Test URL failed");
+            if (bootLog) appendLog(bootLog, (res && res.error) || "Test URL failed");
             return;
           }
           const host = url ? url.replace(/^https?:\/\//, "").split("/")[0] : "site";
@@ -2514,10 +2633,13 @@
           const res = await callApi("Save site", function (a) {
             return a.save_site_url(url);
           });
-          if (res) {
-            showToast("Saved " + (res.host || url));
-            await refreshBoot();
+          if (!res || res.error || res.ok === false) {
+            showBackendError((res && res.error) || "Save site failed");
+            showToast((res && res.error) || "Could not save site URL");
+            return;
           }
+          showToast("Saved " + (res.host || url));
+          await refreshBoot();
         } catch (_e) {
           /* banner shown */
         }
@@ -2620,13 +2742,16 @@
     if (btnAddGroup && !btnAddGroup.dataset.wired) {
       btnAddGroup.dataset.wired = "1";
       btnAddGroup.addEventListener("click", async function () {
+        if (groupMutationBusy) return;
+        groupMutationBusy = true;
+        btnAddGroup.disabled = true;
         try {
           const res = await callApi("Add group", function (a) {
             if (typeof a.cursor_add_group === "function") return a.cursor_add_group();
             return a.run_add_group();
           });
-          if (res && res.error) {
-            showBackendError(res.error);
+          if (res && (res.error || res.ok === false)) {
+            showBackendError((res && res.error) || "Add group failed");
             return;
           }
           if (res) {
@@ -2639,6 +2764,9 @@
           }
         } catch (_e) {
           /* banner shown */
+        } finally {
+          groupMutationBusy = false;
+          btnAddGroup.disabled = false;
         }
       });
     }
@@ -2650,6 +2778,10 @@
           const res = await callApi("Natural timing", function (a) {
             return a.run_humanize_all_sequences();
           });
+          if (!res || res.error || res.ok === false) {
+            showBackendError((res && res.error) || "Natural timing failed");
+            return;
+          }
           if (res && res.message) showToast(res.message);
           else showToast("Natural timing applied");
           await refreshTeams();
@@ -2675,8 +2807,8 @@
           const res = a.start_server_and_open_dashboard
             ? await a.start_server_and_open_dashboard()
             : await a.start_server();
-          if (res && res.error) {
-            showBackendError(res.error);
+          if (res && (res.error || res.ok === false)) {
+            showBackendError((res && res.error) || "Start service failed");
             return;
           }
           showToast("Service started");
@@ -2693,13 +2825,16 @@
     if (btnRun && !btnRun.dataset.wired) {
       btnRun.dataset.wired = "1";
       btnRun.addEventListener("click", async function () {
+        if (runActionBusy) return;
         const a = requireApi("Run groups");
         if (!a) return;
+        runActionBusy = true;
+        btnRun.disabled = true;
         setBusy(runLed, runStatus, true);
         try {
           const res = await a.run_all_groups();
-          if (res && res.error) {
-            showBackendError(res.error);
+          if (res && (res.error || res.ok === false)) {
+            showBackendError((res && res.error) || "Run groups failed");
             return;
           }
           showToast("Groups started");
@@ -2708,6 +2843,8 @@
         } catch (e) {
           showBackendError(String(e));
         } finally {
+          runActionBusy = false;
+          btnRun.disabled = false;
           setBusy(runLed, runStatus, false);
         }
       });
@@ -2732,8 +2869,8 @@
           }
           try {
             const res = await a.cursor_rename_group(idx, name);
-            if (res && res.error) {
-              showBackendError(res.error);
+            if (res && (res.error || res.ok === false)) {
+              showBackendError((res && res.error) || "Rename group failed");
               return;
             }
             const sumEl = document.getElementById("teams-summary");
@@ -2762,8 +2899,8 @@
         }
         try {
           const res = await removeFn(idx);
-          if (res && res.error) {
-            showBackendError(res.error);
+          if (res && (res.error || res.ok === false)) {
+            showBackendError((res && res.error) || "Remove group failed");
             return;
           }
           const sumEl = document.getElementById("teams-summary");
@@ -2785,8 +2922,8 @@
         setBusy(runLed, runStatus, true);
         try {
           const res = await a.start_automation_one_click();
-          if (res && res.error) {
-            showBackendError(res.error);
+          if (res && (res.error || res.ok === false)) {
+            showBackendError((res && res.error) || "Start automation failed");
             return;
           }
           showToast("Automation started");
@@ -2808,7 +2945,13 @@
           const res = await callApi("Fix internet", function (a) {
             return a.fix_phone_internet();
           });
-          if (res) showToast("Internet restored on " + (res.n || 0) + " phone(s)");
+          if (!res) return;
+          if (res.error || res.ok === false) {
+            showBackendError(res.error || "Fix internet failed");
+            showToast(res.error || "Could not restore phone internet");
+            return;
+          }
+          showToast("Internet restored on " + (res.n || 0) + " phone(s)");
         } catch (_e) {
           /* banner shown */
         }

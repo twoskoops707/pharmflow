@@ -164,24 +164,46 @@ class AdbWrapper:
             )
         return devices
 
-    def connect(self, target: str, serial: str | None = None) -> AdbResult:
-        """Connect to a TCP/IP serial such as 127.0.0.1:16384."""
-        return self.run("connect", target, serial=serial)
+    def connect(
+        self,
+        target: str,
+        serial: str | None = None,
+        timeout: float = 15.0,
+    ) -> AdbResult:
+        """Connect to a TCP/IP serial such as 10.0.2.x:5555.
 
-    def disconnect(self, target: str, serial: str | None = None) -> AdbResult:
+        Default timeout is short — stale MuMu NIC targets hang for the full
+        ``run()`` budget and starve the farm wait loop.
+        """
+        return self.run("connect", target, serial=serial, timeout=timeout)
+
+    def disconnect(
+        self,
+        target: str,
+        serial: str | None = None,
+        timeout: float = 10.0,
+    ) -> AdbResult:
         """Disconnect a TCP/IP serial."""
-        return self.run("disconnect", target, serial=serial)
+        return self.run("disconnect", target, serial=serial, timeout=timeout)
 
     def for_phone(self, serial: str) -> AdbWrapper:
         """Return a view of this wrapper bound to one device serial."""
         return AdbWrapper(adb_path=self.adb_path, default_serial=serial)
 
     def wait_for_device(self, serial: str, timeout: float = 120.0) -> bool:
-        """Block until device is online; attempts connect for host:port serials."""
+        """Block until device is online; attempts connect for host:port serials.
+
+        Drops offline/unauthorized transports before reconnect so a stale NIC
+        entry does not block ``adb connect`` forever.
+        """
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             if ":" in serial:
-                self.connect(serial)
+                for dev in self.devices_detailed():
+                    if dev.serial == serial and not dev.online:
+                        self.disconnect(serial, timeout=5.0)
+                        break
+                self.connect(serial, timeout=8.0)
             for dev in self.devices_detailed():
                 if dev.serial == serial and dev.online:
                     return True
@@ -226,8 +248,33 @@ class AdbWrapper:
         return self.run("install", "-r", apk_path, serial=serial, timeout=180.0)
 
     def pm_list_packages(self, serial: str | None = None) -> Sequence[str]:
-        result = self.shell("pm list packages", serial=serial)
-        return [line.replace("package:", "").strip() for line in result.stdout.splitlines()]
+        """List installed packages; retry once on timeout/failure (ARM guests).
+
+        A failed/timed-out ``pm list`` used to return ``[]``, which callers treat
+        as \"no browsers installed\" and silently skip Chromium selection.
+        """
+        target = serial or self.default_serial
+        result = self.shell("pm list packages", serial=serial, timeout=20.0)
+        if not result.ok:
+            logger.warning(
+                "pm list packages failed on %s rc=%s — retrying",
+                target,
+                result.returncode,
+            )
+            result = self.shell("pm list packages", serial=serial, timeout=30.0)
+            if not result.ok:
+                logger.warning(
+                    "pm list packages retry failed on %s rc=%s — empty list",
+                    target,
+                    result.returncode,
+                )
+                return []
+        pkgs: list[str] = []
+        for line in result.stdout.splitlines():
+            pkg = line.replace("package:", "").strip()
+            if pkg:
+                pkgs.append(pkg)
+        return pkgs
 
     def start_activity(
         self,

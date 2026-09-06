@@ -75,6 +75,11 @@ def get_browser_profile_for_serial(serial: str) -> BrowserSessionProfile | None:
             for prof in _browser_profiles.values():
                 if getattr(prof, "android_id", "") == live_aid:
                     return prof
+        # MuMu ARM often keeps the prior android_id until cold boot, so the
+        # read-back never matches the scrambled id. When only one profile is
+        # cached, that is the active scramble for this farm process.
+        if len(_browser_profiles) == 1:
+            return next(iter(_browser_profiles.values()))
     except Exception:
         pass
     return None

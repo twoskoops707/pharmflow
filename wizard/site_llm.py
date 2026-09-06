@@ -163,7 +163,11 @@ def apply_suggestions_to_interview_vars(app: Any, suggestions: dict[str, Any]) -
         val = suggestions[key]
         try:
             if kind == "bool":
-                var.set(bool(val))
+                # LLM often returns JSON bools as strings; bool("false") is True.
+                if isinstance(val, str):
+                    var.set(val.strip().lower() in ("1", "true", "yes", "on"))
+                else:
+                    var.set(bool(val))
             else:
                 if key == "target_kind":
                     s = str(val).strip().lower()

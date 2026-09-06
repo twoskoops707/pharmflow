@@ -99,7 +99,12 @@ def dismiss_chromium_fre(
     """Tap Stay signed out / Skip ahead / Use without an account until prompts are gone."""
     log = log_fn or (lambda _m: None)
     for round_i in range(max(1, max_rounds)):
-        hit = _find_fre_tap(_dump_ui_xml(serial))
+        xml = _dump_ui_xml(serial)
+        # Empty dump is a tool failure, not "FRE gone" — retry instead of false success.
+        if not (xml or "").strip():
+            time.sleep(0.45 if round_i == 0 else 0.35)
+            continue
+        hit = _find_fre_tap(xml)
         if not hit:
             return True
         center, label = hit

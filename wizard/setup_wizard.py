@@ -29,6 +29,7 @@ import json
 import os
 import platform
 import shlex
+import socket
 import traceback
 import re
 import shutil
@@ -222,8 +223,12 @@ def probe_dashboard_listen_port() -> bool:
             hp = data.get("httpPort")
             if hp is None:
                 hp = data.get("port")
-            if isinstance(hp, int) and 1 <= hp <= 65535:
-                _DASHBOARD_LISTEN_HTTP_PORT_CACHE = hp
+            try:
+                hp_i = int(hp) if hp is not None else int(port)
+            except (TypeError, ValueError):
+                hp_i = int(port)
+            if 1 <= hp_i <= 65535:
+                _DASHBOARD_LISTEN_HTTP_PORT_CACHE = hp_i
                 return True
         except Exception:
             continue
@@ -961,8 +966,17 @@ def _split_cmd_string(cmd: str) -> list[str]:
         return []
     if s.lower() == "py -3":
         return ["py", "-3"]
-    if " " in s and Path(s).exists():
-        return [s]
+    # Absolute/quoted Windows paths with spaces must stay one argv token even when
+    # the file is not on disk yet (installer paths, pending installs).
+    if " " in s:
+        if Path(s).exists() or (len(s) >= 2 and s[1] == ":"):
+            return [s]
+        try:
+            parts = shlex.split(s, posix=not IS_WIN)
+            if parts:
+                return parts
+        except ValueError:
+            pass
     return s.split()
 
 
@@ -976,6 +990,8 @@ def _probe_python_cmd(argv: list[str]) -> bool:
             text=True,
             timeout=6,
             creationflags=_NO_WIN,
+            encoding="utf-8",
+            errors="replace",
         )
     except Exception:
         return False
@@ -992,6 +1008,8 @@ def _probe_python_cmd(argv: list[str]) -> bool:
             text=True,
             timeout=10,
             creationflags=_NO_WIN,
+            encoding="utf-8",
+            errors="replace",
         )
     except Exception:
         return False
@@ -1516,6 +1534,7 @@ class PerPhoneSequenceEditor(tk.Toplevel):
         self._playlist_steps_sash_placed = False
         self._after_sash_idle_id: str | None = None
         self._after_sash_retry_id: str | None = None
+        self._did_save = False
         self.title(f"Sequence — {phone_name}")
         self.config(bg=BG)
         # Taller default so playlist + inline steps panes fit on 1080p after header cards.
@@ -2421,6 +2440,7 @@ class PerPhoneSequenceEditor(tk.Toplevel):
         self._apply_profile_to_steps()
         self.steps_list[:] = copy.deepcopy(self._draft_steps)
         self._apply_phone_ent_metadata()
+        self._did_save = True
         self.destroy()
 
     def _resolve_wizard_shell(self):
@@ -2435,6 +2455,7 @@ class PerPhoneSequenceEditor(tk.Toplevel):
         self._apply_profile_to_steps()
         self.steps_list[:] = copy.deepcopy(self._draft_steps)
         self._apply_phone_ent_metadata()
+        self._did_save = True
         wiz = self._resolve_wizard_shell()
         if wiz is None:
             messagebox.showinfo(
@@ -2971,9 +2992,11 @@ def run_cmd(cmd, cwd=None, timeout=120):
             cwd=cwd, timeout=timeout,
             shell=False,
             creationflags=_NO_WIN,
+            encoding="utf-8",
+            errors="replace",
         )
         return r.returncode == 0, (r.stdout + r.stderr).strip()
-    except (OSError, subprocess.SubprocessError) as e:
+    except (OSError, subprocess.SubprocessError, UnicodeError) as e:
         return False, str(e)
 
 
@@ -3017,6 +3040,10 @@ def _calibrate_installed_stack(py: str | list[str], cpharm_root: Path, log_fn) -
                     log_fn(f"    {line}\n")
             log_fn("  Tap Try again on the install screen, or fix the note above.\n")
             return False
+    elif not ok_c:
+        # No smoke script — do not stamp success when bytecode compile already failed.
+        log_fn("  Quick check failed (compileall) — fix errors above, then Try again.\n")
+        return False
     try:
         rec = auto / "recordings"
         rec.mkdir(parents=True, exist_ok=True)
@@ -3041,10 +3068,17 @@ def adb(*args, serial=None, timeout=20):
         cmd += ["-s", serial]
     cmd += list(args)
     try:
-        r = subprocess.run(cmd, capture_output=True, text=True,
-                           timeout=timeout, creationflags=_NO_WIN)
+        r = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            creationflags=_NO_WIN,
+            encoding="utf-8",
+            errors="replace",
+        )
         return (r.stdout + r.stderr).strip()
-    except (OSError, subprocess.SubprocessError) as e:
+    except (OSError, subprocess.SubprocessError, UnicodeError) as e:
         _wiz_debug(f"adb({args!r}, serial={serial!r}): {e!r}", None)
         return ""
 
@@ -3463,6 +3497,8 @@ def _run_sdkmanager(args, sdk, log_fn=None, timeout=900):
             text=True,
             env=env,
             creationflags=flags,
+            encoding="utf-8",
+            errors="replace",
         )
         # Feed unlimited 'y' responses so license prompts never block
         try:
@@ -3471,18 +3507,39 @@ def _run_sdkmanager(args, sdk, log_fn=None, timeout=900):
         except Exception:
             pass
 
-        lines = []
-        for line in proc.stdout:
-            line = line.rstrip()
-            if line and log_fn:
-                log_fn("    " + line + "\n")
-            lines.append(line)
+        lines: list[str] = []
+        read_done = threading.Event()
 
-        proc.wait(timeout=timeout)
+        def _drain_stdout() -> None:
+            try:
+                for line in proc.stdout:
+                    line = line.rstrip()
+                    if line and log_fn:
+                        log_fn("    " + line + "\n")
+                    lines.append(line)
+            finally:
+                read_done.set()
+
+        reader = threading.Thread(target=_drain_stdout, daemon=True)
+        reader.start()
+        try:
+            proc.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            try:
+                proc.wait(timeout=5)
+            except Exception:
+                pass
+            read_done.wait(timeout=2)
+            return False, f"sdkmanager timed out after {timeout} seconds"
+        read_done.wait(timeout=5)
         full = "\n".join(lines)
         return proc.returncode == 0, full
     except subprocess.TimeoutExpired:
-        proc.kill()
+        try:
+            proc.kill()
+        except Exception:
+            pass
         return False, f"sdkmanager timed out after {timeout} seconds"
     except Exception as e:
         return False, str(e)
@@ -4270,7 +4327,7 @@ def _connect_mumu_phones(count=16, log_fn=None, *, force_full_scan=False):
         _wiz_debug("connect lock acquire failed (another connect in progress)", log_fn)
         if log_fn:
             log_fn("  (ADB scan skipped — another MuMu connect is already running)\n")
-        return list(_last_mumu_connected_serials)
+        return _filter_live_adb_serials(list(_last_mumu_connected_serials))
 
     try:
         _wiz_debug("connect lock acquired → _connect_mumu_phones_impl", log_fn)
@@ -5211,7 +5268,10 @@ def start_emulator(avd_name, port):
 
 
 def wait_for_boot(serial, timeout=300, log_fn=None):
-    adb("wait-for-device", serial=serial, timeout=timeout)
+    # Cap wait-for-device so a missing device cannot consume the entire budget;
+    # remaining time is used to poll sys.boot_completed.
+    wait_budget = max(15, min(int(timeout), max(30, int(timeout * 0.4))))
+    adb("wait-for-device", serial=serial, timeout=wait_budget)
     deadline = time.time() + timeout
     start    = time.time()
     last_log = start
@@ -5249,7 +5309,6 @@ def _serial_to_idx(serial: str) -> int:
 
 
 def _try_newnym(serial: str) -> bool:
-    import socket
     idx       = _serial_to_idx(serial)
     ctrl_port = 10050 + idx
     try:
@@ -6555,9 +6614,6 @@ def _urlretrieve(url, dest, hook=None, timeout=60, retries=3, backoff=2.0):
     final failure we re-raise the underlying exception so callers see the
     real error.
     """
-    import socket
-    import time as _t
-
     attempts = max(1, int(retries))
     old = socket.getdefaulttimeout()
     socket.setdefaulttimeout(timeout)
@@ -6573,7 +6629,7 @@ def _urlretrieve(url, dest, hook=None, timeout=60, retries=3, backoff=2.0):
                     break
                 wait = float(backoff) * (2 ** (attempt - 1))
                 wait = min(wait, 30.0)
-                _t.sleep(wait)
+                time.sleep(wait)
     finally:
         socket.setdefaulttimeout(old)
     if last_err is not None:
@@ -6582,7 +6638,7 @@ def _urlretrieve(url, dest, hook=None, timeout=60, retries=3, backoff=2.0):
 def _fetch_latest_tor_url() -> str:
     try:
         with urllib.request.urlopen(
-            "https://dist.torproject.org/torbrowser/", timeout=8
+            "https://dist.torproject.org/torbrowser/", timeout=20
         ) as r:
             content = r.read().decode()
         versions = re.findall(r'href="(\d+\.\d+\.\d+)/"', content)
@@ -7031,10 +7087,14 @@ class PrerequisitesPage(PageBase):
         self.after(0, self._show_java_manual_btn)
 
     def _install_python(self):
-        for label, url, fname in [
+        _pairs = [
             ("ARM64", PYTHON_URL,     "python-3.13-arm64.exe"),
             ("x64",   PYTHON_URL_X64, "python-3.13-x64.exe"),
-        ]:
+        ]
+        # Match Java installer: prefer host arch first (x64 hosts must not try ARM64 first).
+        if not (IS_WIN and "arm64" in _machine_arch()):
+            _pairs.reverse()
+        for label, url, fname in _pairs:
             self._set_row("python", f"⬇  Downloading ({label})…", ACCENT)
             self._log_write(f"Downloading Python 3.13 ({label})…")
             tmp = Path(os.environ.get("TEMP", "C:\\Temp")) / fname
@@ -9421,15 +9481,17 @@ class BootPage(PageBase):
                             _mumu_launch(mgr, idx, log_fn=None)
                             time.sleep(2)
 
-                        # Wait up to 3 min for Android to boot (skip wait loop if already started).
-                        # Ground truth is ADB: connect + echo until the phone answers. The
-                        # instance listing's ``started`` flag can't see ARM 10.0.2.x serials,
-                        # so trusting it made every phone burn the full 180s wait.
-                        deadline = time.time() + 180
-                        booted   = already_up
+                        # Wait up to 3 min for Android to boot.
+                        # Ground truth is ADB: connect + echo until the phone answers.
+                        # Never trust MuMu's ``started`` flag alone — on ARM guest-bridge
+                        # serials it can be true while ADB is not ready yet.
+                        wait_secs = 60 if already_up else 180
+                        deadline = time.time() + wait_secs
+                        booted   = False
                         loop_i = 0
                         while not booted and time.time() < deadline:
-                            time.sleep(5)
+                            if loop_i > 0 or not already_up:
+                                time.sleep(5 if not already_up else 2)
                             loop_i += 1
                             adb("connect", serial, timeout=8)
                             check = adb("shell", "echo", "ok", serial=serial, timeout=8)
@@ -10143,6 +10205,7 @@ class AutomationPage(PageBase):
         self._seq_steps.extend(data)
         state["default_steps"] = list(self._seq_steps)
         _apply_default_steps_to_template_phones()
+        _persist_groups_config()
         n = len(self._seq_steps)
         self._seq_lbl.config(
             text=f"{n} step{'s' if n != 1 else ''} loaded" if n else "No steps defined",
@@ -10495,6 +10558,8 @@ class GroupsPage(PageBase):
                         phone_wm_size=phone_wm_size,
                     )
                     self.app.wait_window(win)
+                    if not getattr(win, "_did_save", False):
+                        return
                     ent = group["phones"].get(serial)
                     if isinstance(ent, dict):
                         ent["use_default_template"] = False
@@ -10509,6 +10574,7 @@ class GroupsPage(PageBase):
                         )
                     cnt_lbl.config(text=f"{len(psteps_ref[0])} steps (override)",
                                    fg=GREEN if psteps_ref[0] else STATUS_PENDING)
+                    _persist_groups_config()
 
                 ed_img = load_icon("icon_edit", self.winfo_toplevel())
                 eb_kw = dict(
@@ -11863,12 +11929,32 @@ class LaunchPage(PageBase):
                 self._server_proc = proc
                 self.after(0, lambda: self._btn_srv_stop.config(state="normal"))
 
-                time.sleep(3)
-                if proc.poll() is None:
+                # Wait until GET /api/config answers (or process dies). A fixed 3s sleep
+                # falsely reports "running" before the HTTP bind on slow ARM64 hosts.
+                ready_sec = min(90.0, float(_dashboard_ready_timeout_sec()))
+                deadline = time.time() + ready_sec
+                ready = False
+                while time.time() < deadline:
+                    if proc.poll() is not None:
+                        break
+                    if probe_dashboard_listen_port():
+                        ready = True
+                        break
+                    time.sleep(0.45)
+                if ready:
                     self.after(0, lambda: (
                         self._srv_lbl.config(text="Server running", fg=GREEN),
                         self._btn_run.config(state="normal"),
                         self._log("Server is up! Click Run All Groups to start."),
+                    ))
+                elif proc.poll() is None:
+                    self.after(0, lambda: (
+                        self._srv_lbl.config(text="Server starting…", fg=STATUS_PROGRESS),
+                        self._btn_run.config(state="normal"),
+                        self._log(
+                            "Server process is alive but /api/config is not ready yet — "
+                            "wait a bit, then retry Run / Set up Tor."
+                        ),
                     ))
                 else:
                     try:

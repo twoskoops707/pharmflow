@@ -67,7 +67,7 @@
                 <h2 class="panel-title">Quick start</h2>
                 <div class="action-row action-row-big">
                   <button type="button" class="btn-go" id="btn-start-farm-home" data-help="Farms every phone that is live on ADB right now. The EXE never opens or closes emulators itself — start your phones first, then press this.">Start farm</button>
-                  <button type="button" class="btn-go btn-go-secondary" id="btn-open-dash-home">Open dashboard</button>
+                  <button type="button" class="btn-go btn-go-secondary" id="btn-open-dash-home" data-help="Opens the operator dashboard in your browser so you can watch phones, money, and lane health live.">Open dashboard</button>
                   <button type="button" class="btn-go btn-go-secondary" id="btn-health-home" data-help="Session quality: per-phone dump timeouts, fallback taps, and paying-fill rounds, read live from the farm logs.">Farm health</button>
                 </div>
                 <div class="action-row">
@@ -115,7 +115,7 @@
               <section class="panel">
                 <div class="panel-head">
                   <h2 class="panel-title">Dependencies</h2>
-                  <button type="button" class="btn-mini" id="btn-refresh-prereq">Refresh</button>
+                  <button type="button" class="btn-mini" id="btn-refresh-prereq" data-help="Re-checks which install tools are already present on this PC.">Refresh</button>
                 </div>
                 <ul class="prereq-list" id="prereq-list"></ul>
                 <div class="action-row">
@@ -220,7 +220,7 @@
               <section class="panel checklist-panel">
                 <div class="panel-head">
                   <h2 class="panel-title">Checklist</h2>
-                  <button type="button" class="btn-mini" id="btn-refresh-setup">Check again</button>
+                  <button type="button" class="btn-mini" id="btn-refresh-setup" data-help="Re-runs the phone checklist: ADB, browsers, Tor, and disguise status.">Check again</button>
                 </div>
                 <ul class="checklist checklist-scroll" id="checklist"></ul>
                 <div class="phones-wrap">
@@ -247,7 +247,7 @@
                     <label class="browser-picker-label" for="phone-select">On</label>
                     <select id="phone-select" class="browser-select phone-select" aria-label="Choose which phone to install on" data-help="Which phone gets the browser. Leave as All to batch-install to every live phone."></select>
                   </div>
-                  <button type="button" class="btn-go btn-chrome btn-chrome-compact" id="btn-install-browser">Install</button>
+                  <button type="button" class="btn-go btn-chrome btn-chrome-compact" id="btn-install-browser" data-help="Sideloads the selected browser APK onto the chosen phone (or all live phones).">Install</button>
                 </div>
                 <p class="panel-note">FarmBrowser is the stealth money browser — pick it to also delete Lawnchair from the phones. Other browsers come embedded in this EXE and install offline.</p>
               </section>
@@ -290,7 +290,7 @@
                 <h2 class="panel-title">Target site</h2>
                 <div class="site-url-row">
                   <input type="url" class="site-url-input" id="site-url-input" placeholder="https://example.com" autocomplete="url" data-help="The site the farm works against. Save it before testing, and keep it pointing at the site you farm." />
-                  <button type="button" class="btn-mini" id="btn-save-site-url">Save</button>
+                  <button type="button" class="btn-mini" id="btn-save-site-url" data-help="Saves this URL as the farm target site used by Test, Map, and default sequences.">Save</button>
                 </div>
                 <p class="panel-note" id="site-url-hint">Used for Test and default sequences.</p>
                 <p class="panel-note boot-policy-note">PharmFlow never opens or closes emulators by itself. Start phones in your stack (MuMu, Docker redroid, Studio AVD, real USB) — the EXE farms whatever is already live on ADB, and once the farm is running it keeps its phones alive.</p>
@@ -338,7 +338,7 @@
                 <h2 class="panel-title">Site URL</h2>
                 <div class="site-url-row">
                   <input type="url" class="site-url-input" id="map-url-input" placeholder="https://example.com" autocomplete="url" data-help="Site to crawl for a starter sequence. Should match the site you farm on the Test step." />
-                  <button type="button" class="btn-mini" id="btn-map-scan">Scan site</button>
+                  <button type="button" class="btn-mini" id="btn-map-scan" data-help="Crawls the site read-only (up to 20 pages) and lists pages, forms, and links for a starter sequence.">Scan site</button>
                 </div>
                 <p class="status-line" id="map-status">Not scanned yet.</p>
                 <div class="action-row">
@@ -437,9 +437,9 @@
                   </div>
                   <div id="builder-step-fields" class="builder-step-fields"></div>
                   <div class="action-row builder-form-actions">
-                    <button type="button" class="btn-go" id="btn-builder-add">Add step</button>
-                    <button type="button" class="btn-go btn-go-secondary" id="btn-builder-update" disabled hidden>Update selected</button>
-                    <button type="button" class="btn-mini" id="btn-builder-clear-sel">Clear selection</button>
+                    <button type="button" class="btn-go" id="btn-builder-add" data-help="Appends the step from the form to the default sequence.">Add step</button>
+                    <button type="button" class="btn-go btn-go-secondary" id="btn-builder-update" disabled hidden data-help="Writes your form edits back into the selected step.">Update selected</button>
+                    <button type="button" class="btn-mini" id="btn-builder-clear-sel" data-help="Clears the selected step so Add creates a new step instead of updating.">Clear selection</button>
                   </div>
                 </form>
               </section>
@@ -458,7 +458,7 @@
             <h1>Groups</h1>
             <p class="subtitle">Organize phones into groups with natural timing.</p>
           </header>
-          <div class="view-body">
+          <div class="view-body view-body-scroll">
             <div class="main-grid">
               <section class="panel">
                 <h2 class="panel-title">What to do</h2>
@@ -473,15 +473,15 @@
                 <ul class="groups-list" id="groups-list"></ul>
                 <div class="action-row">
                   <button type="button" class="btn-go" id="btn-manage-groups" data-help="Refreshes the groups list from farm state.">Refresh groups</button>
-                  <button type="button" class="btn-mini" id="btn-add-group">Add group</button>
-                  <button type="button" class="btn-mini" id="btn-humanize">Natural timing — all phones</button>
+                  <button type="button" class="btn-mini" id="btn-add-group" data-help="Creates another phone group in the saved farm config.">Add group</button>
+                  <button type="button" class="btn-mini" id="btn-humanize" data-help="Adds natural timing jitter to every phone sequence so runs look less robotic.">Natural timing — all phones</button>
                 </div>
               </section>
               <section class="panel">
                 <h2 class="panel-title">Dashboard</h2>
                 <p class="panel-note">Open the dashboard to watch runs and revenue live.</p>
                 <div class="action-row">
-                  <button type="button" class="btn-ghost" id="btn-open-dash-teams">Open dashboard</button>
+                  <button type="button" class="btn-ghost" id="btn-open-dash-teams" data-help="Opens the operator dashboard to watch group phones and money live.">Open dashboard</button>
                 </div>
               </section>
             </div>
@@ -510,17 +510,17 @@
                 </ol>
                 <p class="status-line" id="launch-summary"></p>
                 <div class="action-row action-row-big">
-                  <button type="button" class="btn-go" id="btn-start-server">Start service + open dashboard</button>
-                  <button type="button" class="btn-go btn-go-secondary" id="btn-run-groups">Run all groups</button>
+                  <button type="button" class="btn-go" id="btn-start-server" data-help="Starts the wizard control service and opens the dashboard in your browser.">Start service + open dashboard</button>
+                  <button type="button" class="btn-go btn-go-secondary" id="btn-run-groups" data-help="Boots phones if needed, then runs every group sequence in parallel.">Run all groups</button>
                 </div>
                 <div class="action-row">
-                  <button type="button" class="btn-go" id="btn-start-automation">Start automation (service + run)</button>
+                  <button type="button" class="btn-go" id="btn-start-automation" data-help="One-click: start the service and run all groups without opening extra windows.">Start automation (service + run)</button>
                 </div>
                 <div class="advanced-block">
                   <p class="panel-title">Extra tools</p>
                   <div class="advanced-actions">
-                    <button type="button" class="btn-ghost" id="btn-fix-net">Fix phone internet</button>
-                    <button type="button" class="btn-ghost" id="btn-open-dash">Open control dashboard</button>
+                    <button type="button" class="btn-ghost" id="btn-fix-net" data-help="Re-applies proxy/internet settings on live phones when browsing fails.">Fix phone internet</button>
+                    <button type="button" class="btn-ghost" id="btn-open-dash" data-help="Opens the operator control dashboard in your browser.">Open control dashboard</button>
                   </div>
                 </div>
                 <div class="advanced-block">
@@ -569,7 +569,7 @@
                   <h2 class="panel-title">Per-phone quality</h2>
                   <div class="log-status">
                     <span class="status-led" id="health-led"></span>
-                    <button type="button" class="btn-ghost" id="btn-health-refresh">Refresh</button>
+                    <button type="button" class="btn-ghost" id="btn-health-refresh" data-help="Reloads dump-timeout and fallback stats from the newest farm log.">Refresh</button>
                   </div>
                 </div>
                 <div class="health-table-wrap" id="health-table"></div>

@@ -14,7 +14,11 @@ AUTHOR_HEIGHT = 1600
 REQUIRED_SEQUENCE_VERSION = 3
 
 DASHBOARD_HOST = os.environ.get("CPHARM_DASHBOARD_HOST", "127.0.0.1")
-DASHBOARD_PORT = int(os.environ.get("CPHARM_DASHBOARD_PORT", "8080"))
+# Prefer CPHARM_PORT (dashboard listen) so CPHARM_DASHBOARD_PORT alone cannot drift.
+DASHBOARD_PORT = int(
+    os.environ.get("CPHARM_PORT")
+    or os.environ.get("CPHARM_DASHBOARD_PORT", "8080")
+)
 
 TOR_HTTP_TUNNEL_BASE = int(os.environ.get("CPHARM_TOR_HTTP_BASE", "8118"))
 TOR_SOCKS_BASE = int(os.environ.get("CPHARM_TOR_SOCKS_BASE", "9050"))
@@ -263,6 +267,6 @@ EMULATOR_PORTS = [
     ("127.0.0.1", 62001),
     # Genymotion
     ("127.0.0.1", 7555),
-    # MuMu 12 — 16384 + n*32 (up to 10 instances)
-    *[( "127.0.0.1", 16384 + i * 32) for i in range(10)],
+    # MuMu 12 — 16384 + n*32 (up to 32 instances; farms regularly exceed 10)
+    *[( "127.0.0.1", 16384 + i * 32) for i in range(32)],
 ]

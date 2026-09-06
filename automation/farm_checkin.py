@@ -28,6 +28,8 @@ from automation.browse_proxy import (
     resolve_browser_package,
     skips_mitm,
 )
+from automation.cpharm_exe_owned import exe_owns_farm
+from automation.process_scan import pids_matching
 
 DEFAULT_TOPIC = "twskoops"
 LOG_DIR = Path(r"C:\CPharm\logs")
@@ -167,32 +169,51 @@ def _today_local_start_ts() -> float:
 
 
 def _cpharm_exe_pids() -> list[int]:
-    """CPharm.exe 1.4.1+ can own the farm in-process (no python run_farm_354)."""
+    """PharmFlow/CPharm.exe PIDs — GUI alone is not proof the farm is running."""
     try:
         import psutil
 
         out: list[int] = []
+        names = {"cpharm.exe", "pharmflow.exe"}
         for proc in psutil.process_iter(["pid", "name"]):
-            if str(proc.info.get("name") or "").lower() == "cpharm.exe":
+            if str(proc.info.get("name") or "").lower() in names:
                 out.append(int(proc.info["pid"]))
         return out
     except Exception:
         return []
 
 
+def _progress_fresh(max_age_s: float = 180.0) -> bool:
+    """True when progress.json is recent or has active sequences (EXE in-process farm)."""
+    prog = _progress()
+    if not prog:
+        return False
+    if prog.get("active_sequences") or prog.get("active_keys"):
+        return True
+    ts = _parse_ts(str(prog.get("updated") or ""))
+    if ts is None:
+        return False
+    return (time.time() - ts.timestamp()) <= max_age_s
+
+
 def _farm_pids() -> list[int]:
     try:
-        from automation.process_scan import pids_matching
-
         # Either python worker counts as UP: 354 can exit after --hours while
-        # cycles --forever keeps going. CPharm.exe also owns farm (1.4.1+).
+        # cycles --forever keeps going.
         pids = pids_matching(("run_farm_354.py", "run_farm_cycles.py"))
-        for pid in _cpharm_exe_pids():
-            if pid not in pids:
-                pids.append(pid)
-        return pids
+        if pids:
+            return pids
+        # EXE-owned farm (1.4.1+): require ownership flag or fresh progress —
+        # an idle PharmFlow/CPharm window must not report farm UP.
+        exe_pids = _cpharm_exe_pids()
+        if exe_pids and (exe_owns_farm() or _progress_fresh()):
+            return exe_pids
+        return []
     except Exception:
-        return _cpharm_exe_pids()
+        exe_pids = _cpharm_exe_pids()
+        if exe_pids and (exe_owns_farm() or _progress_fresh()):
+            return exe_pids
+        return []
 
 
 def _adb_devices() -> list[str]:
@@ -428,14 +449,9 @@ def inject_pin_needed(cur: str | None, want: str, fg_package: str | None) -> boo
     cur_s = (cur or "").strip()
     if cur_s == want_s and want_s:
         return False
-    try:
-        from automation.browse_proxy import skips_mitm
-
-        pkg = (fg_package or "").split("/")[0].strip()
-        if skips_mitm(pkg) and _proxy_cleared(cur_s):
-            return False
-    except Exception:
-        pass
+    pkg = (fg_package or "").split("/")[0].strip()
+    if skips_mitm(pkg) and _proxy_cleared(cur_s):
+        return False
     return True
 
 

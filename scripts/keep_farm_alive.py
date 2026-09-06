@@ -13,7 +13,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-ROOT = Path(r"C:\Users\jsmil\FamFlow")
+ROOT = Path(__file__).resolve().parents[1]
 LOG = Path(r"C:\CPharm\logs")
 OUT = LOG / "_keep_farm_alive.json"
 REMEDIATOR = ROOT / "scripts" / "farm_remediate_loop.py"
@@ -27,17 +27,16 @@ INTERVAL_S = float(os.environ.get("CPHARM_KEEPALIVE_INTERVAL_S", "90"))
 sys.path.insert(0, str(ROOT))
 
 import automation.no_window  # noqa: E402,F401
+from automation.cpharm_unison_dedupe import pids_for_script  # noqa: E402
+from automation.farm_health_audit import apply_money_rails  # noqa: E402
+from automation.farm_process_janitor import sweep_dead_processes  # noqa: E402
 
 
 def _unison_active() -> bool:
     try:
-        from automation.cpharm_unison_dedupe import pids_for_script
-
         return bool(pids_for_script("cpharm_unison_supervisor.py"))
-    except ImportError:
+    except Exception:
         return False
-from automation.farm_health_audit import apply_money_rails  # noqa: E402
-from automation.farm_process_janitor import sweep_dead_processes  # noqa: E402
 
 
 def _utc() -> str:
@@ -52,8 +51,15 @@ def _run_shell_fix_if_needed() -> list[str]:
     if not script.is_file():
         script = ROOT / "_tmp_fix_cursor_shell.py"
     if not script.is_file():
-        return ["shell_fix_missing"]
-    if not flag.is_file() and report.is_file():
+        return ["shell_fix_missing"] if flag.is_file() else []
+    # Only run when operator/agent drops the flag — never every keepalive tick.
+    if not flag.is_file():
+        return []
+    if report.is_file():
+        try:
+            flag.unlink(missing_ok=True)
+        except OSError:
+            pass
         return []
     try:
         subprocess.run(
@@ -148,16 +154,25 @@ def ensure_remediator() -> list[str]:
         except OSError:
             pass
         fixes.append("FARM_RELOAD_REMEDIATOR.flag")
+    rem_age_s = -1.0
     try:
         import psutil
 
-        alive = any(
-            "farm_remediate_loop" in " ".join(p.info.get("cmdline") or [])
-            for p in psutil.process_iter(["cmdline"])
-        )
+        alive = False
+        for p in psutil.process_iter(["pid", "cmdline", "create_time"]):
+            cmd = " ".join(p.info.get("cmdline") or [])
+            if "farm_remediate_loop" in cmd and "-c" not in cmd:
+                alive = True
+                try:
+                    rem_age_s = max(
+                        rem_age_s, time.time() - float(p.info.get("create_time") or 0)
+                    )
+                except (TypeError, ValueError):
+                    rem_age_s = 9999.0
     except Exception:
         alive = False
-    # Also treat fresh honest as alive
+    # Fresh honest = remediator ticking. Missing honest for a young process is
+    # startup lag — do NOT kill/respawn (that caused thrash loops).
     honest = LOG / "FARM_HONEST_NOW.txt"
     fresh = False
     try:
@@ -165,15 +180,16 @@ def ensure_remediator() -> list[str]:
             fresh = True
     except OSError:
         pass
-    if alive and fresh and not force_reload:
+    if alive and not force_reload and (fresh or rem_age_s < 180.0):
         return fixes
-    if alive and (not fresh or force_reload):
-        # hung remediator OR forced code reload — kill and respawn
+    if alive and (force_reload or not fresh):
+        # hung remediator (alive, old, stale honest) OR forced code reload
         try:
             import psutil
 
             for p in psutil.process_iter(["pid", "cmdline"]):
-                if "farm_remediate_loop" in " ".join(p.info.get("cmdline") or []):
+                cmd = " ".join(p.info.get("cmdline") or [])
+                if "farm_remediate_loop" in cmd and "-c" not in cmd:
                     p.kill()
                     fixes.append(f"kill_stale_rem:{p.pid}")
         except Exception:
@@ -279,30 +295,33 @@ def cycle() -> dict:
     farm_flag = LOG / "FARM_RELOAD_FARM.flag"
     if farm_flag.is_file():
         # Do not kill mid-sequence — stale progress locks wedge unique-seq.
+        # Keep the flag when skipped so reload retries once sequences drain.
         prog_path = LOG / "farm_354_progress.json"
         skip_reload = False
         try:
             prog = json.loads(prog_path.read_text(encoding="utf-8-sig"))
             act = prog.get("active_sequences") or prog.get("active_keys") or []
+            if isinstance(act, dict):
+                act = list(act.keys())
             if act:
                 skip_reload = True
                 fixes.append("SKIP_RELOAD active_sequences_present")
         except Exception:
             pass
-        try:
-            farm_flag.unlink(missing_ok=True)
-        except OSError:
-            pass
         if skip_reload:
             fixes.append("KEEPALIVE_FARM_RELOAD_SKIPPED")
         else:
+            try:
+                farm_flag.unlink(missing_ok=True)
+            except OSError:
+                pass
             fixes.append("KEEPALIVE_FARM_RELOAD")
             try:
                 import psutil
 
                 for p in psutil.process_iter(["pid", "cmdline"]):
                     cmd = " ".join(p.info.get("cmdline") or [])
-                    if "run_farm_354" in cmd:
+                    if "run_farm_354" in cmd and "-c" not in cmd:
                         try:
                             p.kill()
                             fixes.append(f"kill_farm:{p.pid}")

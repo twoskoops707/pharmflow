@@ -353,10 +353,12 @@ def initial_state() -> dict:
         preflight.discover_adb_phones(connect_mumu=True)
     checklist = get_checklist()
     setup_done = preflight.mumu_setup_already_done(root)
+    # Operator-only rows stay "manual" forever; warn/fail still block ready.
+    _ready_skip = {"phones", "mumu_run", "usb"}
     ready = setup_done and not awaiting and all(
         (c.get("status") == "pass" or c.get("optional"))
         for c in checklist
-        if c.get("id") not in ("phones",)
+        if c.get("id") not in _ready_skip and c.get("status") != "manual"
     )
     state = {
         "cpharm_found": exe_ok,
@@ -465,7 +467,8 @@ def run_full_setup(log: LogFn) -> tuple[bool, str, list[str]]:
                 return False, _sequences_missing_message(missing), serials
             write_desktop_prefs(serials, root, setup_complete=True, awaiting_cold_boot=False)
             write_setup_prefs(root, mumu_setup_phase="complete")
-            gp = repair_groups_if_empty(serials, root, force=True)
+            # Never force-reseed — hand-edited playlists must survive refresh.
+            gp = repair_groups_if_empty(serials, root, force=False)
             if gp:
                 log(f"  Updated groups: {gp}")
             log("")

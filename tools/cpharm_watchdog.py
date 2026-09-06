@@ -56,6 +56,7 @@ import socket
 import subprocess
 import sys
 import time
+import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -190,9 +191,10 @@ def process_table() -> list[dict]:
             data = json.loads(out)
         except json.JSONDecodeError:
             # ConvertTo-Json emitted an array spanning multiple lines; try again with a wrapping trick.
+            # Must redefine $names — the retry is a fresh powershell process.
             try:
                 rc2, out2 = _win_powershell(
-                    "$rows = $NULL; "
+                    "$names = 'python.exe','pythonw.exe','tor.exe','adb.exe','PharmFlow.exe','CPharm.exe','CPharmWatchdog.exe'; "
                     "$rows = Get-CimInstance Win32_Process | Where-Object { $names -contains $_.Name } | "
                     "ForEach-Object { [PSCustomObject]@{ pid=$_.ProcessId; ppid=$_.ParentProcessId; "
                     "name=$_.Name; started=$_.CreationDate.ToString('o'); cmdline=[string]$_.CommandLine } }; "
@@ -238,6 +240,20 @@ def _row_age_s(row: dict) -> float:
         return max(0.0, time.time() - ts.timestamp())
     except (ValueError, OSError, OverflowError):
         return -1.0
+
+
+def _pid_alive(pid: int) -> bool:
+    """True when *pid* exists on the host (not limited to process_table names)."""
+    if pid <= 0:
+        return False
+    if sys.platform == "win32":
+        rc, out = command(["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV"], timeout=10)
+        if rc != 0 or not out:
+            return False
+        # tasklist still rc=0 with "INFO: No tasks..." when missing — require the pid token.
+        return f",{pid}," in out.replace('"', ",") or f'"{pid}"' in out
+    rc, _out = command(["kill", "-0", str(pid)], timeout=5)
+    return rc == 0
 
 
 class _Kill:
@@ -291,7 +307,8 @@ def reap_stale(*, apply: bool) -> dict:
         if "fork-server" in cmd:
             continue  # handled above
         ppid = int(r.get("ppid") or -1)
-        orphan = ppid > 0 and ppid not in live_pids
+        # live_pids only covers watched names — confirm parent death via OS when absent.
+        orphan = ppid > 0 and ppid not in live_pids and not _pid_alive(ppid)
         age = _row_age_s(r)
         stuck_shell = " shell " in cmd and 0 < age < 9_999_999 and age > 180
         if orphan:
@@ -338,7 +355,8 @@ def reap_stale(*, apply: bool) -> dict:
             allowlisted += 1
             continue
         ppid = int(r.get("ppid") or -1)
-        parent_alive = ppid in live_pids or ppid <= 0
+        # Parents are often cmd/explorer/services — not in the watched name list.
+        parent_alive = ppid <= 0 or ppid in live_pids or _pid_alive(ppid)
         if not parent_alive:
             kills.append(_Kill(r["pid"], f"orphan helper (parent dead): {base}", r.get("cmdline") or ""))
 
@@ -354,16 +372,24 @@ def reap_stale(*, apply: bool) -> dict:
         cfg = m.group(1).strip('"') if m else ""
         if cfg:
             tor_cfg_counts.setdefault(cfg.lower(), []).append(r)
-        elif (r.get("ppid") or -1) not in live_pids and (r.get("ppid") or -1) > 0:
-            kills.append(_Kill(r["pid"], "tor without config (orphan)", r.get("cmdline") or ""))
+        else:
+            ppid = int(r.get("ppid") or -1)
+            if ppid > 0 and ppid not in live_pids and not _pid_alive(ppid):
+                kills.append(_Kill(r["pid"], "tor without config (orphan)", r.get("cmdline") or ""))
     for cfg, grp in tor_cfg_counts.items():
         if len(grp) > 1:
             keep = max(grp, key=lambda r: r["pid"])
             for r in grp:
                 if r["pid"] != keep["pid"]:
                     kills.append(_Kill(r["pid"], f"duplicate tor config {cfg}", r.get("cmdline") or ""))
-        elif not Path(cfg).is_file():
-            kills.append(_Kill(grp[0]["pid"], f"tor config gone {cfg}", grp[0].get("cmdline") or ""))
+        else:
+            # Keys are lowercased for grouping; keep original cmdline path for exists check.
+            raw_cfg = cfg
+            m0 = torrc_re.search(grp[0].get("cmdline") or "")
+            if m0:
+                raw_cfg = m0.group(1).strip('"')
+            if not Path(raw_cfg).is_file():
+                kills.append(_Kill(grp[0]["pid"], f"tor config gone {raw_cfg}", grp[0].get("cmdline") or ""))
 
     result["allowlisted"] = allowlisted
     result["found"] = len(kills)
@@ -543,8 +569,6 @@ def verify_exit_ips(timeout: float = 30.0) -> dict:
     (``unique`` / ``rotations`` / ``ips``); this normalizes both shapes so callers
     always see ``unique``, ``rotations`` and ``ips`` at the top.
     """
-    import urllib.request
-
     url = f"http://127.0.0.1:{_HTTP_PORT}/api/stealth/verify"
     try:
         with urllib.request.urlopen(url, timeout=timeout) as resp:

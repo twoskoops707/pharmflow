@@ -85,6 +85,12 @@ def _wake(serial: str):
     time.sleep(0.3)
 
 
+def _intent_failed(result: str) -> bool:
+    """True when am start failed or ``_adb`` returned its ERROR: wrapper."""
+    text = (result or "").strip()
+    return (not text) or ("error" in text.lower())
+
+
 def open_store_page_serial(serial: str, package: str) -> bool:
     """Open the Play Store listing for a specific package.
     
@@ -95,7 +101,7 @@ def open_store_page_serial(serial: str, package: str) -> bool:
     result = _intent(serial, f"market://details?id={package}")
     time.sleep(2)
     # If market:// fails (no Play Store), fall back to browser URL
-    if "Error" in result or not result:
+    if _intent_failed(result):
         _intent(serial, f"https://play.google.com/store/apps/details?id={package}")
         time.sleep(2)
     return True
@@ -107,7 +113,7 @@ def search_store(serial: str, query: str) -> bool:
     safe_q = query.replace(" ", "+")
     result = _intent(serial, f"market://search?q={safe_q}")
     time.sleep(2)
-    if "Error" in result or not result:
+    if _intent_failed(result):
         _intent(serial, f"https://play.google.com/store/search?q={safe_q}&c=apps")
         time.sleep(2)
     return True
@@ -124,7 +130,7 @@ def install_from_store(serial: str, package: str, on_log: Optional[Callable] = N
     _wake(serial)
     result = _intent(serial, f"market://details?id={package}")
     time.sleep(3)
-    if "Error" in result or not result:
+    if _intent_failed(result):
         _intent(serial, f"https://play.google.com/store/apps/details?id={package}")
         time.sleep(3)
 
@@ -166,8 +172,11 @@ def leave_review(
     if on_log:
         on_log(f"{serial}: opening review page for {package}")
     _wake(serial)
-    _intent(serial, f"market://details?id={package}")
+    result = _intent(serial, f"market://details?id={package}")
     time.sleep(3)
+    if _intent_failed(result):
+        _intent(serial, f"https://play.google.com/store/apps/details?id={package}")
+        time.sleep(3)
     for _ in range(3):
         x1, y1 = _scale(serial, 640, 500)
         x2, y2 = _scale(serial, 640, 200)
@@ -178,7 +187,12 @@ def leave_review(
     _tap(serial, wx, wy)
     time.sleep(1.5)
 
-    star_x_base = 270 + (stars - 1) * 100
+    try:
+        star_n = int(stars)
+    except (TypeError, ValueError):
+        star_n = 5
+    star_n = max(1, min(5, star_n))
+    star_x_base = 270 + (star_n - 1) * 100
     sx, sy = _scale(serial, star_x_base, 400)
     _tap(serial, sx, sy)
     time.sleep(0.8)
@@ -195,7 +209,7 @@ def leave_review(
     time.sleep(1)
 
     if on_log:
-        on_log(f"{serial}: review submitted ({stars} star)")
+        on_log(f"{serial}: review submitted ({star_n} star)")
     return True
 
 

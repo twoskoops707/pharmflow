@@ -22,6 +22,7 @@ import threading
 import time
 from pathlib import Path
 from typing import Callable
+from urllib.parse import urlparse
 
 from automation.config import TOR_HTTP_TUNNEL_BASE
 from automation.dabflow_mantis_client_patch import (
@@ -816,8 +817,6 @@ class MantisInjectProxy:
     ) -> None:
         # Absolute-form URL expected from phone http_proxy
         try:
-            from urllib.parse import urlparse
-
             if target.startswith("http://"):
                 u = urlparse(target)
                 host = u.hostname or ""
@@ -834,15 +833,15 @@ class MantisInjectProxy:
             if not host:
                 client.close()
                 return
-            remote = self._upstream_connect(host, port) if port != 80 or self.upstream != "direct" else socket.create_connection((host, port), timeout=30)
-            if self.upstream != "direct" and port == 80:
-                # already connected via CONNECT? For HTTP via HTTP proxy, send absolute URL as-is to Tor HTTPTunnel
-                remote.close()
+            # Tor HTTPTunnel expects absolute-form on :80. Residential/direct must
+            # NOT be forcibly rewritten onto Tor (that discarded the chosen upstream).
+            if self.upstream == "tor" and port == 80:
                 tor_port = upstream_tor_port(self.phone_index)
                 remote = socket.create_connection(("127.0.0.1", tor_port), timeout=30)
                 remote.sendall(head)
                 _tunnel(client, remote)
                 return
+            remote = self._upstream_connect(host, port)
             remote.sendall(head)
             _tunnel(client, remote)
         except OSError:
@@ -906,9 +905,14 @@ def point_phone_at_inject(adb: object, serial: str, phone_index: int) -> str:
     # Verify it actually landed -- if not, retry once after a brief pause.
     if not verify_reverse_tunnel(adb, serial, port):
         logger.warning("reverse tunnel missing after setup port=%d serial=%s -- retrying", port, serial)
-        import time as _t
-        _t.sleep(1.0)
+        time.sleep(1.0)
         adb.run("reverse", f"tcp:{port}", f"tcp:{port}", serial=serial, timeout=10.0)  # type: ignore[attr-defined]
+        if not verify_reverse_tunnel(adb, serial, port):
+            logger.warning(
+                "reverse tunnel still missing after retry port=%d serial=%s",
+                port,
+                serial,
+            )
     adb.set_http_proxy("127.0.0.1", port, serial=serial)  # type: ignore[attr-defined]
     return f"127.0.0.1:{port}"
 

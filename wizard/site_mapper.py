@@ -50,7 +50,8 @@ class _SiteParser(HTMLParser):
         self.buttons: list[str] = []
         self.inputs: list[dict] = []
         self.headings: list[tuple[str, str]] = []
-        self._btn_buf: list[str] = []
+        # None when not inside <button>; [] only while collecting button text.
+        self._btn_buf: list[str] | None = None
         self._h_tag: str | None = None
         self._h_buf: list[str] = []
 
@@ -77,6 +78,24 @@ class _SiteParser(HTMLParser):
             self.inputs.append(inp)
             if self.form is not None:
                 self.form["inputs"].append(inp)
+        elif tag == "textarea":
+            inp = {
+                "name": (a.get("name") or "").strip(),
+                "type": "textarea",
+                "placeholder": (a.get("placeholder") or "").strip(),
+            }
+            self.inputs.append(inp)
+            if self.form is not None:
+                self.form["inputs"].append(inp)
+        elif tag == "select":
+            inp = {
+                "name": (a.get("name") or "").strip(),
+                "type": "select",
+                "placeholder": "",
+            }
+            self.inputs.append(inp)
+            if self.form is not None:
+                self.form["inputs"].append(inp)
         elif tag == "button":
             self._btn_buf = []
         elif tag in ("h1", "h2", "h3", "h4"):
@@ -99,14 +118,16 @@ class _SiteParser(HTMLParser):
                 else:
                     self.external_links.append(entry)
         elif tag == "form":
-            if self.form is not None and self.form["inputs"]:
+            # Keep forms that declare fields or a non-empty action (textarea-only, etc.).
+            if self.form is not None and (self.form["inputs"] or self.form["action"]):
                 self.forms.append(self.form)
             self.form = None
         elif tag == "button":
-            txt = " ".join("".join(self._btn_buf).split())
-            if txt:
-                self.buttons.append(txt[:60])
-            self._btn_buf = []
+            if self._btn_buf is not None:
+                txt = " ".join("".join(self._btn_buf).split())
+                if txt:
+                    self.buttons.append(txt[:60])
+            self._btn_buf = None
         elif tag in ("h1", "h2", "h3", "h4"):
             txt = " ".join("".join(self._h_buf).split())
             if txt:
@@ -152,7 +173,11 @@ def normalize_url(raw: str) -> str | None:
     u = urlsplit(raw)
     if u.scheme not in ("http", "https") or not u.netloc:
         return None
-    if " " in u.netloc or not any(c in u.netloc for c in ".:"):
+    host = u.netloc.split("@")[-1].split(":")[0].strip().lower()
+    if " " in u.netloc or not host:
+        return None
+    # Allow localhost / IPv6 / dotted hosts; reject bare words with no host shape.
+    if host not in ("localhost",) and "." not in host and ":" not in u.netloc and not host.startswith("["):
         return None
     path = u.path or "/"
     return urlsplit(raw)._replace(path=path, fragment="").geturl()
@@ -170,9 +195,14 @@ def fetch_html(url: str, timeout: int = FETCH_TIMEOUT) -> str | None:
     )
     with urlopen(req, timeout=timeout) as resp:
         ctype = (resp.headers.get("Content-Type") or "").lower()
-        if "html" not in ctype and "text/plain" not in ctype:
-            return None
         data = resp.read(MAX_BYTES)
+        # Many servers omit Content-Type; sniff HTML when header is empty/generic.
+        if ctype and "html" not in ctype and "text/plain" not in ctype and "octet-stream" not in ctype:
+            return None
+        if ctype and "html" not in ctype and "text/plain" not in ctype:
+            head = data[:256].lstrip().lower()
+            if not (head.startswith(b"<!doctype html") or head.startswith(b"<html") or b"<html" in head[:200]):
+                return None
     for enc in ("utf-8", "iso-8859-1"):
         try:
             return data.decode(enc)

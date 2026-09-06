@@ -190,13 +190,13 @@ def score_day_status(
         red += 1
     elif ECPM_RED < ecpm < ECPM_GREEN:
         yellow += 1
-    if clicks > 60:
+    if clicks >= AD_CLICKS_HARD_CAP:
         red += 1
-    elif 41 <= clicks <= 60:
+    elif clicks > AD_CLICKS_SOFT_CAP:
         yellow += 1
     if ctr_pct > 0.5:
         red += 1
-    elif 0.35 <= ctr_pct <= 0.5:
+    elif ctr_pct > CTR_IMPR_TARGET_HI:
         yellow += 1
 
     if red > 0:
@@ -259,7 +259,8 @@ def apply_plan_to_environ(plan: FarmDayPlan, environ: dict[str, str] | None = No
     env["CPHARM_FARM_HOURS"] = "0"
     env["CPHARM_FARM_DAILY_VISITS"] = plan.visits_csv()
     env["CPHARM_FARM_DAILY_ADS"] = plan.ads_csv()
-    env["CPHARM_FARM_PATH3_DAILY_CAP"] = str(max(1, plan.total_ads))
+    # Allow 0 when the day plan has zero ad clicks (browse-only / Path3 off).
+    env["CPHARM_FARM_PATH3_DAILY_CAP"] = str(max(0, plan.total_ads))
     env["CPHARM_FARM_IMPRESSIONS_PER_VISIT"] = str(plan.impressions_per_visit)
     env.pop("CPHARM_FARM_SEQS_PER_HOUR", None)
     env.pop("CPHARM_FARM_PATH3_PER_HOUR", None)

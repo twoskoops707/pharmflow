@@ -277,14 +277,15 @@ def discover_adb_phones(
         return list_adb_phones()
     if connect_mumu:
         try_connect_mumu_via_adb(log_fn, force_full_scan=force_mumu_scan)
-    # Connect BOTH the MuMu (16384-16393) and Docker-redroid (5555-5562) ranges
+    # Connect BOTH the MuMu (16384 + n*32) and Docker-redroid (5555 + n*2) ranges
     # so the two phone types run together, not either-or. Never sleeps, never
     # raises; offline/unbooted nodes are filtered below.
     auto_connect_all_phones(log_fn)
     return list_adb_phones()
 
 
-_AUTO_CONNECT_RANGES = ((16384, 10), (5555, 8))  # (start_port, count) MuMu then emulator/cloud
+# (start_port, stride, count) — MuMu uses 16384 + n*32; emulator/cloud uses 5555 + n*2
+_AUTO_CONNECT_RANGES = ((16384, 32, 10), (5555, 2, 8))
 
 
 def auto_connect_all_phones(log_fn: LogFn | None = None) -> list[str]:
@@ -303,9 +304,9 @@ def auto_connect_all_phones(log_fn: LogFn | None = None) -> list[str]:
         exe = str(_adb_path())
     if not Path(exe).is_file():
         return []
-    for start, count in _AUTO_CONNECT_RANGES:
+    for start, stride, count in _AUTO_CONNECT_RANGES:
         for off in range(count):
-            addr = f"127.0.0.1:{start + off}"
+            addr = f"127.0.0.1:{start + off * stride}"
             try:
                 subprocess.run(
                     [exe, "connect", addr],
@@ -377,7 +378,9 @@ def build_checklist(data_root: Path) -> list[dict]:
                 host = site_display_host()
                 browser_help = f"Chromium installed — {host} ads use this browser."
         except Exception:
-            browser_ok = True
+            # Probe failed — do not pretend Chromium is present.
+            browser_ok = False
+            browser_help = browser_help or "Could not verify Chromium on phones — refresh checks."
 
     items: list[dict] = [
         {
@@ -484,7 +487,12 @@ def build_checklist(data_root: Path) -> list[dict]:
             }
         )
     if not exe_ok:
-        items[0]["help"] = f"Missing: {exe_path.parent}\\PharmFlow.exe — download from GitHub Releases."
+        for it in items:
+            if it.get("id") == "folder":
+                it["help"] = (
+                    f"Missing: {exe_path.parent}\\PharmFlow.exe — download from GitHub Releases."
+                )
+                break
     return items
 
 

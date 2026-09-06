@@ -2,7 +2,9 @@
 """Lane 2 — internet / stealth / lights / inject / ADB / FarmBrowser. No override JSON."""
 from __future__ import annotations
 
+import json
 import os
+import subprocess
 import sys
 import time
 from datetime import datetime, timezone
@@ -17,6 +19,15 @@ import automation.no_window  # noqa: E402,F401
 from automation.cpharm_farm_config import apply_farm_env, purge_legacy_override_files  # noqa: E402
 from automation.cpharm_farmbrowser_guard import ensure_phones_farmbrowser  # noqa: E402
 from automation.cpharm_unison_dedupe import dedupe_keep_newest, pids_for_script  # noqa: E402
+from automation.farm_pause import farm_halted  # noqa: E402
+from automation.farm_phone_discover import inject_listener_count  # noqa: E402
+from automation.exit_ip_guard import enforce_farm_unique_exit_ips  # noqa: E402
+from automation.tor_manager import TorManager  # noqa: E402
+from automation.mumu_fingerprint import (  # noqa: E402
+    ensure_windows_gpu_prefs_for_mumu,
+    reassert_all_vm_gpu_accel,
+)
+from wizard.wizard_paths import mumu_vms_dir  # noqa: E402
 
 INTERVAL_S = float(os.environ.get("CPHARM_STEALTH_GUARD_INTERVAL_S", "60"))
 PID_FILE = LOG / "cpharm_stealth_guard.pid"
@@ -24,6 +35,46 @@ PID_FILE = LOG / "cpharm_stealth_guard.pid"
 
 def _utc() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _pid_alive_is_stealth(pid: int) -> bool:
+    """True only if *pid* is still this stealth guard (not a recycled PID)."""
+    if pid <= 0:
+        return False
+    try:
+        import psutil
+    except ImportError:
+        try:
+            os.kill(pid, 0)
+            return True
+        except (OSError, ProcessLookupError):
+            return False
+    try:
+        proc = psutil.Process(pid)
+        if not proc.is_running():
+            return False
+        cmd = " ".join(str(x) for x in (proc.cmdline() or []))
+        return "cpharm_stealth_guard.py" in cmd and "-c" not in cmd
+    except Exception:
+        # AccessDenied / race: never treat an unverified PID as "still us".
+        return False
+
+
+def _progress_active_count() -> int:
+    """Count in-flight farm sequences from farm_354_progress.json."""
+    prog = LOG / "farm_354_progress.json"
+    if not prog.is_file():
+        return 0
+    try:
+        pdata = json.loads(prog.read_text(encoding="utf-8-sig"))
+    except (OSError, json.JSONDecodeError, TypeError, ValueError):
+        return 0
+    act = pdata.get("active") or pdata.get("active_sequences") or pdata.get("active_keys") or []
+    if isinstance(act, dict):
+        return len(act)
+    if isinstance(act, list):
+        return len(act)
+    return 0
 
 
 def _ensure_inject_and_dash() -> list[str]:
@@ -39,10 +90,6 @@ def _ensure_inject_and_dash() -> list[str]:
     if pids_for_script("run_mantis_inject_proxies.py"):
         return fixes
     try:
-        import subprocess
-
-        from automation.farm_phone_discover import inject_listener_count
-
         span = max(8, inject_listener_count())
         pyw = sys.executable.replace("python.exe", "pythonw.exe")
         if not Path(pyw).is_file():
@@ -52,11 +99,12 @@ def _ensure_inject_and_dash() -> list[str]:
             env = os.environ.copy()
             env["PYTHONPATH"] = str(ROOT)
             apply_farm_env(env)
+            creation = 0x08000000 if sys.platform == "win32" else 0
             subprocess.Popen(
                 [pyw, "-u", str(script), "--phones", str(span)],
                 cwd=str(ROOT),
                 env=env,
-                creationflags=0x08000000,
+                creationflags=creation,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
             )
@@ -72,8 +120,6 @@ def _tick() -> list[str]:
     fixes: list[str] = []
     fixes.extend(_ensure_inject_and_dash())
     try:
-        from automation.farm_pause import farm_halted
-
         if farm_halted():
             fixes.append("farm_halted")
             return fixes
@@ -84,28 +130,25 @@ def _tick() -> list[str]:
     except OSError:
         pass
     fixes.extend(rem.ensure_farm_reload_if_flagged())
+    # Refresh remediator PHONES from live discovery — module fallback serials
+    # are stale and make reconnect/coordinate target the wrong ADB hosts.
+    try:
+        rem.PHONES = tuple(rem.live_phones())
+    except Exception as exc:
+        fixes.append(f"phones_refresh_err:{exc}")
     fixes.extend(rem.reconnect_missing(rem.adb_online()))
     online = rem.adb_online()
     rows, coord = rem.coordinate_phones(online)
     fixes.extend(coord[:10])
     # FarmBrowser: install + lawnchair stop — skip UI re-arm when sequences active.
     try:
-        n_actives = 0
-        prog = LOG / "farm_354_progress.json"
-        if prog.is_file():
-            import json
-
-            pdata = json.loads(prog.read_text(encoding="utf-8-sig"))
-            n_actives = len(pdata.get("active") or [])
+        n_actives = _progress_active_count()
         fixes.extend(
             ensure_phones_farmbrowser(rows, allow_ui_rearm=(n_actives == 0))[:8]
         )
     except Exception as exc:
         fixes.append(f"fb_guard_err:{exc}")
     try:
-        from automation.exit_ip_guard import enforce_farm_unique_exit_ips
-        from automation.tor_manager import TorManager
-
         ip_rows = [
             (r["name"], r["serial"], int(r["name"].split(".")[0][2:]))
             for r in rows
@@ -117,16 +160,10 @@ def _tick() -> list[str]:
     except Exception as exc:
         fixes.append(f"exit_ip_err:{exc}")
     try:
-        from automation.mumu_fingerprint import (
-            ensure_windows_gpu_prefs_for_mumu,
-            reassert_all_vm_gpu_accel,
-        )
-        from wizard.wizard_paths import mumu_vms_dir
-
         vms = mumu_vms_dir() or Path(r"C:\Program Files\Netease\MuMuPlayer\vms")
-        gfix = ensure_windows_gpu_prefs_for_mumu()
-        gfix.extend(reassert_all_vm_gpu_accel(vms))
-        fixes.extend(gfix[:4])
+        gfixes = ensure_windows_gpu_prefs_for_mumu()
+        gfixes.extend(reassert_all_vm_gpu_accel(vms))
+        fixes.extend(gfixes[:4])
     except Exception as exc:
         fixes.append(f"gpu_err:{exc}")
     return fixes
@@ -136,10 +173,13 @@ def main() -> int:
     if PID_FILE.is_file():
         try:
             old = int(PID_FILE.read_text(encoding="utf-8").strip())
-            os.kill(old, 0)
-            print("cpharm_stealth_guard already running", flush=True)
-            return 0
-        except (OSError, ValueError, ProcessLookupError):
+        except (OSError, ValueError):
+            old = 0
+            PID_FILE.unlink(missing_ok=True)
+        else:
+            if _pid_alive_is_stealth(old):
+                print("cpharm_stealth_guard already running", flush=True)
+                return 0
             PID_FILE.unlink(missing_ok=True)
     PID_FILE.write_text(str(os.getpid()), encoding="utf-8")
     apply_farm_env()

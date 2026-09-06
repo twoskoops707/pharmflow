@@ -196,7 +196,12 @@ class MuMuSetupTkFallback(tk.Tk):
                             msg + "\n\nDownload PharmFlow.exe into the same folder, then double-click it.",
                         )
                 else:
-                    messagebox.showwarning("Phone Setup — wait for reboot", msg)
+                    title = (
+                        "Phone Setup — wait for reboot"
+                        if "cold-boot" in (msg or "").lower() or "STOP" in (msg or "")
+                        else "Phone Setup"
+                    )
+                    messagebox.showwarning(title, msg)
 
             self.after(0, done)
 

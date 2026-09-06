@@ -43,6 +43,49 @@ def _adb(serial: str, *args) -> str:
 
 
 
+def _parse_getevent_line(line: str) -> tuple[str, str, str, str] | None:
+    """Parse ``getevent -t`` output into (device, type, code, value) hex fields.
+
+    Formats:
+      ``/dev/input/event1: 0003 0035 00000258``
+      ``[  1234.567890] /dev/input/event1: 0003 0035 00000258``
+    """
+    parts = line.split()
+    if not parts:
+        return None
+    idx = 0
+    if parts[0].startswith("["):
+        if parts[0].endswith("]"):
+            idx = 1
+        elif len(parts) > 1 and parts[1].endswith("]"):
+            idx = 2
+        else:
+            idx = 1
+    if len(parts) < idx + 4:
+        return None
+    device = parts[idx].rstrip(":")
+    etype, code, value = parts[idx + 1], parts[idx + 2], parts[idx + 3]
+    if not (
+        _DEVICE_RE.match(device)
+        and _HEX_DEC_RE.match(etype)
+        and _HEX_DEC_RE.match(code)
+        and _HEX_DEC_RE.match(value)
+    ):
+        return None
+    return device, etype, code, value
+
+
+def _hex_to_sendevent_arg(raw: str) -> str | None:
+    """Convert getevent hex tokens to decimal ints for ``sendevent``."""
+    text = str(raw).strip()
+    if not _HEX_DEC_RE.match(text):
+        return None
+    try:
+        return str(int(text, 16))
+    except ValueError:
+        return None
+
+
 def start_recording(serial: str) -> str:
     global _recording_active, _recording_thread, _current_file
 
@@ -54,8 +97,10 @@ def start_recording(serial: str) -> str:
 
     def record():
         exe = adb_executable()
+        # ``-t`` keeps timestamps + numeric hex codes. ``-l`` (labels) breaks
+        # sendevent replay because type/code become EV_ABS / ABS_* strings.
         proc = subprocess.Popen(
-            [exe, "-s", serial, "shell", "getevent", "-lt"],
+            [exe, "-s", serial, "shell", "getevent", "-t"],
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
@@ -69,13 +114,10 @@ def start_recording(serial: str) -> str:
                 line = line.strip()
                 if not line:
                     continue
-                parts = line.split()
-                if len(parts) < 4:
+                parsed = _parse_getevent_line(line)
+                if not parsed:
                     continue
-                device = parts[0].rstrip(":")
-                event_type  = parts[1]
-                event_code  = parts[2]
-                event_value = parts[3]
+                device, event_type, event_code, event_value = parsed
                 events.append({
                     "t":     round(time.time() - start_time, 3),
                     "d":     device,
@@ -115,15 +157,25 @@ def replay_on_phone(serial: str, recording_path: str):
     except (ValueError, OSError):
         return
 
+    last_t = 0.0
     for entry in data:
+        try:
+            t = float(entry.get("t", last_t) or 0.0)
+        except (TypeError, ValueError):
+            t = last_t
+        delay = t - last_t
+        if delay > 0:
+            time.sleep(min(delay, 5.0))
+        last_t = t
+
         d     = entry.get("d", "")
-        etype = entry.get("type", "")
-        code  = entry.get("code", "")
-        value = entry.get("value", "")
-        if (not _DEVICE_RE.match(d)
-                or not _HEX_DEC_RE.match(str(etype))
-                or not _HEX_DEC_RE.match(str(code))
-                or not _HEX_DEC_RE.match(str(value))):
+        etype = _hex_to_sendevent_arg(entry.get("type", ""))
+        code  = _hex_to_sendevent_arg(entry.get("code", ""))
+        value = _hex_to_sendevent_arg(entry.get("value", ""))
+        if (not _DEVICE_RE.match(str(d))
+                or etype is None
+                or code is None
+                or value is None):
             continue
         try:
             subprocess.run(

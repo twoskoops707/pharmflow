@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import re
 import subprocess
+import sys
 import tempfile
 import time
 import xml.etree.ElementTree as ET
@@ -14,14 +15,15 @@ _SKIP_PATTERNS = (
     r'text="Skip"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"',
     r'resource-id="[^"]*skipSessionNotes[^"]*"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"',
     r'bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"[^>]*text="Skip"',
+    r'bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"[^>]*resource-id="[^"]*skipSessionNotes[^"]*"',
 )
+
+_NO_WIN = getattr(subprocess, "CREATE_NO_WINDOW", 0) if sys.platform == "win32" else 0
 
 
 def _no_win():
     """Hide console windows for adb child processes launched from the GUI EXE."""
-    import sys
-
-    return getattr(subprocess, "CREATE_NO_WINDOW", 0) if sys.platform == "win32" else 0
+    return _NO_WIN
 
 
 def _dump_ui_xml(serial: str) -> str:
@@ -50,13 +52,15 @@ def skip_button_screen_bounds(serial: str) -> tuple[int, int, int, int] | None:
     if not text.strip():
         return None
     for pat in _SKIP_PATTERNS:
-        m = re.search(pat, text)
+        m = re.search(pat, text, flags=re.IGNORECASE)
         if m:
             return tuple(map(int, m.groups()))  # type: ignore[return-value]
     try:
         root = ET.fromstring(text)
         for node in root.iter("node"):
-            if node.attrib.get("text", "").strip().lower() != "skip":
+            label = (node.attrib.get("text") or "").strip().lower()
+            rid = (node.attrib.get("resource-id") or "").lower()
+            if label != "skip" and "skipsessionnotes" not in rid:
                 continue
             m = re.match(
                 r"\[(\d+),(\d+)\]\[(\d+),(\d+)\]",

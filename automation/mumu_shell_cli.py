@@ -16,7 +16,10 @@ _NAME_IDX = re.compile(r"^vm(\d+)", re.I)
 _SHELL = Path(r"C:\Program Files\Netease\MuMuPlayerARM\shell\nemux-shell-winui.exe")
 _HCS_TOOL = Path(r"C:\Program Files\Netease\MuMuPlayerARM\shell\nemu-hcs-tool.exe")
 _LAUNCH_CACHE = Path(r"C:\CPharm\logs\mumu_launch_cache.json")
-_VM_IDX = re.compile(r"--VmIndex (\d+).*--ThumbnailName (\S+).*--T ([A-Za-z0-9+/=]+)")
+# Token charset includes URL-safe base64 (-_) — truncating at '-' broke cache hits.
+_VM_IDX = re.compile(
+    r"--VmIndex (\d+).*--ThumbnailName (\S+).*--T ([A-Za-z0-9+/=_-]+)"
+)
 
 
 def phone_vm_index(name: str, fallback: int = 0) -> int:
@@ -43,14 +46,15 @@ def instance_shell_running(idx: int) -> bool:
         import psutil
     except ImportError:
         return False
-    needle = f"--VmIndex {int(idx)}"
+    # Substring "--VmIndex 1" falsely matches "--VmIndex 10" / 11 / 12 …
+    needle = re.compile(rf"(?:^|\s)--VmIndex\s+{int(idx)}(?:\s|$)")
     for proc in psutil.process_iter(["name", "cmdline"]):
         try:
             name = str(proc.info.get("name") or "").lower()
             if "nemux-shell-winui" not in name:
                 continue
             cmd = " ".join(str(x) for x in (proc.info.get("cmdline") or []))
-            if needle in cmd:
+            if needle.search(cmd):
                 return True
         except (psutil.Error, TypeError, ValueError):
             continue
@@ -161,21 +165,44 @@ def launch_instance_index(idx: int, timeout: float = 120.0) -> tuple[bool, str]:
     flags = 0
     if sys.platform == "win32":
         flags = int(getattr(subprocess, "DETACHED_PROCESS", 0) or 0)
-    try:
+
+    def _spawn(argv: list[str]) -> None:
         subprocess.Popen(
-            cmd,
+            argv,
             cwd=str(exe.parent),
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             creationflags=flags,
             close_fds=True,
         )
+
+    def _wait_shell(budget: float) -> bool:
+        end = time.monotonic() + max(8.0, float(budget))
+        while time.monotonic() < end:
+            if instance_shell_running(idx):
+                harvest_launch_cache()
+                return True
+            time.sleep(1.0)
+        return False
+
+    try:
+        _spawn(cmd)
     except OSError as exc:
         return False, f"launch_fail:{exc}"
-    deadline = time.monotonic() + max(8.0, float(timeout))
-    while time.monotonic() < deadline:
-        if instance_shell_running(idx):
-            harvest_launch_cache()
-            return True, f"launched idx={idx}"
-        time.sleep(1.0)
+    if _wait_shell(timeout):
+        return True, f"launched idx={idx}"
+    # Expired/stale --T leaves shell dead (AdbHost empty). Bare --VmIndex is
+    # proven to cold-boot; retry once without cached auth tokens.
+    if token or thumb:
+        logger.warning(
+            "mumu launch idx=%s timed out with cached --T — retrying bare --VmIndex",
+            idx,
+        )
+        bare = [str(exe), "--VmIndex", str(idx)]
+        try:
+            _spawn(bare)
+        except OSError as exc:
+            return False, f"launch_fail:{exc}"
+        if _wait_shell(min(60.0, max(8.0, float(timeout)))):
+            return True, f"launched_bare idx={idx}"
     return False, f"launch_timeout idx={idx} (need MuMu UI restart if hcs_missing)"

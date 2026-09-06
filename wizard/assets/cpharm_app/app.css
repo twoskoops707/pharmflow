@@ -770,6 +770,15 @@ summary:focus-visible {
   gap: 5px;
 }
 
+.groups-list {
+  /* Keep Groups usable at 1366x768: list scrolls inside the panel so footer-nav stays reachable. */
+  max-height: min(42vh, 360px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-color: var(--accent) var(--bg);
+  scrollbar-width: thin;
+}
+
 .prereq-item,
 .check-item {
   display: flex;

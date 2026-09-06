@@ -1112,26 +1112,21 @@ def prepare_browser_for_url(adb: AdbWrapper, serial: str, package: str, *, dump_
     pkg = (package or "").strip()
     if pkg == BROWSER_FIREFOX:
         # Prefs only here — open_url issues the VIEW; wipe path uses prepare_firefox_after_wipe.
-        seed_firefox_onboarding_complete(adb, serial, pkg)
-        return True
+        return seed_firefox_onboarding_complete(adb, serial, pkg)
     if pkg == BROWSER_DUCKDUCKGO:
-        seed_duckduckgo_onboarding_complete(adb, serial, pkg)
-        return True
+        return seed_duckduckgo_onboarding_complete(adb, serial, pkg)
     if pkg == BROWSER_OPERA:
         # Chromium FRE seed alone does not skip WelcomeActivity — OEM prefs required.
-        seed_opera_onboarding_complete(adb, serial, pkg)
-        return True
+        return seed_opera_onboarding_complete(adb, serial, pkg)
     if pkg == BROWSER_BRAVE:
         # Brave reuses Chromium FRE prefs; News/Rewards sheets still need a tap-through.
         from automation.browser_adb import _seed_fre_complete
 
-        _seed_fre_complete(adb, serial, pkg)
-        return True
+        return bool(_seed_fre_complete(adb, serial, pkg))
     if pkg == BROWSER_CHROMIUM or "chromium" in pkg or pkg.endswith(".chrome"):
         from automation.browser_adb import _seed_fre_complete
 
-        _seed_fre_complete(adb, serial, pkg)
-        return True
+        return bool(_seed_fre_complete(adb, serial, pkg))
     return True
 
 
@@ -1332,7 +1327,7 @@ def dismiss_ssl_interstitial(
     for round_idx in range(max_rounds):
         xml = dump_ui(adb, serial)
         if not ssl_interstitial_visible(xml):
-            return True if dismissed else dismissed
+            return True
         if ssl_hsts_blocked(xml):
             logger.warning(
                 "SSL interstitial HSTS lockout on %s â€” cannot Proceed; clearing MITM",

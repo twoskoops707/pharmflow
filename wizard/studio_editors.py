@@ -11,6 +11,7 @@ from tkinter import filedialog, messagebox, simpledialog
 from typing import Any, Callable
 
 from automation.apk_tools import find_aapt_exe, package_from_apk
+from automation.config import SHUFFLE_NONE
 from wizard.dabflow_studio import build_dabflow_blueprint_card
 from wizard.site_interview import build_site_interview_card
 from wizard.sequence_humanize import humanize_steps
@@ -58,6 +59,13 @@ QUICK_ACTION_TYPES = (
     "launch_app",
     "rotate_identity",
 )
+
+
+def _safe_hits_display(raw: Any, default: int = DEFAULT_HITS) -> int:
+    try:
+        return max(0, min(int(float(raw)), 1440))
+    except (TypeError, ValueError):
+        return default
 
 
 def _btn(parent: tk.Misc, text: str, cmd: Callable[[], None], *, primary: bool = False, danger: bool = False, state: str = "normal") -> tk.Button:
@@ -579,7 +587,18 @@ def _builder_save(app: Any) -> None:
         "steps": app._builder_steps,
     }
     if app._humanize_on.get():
-        payload["humanize"] = {"enabled": True}
+        # Runner HumanizeConfig has no "enabled" flag — set real variation knobs.
+        payload["humanize"] = {
+            "timing_variation": 0.15,
+            "coordinate_tolerance": 10,
+            "random_actions": True,
+        }
+    else:
+        payload["humanize"] = {
+            "timing_variation": 0.0,
+            "coordinate_tolerance": 0,
+            "random_actions": False,
+        }
     dest = sequences_dir() / f"{name}.json"
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
@@ -689,7 +708,11 @@ def _teams_build_card(app: Any, g: dict[str, Any], live: list[Any]) -> None:
             side="left", padx=6
         )
 
-        hits_var = tk.StringVar(value=str(int((ent or {}).get("hits_per_day") or DEFAULT_HITS)) if phone in members else str(DEFAULT_HITS))
+        hits_var = tk.StringVar(
+            value=str(_safe_hits_display((ent or {}).get("hits_per_day"), DEFAULT_HITS))
+            if phone in members
+            else str(DEFAULT_HITS)
+        )
         tk.Label(row, text="hits/day", font=FONT_CAPTION, bg=BG3, fg=T3).pack(side="left")
         tk.Entry(row, textvariable=hits_var, width=5, bg=BG2, fg=T1, relief="flat", insertbackground=T1).pack(side="left", padx=4)
 
@@ -868,14 +891,16 @@ def _teams_clone_master(app: Any, group_name: str, master: str) -> None:
             continue
         ent = group.ensure_phone_entry(phone)
         ent["steps"] = copy.deepcopy(src_steps)
-        if src_pl:
-            ent["sequence_playlist"] = copy.deepcopy(src_pl)
-        if src_pl_b:
-            ent["sequence_playlist_secondary"] = copy.deepcopy(src_pl_b)
-        if src_mode:
-            ent["sequence_playlist_mode"] = src_mode
-        if src_shuffle:
-            ent["sequence_playlist_shuffle"] = src_shuffle
+        ent["sequence_playlist"] = copy.deepcopy(src_pl)
+        ent["sequence_playlist_secondary"] = copy.deepcopy(src_pl_b)
+        ent["sequence_playlist_mode"] = src_mode or "ordered"
+        ent["sequence_playlist_shuffle"] = src_shuffle or SHUFFLE_NONE
+        if "sequence_base_w" in src:
+            ent["sequence_base_w"] = src.get("sequence_base_w")
+        if "sequence_base_h" in src:
+            ent["sequence_base_h"] = src.get("sequence_base_h")
+        if "hits_per_day" in src:
+            ent["hits_per_day"] = src.get("hits_per_day")
         ent["use_default_template"] = False
         ent["explicit_override"] = True
     app.groups.save()

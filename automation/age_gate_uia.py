@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import re
 import subprocess
+import sys
 import tempfile
+import time
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -16,12 +18,12 @@ _AGE_YES_PATTERNS = (
     r'bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"[^>]*resource-id="[^"]*age-yes[^"]*"',
 )
 
+_NO_WIN = getattr(subprocess, "CREATE_NO_WINDOW", 0) if sys.platform == "win32" else 0
+
 
 def _no_win():
     """Hide console windows for adb child processes launched from the GUI EXE."""
-    import sys
-
-    return getattr(subprocess, "CREATE_NO_WINDOW", 0) if sys.platform == "win32" else 0
+    return _NO_WIN
 
 
 def _dump_ui_xml(serial: str) -> str:
@@ -62,8 +64,13 @@ def age_yes_button_screen_bounds(serial: str) -> tuple[int, int, int, int] | Non
         root = ET.fromstring(text)
         for node in root.iter("node"):
             label = node.attrib.get("text", "") or node.attrib.get("content-desc", "")
+            rid = (node.attrib.get("resource-id") or "").lower()
             norm = label.strip().lower()
-            if "yes, i am 21" not in norm and "age-yes" not in norm:
+            if (
+                "yes, i am 21" not in norm
+                and "age-yes" not in norm
+                and "age-yes" not in rid
+            ):
                 continue
             m = re.match(
                 r"\[(\d+),(\d+)\]\[(\d+),(\d+)\]",
@@ -89,8 +96,6 @@ def age_gate_modal_visible(serial: str) -> bool:
 
 def wait_for_age_yes_button(serial: str, *, timeout_sec: float = 12.0) -> tuple[int, int] | None:
     """Poll uiautomator until the Yes button appears (avoids tapping before the modal loads)."""
-    import time
-
     deadline = time.monotonic() + max(0.5, float(timeout_sec))
     while time.monotonic() < deadline:
         center = age_yes_button_screen_center(serial)

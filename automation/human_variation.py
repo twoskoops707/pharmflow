@@ -191,8 +191,10 @@ def group_stagger_seconds(group: dict, rng: random.Random) -> float:
             lo, hi = float(smin), float(smax)
             if lo > hi:
                 lo, hi = hi, lo
-            if hi > 0:
-                return rng.uniform(max(0.0, lo), hi)
+            # Zero-width or non-positive bands must not silently fall through to
+            # stagger_secs (that ignored an explicit min/max of 0 / equal values).
+            if hi >= 0 and lo >= 0:
+                return rng.uniform(lo, hi) if hi > lo else float(lo)
         except (TypeError, ValueError):
             pass
     try:

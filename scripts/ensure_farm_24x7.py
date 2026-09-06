@@ -18,7 +18,7 @@ import os
 import subprocess
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -94,7 +94,6 @@ def _restore_capacity_phones_lock() -> bool:
         if _normalize_phones_csv(str(data.get("CPHARM_FARM_PHONES") or "")) == raw:
             return False
         data["CPHARM_FARM_PHONES"] = raw
-        from datetime import datetime, timezone
         data["updated"] = datetime.now(timezone.utc).isoformat()
         data["tick_verify_note"] = "capacity_lock_no_vm11"
         OVERRIDES.write_text(json.dumps(data, indent=2), encoding="utf-8")
@@ -304,8 +303,16 @@ def _adb_serials_from_sticky() -> list[str]:
     return serials
 
 
+def _adb_exe() -> str:
+    """Prefer bundled adb — bare PATH adb often missing or flashes Terminal."""
+    bundled = Path(r"C:\CPharm\bundled\adb.exe")
+    if bundled.is_file():
+        return str(bundled)
+    return os.environ.get("ADB") or os.environ.get("CPHARM_ADB") or "adb"
+
+
 def _adb_devices_state() -> dict[str, str]:
-    adb = os.environ.get("ADB", "adb")
+    adb = _adb_exe()
     try:
         r = subprocess.run(
             [adb, "devices"],
@@ -347,7 +354,7 @@ def _adb_keepalive() -> str:
     serials = _adb_serials_from_sticky()
     if not serials:
         return "adb=0/0"
-    adb = os.environ.get("ADB", "adb")
+    adb = _adb_exe()
     states = _adb_devices_state()
     online = 0
     touched = 0
@@ -437,13 +444,17 @@ def _cull_thrash_watchers(actions: list[str]) -> None:
 
 def ensure_once(*, sweep_dead: bool = True) -> str:
     actions: list[str] = []
+    # Unison owns the stack — do not respawn remediator/keepalive that it culls.
+    if _count("cpharm_unison_supervisor.py") >= 1:
+        _hb("unison_owns_stack")
+        return "unison_owns_stack"
     try:
         from automation.farm_pause import farm_halted, is_killed, is_paused, seconds_until_resume
 
         if farm_halted():
             left = int(seconds_until_resume()) if is_paused() else -1
             actions.append("farm_killed" if is_killed() else f"farm_paused_left={left}s")
-            # Dash only while halted â€” do not respawn farm workers.
+            # Dash only while halted — do not respawn farm workers.
             if _count("farm_operator_dash") < 1:
                 _start_hidden("scripts/farm_operator_dash.py")
                 actions.append("dash")

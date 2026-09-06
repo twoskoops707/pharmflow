@@ -167,7 +167,9 @@ def main() -> int:
 
     while True:
         try:
-            for obj in _poll("10m"):
+            # Use 2h window (not 10m): after poll failures / sleep >10m, a short
+            # since= drops user messages forever even though seen[] would dedupe.
+            for obj in _poll("2h"):
                 mid = str(obj.get("id") or "")
                 if not mid or mid in seen:
                     continue

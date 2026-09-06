@@ -84,6 +84,9 @@ _OWN_BODY_PREFIXES = (
 
 IntentHandler = Callable[[str], str]
 
+# Set True after ntfy stream urlopen succeeds so reconnect backoff can reset.
+_STREAM_CONNECTED = False
+
 
 def _utc() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -348,7 +351,11 @@ def classify_intent(text: str) -> str:
         t,
     ):
         # "all six phones" shout without start verb → status-ish, but user wants action
-        if re.search(r"\b(start|restart|launch)\b", t) or "being used" in t or "!!!" in text:
+        if (
+            re.search(r"\b(start|restart|launch|spin\s*up|bring\s*up)\b", t)
+            or "being used" in t
+            or "!!!" in text
+        ):
             return "farm_start"
         if re.fullmatch(r"all\s*(six|6)\s*phones?\s*!+", t) or t.strip("! ").lower() in {
             "all six phones",
@@ -405,6 +412,7 @@ def _cmd_start_farm(*, force_restart: bool = False) -> str:
     if pids and force_restart:
         stop_msg = _cmd_stop_farm()
         time.sleep(2.0)
+        pids = farm.farm_pids()
     else:
         stop_msg = ""
 
@@ -654,9 +662,11 @@ def _handle_message(raw: dict, *, reply: bool) -> None:
 
 
 def _stream_once(*, reply: bool) -> None:
+    global _STREAM_CONNECTED
     url = f"{BASE}/json?since=latest"
     req = urllib.request.Request(url, headers={"Accept": "application/x-ndjson"})
     with urllib.request.urlopen(req, timeout=120) as resp:
+        _STREAM_CONNECTED = True
         _write_status("connected")
         print("NTFY_RESPONDER_READY topic=twskoops", flush=True)
         log.info("stream open since=latest reply=%s", reply)
@@ -704,6 +714,7 @@ def _stream_once(*, reply: bool) -> None:
 
 
 def main() -> int:
+    global _STREAM_CONNECTED
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     backoff = 2.0
     log.info("ntfy_farm_responder starting topic=%s (smart intents)", TOPIC)
@@ -711,8 +722,11 @@ def main() -> int:
         try:
             _write_status("connecting")
             print(f"NTFY_CONNECTING {_utc()}", flush=True)
+            _STREAM_CONNECTED = False
             _stream_once(reply=True)
         except (urllib.error.URLError, TimeoutError, ConnectionError, OSError) as exc:
+            if _STREAM_CONNECTED:
+                backoff = 2.0
             _write_status(f"reconnect after error: {exc}")
             log.warning("reconnect err=%r sleep=%.0fs", exc, backoff)
             print(f"NTFY_RECONNECT err={exc!r} sleep={backoff:.0f}s", flush=True)

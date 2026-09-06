@@ -90,7 +90,13 @@ def _day_bounds_utc(day: date) -> tuple[str, str]:
 
 
 def _bucket_matches(interval_iso: str, day: date) -> bool:
-    ts = datetime.fromisoformat(interval_iso.replace("Z", "+00:00"))
+    raw = (interval_iso or "").strip()
+    if not raw:
+        return False
+    try:
+        ts = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return False
     local = ts.astimezone(ZoneInfo("America/Los_Angeles")).date()
     return local == day
 
@@ -215,6 +221,9 @@ def fetch_lifetime_payout(
         if report.get("status") != "PENDING":
             break
         time.sleep(0.6)
+    # Still PENDING → do not treat as $0 lifetime (that zeros paid_to_date).
+    if report.get("status") == "PENDING":
+        raise RuntimeError(f"lifetime payout report still PENDING: {rid}")
     if report.get("status") not in ("READY", "COMPLETE", "DONE"):
         # READY is the live status; accept any non-PENDING/non-ERROR with entries.
         if report.get("status") == "ERROR" and not report.get("entries"):

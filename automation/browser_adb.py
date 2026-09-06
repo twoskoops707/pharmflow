@@ -8,6 +8,8 @@ import logging
 import os
 import random
 import re
+import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -16,6 +18,7 @@ from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from automation.adb_paths import adb_executable
 from automation.adb_wrapper import AdbWrapper
 from automation.browser_onboarding import (
     dismiss_brave_overlays,
@@ -56,6 +59,7 @@ from automation.web_viewport import (
     remap_tap,
     set_viewport_for_package,
 )
+from automation.sequence_geometry import parse_wm_size_output
 
 if TYPE_CHECKING:
     from automation.browser_identity import BrowserSessionProfile
@@ -66,6 +70,21 @@ logger = logging.getLogger(__name__)
 _RUNTIME_OVERRIDES = Path(r"C:\CPharm\logs\farm_runtime_overrides.json")
 _overrides_cache_mtime: float = -1.0
 _overrides_cache: dict[str, str] = {}
+
+_SUBPROC_FLAGS = (
+    int(getattr(subprocess, "CREATE_NO_WINDOW", 0) or 0) if sys.platform == "win32" else 0
+)
+_PKG_STEP_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9_.]*$")
+_CHROME_PKG_PREFIXES = (
+    "com.android.chrome",
+    "com.chrome.beta",
+    "com.chrome.dev",
+    "com.chrome.canary",
+    "com.google.android.apps.chrome",
+    "org.chromium.chrome",
+)
+_FARMBROWSER_PKG = BROWSER_FARMBROWSER
+_FARMBROWSER_PKG_RELEASE = BROWSER_FARMBROWSER_RELEASE
 
 
 class BrowserKind(Enum):
@@ -597,7 +616,17 @@ def dump_breaker_note(serial: str, ok: bool) -> None:
 
 DUMP_TIMEOUT_S = 8.0
 DUMP_RETRY_TIMEOUT_S = 10.0
-DUMP_CAT_TIMEOUT_S = 2.5
+# ARM guests often need >2.5s to cat a full hierarchy after a slow dump.
+DUMP_CAT_TIMEOUT_S = 5.0
+
+
+def _uiautomator_dump_wrote(dump_result) -> bool:
+    """True when uiautomator actually wrote the XML (ok or 'dumped to' in output)."""
+    if dump_result.ok:
+        return True
+    blob = f"{dump_result.stdout or ''}\n{dump_result.stderr or ''}".lower()
+    return "dumped to" in blob
+
 
 # Per-serial unwedge kicks — never hammer the same phone more than once per 90s.
 _UNWEDGE_KICKED: dict[str, float] = {}
@@ -680,6 +709,18 @@ def _dump_ui(adb: AdbWrapper, serial: str, *, timeout: float = DUMP_TIMEOUT_S) -
                 if dump_breaker_skip(serial):
                     _kick_unwedge(serial)
                 return ""
+        # Failed dump (non-timeout) must not cat a stale prior XML as "success".
+        if not _uiautomator_dump_wrote(dump):
+            logger.warning(
+                "uiautomator dump failed on %s rc=%s: %s",
+                serial,
+                dump.returncode,
+                ((dump.stderr or dump.stdout or "")[:200]),
+            )
+            dump_breaker_note(serial, False)
+            if dump_breaker_skip(serial):
+                _kick_unwedge(serial)
+            return ""
         cat = adb.shell("cat /sdcard/cpharm_ui.xml", serial=serial, timeout=DUMP_CAT_TIMEOUT_S)
         body = cat.stdout or ""
         dump_breaker_note(serial, len(body) >= 500)
@@ -968,8 +1009,12 @@ _VIEW_URL_DEVICE_PATH_TMP = "/data/local/tmp/cpharm_view_url.txt"
 _MAX_DIRECT_VIEW_URL_LEN = 900
 
 
-def _push_view_url(adb: AdbWrapper, serial: str, url: str) -> bool:
-    """Push browse URL to device; host cmdline stays short (WinError 206 safe)."""
+def _push_view_url(adb: AdbWrapper, serial: str, url: str) -> str:
+    """Push browse URL to device; return remote path used, or \"\" on failure.
+
+    Host cmdline stays short (WinError 206 safe). Callers must ``cat`` the
+    returned path — TMP fallback used to write one file while am start cat'd another.
+    """
     local_path = ""
     try:
         with tempfile.NamedTemporaryFile(
@@ -981,7 +1026,7 @@ def _push_view_url(adb: AdbWrapper, serial: str, url: str) -> bool:
             pushed = adb.push(local_path, remote, serial=serial)
             if pushed.ok:
                 adb.shell(f"chmod 644 {remote} 2>/dev/null; true", serial=serial)
-                return True
+                return remote
             low = (pushed.stderr or "").lower()
             if "read-only" in low or "read only" in low:
                 logger.warning("view url push RO on %s path=%s", serial, remote)
@@ -989,7 +1034,7 @@ def _push_view_url(adb: AdbWrapper, serial: str, url: str) -> bool:
             logger.warning(
                 "view url push failed on %s path=%s: %s", serial, remote, pushed.stderr
             )
-        return False
+        return ""
     finally:
         if local_path:
             try:
@@ -1002,8 +1047,9 @@ def _view_url_data_ref(adb: AdbWrapper, serial: str, url: str) -> str:
     """Return `-d` argument: direct quoted URL or device-side $(cat ...) expansion."""
     if len(url) <= _MAX_DIRECT_VIEW_URL_LEN and '"' not in url and "$(" not in url:
         return f'"{url}"'
-    if _push_view_url(adb, serial, url):
-        return f'"$(cat {_VIEW_URL_DEVICE_PATH})"'
+    remote = _push_view_url(adb, serial, url)
+    if remote:
+        return f'"$(cat {remote})"'
     logger.warning(
         "view url file push failed on %s — direct am start may hit WinError 206",
         serial,
@@ -1369,7 +1415,7 @@ def package_installed(serial: str, pkg: str) -> bool:
 
 
 
-def default_view_package(serial: str) -> Optional[str]:
+def default_view_package(serial: str) -> str | None:
     """Best-effort package for current default VIEW handler for https URLs."""
     exe = adb_executable()
     try:
@@ -1601,11 +1647,10 @@ def packages_for_view_url_attempts(serial: str, preferred: str = "") -> list[str
 
 
 
-def browser_pkg_for_clear(serial: str, preferred: str) -> Optional[str]:
+def browser_pkg_for_clear(serial: str, preferred: str) -> str | None:
     """Pick an installed browser package for ``pm clear`` / ``force-stop``."""
     pkgs = packages_for_view_url_attempts(serial, preferred)
     return pkgs[0] if pkgs else None
-
 
 
 
@@ -1640,10 +1685,11 @@ def invalidate_webview_inset_cache(serial: str | None = None) -> None:
 
 
 def webview_content_top_inset(serial: str, *, force_refresh: bool = False) -> int:
-    """Map page-space sequence Y to screen Y: add WebView top inset (browser chrome)."""
-    import os
-    import time
+    """Map page-space sequence Y to screen Y: add WebView top inset (browser chrome).
 
+    Uses the shared dump semaphore/breaker/timeouts — a raw 25s uiautomator
+    dump here previously bypassed them and stacked with sequence dumps on ARM.
+    """
     raw = (os.environ.get("CPHARM_WEBVIEW_TOP_INSET") or "").strip()
     if raw:
         try:
@@ -1665,43 +1711,34 @@ def webview_content_top_inset(serial: str, *, force_refresh: bool = False) -> in
             return ent[1]
 
     inset: int | None = None
-    exe = adb_executable()
-    try:
-        subprocess.run(
-            [exe, "-s", serial, "shell", "uiautomator", "dump", _WEBVIEW_UI_DUMP],
-            capture_output=True,
-            text=True,
-            errors="replace",  # device output can contain raw bytes — never crash sequence threads on decode
-            timeout=25,
-            creationflags=_SUBPROC_FLAGS,
-        )
-        r = subprocess.run(
-            [exe, "-s", serial, "shell", "cat", _WEBVIEW_UI_DUMP],
-            capture_output=True,
-            text=True,
-            errors="replace",  # device output can contain raw bytes — never crash sequence threads on decode
-            timeout=15,
-            creationflags=_SUBPROC_FLAGS,
-        )
-        inset = parse_webview_top_from_ui_xml(r.stdout or "")
-    except (OSError, subprocess.TimeoutExpired):
-        inset = None
+    adb = AdbWrapper()
+    # Prefer shared _dump_ui path (semaphore + breaker + ARM timeouts).
+    xml = _dump_ui(adb, serial)
+    inset = parse_webview_top_from_ui_xml(xml)
+    if inset is None and xml:
+        # Hierarchy present but no WebView node — try dedicated dump once under semaphore.
+        if not dump_breaker_skip(serial):
+            with _UI_DUMP_SEM:
+                dump = adb.shell(
+                    f"uiautomator dump {_WEBVIEW_UI_DUMP}",
+                    serial=serial,
+                    timeout=DUMP_TIMEOUT_S,
+                )
+                if _uiautomator_dump_wrote(dump):
+                    cat = adb.shell(
+                        f"cat {_WEBVIEW_UI_DUMP}",
+                        serial=serial,
+                        timeout=DUMP_CAT_TIMEOUT_S,
+                    )
+                    inset = parse_webview_top_from_ui_xml(cat.stdout or "")
+                dump_breaker_note(serial, inset is not None)
 
     if inset is None:
         try:
-            wr = subprocess.run(
-                [exe, "-s", serial, "shell", "wm", "size"],
-                capture_output=True,
-                text=True,
-                errors="replace",  # device output can contain raw bytes — never crash sequence threads on decode
-                timeout=10,
-                creationflags=_SUBPROC_FLAGS,
-            )
-            from sequence_geometry import parse_wm_size_output
-
+            wr = adb.shell("wm size", serial=serial, timeout=10.0)
             phys = parse_wm_size_output(wr.stdout or "")
             inset = int(round(192 * phys[1] / 1600)) if phys else 192
-        except (OSError, subprocess.TimeoutExpired, ImportError):
+        except (OSError, ValueError, TypeError):
             inset = 192
 
     inset = max(0, int(inset))

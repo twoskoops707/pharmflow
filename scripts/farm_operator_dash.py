@@ -61,7 +61,10 @@ from wizard.wizard_paths import sequences_dir as wizard_sequences_dir  # noqa: E
 
 LOG_DIR = Path(r"C:\CPharm\logs")
 PANEL = LOG_DIR / "farm_operator_panel.json"
-OVERRIDES = Path("NUL") if __import__('os').name == 'nt' else Path('/dev/null')  # DISABLED: caps were killing revenue
+# Sticky phone list + stop flag + live caps truth. Cap *writes* still go through
+# write_runtime_overrides (SSOT); pointing this at NUL broke sticky phones and
+# /api/stop persistence (overrides_path showed "NUL" on live :8091).
+OVERRIDES = LOG_DIR / "farm_runtime_overrides.json"
 FARM_LOG = LOG_DIR / "farm_354.log"
 ADS_WATCH = LOG_DIR / "ads_watch_state.json"
 CYCLE_LOG = LOG_DIR / "farm_cycles.log"
@@ -113,6 +116,8 @@ def _phones_from_sticky() -> list[str]:
     try:
         data = json.loads(OVERRIDES.read_text(encoding="utf-8-sig")) if OVERRIDES.is_file() else {}
     except (OSError, json.JSONDecodeError, TypeError, ValueError):
+        data = {}
+    if not isinstance(data, dict):
         data = {}
     raw = str(data.get("CPHARM_FARM_PHONES") or "")
     phones = [
@@ -278,7 +283,9 @@ def load_panel() -> dict[str, Any]:
     if not PANEL.is_file():
         return base
     try:
-        data = json.loads(PANEL.read_text(encoding="utf-8"))
+        # utf-8-sig: PowerShell Set-Content BOM previously forced defaults and
+        # wiped the adaptive phone list in the dash UI.
+        data = json.loads(PANEL.read_text(encoding="utf-8-sig"))
     except (OSError, json.JSONDecodeError):
         return base
     if not isinstance(data, dict):
@@ -694,6 +701,24 @@ def _kill_farm() -> None:
         pass
 
 
+def _farm_python() -> str:
+    """Deps-complete interpreter for farm children (same rule as unison supervisor).
+
+    Native ARM64 ``sys.executable`` often lacks cryptography → child dies at
+    import and /api/restart looks like it started a farm that never stays up.
+    """
+    try:
+        from automation.runtime_paths import helper_python
+
+        found = helper_python()
+        if found:
+            return found
+    except Exception:
+        pass
+    pyw = sys.executable.replace("python.exe", "pythonw.exe")
+    return pyw if Path(pyw).is_file() else sys.executable
+
+
 def _start_farm(panel: dict[str, Any]) -> int:
     env = os.environ.copy()
     env["PYTHONPATH"] = str(ROOT) + os.pathsep + env.get("PYTHONPATH", "")
@@ -702,7 +727,7 @@ def _start_farm(panel: dict[str, Any]) -> int:
     env["CPHARM_ALLOW_SEQUENCE_RUNS"] = "1"
     env["CPHARM_FARM_STOP"] = "0"
     # Do not pass hardcoded --phones — run_farm_354 / cycles adapt to live ADB.
-    args = [sys.executable, "-u", str(ROOT / "scripts" / "run_farm_cycles.py")]
+    args = [_farm_python(), "-u", str(ROOT / "scripts" / "run_farm_cycles.py")]
     # Daily budgets → always day mode (hours=0), forever — no 6h cycle restarts.
     args += ["--forever", "--hours", "0"]
     proc = subprocess.Popen(
@@ -711,6 +736,7 @@ def _start_farm(panel: dict[str, Any]) -> int:
         env=env,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
+        **_subprocess_hidden_kwargs(),
     )
     return int(proc.pid)
 
@@ -1003,9 +1029,12 @@ def _progress_blob() -> dict[str, Any]:
     if not PROGRESS.is_file():
         return {}
     try:
-        return json.loads(PROGRESS.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+        # utf-8-sig + dict guard: list/BOM progress JSON used to AttributeError
+        # on prog.get(...) and take down /api/status.
+        data = json.loads(PROGRESS.read_text(encoding="utf-8-sig"))
+    except (OSError, json.JSONDecodeError, TypeError):
         return {}
+    return data if isinstance(data, dict) else {}
 
 
 def _daily_budget_blob() -> dict[str, Any]:
@@ -1417,6 +1446,10 @@ def _farm_worker_alive(procs: list[dict[str, Any]] | None = None) -> bool:
     rows = procs if procs is not None else (_ps_farm().get("processes") or [])
     if any("run_farm_354" in str(p.get("cmd", "")) for p in rows):
         return True
+    # /api/restart spawns run_farm_cycles.py which owns 354; treat cycles as UP
+    # so status/check-in do not flap DOWN between cycle ticks.
+    if any("run_farm_cycles" in str(p.get("cmd", "")) for p in rows):
+        return True
     # EXE-owned farm: CPharm.exe + fresh progress / actives (no python worker).
     if not _cpharm_exe_running():
         return False
@@ -1693,7 +1726,7 @@ def status_payload() -> dict[str, Any]:
     # ensure write these). Keep dash Done/Planned aligned with what farm runs.
     try:
         if OVERRIDES.is_file():
-            ov = json.loads(OVERRIDES.read_text(encoding="utf-8"))
+            ov = json.loads(OVERRIDES.read_text(encoding="utf-8-sig"))
             if isinstance(ov, dict):
                 env = panel.get("env") if isinstance(panel.get("env"), dict) else {}
                 for key in (
@@ -1756,11 +1789,12 @@ def status_payload() -> dict[str, Any]:
                     panel["budgets"] = budgets
     except (OSError, json.JSONDecodeError, TypeError, ValueError):
         pass
-    ads = {}
+    ads: dict[str, Any] = {}
     if ADS_WATCH.is_file():
         try:
-            ads = json.loads(ADS_WATCH.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
+            raw_ads = json.loads(ADS_WATCH.read_text(encoding="utf-8-sig"))
+            ads = raw_ads if isinstance(raw_ads, dict) else {}
+        except (OSError, json.JSONDecodeError, TypeError):
             ads = {}
     procs = _ps_farm()
     proc_rows = procs.get("processes", []) or []
@@ -1806,7 +1840,12 @@ def status_payload() -> dict[str, Any]:
     budgets = panel.get("budgets") if isinstance(panel.get("budgets"), dict) else {}
     phone_rows: list[dict[str, Any]] = []
     live_overlay = _phone_live_overlay()
-    live_proxy: dict[str, dict[str, str]] = {}
+    # Was hard-coded {} — guest proxy / browser / serial on phone cards never
+    # refreshed from ADB even though _live_guest_proxy_by_short existed.
+    try:
+        live_proxy = _live_guest_proxy_by_short()
+    except Exception:
+        live_proxy = {}
     for idx, name in enumerate(panel_phones):
         short = str(name).split(".")[0]
         blob = phones_prog.get(name) or phones_prog.get(short) or {}
@@ -2957,15 +2996,15 @@ function renderStatus(s){
       '<span class="mchip"'+(cls?(' data-cls="'+cls+'"'):'')+'>'+
         '<i>'+esc(label)+'</i><b>'+(val===null||val===undefined||val===''?'—':esc(String(val)))+'</b></span>';
     meta.innerHTML =
-      chip('site', esc(site.url||''))+
+      chip('site', site.url||'')+
       chip('phones', phonesN)+
       chip('seqs/hr', g.seqs_per_hour||'?')+
       chip('ipv', g.ipv||'?')+
       chip('browsers', brows)+
       chip('unique', u.enabled===false?'OFF':'ON', 'ok')+
       (g.heat_down?chip('heat','down','warn'):'')+
-      chip('visits', esc(g.visits_csv||site.daily_visits_csv||'?')+(visitCap?(' / cap '+visitCap):''))+
-      chip('ads', esc(g.ads_csv||site.daily_ads_csv||'?')+(adCap?(' / cap '+adCap):''))+
+      chip('visits', (g.visits_csv||site.daily_visits_csv||'?')+(visitCap?(' / cap '+visitCap):''))+
+      chip('ads', (g.ads_csv||site.daily_ads_csv||'?')+(adCap?(' / cap '+adCap):''))+
       chip('pool P1/P2/P3', [site.path1_count||0,site.path2_count||0,site.path3_count||0].join('/'))+
       chip('live locks', seqs+' seq / '+keys+' keys')+
       chip('ntfy', g.ntfy_topic||site.ntfy_topic||'—');
@@ -3143,7 +3182,7 @@ async function sendCmd(){
   try{
     await post('/api/cmd', {text});
     inp.value = '';
-    toast('Sent to agent via ntfy');
+    toast('Logged to dash console (local; no ntfy)');
     await refresh();
   } catch(e){ toast(String(e)); }
 }
@@ -3386,7 +3425,11 @@ def index():
 
 @app.get("/api/status")
 def api_status():
-    return jsonify(status_payload())
+    try:
+        return jsonify(status_payload())
+    except Exception as exc:
+        log.exception("api/status failed")
+        return jsonify({"ok": False, "error": str(exc), "phone_rows": [], "panel": {}}), 500
 
 
 @app.get("/api/publishers")
@@ -3398,16 +3441,18 @@ def api_publishers():
         return jsonify(publishers_payload())
     except Exception as exc:
         log.warning("api/publishers failed: %s", exc)
+        # Keep a usable fallback tab, but ok:false so clients do not treat the
+        # error payload as a successful publishers load.
         return jsonify(
             {
-                "ok": True,
+                "ok": False,
                 "active": "mantis",
                 "publishers": [
                     {"slug": "mantis", "display_name": "Mantis", "configured": True, "stub": False},
                 ],
                 "error": str(exc),
             }
-        )
+        ), 500
 
 
 @app.post("/api/publishers/add")
@@ -3450,7 +3495,7 @@ def api_publishers_active():
     body = request.get_json(force=True, silent=True) or {}
     slug = str(body.get("slug") or "").strip()
     try:
-        from automation.publisher_providers import publishers_payload, set_active_publisher
+        from automation.publisher_providers import set_active_publisher
 
         return jsonify(set_active_publisher(slug))
     except Exception as exc:
@@ -3475,11 +3520,10 @@ def api_publisher_totals(slug: str):
     try:
         from automation.publisher_providers import load_publisher_totals, publishers_payload
 
-        totals = load_publisher_totals(slug)
-        if not publishers_payload().get("publishers") or not any(
-            p.get("slug") == slug for p in publishers_payload().get("publishers", [])
-        ):
+        pubs = publishers_payload().get("publishers") or []
+        if not any(p.get("slug") == slug for p in pubs):
             return jsonify({"ok": False, "error": "unknown publisher: " + slug}), 404
+        totals = load_publisher_totals(slug)
         return jsonify({"ok": True, "slug": slug, "totals": totals})
     except Exception as exc:
         log.warning("api/publishers/%s/totals failed: %s", slug, exc)
@@ -3582,11 +3626,15 @@ def api_stop():
         panel = load_panel()
         panel["last_action"] = "stop"
         panel["last_action_at"] = _utc()
-        panel["env"]["CPHARM_FARM_STOP"] = "1"
+        env = panel.get("env") if isinstance(panel.get("env"), dict) else {}
+        env["CPHARM_FARM_STOP"] = "1"
+        panel["env"] = env
         save_panel(panel)
         # keep stop sticky in overrides until restart clears it
         try:
-            data = json.loads(OVERRIDES.read_text(encoding="utf-8")) if OVERRIDES.is_file() else {}
+            data = json.loads(OVERRIDES.read_text(encoding="utf-8-sig")) if OVERRIDES.is_file() else {}
+            if not isinstance(data, dict):
+                data = {}
             data["CPHARM_FARM_STOP"] = "1"
             data["updated"] = _utc()
             OVERRIDES.write_text(json.dumps(data, indent=2), encoding="utf-8")
@@ -3604,10 +3652,14 @@ def api_kill_switch():
         panel = load_panel()
         panel["last_action"] = "kill-switch"
         panel["last_action_at"] = _utc()
-        panel["env"]["CPHARM_FARM_STOP"] = "1"
+        env = panel.get("env") if isinstance(panel.get("env"), dict) else {}
+        env["CPHARM_FARM_STOP"] = "1"
+        panel["env"] = env
         save_panel(panel)
         try:
-            data = json.loads(OVERRIDES.read_text(encoding="utf-8")) if OVERRIDES.is_file() else {}
+            data = json.loads(OVERRIDES.read_text(encoding="utf-8-sig")) if OVERRIDES.is_file() else {}
+            if not isinstance(data, dict):
+                data = {}
             data["CPHARM_FARM_STOP"] = "1"
             data["updated"] = _utc()
             OVERRIDES.write_text(json.dumps(data, indent=2), encoding="utf-8")
@@ -3628,10 +3680,23 @@ def api_restart():
                 if k in body
             }
         )
-        panel["env"]["CPHARM_FARM_STOP"] = "0"
+        env = panel.get("env") if isinstance(panel.get("env"), dict) else {}
+        env["CPHARM_FARM_STOP"] = "0"
+        panel["env"] = env
         panel["last_action"] = "restart"
         panel["last_action_at"] = _utc()
         saved = save_panel(panel)
+        # save_panel writes STOP=0 into overrides; reinforce sticky clear in case
+        # a concurrent /api/stop left a non-dict or partial overrides file.
+        try:
+            data = json.loads(OVERRIDES.read_text(encoding="utf-8-sig")) if OVERRIDES.is_file() else {}
+            if not isinstance(data, dict):
+                data = {}
+            data["CPHARM_FARM_STOP"] = "0"
+            data["updated"] = _utc()
+            OVERRIDES.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        except OSError:
+            pass
         clear_kill_switch()
         _kill_farm()
         time.sleep(2)
@@ -3644,7 +3709,8 @@ def api_clear():
     body = request.get_json(force=True, silent=True) or {}
     phones = body.get("phones") or load_panel().get("phones") or DEFAULT_PHONES
     try:
-        results = _clear_phones(list(phones)[:5])
+        # Match save_panel phone cap (12) — [:5] left vm5+ uncleared on 6–7 phone farms.
+        results = _clear_phones(list(phones)[:12])
     except Exception as exc:
         return jsonify({"ok": False, "error": str(exc)}), 500
     panel = load_panel()
@@ -3849,16 +3915,57 @@ def api_money_monitor_run():
         return jsonify({"ok": False, "error": str(exc)}), 500
 
 
+def _dash_pid_alive(pid: int) -> bool:
+    if pid <= 0:
+        return False
+    try:
+        import psutil
+
+        proc = psutil.Process(pid)
+        if not proc.is_running():
+            return False
+        cmd = " ".join(str(x) for x in (proc.cmdline() or []))
+        return "farm_operator_dash.py" in cmd and "-c" not in cmd
+    except Exception:
+        pass
+    try:
+        os.kill(pid, 0)
+        return True
+    except (OSError, ProcessLookupError):
+        return False
+
+
 def main() -> int:
     # Seed panel on first launch so I can monitor immediately.
     if not PANEL.is_file():
         save_panel(_default_panel())
         log.info("seeded %s", PANEL)
-    # Exclusive bind — Windows can LISTEN twice on :8091 with SO_REUSEADDR and
-    # then API requests hang / look "dash down". Refuse a second instance.
+    dash_pid = LOG_DIR / "farm_operator_dash.pid"
+    # PID-file + bind probe: close-then-rebind TOCTOU let two dashes LISTEN on
+    # :8091 under Windows SO_REUSEADDR and hang /api/status.
+    if dash_pid.is_file():
+        try:
+            old = int(dash_pid.read_text(encoding="utf-8").strip())
+        except (OSError, ValueError):
+            old = 0
+        if _dash_pid_alive(old):
+            log.error(
+                "dash already running pid=%s — refusing duplicate on %s:%s",
+                old,
+                HOST,
+                PORT,
+            )
+            return 2
+        try:
+            dash_pid.unlink(missing_ok=True)
+        except OSError:
+            pass
     probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
-        probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 0)
+        if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+            probe.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        else:
+            probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 0)
         probe.bind((HOST, PORT))
         probe.close()
     except OSError as exc:
@@ -3874,6 +3981,10 @@ def main() -> int:
             pass
         return 2
     try:
+        dash_pid.write_text(str(os.getpid()), encoding="utf-8")
+    except OSError as exc:
+        log.warning("dash pid file write soft-fail: %s", exc)
+    try:
         from automation.farm_money_monitor import start_background
 
         started = start_background()
@@ -3881,7 +3992,13 @@ def main() -> int:
     except Exception as exc:
         log.warning("farm_money_monitor start soft-fail: %s", exc)
     log.info("Farm Operator dash http://%s:%s", HOST, PORT)
-    app.run(host=HOST, port=PORT, debug=False, use_reloader=False, threaded=True)
+    try:
+        app.run(host=HOST, port=PORT, debug=False, use_reloader=False, threaded=True)
+    finally:
+        try:
+            dash_pid.unlink(missing_ok=True)
+        except OSError:
+            pass
     return 0
 
 

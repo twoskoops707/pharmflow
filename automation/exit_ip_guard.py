@@ -40,6 +40,25 @@ def _shell_text(result: Any) -> str:
     return out.strip() if hasattr(out, "strip") else str(out).strip()
 
 
+def _looks_like_public_ip(value: str) -> bool:
+    """True for a plausible IPv4 or IPv6 literal (Tor exits can be either)."""
+    ip = (value or "").strip()
+    if not ip or len(ip) > 45 or " " in ip or "/" in ip:
+        return False
+    if "." in ip and ":" not in ip:
+        parts = ip.split(".")
+        if len(parts) != 4:
+            return False
+        try:
+            return all(0 <= int(p) <= 255 for p in parts)
+        except ValueError:
+            return False
+    if ":" in ip and ip.count(":") >= 2:
+        # Accept compressed IPv6; reject obvious junk / HTML.
+        return all(c in "0123456789abcdefABCDEF:" for c in ip)
+    return False
+
+
 def probe_phone_exit_ip(
     tor: TorManager,
     phone_index: int,
@@ -48,7 +67,7 @@ def probe_phone_exit_ip(
 ) -> str:
     """Return public exit IP for one phone (Tor tunnel first, then inject curl)."""
     ip = (tor.fetch_exit_ip(phone_index) or "").strip()
-    if ip:
+    if _looks_like_public_ip(ip):
         return ip
     if serial and inject_enabled():
         port = phone_inject_port(phone_index)
@@ -58,7 +77,7 @@ def probe_phone_exit_ip(
                 "https://api.ipify.org 2>/dev/null"
             )
             ip = _shell_text(adb.shell(cmd, serial=serial))
-            if ip and len(ip) <= 45 and "." in ip:
+            if _looks_like_public_ip(ip):
                 return ip
         except Exception as exc:
             logger.debug("inject ip probe failed phone=%d serial=%s: %s", phone_index, serial, exc)

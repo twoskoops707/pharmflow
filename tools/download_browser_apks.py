@@ -11,9 +11,10 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-WIZ = ROOT / "wizard"
-if str(WIZ) not in sys.path:
-    sys.path.insert(0, str(WIZ))
+# ROOT must be on path: mumu_farm_ops imports automation.* as a package.
+for _p in (str(ROOT), str(ROOT / "wizard"), str(ROOT / "automation")):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
 import mumu_farm_ops as farm  # noqa: E402
 
@@ -22,7 +23,7 @@ def main() -> int:
     def log(msg: str) -> None:
         print(msg)
 
-    print("Operators: CPharmMuMuSetup.exe → GO downloads Chromium automatically.")
+    print("Operators: CPharmMuMuSetup.exe -> GO downloads Chromium automatically.")
     apk = farm.download_chromium_apk(log)
     if not apk or not apk.is_file():
         print("Download failed.", file=sys.stderr)
