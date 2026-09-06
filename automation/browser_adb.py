@@ -595,7 +595,8 @@ def dump_breaker_note(serial: str, ok: bool) -> None:
         )
 
 
-DUMP_TIMEOUT_S = 1.2
+DUMP_TIMEOUT_S = 8.0
+DUMP_RETRY_TIMEOUT_S = 10.0
 DUMP_CAT_TIMEOUT_S = 2.5
 
 # Per-serial unwedge kicks — never hammer the same phone more than once per 90s.
@@ -639,13 +640,15 @@ def _kick_unwedge(serial: str) -> None:
 
 
 def _dump_ui(adb: AdbWrapper, serial: str, *, timeout: float = DUMP_TIMEOUT_S) -> str:
-    """UI dump with short timeout — hung uiautomator previously froze the whole farm.
+    """UI dump with a real timeout and one retry.
 
-    Default 1.2s (was 1.5, 2, 4, originally 12): fast-fail a stuck dump so the
-    pipeline falls back (fixed coords / inject proxy) instead of stacking.
-    8 phones × many dumps per sequence — every 0.3s saved per dump compounds.
-    When the breaker trips, _kick_unwedge actively kills the wedged uiautomator
-    and reconnects the transport instead of just skipping dumps.
+    The old 1.2s default was shorter than a healthy ARM-VM dump — uiautomator
+    on Snapdragon guests routinely needs 2-6s — so almost every dump timed out,
+    flows went blind, and taps fell back to fixed coordinates. Now: 8s first
+    attempt, one 10s retry on a pure timeout. The circuit breaker still trips
+    on a truly wedged guest (worst case ~18s before it trips, well under the
+    janitor's 25s wedged threshold) and _kick_unwedge clears the guest process.
+    The 2-concurrent dump semaphore still bounds stack-up across 8+ phones.
     """
     if dump_breaker_skip(serial):
         return ""
@@ -656,11 +659,27 @@ def _dump_ui(adb: AdbWrapper, serial: str, *, timeout: float = DUMP_TIMEOUT_S) -
             timeout=timeout,
         )
         if not dump.ok and dump.returncode == 124:
-            logger.warning("uiautomator dump timed out on %s", serial)
+            logger.warning(
+                "uiautomator dump timed out on %s (%.1fs) — one retry at %.0fs",
+                serial,
+                timeout,
+                DUMP_RETRY_TIMEOUT_S,
+            )
             dump_breaker_note(serial, False)
             if dump_breaker_skip(serial):
                 _kick_unwedge(serial)
-            return ""
+                return ""
+            dump = adb.shell(
+                "uiautomator dump /sdcard/cpharm_ui.xml",
+                serial=serial,
+                timeout=DUMP_RETRY_TIMEOUT_S,
+            )
+            if not dump.ok and dump.returncode == 124:
+                logger.warning("uiautomator dump retry timed out on %s", serial)
+                dump_breaker_note(serial, False)
+                if dump_breaker_skip(serial):
+                    _kick_unwedge(serial)
+                return ""
         cat = adb.shell("cat /sdcard/cpharm_ui.xml", serial=serial, timeout=DUMP_CAT_TIMEOUT_S)
         body = cat.stdout or ""
         dump_breaker_note(serial, len(body) >= 500)
