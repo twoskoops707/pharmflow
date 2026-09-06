@@ -139,12 +139,11 @@ def launch_instance_index(idx: int, timeout: float = 120.0) -> tuple[bool, str]:
     if instance_shell_running(idx):
         return True, f"already_running idx={idx}"
     vm_name = f"vm{idx}.gmadoa"
-    hcs = hcs_compute_present(vm_name)
-    if hcs is False:
-        return (
-            False,
-            f"hcs_missing {vm_name} — start/restart from MuMu Multi-instance UI (F6)",
-        )
+    # No HCS gate here: a STOPPED VM is legitimately absent from HCS — the shell
+    # process itself registers and boots it (MuHcsDaemon runs inside the shell,
+    # see vm0 hcs.log). Gating on HCS presence refused every cold start with
+    # "hcs_missing", which is why Start-all-phones could not boot stopped phones.
+    # Bare launches are proven working (vm10 farmed with a bare --VmIndex shell).
     exe = _shell_exe()
     if exe is None:
         return False, "nemux-shell-winui.exe missing"
