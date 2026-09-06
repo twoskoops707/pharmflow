@@ -275,6 +275,13 @@ jobs:
           pip install -r requirements.txt
           pip install pyinstaller pillow
 
+      # ARM64 EXE must match the x64 bundle: browser APKs ship INSIDE the EXE so
+      # offline installs work on the Snapdragon operator box. Without this step
+      # the ARM64 build was 41MB vs the x64's 525MB — silent feature loss.
+      - name: Prefetch browser APKs into the EXE
+        working-directory: wizard
+        run: python ../tools/prefetch_browser_apks.py
+
       - name: Smoke — compile + imports that matter on arm64
         run: |
           python -m py_compile wizard/cpharm_app_webview.py
