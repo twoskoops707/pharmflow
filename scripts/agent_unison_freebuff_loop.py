@@ -2,6 +2,7 @@
 """FREEBUFF loop — runs agent_unison_freebuff_tick every 45s."""
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 import time

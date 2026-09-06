@@ -28,6 +28,14 @@ EVCPM_YELLOW = 1.0
 ECPM_GREEN = 0.15
 ECPM_RED = 0.05
 
+# Day profit targets — floor = keep over $40; push toward stretch $100.
+# payout ≈ impressions × eCPM ÷ 1000 — not click count.
+TARGET_PROFIT_REALISTIC_USD = 40.0  # floor — keep over $40
+TARGET_IMPR_STRONG = 18000
+TARGET_ECPM_STRONG = 4.00
+TARGET_PROFIT_STRONG_USD = 100.0  # strong day / primary push
+TARGET_PROFIT_STRETCH_USD = 100.0  # stretch == strong for $100 operator days
+
 StatusColor = Literal["GREEN", "YELLOW", "RED", "EMPTY"]
 
 

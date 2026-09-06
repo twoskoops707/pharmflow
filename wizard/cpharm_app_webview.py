@@ -4,6 +4,7 @@ Unified CPharm WebView shell — 9-step wizard matching CPharmWizard.
 from __future__ import annotations
 
 import json
+import os
 import sys
 import traceback
 from pathlib import Path
@@ -23,6 +24,264 @@ def is_pywebview_available() -> bool:
         return True
     except Exception:
         return False
+
+
+def _webview_fail_reason(exc: BaseException | None = None, *, stage: str = "") -> str:
+    """Human-readable WHY the WebView2 deck could not start."""
+    parts: list[str] = []
+    if stage:
+        parts.append(f"stage={stage}")
+    if exc is not None:
+        parts.append(f"{type(exc).__name__}: {exc}")
+        tb = traceback.format_exc()
+        if tb and tb.strip() != "NoneType: None":
+            parts.append(tb.strip())
+    arch = ""
+    try:
+        import platform as _plat
+
+        arch = f"machine={_plat.machine()} frozen={getattr(sys, 'frozen', False)}"
+    except Exception:
+        arch = f"frozen={getattr(sys, 'frozen', False)}"
+    parts.append(arch)
+    return "\n".join(parts)
+
+
+def _log_webview_fallback(reason: str, *, interactive: bool = True) -> None:
+    """Never silently fall back to Tk — shout to stderr, boot log, and disk."""
+    banner = (
+        "WEBVIEW2 DECK FAILED — falling back to Tk Home UI.\n"
+        f"{reason}\n"
+        "--- end webview fallback reason ---"
+    )
+    try:
+        print(banner, file=sys.stderr, flush=True)
+    except Exception:
+        pass
+    try:
+        err_path = Path.home() / "CPharm" / "cpharm_webview_fallback.log"
+        err_path.parent.mkdir(parents=True, exist_ok=True)
+        err_path.write_text(banner + "\n", encoding="utf-8")
+    except OSError:
+        pass
+    try:
+        import cpharm_wizard_bridge as bridge
+
+        for line in banner.splitlines():
+            bridge._emit_log("boot", line + "\n")
+    except Exception:
+        pass
+    # Visible MessageBox so operators see WHY even when stderr is hidden (windowed EXE).
+    if interactive and sys.platform == "win32":
+        try:
+            import ctypes
+
+            short = reason.strip()
+            if len(short) > 900:
+                short = short[:900] + "…"
+            ctypes.windll.user32.MessageBoxW(
+                0,
+                f"PharmFlow WebView2 deck failed — using Tk fallback.\n\n{short}",
+                "PharmFlow — WebView2 unavailable",
+                0x00000010,  # MB_ICONERROR
+            )
+        except Exception:
+            pass
+
+
+def _webview2_runtime_client_key() -> str:
+    return r"SOFTWARE\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"
+
+
+def _webview2_nonwow_runtime_registered() -> bool:
+    """True when native (non-WOW) EdgeUpdate client key exists — ARM64 apps need this."""
+    if sys.platform != "win32":
+        return False
+    try:
+        import winreg
+
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, _webview2_runtime_client_key()):
+            return True
+    except OSError:
+        return False
+
+
+def _discover_arm64_webview2_runtime_folder() -> str | None:
+    """
+    Locate an on-disk ARM64 WebView2 runtime folder (contains msedgewebview2.exe).
+
+    On Snapdragon/ARM64 Windows the Evergreen installer often lands binaries under
+    Program Files (x86) and registers only the WOW6432Node client key. Native ARM64
+    EXEs miss the non-WOW key and fail unless BrowserExecutableFolder is set.
+    """
+    if sys.platform != "win32":
+        return None
+    try:
+        import platform as _plat
+        import struct
+    except Exception:
+        return None
+    if _plat.machine().lower() not in ("arm64", "aarch64"):
+        return None
+
+    roots: list[Path] = []
+    for env_name in ("ProgramFiles(x86)", "ProgramFiles", "LOCALAPPDATA"):
+        base = os.environ.get(env_name)
+        if not base:
+            continue
+        if env_name == "LOCALAPPDATA":
+            roots.append(Path(base) / "Microsoft" / "EdgeWebView" / "Application")
+        else:
+            roots.append(Path(base) / "Microsoft" / "EdgeWebView" / "Application")
+
+    candidates: list[Path] = []
+    for root in roots:
+        if not root.is_dir():
+            continue
+        for child in root.iterdir():
+            exe = child / "msedgewebview2.exe"
+            if child.is_dir() and exe.is_file():
+                candidates.append(child)
+    if not candidates:
+        return None
+
+    def _is_arm64_pe(path: Path) -> bool:
+        try:
+            data = path.read_bytes()[:4096]
+            pe = struct.unpack_from("<I", data, 0x3C)[0]
+            machine = struct.unpack_from("<H", data, pe + 4)[0]
+            return machine == 0xAA64
+        except Exception:
+            return False
+
+    arm64 = [c for c in candidates if _is_arm64_pe(c / "msedgewebview2.exe")]
+    pool = arm64 or candidates
+    pool.sort(key=lambda p: p.name, reverse=True)
+    return str(pool[0])
+
+
+def _ensure_webview2_runtime_path() -> str | None:
+    """Set pywebview WEBVIEW2_RUNTIME_PATH when native registry lookup would miss."""
+    existing = os.environ.get("WEBVIEW2_BROWSER_EXECUTABLE_FOLDER", "").strip()
+    if existing and Path(existing).is_dir():
+        try:
+            import webview
+
+            webview.settings["WEBVIEW2_RUNTIME_PATH"] = existing
+        except Exception:
+            pass
+        return existing
+    if _webview2_nonwow_runtime_registered():
+        return None
+    folder = _discover_arm64_webview2_runtime_folder()
+    if not folder:
+        return None
+    os.environ["WEBVIEW2_BROWSER_EXECUTABLE_FOLDER"] = folder
+    try:
+        import webview
+
+        webview.settings["WEBVIEW2_RUNTIME_PATH"] = folder
+    except Exception:
+        pass
+    try:
+        print(
+            f"WEBVIEW2: non-WOW registry missing; using BrowserExecutableFolder={folder}",
+            file=sys.stderr,
+            flush=True,
+        )
+    except Exception:
+        pass
+    return folder
+
+
+def _overlay_netcore_webview2_dlls() -> None:
+    """
+    On ARM64, replace pywebview's net462 WebView2 managed DLLs with netcoreapp3.0
+    copies so pythonnet+coreclr can reflect WebView2 without ContextMenu TypeLoadException.
+    """
+    try:
+        import platform as _plat
+        import shutil
+
+        import webview
+    except Exception:
+        return
+    if _plat.machine().lower() not in ("arm64", "aarch64"):
+        return
+
+    lib_dir = Path(webview.__file__).resolve().parent / "lib"
+    candidates = [
+        _wizard_dir / "bundled" / "webview2_netcore",
+        Path(getattr(sys, "_MEIPASS", "")) / "webview" / "lib",
+        Path(getattr(sys, "_MEIPASS", "")) / "bundled" / "webview2_netcore",
+    ]
+    src_dir = next((p for p in candidates if (p / "Microsoft.Web.WebView2.WinForms.dll").is_file()), None)
+    if src_dir is None or not lib_dir.is_dir():
+        return
+    # If already netcore-sized / marked, skip. Always overlay from our bundle when present
+    # outside lib_dir itself.
+    if src_dir.resolve() == lib_dir.resolve():
+        return
+    for name in (
+        "Microsoft.Web.WebView2.Core.dll",
+        "Microsoft.Web.WebView2.WinForms.dll",
+    ):
+        src = src_dir / name
+        dst = lib_dir / name
+        if src.is_file():
+            try:
+                shutil.copy2(src, dst)
+            except OSError as exc:
+                print(f"WEBVIEW2: could not overlay {name}: {exc}", file=sys.stderr, flush=True)
+
+
+def _patch_pywebview_winforms_openfolder() -> None:
+    """
+    pywebview 6.2.x OpenFolderDialog reflects netfx-only FileDialogNative+IFileDialog.
+    That type is absent on .NET 8 Desktop (ARM64 coreclr path) and crashes import.
+    Soft-patch the class so folder dialogs degrade instead of killing the deck.
+    """
+    try:
+        import webview
+    except Exception:
+        return
+    path = Path(webview.__file__).resolve().parent / "platforms" / "winforms.py"
+    if not path.is_file():
+        return
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return
+    marker = "CPHARM_NET8_OPENFOLDER_PATCH"
+    if marker in text:
+        return
+    needle = "class OpenFolderDialog:\n"
+    start = text.find(needle)
+    if start < 0:
+        return
+    rest = text[start + len(needle) :]
+    end_rel = rest.find("\n_main_window_created")
+    if end_rel < 0:
+        end_rel = rest.find("\nclass ")
+    if end_rel < 0:
+        return
+    # Stub: deck does not need the Vista folder picker; returning None is fine.
+    stub = (
+        f"class OpenFolderDialog:\n"
+        f"    # {marker}\n"
+        f"    foldersFilter = 'Folders|\\n'\n"
+        f"\n"
+        f"    @classmethod\n"
+        f"    def show(cls, parent=None, initialDirectory=None, allow_multiple=False, title=None):\n"
+        f"        return None\n"
+        f"\n"
+    )
+    new_text = text[:start] + stub + rest[end_rel + 1 :]
+    try:
+        path.write_text(new_text, encoding="utf-8")
+        print("WEBVIEW2: patched pywebview OpenFolderDialog for .NET 8", file=sys.stderr, flush=True)
+    except OSError as exc:
+        print(f"WEBVIEW2: OpenFolderDialog patch failed: {exc}", file=sys.stderr, flush=True)
 
 
 def _html_url(*, view: str | None = None) -> str:
@@ -518,9 +777,41 @@ def _build_native_menu(api: "CPharmAppApi") -> list:
     ]
 
 
+def _ensure_webview2_runtime_path() -> str | None:
+    """Set pywebview WEBVIEW2_RUNTIME_PATH when native registry lookup would miss."""
+    existing = os.environ.get("WEBVIEW2_BROWSER_EXECUTABLE_FOLDER", "").strip()
+    if existing and Path(existing).is_dir():
+        return existing
+    if _webview2_nonwow_runtime_registered():
+        return None
+    folder = _discover_arm64_webview2_runtime_folder()
+    if not folder:
+        return None
+    os.environ["WEBVIEW2_BROWSER_EXECUTABLE_FOLDER"] = folder
+    try:
+        import webview
+
+        webview.settings["WEBVIEW2_RUNTIME_PATH"] = folder
+    except Exception:
+        pass
+    try:
+        print(
+            f"WEBVIEW2: non-WOW registry missing; using BrowserExecutableFolder={folder}",
+            file=sys.stderr,
+            flush=True,
+        )
+    except Exception:
+        pass
+    return folder
+
+
 def run_cpharm_app(*, initial_view: str | None = None) -> None:
     import webview
     from cpharm_version import instance_title
+
+    _overlay_netcore_webview2_dlls()
+    _patch_pywebview_winforms_openfolder()
+    _ensure_webview2_runtime_path()
 
     api = CPharmAppApi()
     window = webview.create_window(
@@ -547,6 +838,14 @@ def run_cpharm_app_or_fallback(*, initial_view: str | None = None) -> None:
             pass
 
     if not is_pywebview_available():
+        try:
+            import webview  # noqa: F401
+        except Exception as exc:
+            _log_webview_fallback(_webview_fail_reason(exc, stage="import webview"))
+        else:
+            _log_webview_fallback(
+                _webview_fail_reason(stage="is_pywebview_available returned False")
+            )
         _fallback_tk(initial_view=initial_view)
         return
 
@@ -557,17 +856,23 @@ def run_cpharm_app_or_fallback(*, initial_view: str | None = None) -> None:
         try:
             from dotnet_provision import ensure_pythonnet_ready
 
-            ensure_pythonnet_ready()
-        except Exception:
-            pass
+            runtime = ensure_pythonnet_ready()
+            if runtime is None:
+                # Soft warn only — still attempt the deck; MessageBox on final fallback.
+                _log_webview_fallback(
+                    _webview_fail_reason(
+                        stage="dotnet_provision.ensure_pythonnet_ready returned None"
+                    ),
+                    interactive=False,
+                )
+        except Exception as exc:
+            _log_webview_fallback(
+                _webview_fail_reason(exc, stage="dotnet_provision"),
+                interactive=False,
+            )
 
     try:
         run_cpharm_app(initial_view=initial_view)
-    except Exception:
-        try:
-            err_path = Path.home() / "CPharm" / "cpharm_webview_fallback.log"
-            err_path.parent.mkdir(parents=True, exist_ok=True)
-            err_path.write_text(traceback.format_exc(), encoding="utf-8")
-        except OSError:
-            pass
+    except Exception as exc:
+        _log_webview_fallback(_webview_fail_reason(exc, stage="run_cpharm_app"))
         _fallback_tk(initial_view=initial_view)

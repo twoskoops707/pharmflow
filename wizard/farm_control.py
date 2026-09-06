@@ -70,19 +70,49 @@ def _helper_script_path(name: str) -> Path | None:
     return alt if alt.is_file() else None
 
 
-def _resolve_helper_python() -> str | None:
+_probe_cache: dict[tuple[str, str], bool] = {}
+
+
+def _python_can_import(python_exe: str, module: str) -> bool:
+    """True when python_exe can actually import module (cached probe).
+
+    Existence of pythonw.exe says nothing about which packages it has — a
+    flask-less interpreter made the operator dash die silently at startup.
+    """
+    key = (python_exe, module)
+    if key in _probe_cache:
+        return _probe_cache[key]
+    ok = False
+    try:
+        proc = subprocess.run(
+            [python_exe, "-c", f"import {module}"],
+            capture_output=True,
+            timeout=20,
+            **hidden_run_kwargs(),
+        )
+        ok = proc.returncode == 0
+    except Exception:
+        ok = False
+    _probe_cache[key] = ok
+    return ok
+
+
+def _resolve_helper_python(*, requires: str = "psutil") -> str | None:
     """Return a real python/pythonw for helper processes.
 
     Frozen CPharm.exe cannot re-exec ``CPharm.exe -u script.py`` as a headless
     worker. Prefer system pythonw; None means fall back to in-process threads.
+    ``requires`` names a module the helper needs — candidates are probed so a
+    python without the package is skipped instead of silently crashing the
+    helper at startup.
     """
     if not getattr(sys, "frozen", False):
         exe = sys.executable
         if os.name == "nt" and exe.lower().endswith("python.exe"):
             pyw = exe[:-10] + "pythonw.exe"
             if Path(pyw).is_file():
-                return pyw
-        return exe
+                return pyw if _python_can_import(pyw, requires) else None
+        return exe if _python_can_import(exe, requires) else None
 
     local = Path(os.environ.get("LOCALAPPDATA", ""))
     candidates: list[Path] = []
@@ -108,10 +138,11 @@ def _resolve_helper_python() -> str | None:
     ]
     for cand in candidates:
         if cand.is_file() and "CPharm" not in str(cand):
-            return str(cand)
+            if _python_can_import(str(cand), requires):
+                return str(cand)
     for name in ("pythonw", "python"):
         found = shutil.which(name)
-        if found and "CPharm" not in found:
+        if found and "CPharm" not in found and _python_can_import(found, requires):
             return found
     return None
 
@@ -185,11 +216,23 @@ def ensure_operator_stack(*, log: Callable[[str, str], None] | None = None) -> l
 
     root = bundle_root()
     spawn_kw = hidden_run_kwargs()
-    helper_py = _resolve_helper_python()
-    if helper_py:
-        _log(f"operator helpers via {helper_py}", "ok")
-    else:
-        _log("no system pythonw — helpers run in-process threads", "warn")
+    # Helper lanes have different package needs — the dash needs flask, the rest
+    # need psutil. Resolve per-helper so a flask-less python never silently
+    # kills the dash at startup (proven failure on this ARM64 box).
+    _helper_requires = {
+        "farm_operator_dash.py": "flask",
+    }
+    helper_py_by_require: dict[str, str | None] = {}
+
+    def _helper_python_for(name: str) -> str | None:
+        req = _helper_requires.get(name, "psutil")
+        if req not in helper_py_by_require:
+            helper_py_by_require[req] = _resolve_helper_python(requires=req)
+            if helper_py_by_require[req]:
+                _log(f"operator helpers ({req}) via {helper_py_by_require[req]}", "ok")
+            else:
+                _log(f"no system python with {req} — {name} runs in-process", "warn")
+        return helper_py_by_require[req]
 
     for name, argv_extra, needle in _HELPER_SPECS:
         if name == "run_mantis_inject_proxies.py":
@@ -204,6 +247,7 @@ def ensure_operator_stack(*, log: Callable[[str, str], None] | None = None) -> l
         env = os.environ.copy()
         env["PYTHONPATH"] = str(root) + os.pathsep + env.get("PYTHONPATH", "")
         env.setdefault("CPHARM_FARM_STOP", "0")
+        helper_py = _helper_python_for(name)
         if helper_py:
             try:
                 proc = subprocess.Popen(
