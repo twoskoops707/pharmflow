@@ -12,6 +12,7 @@ import platform
 import shutil
 import subprocess
 import sys
+import time
 import urllib.request
 import webbrowser
 import zipfile
@@ -251,6 +252,125 @@ def try_connect_mumu_via_adb(
         return []
 
 
+# (start_port, stride, count) — MuMu uses 16384 + n*32; emulator/cloud uses 5555 + n*2
+_AUTO_CONNECT_RANGES = ((16384, 32, 10), (5555, 2, 8))
+
+
+def _adb_exe() -> str:
+    """Single adb resolution used by every discovery helper."""
+    try:
+        from adb_paths import adb_executable
+
+        return adb_executable()
+    except Exception:
+        return str(_adb_path())
+
+
+def _known_fleet_serials() -> list[str]:
+    """Live farm serials from CPharm runtime state, never hardcoded ports.
+
+    The farm stack (supervisor, cycles, injectors) persists the canonical
+    vm→10.0.2.x mapping in ADB_SERIAL_MAP.lock.json and the active serial list in
+    farm_runtime_overrides.json (CPHARM_ADB_SERIALS). On ARM MuMu the guest
+    phones live on 10.0.2.x NAT addresses, which the legacy 127.0.0.1 range
+    scan can never reach — so discovery must re-attach these exact serials.
+    Best-effort and bounded; returns [] when no farm state exists.
+    """
+    import json
+
+    log_dir = Path(os.environ.get("CPHARM_LOG_DIR", r"C:\CPharm\logs"))
+    serials: list[str] = []
+    seen: set[str] = set()
+
+    def _add(s: str) -> None:
+        s = (s or "").strip()
+        if not s or ":" not in s:
+            return
+        if s in seen:
+            return
+        seen.add(s)
+        serials.append(s)
+
+    try:
+        lock = log_dir / "ADB_SERIAL_MAP.lock.json"
+        if lock.is_file():
+            data = json.loads(lock.read_text(encoding="utf-8-sig"))
+            for m in (data.get("phones") or {}, data.get("tablet") or {}):
+                for serial in m.values():
+                    _add(str(serial))
+    except (OSError, json.JSONDecodeError, TypeError, ValueError):
+        pass
+    try:
+        over = log_dir / "farm_runtime_overrides.json"
+        if over.is_file():
+            data = json.loads(over.read_text(encoding="utf-8-sig"))
+            raw = str(data.get("CPHARM_ADB_SERIALS") or "")
+            for serial in raw.split(","):
+                _add(serial)
+    except (OSError, json.JSONDecodeError, TypeError, ValueError):
+        pass
+    return serials
+
+
+def _connect_serials(serials: list[str], *, deadline: float | None = None) -> list[str]:
+    """Bounded ``adb connect`` for each serial; returns online phones found.
+
+    Honors an optional monotonic ``deadline`` so a fleet of dead endpoints can
+    never stall discovery beyond the budget — each connect gets at most
+    ``min(4, remaining)`` seconds and the loop stops the moment the budget is
+    gone.
+    """
+    exe = _adb_exe()
+    if not Path(exe).is_file() or not serials:
+        return []
+    for serial in serials:
+        if deadline is not None:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0.1:
+                break
+        else:
+            remaining = 4.0
+        try:
+            subprocess.run(
+                [exe, "connect", serial],
+                capture_output=True,
+                text=True,
+                timeout=min(4.0, remaining),
+                creationflags=_subproc_flags(),
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            continue
+    return list_adb_phones()
+
+
+# Whole discovery must never eat more than this even with a fully dead fleet.
+_DISCOVER_BUDGET_S = 12.0
+
+
+def _restart_adb_server() -> None:
+    """Restart the local adb server once (kills a wedged/stale 5037 daemon).
+
+    The Windows adb server can outlive its TCP fleet: the daemon keeps answering
+    ``adb devices`` with an empty list while ``adb connect`` to a running VM
+    hangs (WinError 10060). A fresh server re-attaches the fleet immediately.
+    Bounded and silent — never raises.
+    """
+    exe = _adb_exe()
+    if not Path(exe).is_file():
+        return
+    for arg in ("kill-server", "start-server"):
+        try:
+            subprocess.run(
+                [exe, arg],
+                capture_output=True,
+                text=True,
+                timeout=15,
+                creationflags=_subproc_flags(),
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return
+
+
 def discover_adb_phones(
     log_fn: LogFn | None = None,
     *,
@@ -260,59 +380,100 @@ def discover_adb_phones(
     """List adb devices from BOTH sources — MuMu AND Docker-redroid.
 
     Docker-redroid and MuMu are meant to run side by side in one farm, so we
-    always probe both port ranges instead of treating one as the only source.
-    Phone endpoints that connect but never reach ``device`` (e.g. redroid that
-    sits ``offline`` when the host can't boot it) are filtered by
-    ``list_adb_phones()``, so only usable online phones are returned. Bounded
-    and non-blocking throughout.
+    probe the farm's known fleet serials first, then both port ranges instead of
+    treating one as the only source. A wedged/stale 5037 adb server (empty
+    ``adb devices`` while VMs are up, connects hanging) is self-healed with one
+    server restart. The whole call is capped at ``_DISCOVER_BUDGET_S`` seconds
+    even when every endpoint is dead — discovery can never hang the deck.
+    Never raises.
 
     Docker stays open alongside the farm: nothing here stops the engine, and the
     redroid range is only probed — offline nodes are simply not surfaced.
     """
+    import time as _t
+
+    deadline = _t.monotonic() + _DISCOVER_BUDGET_S
     already = list_adb_phones()
     if already and not force_mumu_scan:
         # Sessions survived a restart — still also connect the Docker-redroid
         # range so Docker phones appear alongside the MuMu ones, then re-list.
         auto_connect_all_phones(log_fn)
         return list_adb_phones()
-    if connect_mumu:
+    fleet = _known_fleet_serials()
+    if fleet:
+        # Probe the server with ONE short connect. If the fleet can't attach the
+        # 5037 daemon is wedged (connects hang with 10060 while ``adb devices``
+        # still answers "0 devices") — restart once, then connect the fleet.
+        if _t.monotonic() < deadline:
+            try:
+                subprocess.run(
+                    [_adb_exe(), "connect", fleet[0]],
+                    capture_output=True,
+                    text=True,
+                    timeout=3,
+                    creationflags=_subproc_flags(),
+                )
+            except (OSError, subprocess.TimeoutExpired):
+                _restart_adb_server()
+        got = _connect_serials(fleet, deadline=deadline)
+        if got:
+            if log_fn:
+                log_fn(f"  re-attached fleet: {len(got)} phone(s)\n")
+            return got
+        if _t.monotonic() < deadline:
+            _restart_adb_server()
+            got = _connect_serials(fleet, deadline=deadline)
+            if got:
+                if log_fn:
+                    log_fn(f"  adb server restarted; fleet back: {len(got)} phone(s)\n")
+                return got
+    if connect_mumu and _t.monotonic() < deadline:
         try_connect_mumu_via_adb(log_fn, force_full_scan=force_mumu_scan)
     # Connect BOTH the MuMu (16384 + n*32) and Docker-redroid (5555 + n*2) ranges
     # so the two phone types run together, not either-or. Never sleeps, never
     # raises; offline/unbooted nodes are filtered below.
-    auto_connect_all_phones(log_fn)
-    return list_adb_phones()
+    return auto_connect_all_phones(log_fn, deadline=deadline)
 
 
-# (start_port, stride, count) — MuMu uses 16384 + n*32; emulator/cloud uses 5555 + n*2
-_AUTO_CONNECT_RANGES = ((16384, 32, 10), (5555, 2, 8))
+def auto_connect_all_phones(
+    log_fn: LogFn | None = None,
+    *,
+    deadline: float | None = None,
+) -> list[str]:
+    """Best-effort ``adb connect`` to the farm fleet + emulator/cloud ranges.
 
-
-def auto_connect_all_phones(log_fn: LogFn | None = None) -> list[str]:
-    """Best-effort ``adb connect`` to known MuMu + emulator/cloud TCP ports.
-
-    Intended as a quick last-resort from :func:`discover_adb_phones` when the
-    primary scanner returns nothing. Each connect is bounded to a few seconds and
-    the function never sleeps or raises, so the wizard UI cannot hang on phone
-    discovery.
+    Connects the farm's known 10.0.2.x serials first (the only addresses that
+    reach ARM MuMu guests), then the legacy localhost port ranges as a
+    fallback for other emulators. Each connect is bounded to a few seconds,
+    honors the shared ``deadline``, and never sleeps or raises — the wizard UI
+    cannot hang on phone discovery.
     """
-    try:
-        from adb_paths import adb_executable
+    import time as _t
 
-        exe = adb_executable()
-    except Exception:
-        exe = str(_adb_path())
+    exe = _adb_exe()
     if not Path(exe).is_file():
         return []
+    fleet = _known_fleet_serials()
+    if fleet:
+        got = _connect_serials(fleet, deadline=deadline)
+        if got:
+            return got
+        if deadline is None or _t.monotonic() < deadline:
+            _restart_adb_server()
+            got = _connect_serials(fleet, deadline=deadline)
+            if got:
+                return got
     for start, stride, count in _AUTO_CONNECT_RANGES:
         for off in range(count):
+            if deadline is not None and _t.monotonic() >= deadline:
+                return list_adb_phones()
             addr = f"127.0.0.1:{start + off * stride}"
             try:
                 subprocess.run(
                     [exe, "connect", addr],
                     capture_output=True,
                     text=True,
-                    timeout=4,
+                    timeout=3,
                     creationflags=_subproc_flags(),
                 )
             except (OSError, subprocess.TimeoutExpired):

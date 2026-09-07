@@ -350,7 +350,15 @@ def initial_state() -> dict:
     exe_ok, exe_path = preflight.cpharm_exe_beside_setup()
     awaiting = setup_awaiting_cold_boot(root)
     if not preflight.list_adb_phones():
-        preflight.discover_adb_phones(connect_mumu=True)
+        # View-load discovery must NEVER launch MuMu players and must never eat
+        # the full connect storm — that wedges the deck right after phones get
+        # linked ("stops working", Application Hang). Re-attach the farm's
+        # known fleet only (bounded + self-healing in discover_adb_phones);
+        # player launching stays with the explicit Check again / setup actions.
+        try:
+            preflight.discover_adb_phones(connect_mumu=False)
+        except Exception:
+            pass
     checklist = get_checklist()
     setup_done = preflight.mumu_setup_already_done(root)
     # Operator-only rows stay "manual" forever; warn/fail still block ready.
