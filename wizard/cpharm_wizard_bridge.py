@@ -945,13 +945,16 @@ def get_journey_state() -> dict:
         install_ready = bool(rows) and all(r.get("ok") for r in rows)
     except Exception:
         pass
+    # Journey-state must NEVER run the full setup state scan (initial_state does
+    # live adb discovery and took ~17s on this machine — stalling the deck before
+    # the action buttons are even wired). Read the persisted setup marker file
+    # instead: setup_already_done is a file check, ready follows from it here.
     try:
-        from mumu_setup_webview import MuMuSetupApi
+        import mumu_setup_core as msc
+        import preflight_core as pc
 
-        api = MuMuSetupApi(skip_launch_cpharm=True)
-        st = api.get_state()
-        checklist = st.get("checklist") or []
-        setup_ready = bool(st.get("ready")) or bool(st.get("setup_already_done"))
+        setup_done = pc.mumu_setup_already_done(msc.data_root())
+        setup_ready = bool(setup_done)
     except Exception:
         pass
     try:

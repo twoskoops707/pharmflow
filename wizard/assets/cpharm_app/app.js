@@ -1119,6 +1119,7 @@
   }
 
   async function refreshPrereqs() {
+    dbg("click: refreshPrereqs");
     try {
       const rows = await callApi("Refresh", function (a) {
         if (typeof a.get_prereq_status !== "function") {
@@ -2239,6 +2240,7 @@
     wireStaticNav();
 
     pyApi = await waitForApi(20000);
+    dbg("init: waitForApi done pyApi=" + !!pyApi + " apiFn=" + typeof api());
     if (!pyApi) {
       showBackendError("Could not connect to PharmFlow backend. Close and reopen PharmFlow.exe.");
       showToast("Backend not connected — restart PharmFlow.exe");
@@ -2270,6 +2272,15 @@
 
     await refreshJourney();
     wireActionButtons();
+    dbg("init: wireActionButtons done");
+  }
+
+  function dbg(msg) {
+    try {
+      const a = api();
+      if (a && typeof a.debug_log === "function") a.debug_log("" + msg);
+    } catch (_e) {}
+    if (window.console && console.log) console.log("DECK: " + msg);
   }
 
   function wireActionButtons() {

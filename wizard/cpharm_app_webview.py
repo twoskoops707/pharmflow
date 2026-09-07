@@ -378,6 +378,42 @@ def _js_emit(window: Any, expr: str) -> None:
 _active_window: Any = None
 
 
+def _api_log(line: str) -> None:
+    """Append one line to the deck API telemetry log under CPHARM_LOG_DIR."""
+    try:
+        import time as _t
+
+        log_dir = Path(os.environ.get("CPHARM_LOG_DIR", r"C:\CPharm\logs"))
+        log_dir.mkdir(parents=True, exist_ok=True)
+        with open(log_dir / "deck_api.log", "a", encoding="utf-8") as _f:
+            _f.write(f"[{_t.strftime('%H:%M:%S')}] {line}\n")
+    except Exception:
+        pass
+
+
+def _api_wrapper_result(label: str, fn) -> dict:
+    """Run a bridge/setup call with telemetry — name, duration, ok/error."""
+    import time as _t
+
+    _api_log(f"CALL {label}")
+    t0 = _t.monotonic()
+    try:
+        result = fn()
+        dt = _t.monotonic() - t0
+        if isinstance(result, dict):
+            ok = result.get("ok")
+            err = str(result.get("error") or "")[:160]
+            _api_log(f"RET {label} {dt*1000:.0f}ms ok={ok} error={err!r}")
+        else:
+            n = len(result) if hasattr(result, "__len__") else "-"
+            _api_log(f"RET {label} {dt*1000:.0f}ms type={type(result).__name__} len={n}")
+        return result
+    except Exception as exc:  # noqa: BLE001
+        dt = _t.monotonic() - t0
+        _api_log(f"EXC {label} {dt*1000:.0f}ms {type(exc).__name__}: {exc}")
+        return {"ok": False, "error": str(exc)[:500]}
+
+
 def emit_app_view(view: str) -> None:
     if _active_window is None:
         return
@@ -401,7 +437,7 @@ class CPharmAppApi:
 
     def _bridge_call(self, name: str, *args: Any, **kwargs: Any) -> dict:
         """Invoke a bridge endpoint; never raise — always ``{ok,...}`` or wrap lists."""
-        try:
+        def _run():
             import cpharm_wizard_bridge as bridge
 
             fn = getattr(bridge, name, None)
@@ -415,24 +451,31 @@ class CPharmAppApi:
             if result is None:
                 return {"ok": True}
             return {"ok": True, "data": result}
-        except Exception as exc:  # noqa: BLE001 — WebView must get a dict, not a throw
-            return {"ok": False, "error": str(exc)[:500]}
+
+        return _api_wrapper_result(name, _run)
 
     def _setup_call(self, method: str, *args: Any, **kwargs: Any) -> dict:
-        if self._setup_api is None:
-            return {"ok": False, "error": "Setup API not bound yet — wait for window bind"}
-        try:
+        def _run():
+            if self._setup_api is None:
+                raise RuntimeError("Setup API not bound yet — wait for window bind")
             fn = getattr(self._setup_api, method, None)
             if not callable(fn):
-                return {"ok": False, "error": f"Setup API has no method {method}"}
+                raise RuntimeError(f"Setup API has no method {method}")
             result = fn(*args, **kwargs)
             if isinstance(result, dict):
                 return result
             if isinstance(result, list):
                 return {"ok": True, "items": result}
+            if result is None:
+                return {"ok": True}
             return {"ok": True, "data": result}
-        except Exception as exc:  # noqa: BLE001
-            return {"ok": False, "error": str(exc)[:500]}
+
+        return _api_wrapper_result(method, _run)
+
+    def debug_log(self, text: str = "") -> dict:
+        """JS-side milestone telemetry (init, wiring, bridge checks)."""
+        _api_log(f"JS {str(text)[:240]}")
+        return {"ok": True}
 
     def bind_window(self, window: Any) -> None:
         global _active_window

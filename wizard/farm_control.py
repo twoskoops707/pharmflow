@@ -361,8 +361,44 @@ def open_operator_dashboard(
     return up
 
 
+_FARM_LOG_DIR = Path(os.environ.get("CPHARM_LOG_DIR", r"C:\CPharm\logs"))
+
+
+def _farm_heartbeat_alive() -> bool | None:
+    """Farm alive from on-disk heartbeats — None when there is no signal.
+
+    The unison supervisor / run_farm cycles write farm_runtime_overrides.json and
+    append to farm_354.log continuously while a farm is alive and STOPPED when it
+    is not. Reading file freshness is microseconds; the old psutil cmdline scan
+    over every process took 5–15s per call and ran on every HUD poll, which made
+    the whole deck feel dead (clicks landing during a 20s get_farm_hud).
+    """
+    try:
+        now = time.time()
+        fresh = False
+        seen = False
+        logf = _FARM_LOG_DIR / "farm_354.log"
+        if logf.is_file():
+            seen = True
+            if now - logf.stat().st_mtime < 180:
+                fresh = True
+        ovf = _FARM_LOG_DIR / "farm_runtime_overrides.json"
+        if ovf.is_file():
+            seen = True
+            if now - ovf.stat().st_mtime < 300:
+                fresh = True
+        if not seen:
+            return None
+        return fresh
+    except OSError:
+        return None
+
+
 def external_python_farm_running() -> bool:
     """True when FamFlow python money-path farm/cycles are already alive."""
+    hb = _farm_heartbeat_alive()
+    if hb is not None:
+        return hb
     try:
         import psutil
     except ImportError:
@@ -420,6 +456,9 @@ def stop_external_python_farm(
 
 def farm_running() -> bool:
     """True if unison supervisor or farm worker is alive."""
+    hb = _farm_heartbeat_alive()
+    if hb is not None:
+        return hb
     with _farm_lock:
         if _farm_proc is not None and _farm_proc.poll() is None:
             return True
