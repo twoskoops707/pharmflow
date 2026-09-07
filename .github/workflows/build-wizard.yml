@@ -101,6 +101,36 @@ jobs:
         working-directory: wizard
         run: python ../tools/prefetch_browser_apks.py
 
+      # ARM64 .NET 8 deck fix: pywebview's edgechromium backend reflects the
+      # WebView2 WinForms control, whose surface references System.Windows.Forms.
+      # ContextMenu — removed in .NET Core 5+. The shim supplies that type so the
+      # deck starts on native ARM64 (netfx pythonnet is impossible there). Vendored
+      # under wizard/bundled/webview2_netcore/, regenerated here so CI is hermetic.
+      - name: Ensure WinForms compat shim (ARM64 .NET 8 deck)
+        shell: pwsh
+        run: |
+          $out = 'wizard/bundled/webview2_netcore/CPharmWinFormsCompat.dll'
+          if (-not (Test-Path $out)) {
+            $src = @'
+          using System;
+          using System.ComponentModel;
+
+          namespace System.Windows.Forms
+          {
+              [System.ComponentModel.ToolboxItem(false)]
+              [Obsolete("Compatibility shim for .NET 8 - type removed upstream.")]
+              public class ContextMenu : Component
+              {
+                  public ContextMenu() { }
+              }
+          }
+          '@
+            Add-Type -TypeDefinition $src -OutputAssembly $out -OutputType Library
+            Write-Host "generated $out"
+          } else {
+            Write-Host "shim present: $out"
+          }
+
       # Single shipped binary: PharmFlow.exe (9-step wizard + phone setup + dashboard).
       - name: Build PharmFlow.exe
         working-directory: wizard
@@ -293,6 +323,31 @@ jobs:
           python -m py_compile scripts/run_farm_354.py
           python wizard/smoke_app_js.py
           python wizard/smoke_frozen_imports.py
+
+      - name: Ensure WinForms compat shim (ARM64 .NET 8 deck)
+        shell: pwsh
+        run: |
+          $out = 'wizard/bundled/webview2_netcore/CPharmWinFormsCompat.dll'
+          if (-not (Test-Path $out)) {
+            $src = @'
+          using System;
+          using System.ComponentModel;
+
+          namespace System.Windows.Forms
+          {
+              [System.ComponentModel.ToolboxItem(false)]
+              [Obsolete("Compatibility shim for .NET 8 - type removed upstream.")]
+              public class ContextMenu : Component
+              {
+                  public ContextMenu() { }
+              }
+          }
+          '@
+            Add-Type -TypeDefinition $src -OutputAssembly $out -OutputType Library
+            Write-Host "generated $out"
+          } else {
+            Write-Host "shim present: $out"
+          }
 
       - name: Build native ARM64 PharmFlow.exe
         working-directory: wizard

@@ -220,6 +220,54 @@ def _ensure_webview2_runtime_path() -> str | None:
     return folder
 
 
+def _safe_stderr(msg: str) -> None:
+    """Print to stderr only when a real stderr exists (windowed EXEs get None)."""
+    if sys.stderr is None:
+        return
+    try:
+        print(msg, file=sys.stderr, flush=True)
+    except OSError:
+        pass
+
+
+def _load_winforms_compat_shim() -> None:
+    """
+    Load CPharmWinFormsCompat.dll (defines System.Windows.Forms.ContextMenu).
+
+    pywebview's edgechromium backend reflects Microsoft.Web.WebView2.WinForms.WebView2
+    through pythonnet. On .NET 8 (the only runtime native-ARM64 pythonnet can host) the
+    WinForms surface still references System.Windows.Forms.ContextMenu — a type removed
+    in .NET Core 5+. Without it the reflection aborts with TypeLoadException and the
+    frozen EXE dies before a window opens. The shim assembly supplies that type, so the
+    reflection (and the whole deck) succeeds. Never raises: a shim failure just means the
+    Tk fallback path stays available.
+    """
+    try:
+        import platform as _plat
+
+        if _plat.machine().lower() not in ("arm64", "aarch64"):
+            return
+        candidates = [
+            _wizard_dir / "bundled" / "webview2_netcore" / "CPharmWinFormsCompat.dll",
+            Path(getattr(sys, "_MEIPASS", "")) / "bundled" / "webview2_netcore" / "CPharmWinFormsCompat.dll",
+            Path(getattr(sys, "_MEIPASS", "")) / "webview" / "lib" / "CPharmWinFormsCompat.dll",
+        ]
+        shim = next((p for p in candidates if p.is_file()), None)
+        if shim is None:
+            _safe_stderr(
+                "WEBVIEW2: CPharmWinFormsCompat.dll shim not found; deck may fall back to Tk"
+            )
+            return
+        import clr  # noqa: F401  (runtime already selected by dotnet_provision)
+
+        from System.Reflection import Assembly
+
+        Assembly.LoadFrom(str(shim))
+        _safe_stderr(f"WEBVIEW2: loaded WinForms compat shim from {shim}")
+    except Exception as exc:  # noqa: BLE001 - provisioning must never crash the deck attempt
+        _safe_stderr(f"WEBVIEW2: compat shim load failed: {exc}")
+
+
 def _overlay_netcore_webview2_dlls() -> None:
     """
     On ARM64, replace pywebview's net462 WebView2 managed DLLs with netcoreapp3.0
@@ -258,7 +306,7 @@ def _overlay_netcore_webview2_dlls() -> None:
             try:
                 shutil.copy2(src, dst)
             except OSError as exc:
-                print(f"WEBVIEW2: could not overlay {name}: {exc}", file=sys.stderr, flush=True)
+                _safe_stderr(f"WEBVIEW2: could not overlay {name}: {exc}")
 
 
 def _patch_pywebview_winforms_openfolder() -> None:
@@ -305,9 +353,9 @@ def _patch_pywebview_winforms_openfolder() -> None:
     new_text = text[:start] + stub + rest[end_rel + 1 :]
     try:
         path.write_text(new_text, encoding="utf-8")
-        print("WEBVIEW2: patched pywebview OpenFolderDialog for .NET 8", file=sys.stderr, flush=True)
+        _safe_stderr("WEBVIEW2: patched pywebview OpenFolderDialog for .NET 8")
     except OSError as exc:
-        print(f"WEBVIEW2: OpenFolderDialog patch failed: {exc}", file=sys.stderr, flush=True)
+        _safe_stderr(f"WEBVIEW2: OpenFolderDialog patch failed: {exc}")
 
 
 def _html_url(*, view: str | None = None) -> str:
@@ -759,15 +807,38 @@ def _ensure_webview2_runtime_path() -> str | None:
     return folder
 
 
+def _bootlog(msg: str) -> None:
+    """Frozen-only marker log (same file as cpharm_desktop) for startup tracing."""
+    if not getattr(sys, "frozen", False):
+        return
+    try:
+        import tempfile
+        import time as _time
+
+        with open(
+            os.path.join(tempfile.gettempdir(), "cpharm_boot.log"), "a", encoding="utf-8"
+        ) as _f:
+            _f.write(f"[{_time.strftime('%H:%M:%S')}] deck: {msg}\n")
+    except Exception:
+        pass
+
+
 def run_cpharm_app(*, initial_view: str | None = None) -> None:
     import webview
     from cpharm_version import instance_title
 
+    _bootlog("run_cpharm_app enter")
     _overlay_netcore_webview2_dlls()
+    _bootlog("overlay netcore dlls done")
+    _load_winforms_compat_shim()
+    _bootlog("compat shim loaded")
     _patch_pywebview_winforms_openfolder()
+    _bootlog("openfolder patch done")
     _ensure_webview2_runtime_path()
+    _bootlog("runtime path done")
 
     api = CPharmAppApi()
+    _bootlog("api created")
     window = webview.create_window(
         instance_title("Control Panel"),
         _html_url(view=initial_view),
@@ -778,7 +849,9 @@ def run_cpharm_app(*, initial_view: str | None = None) -> None:
         background_color="#07090f",
     )
     api.bind_window(window)
+    _bootlog("window created, starting webview loop")
     webview.start(gui="edgechromium", debug=False, menu=_build_native_menu(api))
+    _bootlog("webview loop returned")
 
 
 def run_cpharm_app_or_fallback(*, initial_view: str | None = None) -> None:
