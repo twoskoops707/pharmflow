@@ -151,7 +151,12 @@
 
   async function callApi(action, fn) {
     const a = requireApi(action);
-    if (!a) return null;
+    if (!a) {
+      // Never let callers fall through to a success toast when there is no
+      // backend — throw so every try/catch handler reports the failure instead
+      // of claiming the action ran.
+      throw new Error("backend not connected");
+    }
     try {
       return await fn(a);
     } catch (e) {

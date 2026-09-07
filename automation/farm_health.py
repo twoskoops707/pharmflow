@@ -86,6 +86,15 @@ def parse_farm_log(path: str | None, window_s: float = 3600.0) -> dict:
     now = time.time()
     try:
         with open(path, "r", encoding="utf-8", errors="replace") as fh:
+            # Farm logs grow to 100+ MB; only the newest lines fall inside the
+            # window, so scan the tail instead of the whole file (keeps the
+            # health view responsive).
+            fh.seek(0, 2)
+            size = fh.tell()
+            read_bytes = min(size, 32 * 1024 * 1024)
+            fh.seek(size - read_bytes)
+            if read_bytes < size:
+                fh.readline()  # drop a partial first line
             for line in fh:
                 ts = _parse_line_ts(line)
                 if ts is None or now - ts > window_s:

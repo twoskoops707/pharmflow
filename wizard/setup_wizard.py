@@ -213,25 +213,51 @@ def probe_dashboard_listen_port() -> bool:
         except Exception:
             clear_dashboard_listen_port_cache()
 
-    for port in _dashboard_candidate_ports():
+    def _probe_port(port: int):
+        """Return the dashboard's resolved HTTP port, or None if unreachable."""
         url = f"http://127.0.0.1:{port}/api/config"
         try:
             req = urllib.request.Request(url, method="GET")
-            with urllib.request.urlopen(req, timeout=1.25) as r:
+            with urllib.request.urlopen(req, timeout=1.0) as r:
                 raw = r.read().decode()
             data = json.loads(raw)
-            hp = data.get("httpPort")
-            if hp is None:
-                hp = data.get("port")
-            try:
-                hp_i = int(hp) if hp is not None else int(port)
-            except (TypeError, ValueError):
-                hp_i = int(port)
-            if 1 <= hp_i <= 65535:
-                _DASHBOARD_LISTEN_HTTP_PORT_CACHE = hp_i
-                return True
         except Exception:
-            continue
+            return None
+        hp = data.get("httpPort")
+        if hp is None:
+            hp = data.get("port")
+        try:
+            hp_i = int(hp) if hp is not None else int(port)
+        except (TypeError, ValueError):
+            hp_i = int(port)
+        if 1 <= hp_i <= 65535:
+            return hp_i
+        return None
+
+    # Parallel probe under one hard budget: on this box closed-loopback ports
+    # blackhole until the per-request timeout, so a sequential scan of 20 ports
+    # can take ~25s (freezing the deck's dashboard poll). Probing in parallel
+    # bounds the whole scan to roughly one request timeout instead.
+    import concurrent.futures as _cf
+
+    candidates = _dashboard_candidate_ports()
+    deadline = time.monotonic() + 3.5
+    resolved: int | None = None
+    with _cf.ThreadPoolExecutor(max_workers=min(8, max(1, len(candidates)))) as ex:
+        futs = {ex.submit(_probe_port, p): p for p in candidates}
+        for fut in _cf.as_completed(futs, timeout=max(0.1, deadline - time.monotonic())):
+            port = futs[fut]
+            try:
+                hp_i = fut.result()
+            except Exception:
+                hp_i = None
+            if hp_i is not None and resolved is None:
+                resolved = hp_i
+            if resolved is not None and port >= resolved:
+                break
+    if resolved is not None:
+        _DASHBOARD_LISTEN_HTTP_PORT_CACHE = resolved
+        return True
     return False
 
 
