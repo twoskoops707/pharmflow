@@ -3407,6 +3407,29 @@ def main() -> int:
                     continue
                 if inst.adb_serial in live_serials:
                     continue
+                # Host-wedge guard: a wedged adb server (even `adb devices`
+                # times out) makes every phone look offline. Restart server +
+                # reconnect known serials once before churning any VM — healthy
+                # VMs were being restart-looped on this false signal.
+                if not live_serials:
+                    try:
+                        logger.warning(
+                            "SELF-HEAL %s: zero live ADB devices — restarting wedged adb server + reconnecting fleet",
+                            phone,
+                        )
+                        farm.adb.run("kill-server", timeout=15.0)
+                        farm.adb.run("start-server", timeout=20.0)
+                        farm._reconnect_known_serials()
+                        live_serials = {
+                            d.serial
+                            for d in farm.enumerate_adb_devices(force=True)
+                            if getattr(d, "online", False)
+                        }
+                    except Exception as exc:
+                        logger.warning("SELF-HEAL server restart failed: %s", exc)
+                    if inst.adb_serial in live_serials:
+                        logger.info("SELF-HEAL %s recovered via server restart (no VM churn)", phone)
+                        continue
                 heal_last[phone] = now_ts
                 logger.warning(
                     "SELF-HEAL %s offline (serial=%s) — spinning its VM back up",

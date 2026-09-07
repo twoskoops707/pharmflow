@@ -1520,6 +1520,46 @@ class MuMuFarmOps:
                 inst.running = True
         return result.returncode == 0
 
+    def _reconnect_known_serials(self) -> int:
+        """Reconnect every known ARM serial after an adb server restart.
+
+        ``adb kill-server`` destroys every TCP transport; without a re-connect
+        pass every phone looks offline and the farm spins healthy VMs. Gather
+        serials from state.json AdbHost (ground truth) + the lock map + each
+        instance's live serial, then adb-connect each under a bounded budget.
+        Returns how many connected.
+        """
+        candidates: list[str] = []
+        try:
+            for name in list(self.instances.keys()):
+                arm = self._arm_adb_serial_from_state(name)
+                if arm and arm not in candidates:
+                    candidates.append(arm)
+        except Exception:
+            pass
+        try:
+            log_dir = Path(os.environ.get("CPHARM_LOG_DIR", r"C:\CPharm\logs"))
+            lock_path = log_dir / "ADB_SERIAL_MAP.lock.json"
+            if lock_path.is_file():
+                data = json.loads(lock_path.read_text(encoding="utf-8-sig"))
+                for v in list((data.get("phones") or {}).values()):
+                    s = str(v or "").strip()
+                    if s and s not in candidates:
+                        candidates.append(s)
+        except Exception:
+            pass
+        ok = 0
+        for serial in candidates:
+            try:
+                r = self.adb.connect(serial, timeout=6.0)
+                if r.ok or "already connected" in (r.stdout or "").lower():
+                    ok += 1
+            except Exception:
+                continue
+        if candidates:
+            logger.info("adb reconnect pass: %d/%d known serials answered", ok, len(candidates))
+        return ok
+
     def _arm_usable_serial(self, name: str, inst: MuMuInstance | None) -> str:
         """Prefer state.json AdbHost; never treat classic localhost as ARM serial."""
         arm = self._arm_adb_serial_from_state(name)
@@ -1552,6 +1592,38 @@ class MuMuFarmOps:
             if inst:
                 inst.running = True
             return True
+
+        # Host-side wedge recovery BEFORE any VM churn: a wedged adb server
+        # makes every device look offline (even `adb devices -l` can time out),
+        # and spinning VMs on that false signal was restart-looping healthy
+        # phones. Restart the server + reconnect known serials once; only if
+        # the phone is STILL silent do we consider relaunching the VM.
+        if not instance_shell_running(idx):
+            try:
+                live = self.enumerate_adb_devices(force=True)
+                any_live = any(
+                    getattr(d, "online", False)
+                    and (d.serial.startswith("10.0.2.") or d.serial.startswith("127.0.0.1:"))
+                    for d in live
+                )
+            except Exception:
+                any_live = False
+            if not any_live:
+                try:
+                    logger.warning(
+                        "ARM start %s: no live ADB devices — restarting wedged adb server + reconnecting fleet",
+                        name,
+                    )
+                    self.adb.run("kill-server", timeout=15.0)
+                    self.adb.run("start-server", timeout=20.0)
+                    self._reconnect_known_serials()
+                except Exception as exc:
+                    logger.warning("adb server restart failed: %s", exc)
+                serial2 = self._arm_usable_serial(name, inst)
+                if serial2 and self.adb.wait_for_device(serial2, timeout=_ARM_ADB_WAIT_ALREADY_S):
+                    if inst:
+                        inst.running = True
+                    return True
 
         # Shell already up (slow Snapdragon boot) — wait, do NOT re-launch.
         if instance_shell_running(idx):
