@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-import browse_proxy as bp
+from automation import browse_proxy as bp
 
 
 class BrowseProxyPrefsTests(unittest.TestCase):
@@ -16,7 +16,12 @@ class BrowseProxyPrefsTests(unittest.TestCase):
         self._td = tempfile.TemporaryDirectory()
         self.prefs = Path(self._td.name) / "desktop_prefs.json"
         self.prefs.write_text(
-            json.dumps({"browse_proxy_mode": "scramble", "phone_upstream_proxies": ["http://u:p@1.2.3.4:8080"]}),
+            json.dumps(
+                {
+                    "browse_proxy_mode": "scramble",
+                    "phone_upstream_proxies": ["http://u:p@1.2.3.4:8080"],
+                }
+            ),
             encoding="utf-8",
         )
         self._patch = patch.object(bp, "_prefs_path", return_value=self.prefs)
@@ -51,19 +56,22 @@ class BrowseProxyPrefsTests(unittest.TestCase):
 
 
 class BrowseProxySessionTests(unittest.TestCase):
-    @patch("emulator_ad_mode.scramble_device_session")
-    @patch("tor_manager.kick_default_browser_after_proxy_teardown")
-    @patch("tor_manager.clear_all_proxies_on_devices")
+    @patch("automation.emulator_ad_mode.scramble_device_session")
+    @patch("automation.tor_manager.TorManager")
     @patch.object(bp, "browse_proxy_mode", return_value="scramble")
-    def test_prepare_scramble(self, _mode, _clear, _kick, scramble) -> None:
+    def test_prepare_scramble(self, _mode, tor_cls, scramble) -> None:
+        tor = tor_cls.return_value
+        tor.clear_all_proxies_on_devices.return_value = []
         scramble.return_value = {"ok": True}
-        out = bp.prepare_browse_session("10.0.2.108:5555", 0)
+        out = bp.prepare_browse_session(object(), "10.0.2.108:5555", 0)
         self.assertTrue(out.get("ok"))
         scramble.assert_called_once()
+        tor.clear_all_proxies_on_devices.assert_called_once()
+        tor.kick_default_browser_after_proxy_teardown.assert_called_once()
 
     @patch.object(bp, "browse_proxy_mode", return_value="tor")
     def test_prepare_tor_skips(self, _mode) -> None:
-        out = bp.prepare_browse_session("10.0.2.108:5555", 0)
+        out = bp.prepare_browse_session(object(), "10.0.2.108:5555", 0)
         self.assertTrue(out.get("skipped"))
 
 

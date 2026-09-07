@@ -209,29 +209,201 @@ def _chrome_version_for_model(model: str) -> str:
     return m.group(1) if m else "124.0.0.0"
 
 
-def _retail_pool() -> tuple[dict, ...]:
-    """Runtime rotation pool — retail devices with a stable ``key`` per profile.
+# Farm-first retail pool (MuMu ARM live models + rotation). Keys/match aliases
+# are the public contract for profile_for_model / PHONE_PROFILES / dashboard.
+_FARM_RETAIL_PROFILES: tuple[dict, ...] = (
+    {
+        "key": "xq_de72",
+        "match": ("XQ_DE72", "XQ-DE72"),
+        "brand": "Sony",
+        "manufacturer": "Sony",
+        "model": "XQ-DE72",
+        "miit": "XQ-DE72",
+        "android_release": "13",
+        "build_id": "61.1.A.14.190",
+        "chrome_version": "120.0.6099.210",
+        "gpu_preset": "Adreno (TM) 660",
+    },
+    {
+        "key": "pixel_7a",
+        "match": ("GC3VE", "Pixel 7a"),
+        "brand": "google",
+        "manufacturer": "Google",
+        "model": "Pixel 7a",
+        "miit": "GC3VE",
+        "android_release": "14",
+        "build_id": "AP2A.240805.005",
+        "chrome_version": "128.0.6613.88",
+        "gpu_preset": "Adreno (TM) 730",
+    },
+    {
+        "key": "sm_s9110",
+        "match": ("SM_S9110", "SM-S9110", "SM-S911B", "SM-S911U"),
+        "brand": "samsung",
+        "manufacturer": "samsung",
+        "model": "SM-S9110",
+        "miit": "SM-S9110",
+        "android_release": "14",
+        "build_id": "UP1A.231005.007",
+        "chrome_version": "128.0.6613.88",
+        "gpu_preset": "Adreno (TM) 740",
+    },
+    {
+        "key": "sm_s9280",
+        "match": ("SM-S9280", "SM-S928B"),
+        "brand": "samsung",
+        "manufacturer": "samsung",
+        "model": "SM-S9280",
+        "miit": "SM-S9280",
+        "android_release": "14",
+        "build_id": "UP1A.231005.007",
+        "chrome_version": "128.0.6613.88",
+        "gpu_preset": "Adreno (TM) 750",
+    },
+    {
+        "key": "sm_s9210",
+        "match": ("SM-S9210", "SM-S921B"),
+        "brand": "samsung",
+        "manufacturer": "samsung",
+        "model": "SM-S9210",
+        "miit": "SM-S9210",
+        "android_release": "14",
+        "build_id": "AP1A.240405.023",
+        "chrome_version": "128.0.6613.88",
+        "gpu_preset": "Adreno (TM) 750",
+    },
+    {
+        "key": "pixel_8",
+        "match": ("Pixel 8", "GP4BC"),
+        "brand": "google",
+        "manufacturer": "Google",
+        "model": "Pixel 8",
+        "miit": "GP4BC",
+        "android_release": "14",
+        "build_id": "AP2A.240805.005",
+        "chrome_version": "128.0.6613.88",
+        "gpu_preset": "Adreno (TM) 750",
+    },
+    {
+        "key": "pixel_8_pro",
+        "match": ("Pixel 8 Pro", "GC3VE2"),
+        "brand": "google",
+        "manufacturer": "Google",
+        "model": "Pixel 8 Pro",
+        "miit": "GC3VE2",
+        "android_release": "14",
+        "build_id": "AP2A.240805.005",
+        "chrome_version": "128.0.6613.88",
+        "gpu_preset": "Adreno (TM) 750",
+    },
+    {
+        "key": "oneplus_12",
+        "match": ("CPH2581", "OnePlus 12"),
+        "brand": "OnePlus",
+        "manufacturer": "OnePlus",
+        "model": "CPH2581",
+        "miit": "CPH2581",
+        "android_release": "14",
+        "build_id": "TP1A.220905.001",
+        "chrome_version": "128.0.6613.88",
+        "gpu_preset": "Adreno (TM) 750",
+    },
+    {
+        "key": "xiaomi_14",
+        "match": ("23127PN0CC", "Xiaomi 14"),
+        "brand": "Xiaomi",
+        "manufacturer": "Xiaomi",
+        "model": "23127PN0CC",
+        "miit": "23127PN0CC",
+        "android_release": "14",
+        "build_id": "UKQ1.240116.001",
+        "chrome_version": "128.0.6613.88",
+        "gpu_preset": "Adreno (TM) 750",
+    },
+    {
+        "key": "sm_a5460",
+        "match": ("SM-A5460", "SM-A546B"),
+        "brand": "samsung",
+        "manufacturer": "samsung",
+        "model": "SM-A5460",
+        "miit": "SM-A5460",
+        "android_release": "14",
+        "build_id": "UP1A.231005.007",
+        "chrome_version": "128.0.6613.88",
+        "gpu_preset": "Adreno (TM) 644",
+    },
+    {
+        "key": "sm_s9180",
+        "match": ("SM-S9180", "SM-S918B"),
+        "brand": "samsung",
+        "manufacturer": "samsung",
+        "model": "SM-S9180",
+        "miit": "SM-S9180",
+        "android_release": "13",
+        "build_id": "TP1A.220624.014",
+        "chrome_version": "120.0.6099.210",
+        "gpu_preset": "Adreno (TM) 740",
+    },
+    {
+        "key": "motorola_edge",
+        "match": ("motorola edge 40", "XT2303-2"),
+        "brand": "motorola",
+        "manufacturer": "motorola",
+        "model": "motorola edge 40",
+        "miit": "XT2303-2",
+        "android_release": "13",
+        "build_id": "T1TC33.105",
+        "chrome_version": "120.0.6099.210",
+        "gpu_preset": "Adreno (TM) 730",
+    },
+)
 
-    Verification/audit code looks profiles up by ``key`` (brand-model slug),
-    so every entry carries one even though the source list does not.
+
+def _retail_pool() -> tuple[dict, ...]:
+    """Runtime rotation pool — farm presets first, then extra RETAIL_PROFILES.
+
+    Farm entries carry stable ``key`` / ``match`` aliases (sm_s9110, GC3VE, …).
+    Extra RETAIL_PROFILES fill variety without colliding on model/key.
     """
-    pool: list[dict[str, str]] = []
-    seen: set[str] = set()
+    pool: list[dict] = []
+    seen_keys: set[str] = set()
+    seen_models: set[str] = set()
+
+    def _mark_model(s: str) -> None:
+        n = (s or "").upper().replace("-", "_").replace(" ", "_")
+        if n:
+            seen_models.add(n)
+
+    for p in _FARM_RETAIL_PROFILES:
+        item = dict(p)
+        key = str(item.get("key") or "")
+        if not key or key in seen_keys:
+            continue
+        seen_keys.add(key)
+        _mark_model(str(item.get("model") or ""))
+        for m in item.get("match") or ():
+            _mark_model(str(m))
+        pool.append(item)
+
     for p in RETAIL_PROFILES:
         item = dict(p)
-        key = f"{item.get('brand', '')}-{item.get('model', '')}".lower().replace(" ", "-")
-        if key in seen:
+        model = str(item.get("model") or "")
+        model_norm = model.upper().replace("-", "_").replace(" ", "_")
+        if model_norm and model_norm in seen_models:
             continue
-        seen.add(key)
+        key = f"{item.get('brand', '')}-{model}".lower().replace(" ", "-")
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+        _mark_model(model)
         item["key"] = key
-        # Android release is embedded in the build fingerprint ("…:14/…"); the
-        # UA builder needs it as its own field.
         fp = str(item.get("fingerprint", ""))
         m_release = re.search(r":(\d{1,2})/", fp)
         m_build = re.search(r":\d{1,2}/([^/]+)/", fp)
         item["android_release"] = m_release.group(1) if m_release else "13"
         item["build_id"] = m_build.group(1) if m_build else "TP1A.220624.014"
-        item["chrome_version"] = _chrome_version_for_model(item.get("model", ""))
+        item["chrome_version"] = _chrome_version_for_model(model)
+        item.setdefault("match", (model,))
         pool.append(item)
     return tuple(pool)
 
@@ -263,6 +435,9 @@ MOBILE_USER_AGENTS: dict[str, str] = {
 
 # Built after MOBILE_USER_AGENTS so chrome_version can be derived.
 RETAIL_PROFILE_POOL: tuple[dict, ...] = _retail_pool()
+# Backward-compatible public name used by the legacy automation contract.
+# Keep it as a snapshot of the same ARM-aware pool, not a second profile source.
+PHONE_PROFILES: tuple[dict, ...] = RETAIL_PROFILE_POOL
 
 WEBGL_RENDERERS: list[str] = [
     "Qualcomm Adreno (TM) 740",
@@ -1099,18 +1274,32 @@ def verify_anti_detection(
 
 
 def ensure_fingerprint_before_browse(
-    vms_dir: Path,
-    instance_name: str,
-    getprop_fn: Callable[[str], str],
-    shell_fn: Callable[[str], str],
-    profile: FingerprintProfile | None,
-    reapply_fn: Callable[[FingerprintProfile], None],
-) -> AntiDetectionReport:
+    vms_dir: Path | str,
+    instance_name: str | None = None,
+    getprop_fn: Callable[[str], str] | None = None,
+    shell_fn: Callable[[str], str] | None = None,
+    profile: FingerprintProfile | None = None,
+    reapply_fn: Callable[[FingerprintProfile], None] | None = None,
+) -> AntiDetectionReport | dict[str, Any]:
     """
     Pre-open_url hook: verify getprop, apply VM fingerprints if missing or failed.
 
     Call before every browse_url / open_url sequence step.
+
+    The one-argument form is retained for the legacy skip-fingerprint probe;
+    normal browse execution uses the full typed hook above.
     """
+    if instance_name is None:
+        if not is_skip_fingerprint():
+            raise TypeError(
+                "ensure_fingerprint_before_browse requires vms_dir, instance_name, "
+                "getprop_fn, shell_fn, profile, and reapply_fn"
+            )
+        return {"skipped": True, "serial": str(vms_dir)}
+    if getprop_fn is None or shell_fn is None or reapply_fn is None:
+        raise TypeError(
+            "ensure_fingerprint_before_browse requires getprop_fn, shell_fn, and reapply_fn"
+        )
     if profile is None and not is_skip_fingerprint():
         profile = apply_mumu_vm_fingerprint(vms_dir, instance_name, shell_fn=shell_fn)
 

@@ -59,6 +59,13 @@ def emulator_ad_fallback_enabled() -> bool:
     return _env_on("CPHARM_EMULATOR_AD_FALLBACK", default=True)
 
 
+def should_restore_tor_after_ads() -> bool:
+    """True when Tor should be re-attached after an ad-fill window."""
+    if browse_proxy_mode() in ("direct", "scramble", "upstream"):
+        return _env_on("CPHARM_EMULATOR_AD_RESTORE_TOR", default=False)
+    return True
+
+
 def session_scramble_enabled() -> bool:
     mode = browse_proxy_mode()
     if mode in ("scramble", "upstream"):
@@ -192,10 +199,9 @@ def resume_tor_after_ads(
     _paused.discard(ser)
     from automation.config import require_unique_exit_ip
 
-    if browse_proxy_mode() in ("direct", "scramble", "upstream") and not require_unique_exit_ip():
-        if not _env_on("CPHARM_EMULATOR_AD_RESTORE_TOR", default=False):
-            log(f"Browse proxy: keeping {browse_proxy_mode()} (no Tor restore) serial={ser}")
-            return {"skipped": True, "reason": "non_tor_mode"}
+    if not should_restore_tor_after_ads() and not require_unique_exit_ip():
+        log(f"Browse proxy: keeping {browse_proxy_mode()} (no Tor restore) serial={ser}")
+        return {"skipped": True, "reason": "non_tor_mode"}
     # If pause-tracking desynced but proxy is still cleared, force restore anyway.
     from automation.browse_proxy import guest_proxy_healthy, pin_guest_proxy, restore_browse_session
 

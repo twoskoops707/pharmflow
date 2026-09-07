@@ -1180,6 +1180,48 @@ details.avd-details[open] > summary::before {
   max-width: 340px;
 }
 
+.action-activity {
+  position: fixed;
+  left: 50%;
+  bottom: 12px;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--accent);
+  border-radius: var(--rad-sm);
+  background: rgba(26, 31, 39, 0.96);
+  color: var(--text);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.42), 0 0 16px var(--accent-glow);
+  font-size: 12px;
+  z-index: 25;
+}
+
+.action-activity[hidden] {
+  display: none;
+}
+
+.action-pending {
+  cursor: wait;
+  opacity: 0.82;
+}
+
+.spinner {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 2px solid rgba(231, 236, 242, 0.25);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  vertical-align: -2px;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
 .flow-in {
   animation: flow-in 0.22s ease both;
 }

@@ -5,7 +5,7 @@ import os
 import unittest
 from unittest.mock import patch
 
-import emulator_ad_mode as eam
+from automation import emulator_ad_mode as eam
 
 
 class BrowseProxyModeTests(unittest.TestCase):
@@ -17,9 +17,10 @@ class BrowseProxyModeTests(unittest.TestCase):
             "CPHARM_AD_SESSION_SCRAMBLE",
         ):
             os.environ.pop(key, None)
+        eam._paused.clear()
 
     def test_default_mode_from_prefs_is_scramble(self) -> None:
-        with patch("browse_proxy.browse_proxy_mode", return_value="scramble"):
+        with patch.object(eam, "browse_proxy_mode", return_value="scramble"):
             self.assertEqual(eam.browse_proxy_mode(), "scramble")
 
     def test_scramble_mode_enables_ad_mode_on_any_serial(self) -> None:
@@ -38,20 +39,13 @@ class BrowseProxyModeTests(unittest.TestCase):
         os.environ["CPHARM_BROWSE_PROXY_MODE"] = "scramble"
         self.assertTrue(eam.session_scramble_enabled())
 
-    @patch("emulator_ad_mode.scramble_device_session")
-    @patch("tor_manager.clear_all_proxies_on_devices")
-    @patch("tor_manager.kick_default_browser_after_proxy_teardown")
-    def test_pause_calls_scramble_in_scramble_mode(
-        self,
-        _kick,
-        _clear,
-        scramble,
-    ) -> None:
+    @patch("automation.browse_proxy.prepare_browse_session")
+    def test_pause_calls_scramble_in_scramble_mode(self, prepare) -> None:
         os.environ["CPHARM_BROWSE_PROXY_MODE"] = "scramble"
-        scramble.return_value = {"ok": True}
-        result = eam.pause_tor_for_ads("10.0.2.108:5555", 0)
+        prepare.return_value = {"ok": True, "mode": "scramble"}
+        result = eam.pause_tor_for_ads(object(), "10.0.2.108:5555", 0)
         self.assertTrue(result.get("ok"))
-        scramble.assert_called_once()
+        prepare.assert_called_once()
 
 
 if __name__ == "__main__":

@@ -83,7 +83,54 @@
     });
   }
 
+  let activeActionButton = null;
+  let actionActivity = null;
+
+  function ensureActionActivity() {
+    if (actionActivity) return actionActivity;
+    actionActivity = document.createElement("div");
+    actionActivity.className = "action-activity";
+    actionActivity.setAttribute("role", "status");
+    actionActivity.setAttribute("aria-live", "polite");
+    actionActivity.hidden = true;
+    document.body.appendChild(actionActivity);
+    return actionActivity;
+  }
+
+  function beginAction(button, label) {
+    if (!button) return;
+    if (!button.dataset.actionOriginal) button.dataset.actionOriginal = button.textContent;
+    activeActionButton = button;
+    button.disabled = true;
+    button.setAttribute("aria-busy", "true");
+    button.classList.add("action-pending");
+    button.textContent = label || "Working…";
+    const activity = ensureActionActivity();
+    activity.hidden = false;
+    activity.innerHTML = '<span class="spinner"></span><span>' + escHtml(label || "Working…") + "</span>";
+  }
+
+  function finishAction() {
+    const button = activeActionButton;
+    if (button) {
+      button.disabled = false;
+      button.removeAttribute("aria-busy");
+      button.classList.remove("action-pending");
+      if (button.dataset.actionOriginal) {
+        if (button.id === "btn-start-farm-home" && button.dataset.mode === "running") {
+          button.textContent = "Farm running — open dashboard";
+        } else {
+          button.textContent = button.dataset.actionOriginal;
+        }
+        delete button.dataset.actionOriginal;
+      }
+    }
+    activeActionButton = null;
+    if (actionActivity) actionActivity.hidden = true;
+  }
+
   function showBackendError(msg) {
+    finishAction();
     const el = document.getElementById("backend-error");
     if (!el) return;
     el.textContent = msg;
@@ -116,7 +163,8 @@
     }
   }
 
-  function showToast(msg) {
+  function showToast(msg, keepAction) {
+    if (!keepAction) finishAction();
     const el = document.getElementById("app-toast");
     if (!el) return;
     el.textContent = msg;
@@ -864,8 +912,12 @@
     btnGo.dataset.labelDefault = text;
   }
 
-  async function refreshSetup() {
+  async function refreshSetup(options) {
+    options = options || {};
     ensureAdvanced("phones");
+    if (options.announce) {
+      appendLog(setupLog, "[check] Checking ADB phones, browser, Tor, and setup state…", "log-line-accent");
+    }
     try {
       const state = await callApi("Refresh checks", function (a) {
         return a.get_setup_state();
@@ -895,8 +947,14 @@
         }
       }
       if (state && (state.ready || state.setup_already_done)) stepComplete.phones = true;
+      if (options.announce) {
+        const count = phonesItem && phonesItem.phones ? phonesItem.phones.length : 0;
+        appendLog(setupLog, "[check] Complete — " + count + " phone(s) currently answering ADB.", "log-line-ok");
+        showToast("Phone checks complete");
+      }
       updateNavActive();
     } catch (e) {
+      if (options.announce) appendLog(setupLog, "[check] Failed: " + e, "log-line-warn");
       appendLog(setupLog, "Check failed: " + e);
     }
   }
@@ -926,21 +984,33 @@
   async function runSetupAction(action) {
     const a = api();
     if (!a || setupBusy) return;
+    appendLog(setupLog, "[action] " + action + " started…", "log-line-accent");
     try {
       const res = await a.run_setup_action(action);
       if (res && res.log) appendLog(setupLog, res.log, classifySetupLine(res.log));
       if (res && res.message) appendLog(setupLog, res.message);
       if (res && res.checklist) renderChecklist(res.checklist);
       if (res && res.phones) setPhones(res.phones);
+      if (res && (res.error || res.ok === false)) {
+        appendLog(setupLog, "[action] " + action + " failed: " + (res.error || "unknown error"), "log-line-warn");
+      } else {
+        appendLog(setupLog, "[action] " + action + " complete.", "log-line-ok");
+        showToast(action + " complete");
+      }
     } catch (e) {
-      appendLog(setupLog, "Action failed: " + e);
+      appendLog(setupLog, "Action failed: " + e, "log-line-warn");
     }
   }
 
   /* ── Machine + emulator inventory (Android step, ARM64-aware) ── */
-  async function refreshMachineCaps() {
+  async function refreshMachineCaps(options) {
+    options = options || {};
     const el = document.getElementById("machine-caps");
     if (!el) return;
+    const androidLog = document.getElementById("android-log");
+    const androidLabel = document.getElementById("android-status-label");
+    if (options.announce && androidLog) appendLog(androidLog, "[inventory] Check again started — scanning CPU, Docker, MuMu, AVD, USB, and ADB…", "log-line-accent");
+    if (options.announce && androidLabel) androidLabel.textContent = "Checking machine…";
     const a = api();
     if (!a || typeof a.get_machine_capabilities !== "function") {
       el.innerHTML =
@@ -950,8 +1020,16 @@
     try {
       const m = await a.get_machine_capabilities();
       if (el) el.innerHTML = machineCapsHtml(m);
-    } catch (_e) {
+      if (options.announce && androidLog) {
+        const n = m && m.phones_online != null ? m.phones_online : 0;
+        appendLog(androidLog, "[inventory] Complete — " + n + " phone(s) answering ADB.", "log-line-ok");
+        if (androidLabel) androidLabel.textContent = "Inventory ready";
+        showToast("Machine inventory refreshed");
+      }
+    } catch (e) {
       el.innerHTML = '<p class="panel-note">Inventory scan failed — click Check again.</p>';
+      if (options.announce && androidLog) appendLog(androidLog, "[inventory] Failed: " + e, "log-line-warn");
+      if (androidLabel) androidLabel.textContent = "Inventory failed";
     }
   }
 
@@ -1223,6 +1301,37 @@
     return false;
   }
 
+  async function pollFarmStart(maxMs) {
+    const start = Date.now();
+    const a = api();
+    while (a && Date.now() - start < maxMs) {
+      try {
+        const st = a.farm_status ? await a.farm_status() : await a.get_farm_hud();
+        if (st && (st.running || st.external)) {
+          applyHomeFarmState(true);
+          if (runStatus) runStatus.textContent = "Farm running";
+          appendLog(goLog, "[farm] Farm is running — dashboard and lanes are live.", "log-line-ok");
+          showToast("Farm is running");
+          return true;
+        }
+        if (st && st.ok === false && !st.starting) {
+          const error = st.error || "Farm startup failed — read the Run log";
+          if (runStatus) runStatus.textContent = "Farm startup failed — read the Run log";
+          appendLog(goLog, "[farm] " + error, "log-line-warn");
+          showToast(error);
+          return false;
+        }
+      } catch (_e) {
+        /* startup can briefly race the status endpoint */
+      }
+      await new Promise(function (resolve) { setTimeout(resolve, 2000); });
+    }
+    if (runStatus) runStatus.textContent = "Startup failed or is stalled — read the Run log";
+    appendLog(goLog, "[farm] No running status after the wait window; inspect the Run log for the first failure.", "log-line-warn");
+    showToast("Farm did not reach running state");
+    return false;
+  }
+
   async function openDashboardWhenReady() {
     const ready = await pollDashboardReady(90000);
     const a = requireApi("Dashboard");
@@ -1413,10 +1522,13 @@
           if (res.errors && res.errors.length) {
             logLine(res.errors.length + " page(s) unreachable — " + res.errors[0].url + " (" + res.errors[0].error + ")");
           }
+          showToast("Site map scan complete");
           const gen = document.getElementById("btn-map-generate");
           if (gen) gen.disabled = false;
-        } catch (_e) {
+        } catch (e) {
           status("Scan failed", "bad");
+          logLine("Scan failed: " + e);
+          showToast("Site map scan failed");
         }
       });
     }
@@ -1449,8 +1561,10 @@
           updateNavActive();
           await refreshSteps();
           await refreshBuilder();
-        } catch (_e) {
+        } catch (e) {
           status("Generate failed", "bad");
+          logLine("Generate failed: " + e);
+          showToast("Starter sequence generation failed");
         }
       });
     }
@@ -2162,7 +2276,7 @@
     const refreshSetupBtn = document.getElementById("btn-refresh-setup");
     if (refreshSetupBtn && !refreshSetupBtn.dataset.wired) {
       refreshSetupBtn.dataset.wired = "1";
-      refreshSetupBtn.addEventListener("click", refreshSetup);
+      refreshSetupBtn.addEventListener("click", function () { refreshSetup({ announce: true }); });
     }
 
     const refreshPrereqBtn = document.getElementById("btn-refresh-prereq");
@@ -2388,7 +2502,7 @@
     const btnRefreshCaps = document.getElementById("btn-refresh-caps");
     if (btnRefreshCaps && !btnRefreshCaps.dataset.wired) {
       btnRefreshCaps.dataset.wired = "1";
-      btnRefreshCaps.addEventListener("click", refreshMachineCaps);
+      btnRefreshCaps.addEventListener("click", function () { refreshMachineCaps({ announce: true }); });
     }
 
     const btnSpin = document.getElementById("btn-spin-test-phone");
@@ -2475,6 +2589,9 @@
       });
     }
 
+    // Long-running actions opt into beginAction at their own handler so menu,
+    // navigation, help, and toggle buttons are never globally disabled.
+
     // Home quick-start: Start farm / Farm running → dashboard / Stop farm.
     const btnStartHome = document.getElementById("btn-start-farm-home");
     const btnStopHome = document.getElementById("btn-stop-farm-home");
@@ -2504,6 +2621,9 @@
           return;
         }
         try {
+          beginAction(btnStartHome, "Starting farm…");
+          appendLog(goLog, "[farm] Start requested — preparing the farm stack…", "log-line-accent");
+          showView("go", { animate: true });
           const res = await callApi("Start farm", function (a) {
             return a.start_farm();
           });
@@ -2517,11 +2637,16 @@
             showBackendError((res && res.error) || "Start farm failed");
             return;
           }
-          if (res && res.started) {
+          if (res && res.starting) {
+            appendLog(goLog, "[farm] " + (res.message || "Farm startup is running in the background.\n"), "log-line-accent");
+            if (runStatus) runStatus.textContent = "Starting farm… watch the Run log";
+            showToast("Farm startup is running — watch the Run log", true);
+            pollFarmStart(90000);
+          } else if (res && res.started) {
             applyHomeFarmState(true);
             showToast("Farm started — watch the dashboard");
           } else {
-            showToast("Farm start triggered");
+            showToast("Farm start triggered — watch the Run log");
           }
         } catch (_e) {
           /* banner shown */

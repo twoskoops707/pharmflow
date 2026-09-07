@@ -219,6 +219,9 @@ _ready = threading.Event()
 _boot_error: str | None = None
 _call_queue: queue.Queue = queue.Queue()
 _boot_all_lock = threading.Lock()
+_farm_start_lock = threading.Lock()
+_farm_starting = False
+_farm_start_result: dict[str, Any] = {}
 _log_callbacks: list[Callable[[str, str], None]] = []
 _page_windows: dict[int, Any] = {}
 _lift_pump_active = False
@@ -2298,27 +2301,94 @@ def agent_status() -> dict:
 # ── Farm start/stop (unison money stack) — added in pharmflow merge ──
 
 
-def start_farm_from_app(profile_slug: str = "", hours: float = 0) -> dict:
-    """Start the unison money farm (run_farm_354 + stealth + watchdog) from the app.
+def farm_start_in_progress() -> bool:
+    return _farm_starting
 
-    Delegates to wizard.farm_control.start_farm so the EXE owns the same
-    money path the operator dash (:8091) reports on.
+
+def start_farm_from_app(profile_slug: str = "", hours: float = 0) -> dict:
+    """Acknowledge farm startup immediately and stream the real result to Run.
+
+    Farm helper startup can take long enough to make a synchronous WebView call
+    look dead. The worker owns the blocking startup; the API returns a truthful
+    ``starting`` response immediately and emits each progress/error line through
+    the existing Run log callback.
     """
     from wizard.farm_control import farm_running as _fr, load_active_profile, start_farm as _sf
 
-    def work() -> dict:
-        try:
-            if _fr():
-                return {"ok": False, "error": "Farm already running", "running": True}
-            profile = load_active_profile(profile_slug or None)
-            ok = _sf(profile=profile, hours=hours or None, takeover=True)
-            if ok:
-                return {"ok": True, "started": True, "dashboard": "http://127.0.0.1:8091/"}
-            return {"ok": False, "error": "Start farm refused (see farm log)"}
-        except Exception as exc:  # noqa: BLE001 — surface to UI
-            return {"ok": False, "error": f"start_farm error: {exc}"}
+    global _farm_start_result, _farm_starting
+    with _farm_start_lock:
+        if _farm_starting:
+            return {
+                "ok": True,
+                "starting": True,
+                "message": "Farm startup is already in progress — watch the Run log.",
+            }
+        if _fr():
+            return {
+                "ok": True,
+                "started": True,
+                "running": True,
+                "message": "Farm is already running.",
+                "dashboard": "http://127.0.0.1:8091/",
+            }
+        _farm_starting = True
+        _farm_start_result = {
+            "ok": True,
+            "starting": True,
+            "running": False,
+            "message": "Farm startup started — watch the Run log for each lane.",
+        }
 
-    return _run_on_tk(work)
+    def log(msg: str, level: str = "ok") -> None:
+        prefix = "[farm] "
+        _emit_log("go", prefix + str(msg).rstrip() + "\n")
+
+    def work() -> None:
+        global _farm_start_result, _farm_starting
+        try:
+            _emit_log("go", "[farm] Starting farm stack — checking profile and helper lanes…\n")
+            profile = load_active_profile(profile_slug or None)
+            ok = _sf(profile=profile, hours=hours or None, log=log, takeover=True)
+            if ok:
+                _emit_log("go", "[farm] Farm startup complete — unison, watchdog, and dashboard are live.\n")
+                with _farm_start_lock:
+                    _farm_start_result = {
+                        "ok": True,
+                        "starting": False,
+                        "running": True,
+                        "message": "Farm startup complete — unison, watchdog, and dashboard are live.",
+                    }
+            else:
+                message = "Farm startup failed — see the preceding Run log lines."
+                _emit_log("go", "[farm] " + message + "\n")
+                with _farm_start_lock:
+                    _farm_start_result = {
+                        "ok": False,
+                        "starting": False,
+                        "running": False,
+                        "error": message,
+                    }
+        except Exception as exc:  # noqa: BLE001 — surface to visible Run log
+            message = f"Start farm error: {exc}"
+            _emit_log("go", f"[farm] {message}\n")
+            with _farm_start_lock:
+                _farm_start_result = {
+                    "ok": False,
+                    "starting": False,
+                    "running": False,
+                    "error": message,
+                }
+        finally:
+            with _farm_start_lock:
+                _farm_starting = False
+
+    threading.Thread(target=work, name="cpharm-farm-start", daemon=True).start()
+    return {
+        "ok": True,
+        "starting": True,
+        "message": "Farm startup started — watch the Run log for each lane.",
+        "dashboard": "http://127.0.0.1:8091/",
+    }
 
 
 def stop_farm_from_app() -> dict:
@@ -2326,13 +2396,35 @@ def stop_farm_from_app() -> dict:
     from wizard.farm_control import farm_running as _fr, stop_farm as _stop
 
     def work() -> dict:
+        global _farm_start_result
         try:
             if not _fr():
-                return {"ok": False, "error": "Farm is not running"}
+                with _farm_start_lock:
+                    _farm_start_result = {
+                        "ok": True,
+                        "starting": False,
+                        "running": False,
+                        "message": "Farm is already stopped.",
+                    }
+                return {"ok": True, "stopped": False, "running": False, "message": "Farm is already stopped."}
             stopped = _stop()
-            return {"ok": bool(stopped), "stopped": bool(stopped)}
+            with _farm_start_lock:
+                _farm_start_result = {
+                    "ok": bool(stopped),
+                    "starting": False,
+                    "running": False,
+                    "message": "Farm stopped." if stopped else "Farm stop did not complete.",
+                }
+            return {"ok": bool(stopped), "stopped": bool(stopped), "running": False}
         except Exception as exc:  # noqa: BLE001
-            return {"ok": False, "error": f"stop_farm error: {exc}"}
+            with _farm_start_lock:
+                _farm_start_result = {
+                    "ok": False,
+                    "starting": False,
+                    "running": False,
+                    "error": f"stop_farm error: {exc}",
+                }
+            return {"ok": False, "error": f"stop_farm error: {exc}", "running": False}
 
     return _run_on_tk(work)
 
@@ -2511,14 +2603,26 @@ def farm_status_from_app() -> dict:
 
     def work() -> dict:
         try:
-            return {
-                "ok": True,
-                "running": bool(_fr()),
-                "external": bool(_ex()),
-                "dashboard": "http://127.0.0.1:8091/",
-            }
+            running = bool(_fr())
+            external = bool(_ex())
+            with _farm_start_lock:
+                result = dict(_farm_start_result)
+                starting = bool(_farm_starting)
+            if running or external:
+                result.update({"ok": True, "running": True, "starting": False})
+            elif starting:
+                result.setdefault("ok", True)
+                result["running"] = False
+                result["starting"] = True
+            else:
+                result.setdefault("ok", True)
+                result.setdefault("running", False)
+                result.setdefault("starting", False)
+            result["external"] = external
+            result["dashboard"] = "http://127.0.0.1:8091/"
+            return result
         except Exception as exc:  # noqa: BLE001
-            return {"ok": False, "error": str(exc)}
+            return {"ok": False, "error": str(exc), "running": False, "starting": False}
 
     return _run_on_tk(work)
 

@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import logging
 import os
 import time
 from pathlib import Path
 from typing import Callable
+from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +63,36 @@ def browse_proxy_mode_label(mode: str | None = None) -> str:
         "direct": "Direct (home IP, same device look)",
         "upstream": "Upstream (per-phone residential proxy)",
     }.get(m, m)
+
+
+def upstream_proxy_url_for_phone(phone_idx: int) -> str | None:
+    """Return per-phone upstream URL from ``phone_upstream_proxies`` prefs, if any."""
+    prefs = load_browse_prefs()
+    lst = prefs.get("phone_upstream_proxies")
+    if not isinstance(lst, list):
+        return None
+    if phone_idx < 0 or phone_idx >= len(lst):
+        return None
+    raw = str(lst[phone_idx] or "").strip()
+    return raw or None
+
+
+def _parse_upstream_url(url: str) -> tuple[str, int, str | None]:
+    """Parse ``http://user:pass@host:port`` into host, port, optional Basic auth."""
+    u = urlparse(url.strip())
+    if u.scheme not in ("http", "https", ""):
+        raise ValueError(f"unsupported upstream scheme: {u.scheme}")
+    host = u.hostname or ""
+    port = u.port or (443 if u.scheme == "https" else 80)
+    if not host:
+        raise ValueError("upstream proxy missing host")
+    auth = None
+    if u.username:
+        user = u.username
+        pwd = u.password or ""
+        token = base64.b64encode(f"{user}:{pwd}".encode()).decode("ascii")
+        auth = f"Basic {token}"
+    return host, int(port), auth
 
 
 def sync_browse_proxy_env_from_prefs() -> str:

@@ -47,6 +47,32 @@ def _webview_fail_reason(exc: BaseException | None = None, *, stage: str = "") -
     return "\n".join(parts)
 
 
+def _log_webview_soft_warn(reason: str) -> None:
+    """Record a non-fatal WebView2 provisioning warning (deck still attempted)."""
+    banner = (
+        "WEBVIEW2 PROVISION WARN — still attempting deck (not Tk fallback).\n"
+        f"{reason}\n"
+        "--- end webview soft warn ---"
+    )
+    try:
+        print(banner, file=sys.stderr, flush=True)
+    except Exception:
+        pass
+    try:
+        err_path = Path.home() / "CPharm" / "cpharm_webview_soft_warn.log"
+        err_path.parent.mkdir(parents=True, exist_ok=True)
+        err_path.write_text(banner + "\n", encoding="utf-8")
+    except OSError:
+        pass
+    try:
+        import cpharm_wizard_bridge as bridge
+
+        for line in banner.splitlines():
+            bridge._emit_log("boot", line + "\n")
+    except Exception:
+        pass
+
+
 def _log_webview_fallback(reason: str, *, interactive: bool = True) -> None:
     """Never silently fall back to Tk — shout to stderr, boot log, and disk."""
     banner = (
