@@ -170,6 +170,23 @@ def prepare_browse_session(
     return out
 
 
+def _host_port_listens(port: int, host: str = "127.0.0.1", timeout: float = 0.6) -> bool:
+    """True when something on the HOST actually accepts TCP on *port*.
+
+    A guest proxy pin to a host port with no listener silently kills the
+    phone's internet AND every impression (traffic goes to localhost:nothing).
+    ``guest_proxy_healthy`` only checks the setting string — this is the
+    real reachability probe used before trusting a pin.
+    """
+    import socket
+
+    try:
+        with socket.create_connection((host, int(port)), timeout=timeout):
+            return True
+    except (OSError, ValueError, OverflowError):
+        return False
+
+
 def guest_proxy_healthy(value: str, phone_idx: int | None = None) -> bool:
     """True when Android http_proxy is a usable 127.0.0.1:<port> (not :0/null/empty)."""
     raw = (value or "").strip()
@@ -587,6 +604,28 @@ def pin_guest_proxy(
             time.sleep(0.12 * (attempt + 1))
 
     if guest_proxy_healthy(last, idx):
+        # Health by string value is NOT enough: a pin whose host port has no
+        # listener (dead inject/tor, adb server restart wiped reverse tunnel)
+        # passes the string check but kills every impression AND the phone's
+        # own internet (http_proxy -> localhost:nothing). Probe the host side
+        # before trusting the pin.
+        try:
+            last_port = int(last.rsplit(":", 1)[-1])
+        except (IndexError, ValueError):
+            last_port = 0
+        if last_port > 0 and not _host_port_listens(last_port):
+            logger.warning(
+                "pin_guest_proxy DEAD PIN serial=%s phone=%d proxy=%s host:%d not listening — clearing proxy to keep phone internet",
+                ser,
+                idx,
+                last,
+                last_port,
+            )
+            try:
+                adb.shell("settings put global http_proxy :0", serial=ser)  # type: ignore[union-attr]
+            except Exception:
+                pass
+            return ":0"
         return last
     logger.warning(
         "pin_guest_proxy still unhealthy serial=%s phone=%d last=%r want=%s pkg=%s",

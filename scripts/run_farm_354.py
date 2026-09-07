@@ -565,6 +565,66 @@ def _discover_available_phones(
     return available
 
 
+def _rewire_missing_phones(farm: MuMuFarmOps, missing: list[str]) -> list[str]:
+    """Actively reconnect ADB to phones discovery missed, never just adapt away.
+
+    A phone whose VM is running but dropped off the ADB bus (wedged 5037
+    server, MuMu NAT re-addressing, ADB restart wiping reverse tunnels) shows
+    as "offline" even though Android is up. Before the farm logs "adapted
+    away" it must attempt a real rewire: reconnect every known serial (ARM
+    state.json, lock map, instance serial) plus the MuMu ARM host-port
+    endpoint. Returns the names that came back online.
+    """
+    reattached: list[str] = []
+    if not missing:
+        return reattached
+    logger.info("REWIRE: attempting adb rewire for %d missing phone(s): %s", len(missing), ",".join(missing))
+    for name in missing:
+        try:
+            inst = farm.get_phone(name) if hasattr(farm, "get_phone") else farm.instances.get(name)
+        except Exception:
+            inst = None
+        if inst is None:
+            continue
+        idx = -1
+        try:
+            idx = int(getattr(inst, "index", -1) or -1)
+        except (TypeError, ValueError):
+            pass
+        candidates: list[str] = []
+        try:
+            arm = farm._arm_adb_serial_from_state(name)
+            if arm:
+                candidates.append(arm)
+        except Exception:
+            pass
+        if getattr(inst, "adb_serial", None):
+            candidates.append(inst.adb_serial)
+        if idx >= 0:
+            candidates.append(f"127.0.0.1:{16384 + idx * 32}")
+        seen: set[str] = set()
+        for serial in candidates:
+            if not serial or ":" not in serial or serial in seen:
+                continue
+            seen.add(serial)
+            try:
+                r = farm.adb.run("connect", serial, timeout=6.0)
+            except Exception as exc:
+                logger.debug("rewire connect %s failed: %s", serial, exc)
+                continue
+            if r.ok or "already connected" in (r.stdout or "").lower():
+                try:
+                    up = farm.adb.wait_for_device(serial, timeout=3.0)
+                except Exception:
+                    up = False
+                if up:
+                    inst.adb_serial = serial
+                    reattached.append(name)
+                    logger.info("REWIRE: %s back online via %s", name, serial)
+                    break
+    return reattached
+
+
 def _order_phones(available: list[str], preferred: list[str] | None = None) -> list[str]:
     """Order CPharm-online phones; preferred is sort hint only, never a cap."""
     avail_set = {p for p in available if p}
@@ -2948,8 +3008,23 @@ def main() -> int:
     if preferred:
         missing = [p for p in preferred if p not in set(available)]
         if missing:
+            # Rewire before adapting away: reconnect known serials + ARM
+            # host ports, then re-discover so a phone that dropped off the
+            # ADB bus comes back instead of being silently discarded.
+            try:
+                reattached = _rewire_missing_phones(farm, missing)
+                if reattached:
+                    logger.info("REWIRE: %d phone(s) reattached: %s", len(reattached), ",".join(reattached))
+                    available = _discover_available_phones(
+                        farm, include_names=set(preferred) if preferred else None
+                    )
+                    phones = _order_phones(available, preferred=preferred)
+            except Exception as exc:
+                logger.warning("rewire pass failed (continuing): %s", exc)
+            missing = [p for p in preferred if p not in set(available)]
+        if missing:
             logger.warning(
-                "sticky phones offline (adapted away): %s",
+                "sticky phones offline (adapted away after rewire): %s",
                 ",".join(missing),
             )
     if not phones:

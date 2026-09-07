@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import sys
 import time
 from pathlib import Path
@@ -32,7 +33,36 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 log = logging.getLogger("mantis_inject")
 
 
+def _another_injector_running() -> bool:
+    """True when a second run_mantis_inject_proxies lane is already alive.
+
+    Duplicate injector lanes race to pin guest proxies — each pins 127.0.0.1:port
+    values from its own index span, so a phone ends up pointed at a port whose
+    tor/inject listener belongs to the OTHER lane (or nothing at all). Observed
+    twice: two lanes 3s apart left phones pinned to dead ports = zero internet.
+    """
+    try:
+        import psutil
+
+        me = os.getpid()
+        for p in psutil.process_iter(["pid", "cmdline"]):
+            try:
+                if p.info["pid"] == me:
+                    continue
+                cmd = " ".join(str(x) for x in (p.info.get("cmdline") or []))
+            except Exception:
+                continue
+            if "run_mantis_inject_proxies.py" in cmd:
+                return True
+    except Exception:
+        pass
+    return False
+
+
 def main() -> int:
+    if _another_injector_running():
+        log.warning("another run_mantis_inject_proxies lane is alive — refusing duplicate (would race proxy pins)")
+        return 0
     ap = argparse.ArgumentParser()
     ap.add_argument("--phones", type=int, default=11)
     ap.add_argument("--install-ca", action="store_true", default=True)

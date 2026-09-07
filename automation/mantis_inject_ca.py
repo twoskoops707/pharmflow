@@ -156,10 +156,33 @@ def install_ca_on_device(adb: object, serial: str) -> bool:
         if not getattr(push, "ok", True):
             logger.warning("CA push failed serial=%s", serial)
             return False
+        # Fast path: when adbd is already root (MuMu ARM guests boot root), a
+        # plain cp lands without su/remount/overlay — and every su -c variant
+        # can hang 10-30s each on slow guests, stacking into minutes. Probe
+        # once; if root, install directly into every store that exists.
+        id_res = adb.shell("id", serial=serial, timeout=8.0)  # type: ignore[union-attr]
+        adbd_root = "uid=0(root)" in (id_res.stdout or "")
         for dest in (
             "/apex/com.android.conscrypt/cacerts",
             "/system/etc/security/cacerts",
         ):
+            if adbd_root:
+                probe = adb.shell(  # type: ignore[union-attr]
+                    f"test -d {dest} && echo YES",
+                    serial=serial,
+                    timeout=8.0,
+                )
+                if "YES" not in (probe.stdout or ""):
+                    continue
+                copy = adb.shell(  # type: ignore[union-attr]
+                    f"cp {remote_tmp} {dest}/{remote_name} && chmod 644 {dest}/{remote_name} && echo OK",
+                    serial=serial,
+                    timeout=15.0,
+                )
+                if "OK" in (copy.stdout or ""):
+                    logger.info("installed Mantis CA (root fast path) on %s -> %s/%s", serial, dest, remote_name)
+                    return True
+                continue
             # Prefer plain test first - some MuMu builds return empty/non-YES
             # from `su -c test -d` even when the dir is present (broke CA install
             # -> Chromium MITM inject untrusted -> Mantis stayed at 0 impr).
