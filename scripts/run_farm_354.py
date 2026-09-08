@@ -746,12 +746,23 @@ def _persist_live_phones(phones: list[str], farm: MuMuFarmOps) -> None:
     )
     serials: dict[str, str] = dict(CANONICAL_FARM_PHONES)
     live_by_name = {p: p for p in live}
-    for name in names:
+    seen: set[str] = set()
+    for name in sorted(names, key=lambda n: int(re.match(r"vm(\d+)", n).group(1)) if re.match(r"vm(\d+)", n) else 0):
         inst = farm.get_phone(name) if hasattr(farm, "get_phone") else None
         ser = str(getattr(inst, "adb_serial", "") or "").strip()
         if ser and ":" in ser and not is_banned_serial(ser):
+            if ser in seen:
+                # Same serial claimed by two vm names (e.g. vm14+vm15 -> same IP) —
+                # clear the duplicate so the watchdog never pins a dead 8233 port.
+                serials[name] = ""
+                continue
+            seen.add(ser)
             serials[name] = ser
         elif name in live_by_name and ser and not is_banned_serial(ser):
+            if ser in seen:
+                serials[name] = ""
+                continue
+            seen.add(ser)
             serials[name] = ser
     now = datetime.now(timezone.utc).isoformat()
     ov_path = log_dir / "farm_runtime_overrides.json"
@@ -764,7 +775,9 @@ def _persist_live_phones(phones: list[str], farm: MuMuFarmOps) -> None:
         data["CPHARM_FARM_PHONES"] = ",".join(names)
         data["CPHARM_FARM_PHONE_COUNT"] = str(expect)
         data["CPHARM_FARM_EXPECT_PHONES"] = str(expect)
-        data["CPHARM_ADB_SERIALS"] = ",".join(serials[n] for n in names)
+        data["CPHARM_ADB_SERIALS"] = ",".join(
+            serials[n] for n in names if (serials.get(n) or "").strip()
+        )
         data["CPHARM_FARM_BAN_SERIALS"] = ban_serials_csv()
         data["updated"] = now
         data["tick_verify_note"] = (

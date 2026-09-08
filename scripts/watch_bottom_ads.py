@@ -64,19 +64,36 @@ def _phones_from_lock() -> list[tuple[str, int, str]]:
         phones = data.get("phones") or {}
         if not isinstance(phones, dict) or not phones:
             return list(_LEGACY_ARM_PHONES)
+        inject_map = data.get("inject") or {}
         out: list[tuple[str, int, str]] = []
+        seen_serials: set[str] = set()
         for name, serial in phones.items():
             ser = str(serial or "").strip()
             nm = str(name or "").strip()
             if not ser or not nm:
                 continue
-            # vm0.gmadoa -> index 0 -> 8218
-            idx = 0
-            m = re.match(r"vm(\d+)", nm.lower())
-            if m:
-                idx = int(m.group(1))
+            # A serial can appear under two vm names (vm14 AND vm15 -> same IP) —
+            # only the first (lowest-index) entry wins; the duplicate would pin
+            # the phone to a dead port (e.g. 8233) nothing listens on.
+            if ser in seen_serials:
+                continue
+            seen_serials.add(ser)
+            # Prefer the lock's authoritative inject map (farm-written) over
+            # recomputing 8218 + index from the name — the name-derived port can
+            # drift from the live listener when names/serials shift.
+            port = 0
+            try:
+                port = int(inject_map.get(nm) or 0)
+            except (TypeError, ValueError):
+                port = 0
+            if port <= 0:
+                idx = 0
+                m = re.match(r"vm(\d+)", nm.lower())
+                if m:
+                    idx = int(m.group(1))
+                port = 8218 + idx
             short = nm.split(".", 1)[0]
-            out.append((ser, 8218 + idx, short))
+            out.append((ser, port, short))
         return out or list(_LEGACY_ARM_PHONES)
     except (OSError, json.JSONDecodeError, TypeError, ValueError):
         return list(_LEGACY_ARM_PHONES)
