@@ -146,6 +146,38 @@ _hidden = (
     + _dash_hidden
 )
 
+# Stamp the real build identity at build time so the frozen EXE's window header
+# shows which commit/build it actually is (git is not available at runtime).
+# ``cpharm_version.build_label`` prefers bundled assets/build_info.json, so the
+# header reads e.g. ``(build git-abc1234 @ 20260907-1700)`` — always current.
+import datetime as _dt
+import subprocess as _sp
+
+_build_commit = ""
+for _c in (
+    ["git", "rev-parse", "HEAD"],
+    ["git", "log", "-1", "--format=%H"],
+):
+    try:
+        _build_commit = _sp.check_output(_c, cwd=os.getcwd(), text=True, timeout=10).strip()
+    except Exception:
+        pass
+    if _build_commit:
+        break
+_build_stamp = _dt.datetime.now(_dt.timezone.utc).strftime("%Y%m%d-%H%M")
+_build_info = {
+    "build_number": f"{_build_stamp}",
+    "commit": _build_commit,
+    "built_at_utc": _dt.datetime.now(_dt.timezone.utc).isoformat(),
+}
+_build_info_path = Path("assets") / "build_info.json"
+_build_info_path.parent.mkdir(parents=True, exist_ok=True)
+import json as _json
+_build_info_path.write_text(
+    _json.dumps(_build_info, indent=2), encoding="utf-8"
+)
+print(f"BUILD_INFO: {_json.dumps(_build_info)}")
+
 a = Analysis(
     ["cpharm_desktop.py"],
     pathex=[".", "..", "../automation", "../tools"],

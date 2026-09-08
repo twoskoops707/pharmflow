@@ -34,11 +34,16 @@ from automation.cpharm_farm_config import (  # noqa: E402
 
 from automation.cpharm_unison_dedupe import dedupe_keep_newest  # noqa: E402
 
-LANES: tuple[tuple[str, str], ...] = (
-    ("farm", "run_farm_354.py"),
-    ("stealth", "cpharm_stealth_guard.py"),
-    ("watchdog", "farm_watchdog.py"),
-    ("freebuff", "agent_unison_freebuff_loop.py"),
+LANES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
+    ("farm", "run_farm_354.py", ()),
+    ("stealth", "cpharm_stealth_guard.py", ()),
+    ("watchdog", "farm_watchdog.py", ()),
+    ("freebuff", "agent_unison_freebuff_loop.py", ()),
+    # Process reaper: watches the live process table and kills provably stale
+    # duplicates/orphans (duplicate adb fork-servers, orphaned adb/shell
+    # clients stuck >180s, duplicate Tor data dirs). Never touches farm-owned
+    # or adopted processes. Keeps the machine lean while the farm earns.
+    ("reaper", "cpharm_watchdog.py", ("--watch", "--apply", "--reap-interval", "60")),
 )
 INTERVAL_S = float(os.environ.get("CPHARM_UNISON_INTERVAL_S", "45"))
 FLAGS = 0x08000000  # CREATE_NO_WINDOW
@@ -92,12 +97,12 @@ def _pid_alive_is_supervisor(pid: int) -> bool:
 
 
 def _lane_pids() -> dict[str, list[int]]:
-    out: dict[str, list[int]] = {name: [] for name, _ in LANES}
+    out: dict[str, list[int]] = {name: [] for name, *_ in LANES}
     try:
         import psutil
     except ImportError:
         return out
-    needles = {name: script for name, script in LANES}
+    needles = {name: script for name, script, _ in LANES}
     for proc in psutil.process_iter(["pid", "cmdline"]):
         try:
             cmd = " ".join(str(x) for x in (proc.info.get("cmdline") or []))
@@ -119,8 +124,10 @@ def _have_process_scan() -> bool:
         return False
 
 
-def _spawn_lane(name: str, script: str) -> int | None:
+def _spawn_lane(name: str, script: str, args: tuple[str, ...] = ()) -> int | None:
     path = ROOT / "scripts" / script
+    if not path.is_file():
+        path = ROOT / "tools" / script
     if not path.is_file():
         return None
     env = os.environ.copy()
@@ -128,7 +135,7 @@ def _spawn_lane(name: str, script: str) -> int | None:
     env["CPHARM_EXE_OWNED_FARM"] = "1"
     apply_farm_env(env)
     proc = subprocess.Popen(
-        [_pyw(), "-u", str(path)],
+        [_pyw(), "-u", str(path), *args],
         cwd=str(ROOT),
         env=env,
         creationflags=FLAGS if sys.platform == "win32" else 0,
@@ -146,15 +153,15 @@ def _ensure_lanes() -> list[str]:
     if not _have_process_scan():
         notes.append("skip_spawn_no_psutil")
         return notes
-    for _name, script in LANES:
+    for _name, script, _args in LANES:
         extras = dedupe_keep_newest(script)
         for pid in extras:
             notes.append(f"dedupe_{script}:{pid}")
     pids = _lane_pids()
-    for name, script in LANES:
+    for name, script, args in LANES:
         if pids.get(name):
             continue
-        pid = _spawn_lane(name, script)
+        pid = _spawn_lane(name, script, args)
         if pid:
             notes.append(f"spawn_{name}={pid}")
         else:
@@ -239,7 +246,7 @@ def main() -> int:
     boot_notes = _ensure_freebuff_queue()
     print(
         f"cpharm_unison_supervisor pid={os.getpid()} "
-        f"purged={removed} lanes={[n for n, _ in LANES]} "
+        f"purged={removed} lanes={[n for n, _s, _a in LANES]} "
         f"{' '.join(boot_notes)}",
         flush=True,
     )
