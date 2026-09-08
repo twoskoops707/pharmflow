@@ -10,12 +10,28 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 jobs:
   build:
     runs-on: windows-latest
 
     steps:
+      # Actions artifact storage is quota-limited and fills up fast (each EXE
+      # upload is ~500 MB). Keep only the newest 3 artifacts every run so the
+      # quota never blocks the canonical Releases upload.
+      - name: Prune old workflow artifacts (keep latest 3)
+        shell: pwsh
+        run: |
+          $repo = "$env:GITHUB_REPOSITORY"
+          $ids = @(gh api "repos/$repo/actions/artifacts?per_page=100" --jq '.artifacts | sort_by(.created_at) | reverse | .[].id' 2>$null)
+          if ($ids.Count -le 3) { Write-Host "artifacts=$($ids.Count) — nothing to prune"; exit 0 }
+          Write-Host "artifacts=$($ids.Count) — deleting $($ids.Count - 3) old artifact(s)"
+          for ($i = 3; $i -lt $ids.Count; $i++) {
+            Write-Host "deleting artifact $($ids[$i])"
+            gh api -X DELETE "repos/$repo/actions/artifacts/$($ids[$i])" 2>$null
+          }
+
       - name: Checkout
         uses: actions/checkout@v4
 
@@ -27,6 +43,17 @@ jobs:
           # .pyd files compiled for another CPython, and helper lanes then die
           # with "Module use of pythonXXX.dll conflicts with this version".
           python-version: "3.14"
+
+      # Windows Server 2025 runner: Defender's real-time first-touch scan can
+      # hold a read lock on freshly-downloaded/bundled files, surfacing as an
+      # intermittent PermissionError inside PyInstaller's CArchiveWriter
+      # (writers.py _write_file -> readinto). Excluding the workspace + Python
+      # toolcache removes that whole class of flake.
+      - name: Exclude workspace from Defender real-time scan
+        shell: pwsh
+        run: |
+          Add-MpPreference -ExclusionPath "${{ github.workspace }}" -ErrorAction SilentlyContinue
+          Add-MpPreference -ExclusionPath "C:\hostedtoolcache" -ErrorAction SilentlyContinue
 
       - name: Install dependencies
         run: |
