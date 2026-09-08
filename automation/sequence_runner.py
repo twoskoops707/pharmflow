@@ -704,7 +704,20 @@ class SequenceRunner:
                         def _after_nav_paint(
                             _tab: str, _zone: str, cp: str
                         ) -> None:
-                            ensure_ads_visible_browser_hidden(
+                            # Paint outcome must be visible in the farm log — a
+                            # silent skip (e.g. unrecognized browser package or
+                            # inject-proxy miss) is how empty ad zones passed as
+                            # "OK" while the phone showed nothing.
+                            def _log_paint(msg: str) -> None:
+                                logger.info(
+                                    "[%s] AD PAINT %s (zone=%s cp=%s)",
+                                    phone,
+                                    msg,
+                                    _zone,
+                                    cp,
+                                )
+
+                            paint = ensure_ads_visible_browser_hidden(
                                 self.farm.adb,
                                 serial,
                                 phone_idx,
@@ -712,7 +725,18 @@ class SequenceRunner:
                                 paint_creatives=True,
                                 interactive=True,
                                 resume_tor=False,
+                                log_fn=_log_paint,
                             )
+                            result["ad_paint"] = paint
+                            if paint.get("mantis_patch_error") or paint.get(
+                                "pause_error"
+                            ):
+                                logger.warning(
+                                    "[%s] AD PAINT soft-fail: %s",
+                                    phone,
+                                    paint.get("mantis_patch_error")
+                                    or paint.get("pause_error"),
+                                )
 
                         def _cdp_targets() -> list:
                             return cdp_creative_tap_targets(
