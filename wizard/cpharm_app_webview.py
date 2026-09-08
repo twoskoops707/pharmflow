@@ -284,16 +284,25 @@ def _overlay_netcore_webview2_dlls() -> None:
         return
 
     lib_dir = Path(webview.__file__).resolve().parent / "lib"
-    candidates = [
+    # Order matters: the *bundled* netcore directory must be found before
+    # ``webview/lib`` itself. ``webview/lib`` contains the STOCK net462 DLLs that
+    # crash on .NET 8 (ContextMenu was removed), so using it as the source and
+    # bailing on the self-equality check silently skipped the overlay — the deck
+    # then died with a TypeLoadException on every launch. Check the bundled dirs
+    # first and only treat webview/lib as "already correct" when nothing else has
+    # the DLLs.
+    bundled_dirs = [
+        Path(getattr(sys, "_MEIPASS", "")) / "bundled" / "webview2_netcore",
         _wizard_dir / "bundled" / "webview2_netcore",
         Path(getattr(sys, "_MEIPASS", "")) / "webview" / "lib",
-        Path(getattr(sys, "_MEIPASS", "")) / "bundled" / "webview2_netcore",
+        _wizard_dir / "webview" / "lib",
     ]
-    src_dir = next((p for p in candidates if (p / "Microsoft.Web.WebView2.WinForms.dll").is_file()), None)
+    src_dir = next(
+        (p for p in bundled_dirs if (p / "Microsoft.Web.WebView2.WinForms.dll").is_file()),
+        None,
+    )
     if src_dir is None or not lib_dir.is_dir():
         return
-    # If already netcore-sized / marked, skip. Always overlay from our bundle when present
-    # outside lib_dir itself.
     if src_dir.resolve() == lib_dir.resolve():
         return
     for name in (
@@ -305,6 +314,7 @@ def _overlay_netcore_webview2_dlls() -> None:
         if src.is_file():
             try:
                 shutil.copy2(src, dst)
+                _safe_stderr(f"WEBVIEW2: overlaid {name} -> {dst.name} (netcore)")
             except OSError as exc:
                 _safe_stderr(f"WEBVIEW2: could not overlay {name}: {exc}")
 
