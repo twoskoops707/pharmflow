@@ -10,6 +10,24 @@ from pathlib import Path
 
 from PyInstaller.utils.hooks import collect_all, collect_submodules
 
+# Diagnostics: PyInstaller's CArchiveWriter._write_file raises PermissionError
+# on read with no filename in the traceback. Wrap it so the exact source that
+# fails on CI (Windows 2025 runner) is printed instead of guessing.
+import PyInstaller.archive.writers as _pw  # noqa: E402
+
+_orig_write_file = _pw.CArchiveWriter._write_file
+
+
+def _write_file_trace(self, fp, src_name, dest_name, typecode, compress=False):
+    try:
+        return _orig_write_file(self, fp, src_name, dest_name, typecode, compress)
+    except PermissionError:
+        print(f"PERMISSION_DENIED_SRC: {src_name!r} -> {dest_name!r}", flush=True)
+        raise
+
+
+_pw.CArchiveWriter._write_file = _write_file_trace
+
 _webview_datas, _webview_binaries, _webview_hidden = collect_all("webview")
 
 # Farm operator dash (scripts/farm_operator_dash.py) runs in-process when no
