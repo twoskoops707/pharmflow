@@ -93,6 +93,25 @@ if _is_arm64_host:
         if _src.is_file():
             _webview_datas.append((str(_src), "webview/lib"))
 
+# Tor runtime data dirs (automation/tor/data_*) must NOT ship in the EXE:
+# their per-run 'lock' files raise PermissionError when PyInstaller reads
+# them into the archive on CI (writers._write_file -> readinto), and the
+# state is runtime-only — the farm creates fresh data dirs on the operator
+# box. Build the automation datas explicitly, skipping tor/data_* and
+# __pycache__ (bytecode is regenerated at runtime).
+_automation_datas: list = []
+_auto_root = Path("../automation").resolve()
+for _f in _auto_root.rglob("*"):
+    if not _f.is_file():
+        continue
+    _rel = _f.relative_to(_auto_root)
+    if "__pycache__" in _rel.parts:
+        continue
+    if _rel.parts[0] == "tor" and any(p.startswith("data_") for p in _rel.parts):
+        continue
+    _dest = "automation" if _rel.parent == Path(".") else f"automation/{_rel.parent.as_posix()}"
+    _automation_datas.append((str(_f), _dest))
+
 # Farm helpers (run_farm_354.py, cpharm_unison_supervisor.py, farm_operator_dash.py,
 # tools/cpharm_watchdog.py) run as plain .py under an external system pythonw and do
 # ``sys.path.insert(0, <bundle root>)`` then ``import wizard.*`` (wizard_paths,
@@ -211,7 +230,7 @@ a = Analysis(
         # (run_farm_354.py, cpharm_unison_supervisor.py, farm_operator_dash.py,
         # suppress_console_flash.py, and the automation package they import).
         ("../scripts", "scripts"),
-        ("../automation", "automation"),
+        *_automation_datas,
         ("../sequences", "sequences"),
         ("../cloud_phones", "cloud_phones"),
         ("../tools", "tools"),
