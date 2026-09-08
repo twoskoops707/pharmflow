@@ -388,6 +388,16 @@ jobs:
             Write-Host "shim present: $out"
           }
 
+      # Patch pywebview's winforms.py IN SITE-PACKAGES before freezing. The
+      # runtime patch in cpharm_app_webview.py only edits the .py source — in a
+      # frozen onefile the module is bytecode inside the archive, so a CI-fresh
+      # pywebview dies at import (netfx-only OpenFolderDialog reflection) and
+      # the deck falls back to Tk. Patching pre-freeze bakes the fixed bytecode
+      # into the EXE. The local machine's copy is already patched, which is why
+      # local builds worked and CI builds didn't.
+      - name: Patch pywebview winforms.py pre-freeze (ARM64 deck fix)
+        run: python tools/patch_pywebview_winforms.py
+
       - name: Build native ARM64 PharmFlow.exe
         working-directory: wizard
         run: pyinstaller PharmFlow.spec
