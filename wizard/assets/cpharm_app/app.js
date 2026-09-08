@@ -129,10 +129,28 @@
     if (actionActivity) actionActivity.hidden = true;
   }
 
+  let dashConnected = false;
+
+  function markDashConnected() {
+    if (dashConnected) return;
+    dashConnected = true;
+    const el = document.getElementById("backend-error");
+    if (el) {
+      el.hidden = true;
+      el.classList.remove("visible");
+    }
+  }
+
   function showBackendError(msg) {
     finishAction();
     const el = document.getElementById("backend-error");
     if (!el) return;
+    // Dashboard mode: the farm is live via :8091 — never claim it's dead.
+    if (dashConnected) {
+      el.hidden = true;
+      el.classList.remove("visible");
+      return;
+    }
     el.textContent = msg;
     el.hidden = false;
     el.classList.add("visible");
@@ -141,7 +159,9 @@
   function requireApi(action) {
     const a = api();
     if (!a) {
-      const msg = "PharmFlow backend not connected — close and reopen PharmFlow.exe.";
+      const msg = dashConnected
+        ? "This needs the full app — farm data is live in the HUD via the dashboard."
+        : "PharmFlow backend not connected — close and reopen PharmFlow.exe.";
       showBackendError(msg);
       showToast(msg);
       return null;
@@ -2010,18 +2030,60 @@
     return "$" + n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   }
 
+  const DASH_STATUS_URL = "http://127.0.0.1:8091/api/status";
+
+  function fmtSyncTime(v) {
+    if (!v) return "";
+    const d = new Date(v);
+    if (isNaN(d.getTime())) return "";
+    return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  }
+
+  // No pywebview bridge (static preview): poll the farm dashboard API so the
+  // HUD shows live numbers instead of dashes. Read-only GET, short timeout.
+  async function refreshHudFromDashboard() {
+    const lamp = document.getElementById("hud-farm-lamp");
+    try {
+      const ctrl = new AbortController();
+      const t = setTimeout(function () {
+        ctrl.abort();
+      }, 5000);
+      const res = await fetch(DASH_STATUS_URL, { cache: "no-store", signal: ctrl.signal });
+      clearTimeout(t);
+      if (!res.ok) throw new Error("status " + res.status);
+      const s = await res.json();
+      const m = (s && s.mantis_today) || {};
+      const running = !!(s && s.farm_alive);
+      setHudText("hud-farm", running ? "RUN" : "OFF");
+      if (lamp) lamp.className = "hud-lamp" + (running ? " run" : " err");
+      applyHomeFarmState(running);
+      const phones = Array.isArray(s && s.phone_rows) ? s.phone_rows.length : 0;
+      setHudText("hud-phones", String(phones || 0));
+      const payout = Number(m.payout_usd);
+      setHudText("hud-today", fmtMoney(isFinite(payout) ? payout : 0));
+      setHudText("hud-clicks", String(Number(m.clicks) || 0));
+      setHudText("hud-impr", String(Number(m.impressions) || 0));
+      setHudText("hud-ecpm", "$" + (Number(m.ecpm) || 0).toFixed(2));
+      return true;
+    } catch (_e) {
+      setHudText("hud-farm", "—");
+      setHudText("hud-phones", "—");
+      setHudText("hud-today", "—");
+      setHudText("hud-clicks", "—");
+      setHudText("hud-impr", "—");
+      setHudText("hud-ecpm", "—");
+      if (lamp) lamp.className = "hud-lamp";
+      return false;
+    }
+  }
+
   async function refreshHud() {
     const a = api();
     const lamp = document.getElementById("hud-farm-lamp");
     try {
       if (!a || typeof a.get_farm_hud !== "function") {
-        setHudText("hud-farm", "—");
-        setHudText("hud-phones", "—");
-        setHudText("hud-today", "—");
-        setHudText("hud-clicks", "—");
-        setHudText("hud-impr", "—");
-        setHudText("hud-ecpm", "—");
-        if (lamp) lamp.className = "hud-lamp";
+        const ok = await refreshHudFromDashboard();
+        if (ok) markDashConnected();
         return;
       }
       const h = await a.get_farm_hud();

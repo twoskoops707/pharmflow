@@ -132,9 +132,21 @@ jobs:
           }
 
       # Single shipped binary: PharmFlow.exe (9-step wizard + phone setup + dashboard).
+      # Retry x3: Defender's first-touch scan of the freshly-prefetched APKs can
+      # briefly hold a read lock mid-archive, surfacing as an intermittent
+      # PermissionError in PyInstaller's CArchiveWriter — a retry clears it.
       - name: Build PharmFlow.exe
         working-directory: wizard
-        run: pyinstaller PharmFlow.spec
+        shell: pwsh
+        run: |
+          $attempts = 3
+          for ($i = 1; $i -le $attempts; $i++) {
+            Write-Host "pyinstaller attempt $i/$attempts"
+            pyinstaller PharmFlow.spec
+            if ($LASTEXITCODE -eq 0) { break }
+            if ($i -lt $attempts) { Write-Host "build failed (exit $LASTEXITCODE) — retrying in 20s"; Start-Sleep -Seconds 20 }
+            else { exit $LASTEXITCODE }
+          }
 
       # Single EXE per operator decision: watchdog + agent logic run inside
       # PharmFlow.exe (background threads). tools/cpharm_watchdog.py and

@@ -122,7 +122,10 @@ class MumuDetectTests(unittest.TestCase):
             exe = shell / "MuMuPlayer.exe"
             shell.mkdir()
             exe.write_text("", encoding="utf-8")
-            self.assertEqual(mumu_detect.install_root_from_exe(exe), root)
+            # Resolve both sides: Windows %TEMP% may surface the 8.3 short name
+            # (RUNNER~1) on CI while Path() keeps the long form (runneradmin) —
+            # same directory, different strings, flaky assertEqual otherwise.
+            self.assertEqual(mumu_detect.install_root_from_exe(exe).resolve(), root.resolve())
 
     def test_find_mumu_install_via_env_root(self) -> None:
         with tempfile.TemporaryDirectory() as td:

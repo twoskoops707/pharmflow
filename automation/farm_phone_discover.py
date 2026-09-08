@@ -256,6 +256,73 @@ def _from_cpharm(online: set[str]) -> list[tuple[str, str, str]]:
     return rows
 
 
+def _known_candidate_serials() -> list[str]:
+    """Serials the farm already knows about, regardless of current adb state.
+
+    Sources: sticky ``CPHARM_ADB_SERIALS`` overrides and each MuMu ARM VM's
+    ``misc/state.json`` ``AdbHost``. These are the re-attach candidates when a
+    phone falls off the adb server. Never raises.
+    """
+    cands: list[str] = []
+    ov = LOG / "farm_runtime_overrides.json"
+    try:
+        if ov.is_file():
+            data = json.loads(ov.read_text(encoding="utf-8-sig"))
+            cands.extend(
+                s.strip()
+                for s in str(data.get("CPHARM_ADB_SERIALS") or "").split(",")
+                if s.strip()
+            )
+    except (OSError, json.JSONDecodeError, TypeError, ValueError):
+        pass
+    try:
+        if VMS_DIR.is_dir():
+            for vm in VMS_DIR.iterdir():
+                if not vm.is_dir() or not vm.name.lower().startswith("vm"):
+                    continue
+                state_path = vm / "misc" / "state.json"
+                if not state_path.is_file():
+                    continue
+                data = json.loads(state_path.read_text(encoding="utf-8-sig"))
+                host = str(data.get("AdbHost") or "").strip()
+                if not host:
+                    continue
+                try:
+                    port = int(data.get("AdbPort") or 5555)
+                except (TypeError, ValueError):
+                    port = 5555
+                cands.append(f"{host}:{port}")
+    except (OSError, json.JSONDecodeError, TypeError, ValueError):
+        pass
+    # Dedupe while preserving order.
+    return list(dict.fromkeys(cands))
+
+
+def _reconnect_missing(online: set[str]) -> set[str]:
+    """Re-attach known emulator serials that fell off the adb server.
+
+    After an adb server restart (or a TCP registration timeout) every
+    emulator that registered via ``adb connect`` vanishes from ``adb devices``
+    even though the guest is healthy. Discovery used to treat those phones as
+    gone. Re-issue ``adb connect`` for every known serial that is not currently
+    online, then return the refreshed list. Never raises.
+    """
+    missing = [s for s in _known_candidate_serials() if s not in online]
+    for serial in missing[:24]:
+        try:
+            subprocess.run(
+                [ADB, "connect", serial],
+                capture_output=True,
+                text=True,
+                timeout=4,
+                encoding="utf-8",
+                errors="replace",
+            )
+        except Exception:  # noqa: BLE001 — best-effort reconnect
+            continue
+    return _adb_online_serials(timeout=6.0)
+
+
 def _select_money_set(rows: list[tuple[str, str, str]]) -> list[tuple[str, str, str]]:
     """Canonical money phones only — drop ghost names and banned serials."""
     out: list[tuple[str, str, str]] = []
@@ -275,6 +342,7 @@ def discover_live_phones() -> list[tuple[str, str, str]]:
     Sticky is last-resort. Tablet/ghost stay out. No hardcoded serials.
     """
     online = _adb_online_serials()
+    online = _reconnect_missing(online)
     rows: list[tuple[str, str, str]] = []
     if online:
         rows.extend(_from_cpharm(online))

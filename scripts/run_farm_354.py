@@ -377,6 +377,83 @@ def _is_tablet_instance(name: str, serial: str) -> bool:
     return False
 
 
+def _reap_orphan_tor() -> int:
+    """Kill tor.exe instances whose parent chain is dead (prior farm restart).
+
+    A crashed/restarted farm lane leaves its per-phone Tor fleet behind. Those
+    orphans squat the canonical 8118+/9050+/10050+ port bases; the next lane
+    shifts its own Tor to dead ports, and every sequence dies at isolation
+    ("fetch_exit_ip failed ... actively refused") — zero ads, zero clicks. Reap
+    orphans at startup so the canonical bases are reclaimed and the phone proxy
+    pin is never dead. Never touches Tor owned by a live lane (its ancestor
+    chain contains a live python). Returns how many were killed.
+    """
+    import subprocess  # noqa: PLC0415 — lazy like the rest of this module
+    reaped = 0
+    # One CIM snapshot: (pid -> (name, ppid)) for every process. Deterministic
+    # and matches the stack's existing WMI process scans.
+    table: dict[int, tuple[str, int]] = {}
+    try:
+        ps = (
+            "Get-CimInstance Win32_Process | "
+            "Select-Object ProcessId,ParentProcessId,Name | ConvertTo-Json -Compress"
+        )
+        out = subprocess.run(
+            ["powershell", "-NoProfile", "-Command", ps],
+            capture_output=True,
+            text=True,
+            timeout=25,
+            errors="replace",
+        ).stdout
+        rows = json.loads(out or "[]")
+        if isinstance(rows, dict):
+            rows = [rows]
+        for r in rows:
+            try:
+                pid = int(r.get("ProcessId") or 0)
+                ppid = int(r.get("ParentProcessId") or 0)
+                name = str(r.get("Name") or "")
+            except (TypeError, ValueError):
+                continue
+            if pid:
+                table[pid] = (name, ppid)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("TOR REAP scan failed: %s", exc)
+        return 0
+    tor_pids = [pid for pid, (name, _ppid) in table.items() if name.lower() == "tor.exe"]
+    for pid in tor_pids:
+        # Walk the ancestor chain; any live python owner means a farm lane owns it.
+        seen: set[int] = set()
+        owned = False
+        cur_pid = pid
+        while cur_pid and cur_pid not in seen:
+            seen.add(cur_pid)
+            entry = table.get(cur_pid)
+            if entry is None:
+                break  # parent chain broken = orphan
+            name, ppid = entry
+            if name.lower().startswith("python"):
+                owned = True
+                break
+            cur_pid = ppid
+        if owned:
+            continue
+        try:
+            subprocess.run(
+                ["taskkill", "/F", "/PID", str(pid)],
+                capture_output=True,
+                timeout=8,
+                errors="replace",
+            )
+            logger.warning("TOR REAP: killed orphan tor pid=%s (parent chain dead)", pid)
+            reaped += 1
+        except Exception:  # noqa: BLE001
+            pass
+    if reaped:
+        time.sleep(2.0)  # let the port bases release before Tor re-spawns
+    return reaped
+
+
 def _lock_boot_ready(farm: MuMuFarmOps) -> bool:
     """True when ADB_SERIAL_MAP.lock covers enough live MuMu ARM serials to skip connect_adb."""
     log_dir = Path(
@@ -2967,6 +3044,16 @@ def main() -> int:
         logger.info("adb server ensured (start-server ok)")
     except Exception as exc:
         logger.warning("adb start-server failed: %s", exc)
+    # Self-heal (2): reap orphaned Tor instances from a previous farm restart.
+    # A dead lane leaves its fleet squatting the canonical HTTP/SOCKS/Control
+    # bases; the next lane shifts to dead ports and every sequence dies at
+    # isolation. Reap orphans at startup so the phone proxy pin is never dead.
+    try:
+        n = _reap_orphan_tor()
+        if n:
+            logger.info("TOR REAP: %d orphan tor instance(s) reaped at startup", n)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("TOR REAP failed: %s", exc)
     fast_boot = os.environ.get("CPHARM_FAST_STICKY_BOOT", "1").strip().lower() not in (
         "0",
         "false",

@@ -35,6 +35,11 @@ from automation.cpharm_farm_config import (  # noqa: E402
 from automation.cpharm_unison_dedupe import dedupe_keep_newest  # noqa: E402
 
 LANES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
+    # ADB bond keeper: holds/repairs/starts the adb connection to every known
+    # emulator serial from the first second of farm setup onward. Runs BEFORE
+    # the farm lane so phones are on adb before adoption, and keeps re-attaching
+    # them when the adb server drops them. Never churns VMs.
+    ("adb-keeper", "adb_bond_keeper.py", ()),
     ("farm", "run_farm_354.py", ()),
     ("stealth", "cpharm_stealth_guard.py", ()),
     ("watchdog", "farm_watchdog.py", ()),

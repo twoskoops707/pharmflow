@@ -222,6 +222,18 @@ def _money_day_stagger_env(
 app = Flask(__name__)
 _lock = threading.RLock()
 
+# Localhost operator tool: allow read-only cross-origin GETs so the static
+# PharmFlow deck preview (served from another localhost port) can show live
+# HUD numbers via /api/status without a pywebview bridge. Write endpoints stay
+# same-origin only — no CORS on POST/PUT/DELETE.
+@app.after_request
+def _cors_allow_preview_reads(response):
+    if request.method in ("GET", "OPTIONS") and request.path.startswith("/api/"):
+        response.headers.setdefault("Access-Control-Allow-Origin", "*")
+        response.headers.setdefault("Access-Control-Allow-Methods", "GET, OPTIONS")
+        response.headers.setdefault("Access-Control-Allow-Headers", "Content-Type")
+    return response
+
 # Single-flight check-in cache — nested /api/status polls used to spawn unbounded
 # dash-checkin threads (100+), spike CPU, and balloon RSS when ADB hung.
 _CHECKIN_CACHE: dict[str, Any] = {
