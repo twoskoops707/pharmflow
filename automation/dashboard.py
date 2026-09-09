@@ -15,11 +15,32 @@ If ``CPHARM_HOST`` is set, it overrides the bind address for HTTP/WebSocket and 
 """
 
 import sys, io
-try:
-    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace", line_buffering=True)
-    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace", line_buffering=True)
-except Exception:
-    pass
+
+
+def _force_utf8_stdio() -> None:
+    """Force UTF-8 stdio without closing the streams we replace.
+
+    Wrapping ``sys.stdout.buffer`` directly orphans the original TextIOWrapper,
+    which closes its underlying fd when garbage-collected — that breaks any
+    host that owns fd 1/2 (pytest capture, frozen apps). ``detach()`` moves the
+    buffer out of the old wrapper so it can never close it.
+    """
+    for name in ("stdout", "stderr"):
+        stream = getattr(sys, name, None)
+        enc = (getattr(stream, "encoding", "") or "").lower()
+        if stream is None or "utf-8" in enc or not hasattr(stream, "detach"):
+            continue
+        try:
+            setattr(
+                sys,
+                name,
+                io.TextIOWrapper(stream.detach(), encoding="utf-8", errors="replace", line_buffering=True),
+            )
+        except Exception:
+            continue
+
+
+_force_utf8_stdio()
 
 import datetime
 from datetime import timezone

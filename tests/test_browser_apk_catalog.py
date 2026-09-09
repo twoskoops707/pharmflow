@@ -11,7 +11,9 @@ from automation.browser_apk_catalog import (
     BROWSER_BRAVE,
     BROWSER_CHROMIUM,
     BROWSER_DUCKDUCKGO,
+    BROWSER_FARMBROWSER,
     BROWSER_FIREFOX,
+    BROWSER_OPERA,
     apk_path_for,
     catalog_markdown,
     default_apk_cache_dir,
@@ -22,11 +24,23 @@ from automation.browser_apk_catalog import (
 
 class BrowserApkCatalogTests(unittest.TestCase):
     def test_specs_cover_path12_browsers(self) -> None:
+        # Catalog ships 6 browsers: the original four plus Opera and the
+        # embedded FarmBrowser (commit 9360b32 embeds its APK in the EXE).
         packages = {s.package for s in BROWSER_APK_SPECS}
         self.assertEqual(
             packages,
-            {BROWSER_CHROMIUM, BROWSER_FIREFOX, BROWSER_BRAVE, BROWSER_DUCKDUCKGO},
+            {
+                BROWSER_CHROMIUM,
+                BROWSER_FIREFOX,
+                BROWSER_BRAVE,
+                BROWSER_DUCKDUCKGO,
+                BROWSER_OPERA,
+                BROWSER_FARMBROWSER,
+            },
         )
+        # Every path12 browser must be bundled offline (no Play Store reliance).
+        for s in BROWSER_APK_SPECS:
+            self.assertTrue(s.path12, f"{s.package} lost path12")
         chromium = spec_for_package(BROWSER_CHROMIUM)
         assert chromium is not None
         self.assertTrue(chromium.path3)

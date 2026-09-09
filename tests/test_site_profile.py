@@ -26,7 +26,8 @@ class SiteProfileTests(unittest.TestCase):
             loaded = load_profile(root, p.slug)
             self.assertEqual(loaded.url, "https://example.com")
             self.assertEqual(loaded.display_name, "Demo Site")
-            self.assertEqual(loaded.farm.phone_count, 6)
+            # FarmPrefs defaults (SSOT): 4-phone money set with matching CSVs.
+            self.assertEqual(loaded.farm.phone_count, 4)
             self.assertEqual(loaded.farm.ntfy_interval_s, 7200)
 
     def test_generate_variants(self) -> None:

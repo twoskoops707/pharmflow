@@ -282,8 +282,10 @@ START_STAGGER_JITTER_S = float(os.environ.get("CPHARM_FARM_START_STAGGER_JITTER"
 def _random_phone_start_delays(n: int, rng: random.Random | None = None) -> list[float]:
     """Return n start delays (seconds): random order, random gaps, inside WINDOW."""
     rng = rng or random.Random(os.urandom(16))
-    window = max(30.0, START_STAGGER_WINDOW_S)
-    min_gap = max(5.0, min(START_STAGGER_MIN_GAP_S, window / max(2, n)))
+    # Operator window is authoritative — no silent 30s floor (it defeated the
+    # Advanced-panel override, e.g. window=18 still produced 23–29s delays).
+    window = max(10.0, float(START_STAGGER_WINDOW_S))
+    min_gap = max(5.0, min(float(START_STAGGER_MIN_GAP_S), window / max(2, n)))
     if n <= 0:
         return []
     if n == 1:
@@ -293,12 +295,15 @@ def _random_phone_start_delays(n: int, rng: random.Random | None = None) -> list
     for i in range(1, n):
         if delays[i] - delays[i - 1] < min_gap:
             delays[i] = delays[i - 1] + min_gap + rng.uniform(0.0, min_gap * 0.5)
-    # If we spilled past window, compress from the left with fresh random gaps.
+    # If we spilled past window, rebuild with a gap that provably fits so the
+    # scale-down can never shrink a gap below the jitter tolerance.
     if delays[-1] > window:
-        delays[0] = rng.uniform(0.0, min_gap)
+        fit_gap = (window / max(1, n - 1)) * 0.92
+        headroom = max(0.0, window - fit_gap * (n - 1))
+        delays[0] = rng.uniform(0.0, headroom)
         for i in range(1, n):
-            delays[i] = delays[i - 1] + min_gap + rng.uniform(0.0, min_gap)
-        # Scale into window if still over.
+            delays[i] = delays[i - 1] + fit_gap + rng.uniform(0.0, headroom * 0.3)
+        # Final safety: scale into window if still over.
         if delays[-1] > window:
             scale = window / delays[-1]
             delays = [d * scale for d in delays]
@@ -1798,13 +1803,20 @@ def _schedule_hour_seq_slots(
         or (3600.0 / max(n, 1)) * 0.72,
     )
     spacing = max(rate_floor, base_spacing * rng.uniform(0.82, 1.22))
+    # The operator's count is exact — never trimmed. When n does not fit the
+    # hour at the requested spacing, compress spacing so every slot is distinct
+    # and inside the hour (45s floor keeps starts from colliding); the old code
+    # instead stacked duplicates at the 3520s ceiling.
+    span = 3516.0  # usable second range inside the hour
+    if n > 1 and spacing * (n - 1) > span:
+        spacing = max(45.0, span / (n - 1))
     phase = rng.uniform(0.0, max(1.0, spacing))
     jitter = max(8.0, _slot_jitter)
     raw: list[float] = []
     for i in range(n):
         t = phase + i * spacing + rng.uniform(-jitter, jitter)
         # Keep inside the hour with a little headroom for run time.
-        t = max(2.0, min(3520.0, t))
+        t = max(2.0, min(3519.0, t))
         raw.append(t)
     raw = sorted(raw)
     # Deduplicate near-collisions (keep spaced ~45s apart).
@@ -1812,8 +1824,14 @@ def _schedule_hour_seq_slots(
     for t in raw:
         if not cleaned or t - cleaned[-1] >= 45.0:
             cleaned.append(t)
-    while len(cleaned) < n:
-        cleaned.append(min(3520.0, cleaned[-1] + spacing * 0.85))
+    # If jitter dedupe dropped any slot, restore the exact count with an even
+    # grid across the hour — count always wins, duplicates never happen.
+    if len(cleaned) < n:
+        if n == 1:
+            cleaned = [min(3519.0, max(2.0, phase))]
+        else:
+            step = span / (n - 1)
+            cleaned = [2.0 + i * step for i in range(n)]
     cleaned = cleaned[:n]
     cutoff = minute_now * 60.0 + second_now + SLOT_MIN_LEAD_S
     future = [t for t in cleaned if t >= cutoff]

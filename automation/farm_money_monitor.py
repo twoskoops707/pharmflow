@@ -279,7 +279,12 @@ def ensure_watch_bottom_ads() -> list[str]:
                 return [f"watch_bottom_ads_ok pid={proc.info.get('pid')}"]
     except Exception:
         pass
-    pyw = Path(r"C:\Users\jsmil\AppData\Local\Python\pythoncore-3.14-64\pythonw.exe")
+    try:
+        from automation.runtime_paths import helper_python as _hp
+
+        pyw = Path(_hp() or sys.executable)
+    except Exception:
+        pyw = Path(sys.executable)
     script = ROOT / "scripts" / "watch_bottom_ads.py"
     if not script.is_file():
         return ["watch_bottom_ads_missing"]
@@ -317,7 +322,12 @@ def soft_restart_inject_if_needed() -> list[str]:
     except Exception:
         pass
     time.sleep(1.0)
-    pyw = Path(r"C:\Users\jsmil\AppData\Local\Python\pythoncore-3.14-64\pythonw.exe")
+    try:
+        from automation.runtime_paths import helper_python as _hp
+
+        pyw = Path(_hp() or sys.executable)
+    except Exception:
+        pyw = Path(sys.executable)
     script = ROOT / "scripts" / "run_mantis_inject_proxies.py"
     try:
         subprocess.Popen(

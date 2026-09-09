@@ -331,11 +331,19 @@ def _soft_restart_inject() -> str:
     except Exception:
         pass
     time.sleep(1.5)
-    pyw = Path(r"C:\Users\jsmil\AppData\Local\Python\pythoncore-3.14-64\pythonw.exe")
-    # Run the injector from THIS repo tree (current fixes), not the stale
-    # C:\Users\jsmil\FamFlow copy — the FamFlow injector lacks the Tor
-    # absolute-form and reverse-tunnel-verify fixes.
-    script = Path(r"C:\Users\jsmil\pharmflow\scripts\run_mantis_inject_proxies.py")
+    # Helper interpreter + repo root derived at runtime (portable EXE contract).
+    pyw = None
+    try:
+        from automation.runtime_paths import helper_python
+
+        pyw = helper_python()
+    except Exception:
+        pyw = None
+    pyw = pyw or sys.executable
+    # Run the injector from the live code tree (bundle root), never a stale
+    # checkout copy — a stale injector lacks the current Tor/reverse fixes.
+    root = Path(__file__).resolve().parents[1]
+    script = root / "scripts" / "run_mantis_inject_proxies.py"
     try:
         from automation.farm_phone_discover import inject_listener_count
 
@@ -346,7 +354,7 @@ def _soft_restart_inject() -> str:
         subprocess.Popen(
             # --phones N = indices 0..N-1. vm10 → :8228 needs N>=11.
             [str(pyw), "-u", str(script), "--phones", inject_n],
-            cwd=r"C:\Users\jsmil\pharmflow",
+            cwd=str(root),
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),

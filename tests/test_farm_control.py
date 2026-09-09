@@ -168,12 +168,14 @@ class FarmControlTests(unittest.TestCase):
         # Unison contract: start_farm stops any external python farm, arms the
         # unison supervisor stack (farm/stealth/watchdog), and returns True. It
         # no longer spawns a farm script directly.
+        # farm_running is patched with side_effect: pre-arm check -> False
+        # (not yet running), post-arm verification -> True (stack alive).
         msgs: list[str] = []
         with (
-            patch("wizard.farm_control.farm_running", return_value=False),
+            patch("wizard.farm_control.farm_running", side_effect=[False, True]) as run_fn,
             patch("wizard.farm_control.external_python_farm_running", return_value=True),
             patch("wizard.farm_control.stop_external_python_farm", return_value=[111]) as stop_fn,
-            patch("wizard.farm_control.ensure_operator_stack", return_value=["unison armed"]),
+            patch("wizard.farm_control.ensure_operator_stack", return_value=["unison armed"]) as ensure_fn,
             patch("wizard.farm_control.mark_exe_owned"),
             patch("wizard.farm_control._resolve_helper_python", return_value=None),
             patch("wizard.farm_control._start_digest", return_value=None),
@@ -181,10 +183,25 @@ class FarmControlTests(unittest.TestCase):
         ):
             ok = start_farm(log=lambda m, _lvl="ok": msgs.append(m), takeover=True)
             self.assertTrue(ok)  # Unison stack armed after takeover
+            run_fn.assert_called()
             stop_fn.assert_called()
+            ensure_fn.assert_called()
             self.assertTrue(any("unison" in m.lower() for m in msgs))
 
-    def test_start_farm_can_refuse_without_takeover(self) -> None:
+    def test_start_farm_refuses_when_already_running(self) -> None:
+        # Unison contract: farm_running() is authoritative — a running stack
+        # means refuse, no takeover logic runs at all.
+        msgs: list[str] = []
+        with (
+            patch("wizard.farm_control.farm_running", return_value=True),
+            patch("wizard.farm_control.external_python_farm_running", return_value=False) as ext_fn,
+        ):
+            ok = start_farm(log=lambda m, _lvl="ok": msgs.append(m), takeover=True)
+        self.assertFalse(ok)
+        ext_fn.assert_not_called()
+        self.assertTrue(any("already running" in m.lower() for m in msgs))
+
+    def test_start_farm_refuses_without_takeover(self) -> None:
         with (
             patch("wizard.farm_control.farm_running", return_value=False),
             patch("wizard.farm_control.external_python_farm_running", return_value=True),
@@ -197,16 +214,42 @@ class FarmControlTests(unittest.TestCase):
             self.assertFalse(ok)
             self.assertTrue(any("External python farm" in m for m in msgs))
 
-    def test_stop_farm_clears_python_farm(self) -> None:
+    def test_stop_farm_no_stack_to_kill(self) -> None:
+        """stop_farm with nothing alive: returns False, still clears the marker.
+
+        Fully mocked — the real _kill_farm_stack scans and kills machine-wide
+        processes, which a unit test must never do.
+        """
         from wizard.farm_control import stop_farm
 
         with (
             patch("wizard.farm_control.clear_exe_owned") as clear_fn,
+            patch("wizard.farm_control._kill_farm_stack", return_value=[]) as kill_fn,
         ):
             msgs: list[str] = []
             ok = stop_farm(log=lambda m, _lvl="ok": msgs.append(m))
-            self.assertFalse(ok)  # no in-process farm proc
-            clear_fn.assert_called_once()
+        self.assertFalse(ok)  # nothing was running -> nothing stopped
+        kill_fn.assert_called_once()
+        clear_fn.assert_called_once()
+
+    def test_stop_farm_tears_down_owned_helpers(self) -> None:
+        """Owned Popen helpers + stack needles are killed; marker cleared.
+
+        The psutil machine scan is mocked — this test exercises stop_farm's
+        accounting, not live process termination.
+        """
+        from wizard.farm_control import stop_farm
+
+        with (
+            patch("wizard.farm_control.clear_exe_owned") as clear_fn,
+            patch("wizard.farm_control._kill_farm_stack", return_value=[4321]) as kill_fn,
+        ):
+            msgs: list[str] = []
+            ok = stop_farm(log=lambda m, _lvl="ok": msgs.append(m))
+        self.assertTrue(ok)
+        kill_fn.assert_called_once()
+        clear_fn.assert_called_once()
+        self.assertTrue(any("4321" in m for m in msgs))
 
     def test_external_python_farm_helper_callable(self) -> None:
         # Smoke: helper imports psutil and returns bool without raising.
@@ -238,7 +281,30 @@ class FarmControlTests(unittest.TestCase):
         with patch("wizard.farm_control._helper_already_alive", return_value=True):
             notes = ensure_operator_stack(log=lambda m, lvl="ok": msgs.append(f"{lvl}:{m}"))
         self.assertTrue(any("already up" in n for n in notes))
-        self.assertEqual(len(notes), len(_HELPER_SPECS) + 1)  # + helper_py log line
+        # Helper-python resolution is lazy: the line only logs when a helper
+        # actually needs spawning, so "already up" notes are the only output.
+        self.assertEqual(
+            len(notes),
+            sum(1 for n in notes if "already up" in n),
+        )
+        self.assertGreaterEqual(len(notes), len(_HELPER_SPECS))
+
+    def test_start_farm_arms_fail_when_stack_not_alive(self) -> None:
+        # Post-arm aliveness check guards the money path: if the unison stack
+        # did not come up, start_farm must clear the exe-owned marker and fail.
+        msgs: list[str] = []
+        with (
+            patch("wizard.farm_control.farm_running", return_value=False),
+            patch("wizard.farm_control.external_python_farm_running", return_value=False),
+            patch("wizard.farm_control.ensure_operator_stack", return_value=[]),
+            patch("wizard.farm_control.mark_exe_owned"),
+            patch("wizard.farm_control.clear_exe_owned") as clear_fn,
+            patch("wizard.farm_control._resolve_helper_python", return_value=None),
+        ):
+            ok = start_farm(log=lambda m, _lvl="ok": msgs.append(m), takeover=True)
+        self.assertFalse(ok)
+        clear_fn.assert_called_once()
+        self.assertTrue(any("failed to arm" in m.lower() for m in msgs))
 
     def test_open_operator_dashboard_waits_then_opens(self) -> None:
         from wizard.farm_control import open_operator_dashboard

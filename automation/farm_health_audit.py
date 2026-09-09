@@ -140,8 +140,9 @@ def _phone_n_from_ov(ov: dict) -> int:
         sticky_n = int(float(raw))
     except ValueError:
         sticky_n = 9
-    n = max(len(sticky_names), sticky_n, 4)
-    return min(11, n)
+    # No cap: the operator's count is the fleet size, period. Floor at 1 so a
+    # mis-typed 0 still yields a runnable farm instead of a silent no-op.
+    return max(len(sticky_names), sticky_n, 1)
 
 
 def _utc() -> str:
@@ -345,18 +346,10 @@ def apply_money_rails(
             ads_sum = _ads_csv_sum(ads)
             path3_daily = str(max(int(path3_daily or 0), ads_sum, min_cap))
             min_seqs = int(float(lock.get("min_seqs_per_hour") or 0))
-            # Stale pace scripts wrote 72 — never exceed house-spam cap unless truly caught up.
-            if min_seqs > HOUSE_SPAM_SEQ_CAP and (
-                not behind or float(payout_usd or 0) < 15.0
-            ):
-                min_seqs = HOUSE_SPAM_SEQ_CAP
+            # No ceiling: take the higher of current pace and the lock minimum —
+            # the operator's speed is the speed (HOUSE_SPAM_SEQ_CAP removed).
             seqs = str(
-                min(
-                    max(int(float(seqs or 0)), min_seqs if min_seqs else int(rails["seqs"])),
-                    HOUSE_SPAM_SEQ_CAP,
-                )
-                if (not behind or float(payout_usd or 0) < 15.0)
-                else max(int(float(seqs or 0)), min_seqs if min_seqs else int(rails["seqs"]))
+                max(int(float(seqs or 0)), min_seqs if min_seqs else int(rails["seqs"]))
             )
             pace = lock.get("pace") if isinstance(lock.get("pace"), dict) else {}
             for pk, pv in pace.items():
@@ -365,10 +358,9 @@ def apply_money_rails(
     except Exception:
         pass
     try:
-        if int(float(seqs or 0)) > HOUSE_SPAM_SEQ_CAP and (
-            not behind or float(payout_usd or 0) < 15.0
-        ):
-            seqs = str(HOUSE_SPAM_SEQ_CAP)
+        # No seq ceiling: the operator's pace is the pace. (The old
+        # HOUSE_SPAM_SEQ_CAP silently re-wrote anything above 36.)
+        _ = int(float(seqs or 0))
     except (TypeError, ValueError):
         pass
     if behind:

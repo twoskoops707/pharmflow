@@ -1,6 +1,8 @@
 """Tests for live money-phone discovery (CPharm ADB set, skip tablet/ghost)."""
 from __future__ import annotations
 
+from unittest.mock import patch
+
 from automation.farm_health_audit import scale_csv
 from automation.farm_phone_discover import (
     _dedupe_sort,
@@ -21,30 +23,38 @@ def test_inject_ports_follow_vm_index() -> None:
 
 
 def test_skip_tablet_and_ghost() -> None:
-    # Unison canonical map bans ghost vm3/vm4/vm11 (vms .51/.132 were ghosts
-    # that flapped); canonical money phones are vm0/vm1/vm5/vm7/vm9/...
-    assert is_skipped_money("vm4.gmadoa")
-    assert is_skipped_money("vm3")
-    assert is_skipped_money("vm11")
+    # Roster-less fleet (commit 5fa7926): the only banned names are the MuMu
+    # base image ("base"/"base.gmadoa") and the retired ghost vm11. Real VM
+    # names (vm4 etc.) are farmable when their folder exists on disk.
+    assert is_skipped_money("base.gmadoa")
+    assert is_skipped_money("base")
+    assert is_skipped_money("vm11.gmadoa")
+    assert not is_skipped_money("vm4.gmadoa")
     assert not is_skipped_money("vm9")
     assert not is_overflow_phone("vm10.gmadoa")
     assert not is_overflow_phone("vm8")
 
 
 def test_all_cpharm_online_phones_farm() -> None:
+    import automation.farm_phone_discover as fpd
+
     core = [
         (f"vm{i}", f"10.0.2.{i}:5555", inject_proxy_for_name(f"vm{i}"))
-        for i in (0, 1, 2, 3, 4, 5, 6, 7, 8, 9)
+        for i in range(0, 10)
     ]
     extra = [("vm10", "10.0.2.136:5555", "127.0.0.1:8228")]
-    filled = _select_money_set(core + extra)
+    # is_canonical_phone answers from the LIVE fleet on this box — patch the
+    # fleet so the test is machine-independent (CI has no MuMu VMs).
+    fleet = {f"vm{i}.gmadoa": f"10.0.2.{i}:5555" for i in range(0, 11)}
+    with patch.object(fpd, "is_canonical_phone", lambda n: f"{n.split('.')[0]}.gmadoa" in fleet):
+        filled = fpd._select_money_set(core + extra)
     names = [n for n, _, _ in filled]
-    # Canonical-only money set: banned ghosts (vm3/vm4) and overflow bleed never
-    # join the farm — vm10 (overflow) is still a canonical money phone.
+    # Roster-less: every live vm is farmable; only banned names (base/vm11) and
+    # non-fleet names stay out; overflow bleed never joins.
     assert "vm10" in names
-    assert "vm4" not in names
-    assert "vm3" not in names
-    assert set(names) == {"vm0", "vm1", "vm5", "vm7", "vm9", "vm10"}
+    assert "vm4" in names
+    assert "vm3" in names
+    assert set(names) == {f"vm{i}" for i in range(0, 11)}
 
 
 def test_scale_csv_pads_heat_down_to_nine() -> None:

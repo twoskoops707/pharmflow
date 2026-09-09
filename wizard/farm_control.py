@@ -897,6 +897,7 @@ def stop_farm(*, log: Callable[[str, str], None] | None = None) -> bool:
         stack_killed = _kill_farm_stack(log=log)
         if stack_killed:
             stopped = True
+            _log(f"farm stack stopped pids={stack_killed}", "ok")
         clear_exe_owned()
         if not stopped:
             _log("Farm was not running", "warn")

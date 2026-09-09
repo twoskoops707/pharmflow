@@ -1,116 +1,120 @@
-"""Tests for automation/dashboard.py Flask API."""
+"""Tests for automation/dashboard.py — asyncio HTTP API (post-Flask rewrite)."""
 
 from __future__ import annotations
 
-import os
+import asyncio
+import io
+import json
+import sys
 import unittest
 from unittest.mock import MagicMock, patch
 
 import automation.dashboard as dashboard
 
 
+def _run(coro):
+    return asyncio.run(coro)
+
+
 class DashboardApiTests(unittest.TestCase):
-    def setUp(self) -> None:
-        self.mock_farm = MagicMock()
-        self.mock_farm.is_ready = True
-        self.mock_farm.instances = {}
-        self.mock_farm.detect.return_value = {"mumu": True}
-        self.mock_farm.tor.detect.return_value = {"selected_exists": True, "install_kind": "system"}
-        self.mock_farm.list_instances.return_value = None
-        self.mock_farm.get_phone_status.return_value = {
-            "name": "phone-a",
-            "running": False,
-            "connected": False,
-            "adb_serial": "127.0.0.1:16384",
-            "resolution": "900x1600",
-        }
-
-        self.mock_runner = MagicMock()
-        self.mock_runner.run.return_value = {"success": True, "steps": []}
-
-        self.mock_groups = MagicMock()
-        self.mock_groups.list_groups.return_value = []
-
-        self.mock_scheduler = MagicMock()
-        self.mock_scheduler.scheduler.running = True
-        self.mock_scheduler.get_job_log.return_value = []
-
-        dashboard.farm = self.mock_farm
-        dashboard.runner = self.mock_runner
-        dashboard.groups = self.mock_groups
-        dashboard.scheduler = self.mock_scheduler
-        dashboard._activity_log.clear()
-
-        self.client = dashboard.app.test_client()
+    """Drive the real handlers (handle_get / handle_post) with mocked ADB layer."""
 
     def test_index_serves_ui(self) -> None:
-        resp = self.client.get("/")
-        self.assertEqual(resp.status_code, 200)
-        self.assertIn(b"CPharm", resp.data)
-        self.assertIn(b"/api/phones", resp.data)
-        self.assertIn(b"Pick file", resp.data)
+        resp = _run(dashboard.handle_get("/"))
+        self.assertEqual(resp[:12], b"HTTP/1.1 200")
+        self.assertIn(b"PharmFlow", resp)
+        self.assertIn(b"/api/phones", resp)
 
-    def test_api_phones_get(self) -> None:
-        inst = MagicMock()
-        inst.name = "phone-a"
-        self.mock_farm.instances = {"phone-a": inst}
-        with patch.object(dashboard, "_enrich_phone_status", side_effect=lambda s: s):
-            resp = self.client.get("/api/phones")
-        self.assertEqual(resp.status_code, 200)
-        data = resp.get_json()
-        self.assertIsInstance(data, list)
-        self.assertEqual(data[0]["name"], "phone-a")
+    def test_api_phones(self) -> None:
+        with patch.object(dashboard, "list_phones", return_value=[{"serial": "127.0.0.1:16384", "status": "device"}]):
+            resp = _run(dashboard.handle_get("/api/phones"))
+        self.assertEqual(resp[:12], b"HTTP/1.1 200")
+        body = json.loads(resp.split(b"\r\n\r\n", 1)[1])
+        self.assertIsInstance(body, list)
+        self.assertEqual(body[0]["serial"], "127.0.0.1:16384")
 
-    def test_api_sequences_list(self) -> None:
-        with patch("automation.dashboard.list_sequence_ids", return_value=["dabflow/complete"]):
-            resp = self.client.get("/api/sequences")
-        self.assertEqual(resp.status_code, 200)
-        self.assertEqual(resp.get_json(), ["dabflow/complete"])
+    def test_api_config_names_app(self) -> None:
+        resp = _run(dashboard.handle_get("/api/config"))
+        body = json.loads(resp.split(b"\r\n\r\n", 1)[1])
+        self.assertEqual(body.get("appName"), "PharmFlow")
+        self.assertIn("httpPort", body)
 
-    def test_api_sequences_run(self) -> None:
-        with (
-            patch.dict(os.environ, {"CPHARM_ALLOW_SEQUENCE_RUNS": "1"}),
-            patch("automation.dashboard.resolve_sequence_path", return_value=MagicMock()),
-            patch("automation.dashboard.Sequence") as seq_cls,
-            patch("automation.dashboard._start_job", return_value="job123") as start_job,
-        ):
-            seq_cls.from_json.return_value = MagicMock(phone="")
-            resp = self.client.post(
-                "/api/sequences/run",
-                json={"sequence": "dabflow/complete", "phone": "phone-a"},
-            )
-        self.assertEqual(resp.status_code, 200)
-        body = resp.get_json()
+    def test_api_ip_reports_listen_url(self) -> None:
+        with patch.object(dashboard, "get_local_ip", return_value="127.0.0.1"):
+            resp = _run(dashboard.handle_get("/api/ip"))
+        body = json.loads(resp.split(b"\r\n\r\n", 1)[1])
+        self.assertEqual(body["ip"], "127.0.0.1")
+        self.assertIn("url", body)
+
+    def test_api_stealth_payload(self) -> None:
+        with patch.object(dashboard, "_get_stealth_payload", return_value=[]):
+            resp = _run(dashboard.handle_get("/api/stealth"))
+        body = json.loads(resp.split(b"\r\n\r\n", 1)[1])
         self.assertTrue(body["ok"])
-        self.assertEqual(body["job_id"], "job123")
-        start_job.assert_called_once()
+        self.assertEqual(body["phones"], [])
 
-    def test_api_tor_detection(self) -> None:
-        with patch.object(dashboard, "_phone_tor_status", return_value={"name": "phone-a", "ok": True}):
-            inst = MagicMock()
-            inst.name = "phone-a"
-            self.mock_farm.instances = {"phone-a": inst}
-            resp = self.client.get("/api/tor")
-        self.assertEqual(resp.status_code, 200)
-        body = resp.get_json()
-        self.assertIn("detection", body)
-        self.assertEqual(len(body["phones"]), 1)
+    def test_unknown_api_404(self) -> None:
+        resp = _run(dashboard.handle_get("/api/does_not_exist"))
+        self.assertIn(b"404", resp.split(b"\r\n", 1)[0])
 
-    def test_api_tor_rotate(self) -> None:
-        inst = MagicMock(index=0, adb_serial="127.0.0.1:16384")
-        self.mock_farm.get_phone.return_value = inst
-        self.mock_farm.tor.rotate_identity.return_value = True
-        with patch.object(dashboard, "_phone_tor_status", return_value={"name": "phone-a", "ok": True}):
-            resp = self.client.post("/api/tor/phone-a/rotate")
-        self.assertEqual(resp.status_code, 200)
-        self.assertTrue(resp.get_json()["ok"])
+    def test_api_money_history(self) -> None:
+        with patch("scorecard_api.build_money_history", return_value=[{"day": "2026-09-08", "usd": 0.13}]):
+            resp = _run(dashboard.handle_get("/api/money/history"))
+        body = json.loads(resp.split(b"\r\n\r\n", 1)[1])
+        self.assertTrue(body["ok"])
+        self.assertEqual(body["days"][0]["usd"], 0.13)
 
-    def test_api_logs(self) -> None:
-        dashboard._log_event("test event", "info")
-        resp = self.client.get("/api/logs?limit=10")
-        self.assertEqual(resp.status_code, 200)
-        body = resp.get_json()
-        self.assertEqual(body["entries"][0]["message"], "test event")
+    def test_post_connect_requires_address(self) -> None:
+        resp = _run(dashboard.handle_post("/api/devices/connect", json.dumps({}).encode()))
+        self.assertIn(b"400", resp.split(b"\r\n", 1)[0])
+
+    def test_post_connect_calls_adb_and_pushes(self) -> None:
+        with (
+            patch.object(dashboard, "_adb_global", return_value=MagicMock(text="connected", returncode=0)) as adb,
+            patch.object(dashboard, "push_phones", new=MagicMock()) as push_mock,
+        ):
+            # push_phones is awaited — wrap as coroutine.
+            async def _push():
+                return None
+
+            push_mock.side_effect = _push
+            resp = _run(
+                dashboard.handle_post(
+                    "/api/devices/connect",
+                    json.dumps({"address": "127.0.0.1:16384"}).encode(),
+                )
+            )
+        adb.assert_called_once()
+        body = json.loads(resp.split(b"\r\n\r\n", 1)[1])
+        self.assertTrue(body["ok"])
+
+    def test_force_utf8_stdio_does_not_close_replaced_stream(self) -> None:
+        """Regression: replacing stdout must never orphan-close the previous fd.
+
+        The old code assigned ``io.TextIOWrapper(sys.stdout.buffer, ...)`` which
+        let the discarded wrapper close the underlying stream on GC — this
+        crashed pytest capture and any embedding host.
+        """
+        buf = io.BytesIO()
+        replaced = io.TextIOWrapper(buf, encoding="cp1252")
+        orig = sys.stdout
+        sys.stdout = replaced
+        try:
+            dashboard._force_utf8_stdio()
+            new = sys.stdout
+            self.assertIsNot(new, replaced)
+            self.assertIn("utf-8", (getattr(new, "encoding", "") or "").lower())
+            self.assertFalse(buf.closed)
+            new.write("probe")
+            new.flush()
+            self.assertEqual(buf.getvalue(), b"probe")
+        finally:
+            new = sys.stdout
+            try:
+                new.detach()  # keep buf open when the temp wrapper is GC'd
+            except Exception:
+                pass
+            sys.stdout = orig
 
 
 if __name__ == "__main__":

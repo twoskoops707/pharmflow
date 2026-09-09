@@ -91,7 +91,9 @@ class SerialResolutionTests(unittest.TestCase):
                 name="vm1.gmadoa", index=1, vm_path=Path("/vms/vm1.gmadoa"), adb_serial="10.0.2.2:5555"
             ),
         }
-        with patch.object(self.farm, "list_instances", return_value=list(self.farm.instances.values())):
+        # get_phone refreshes the registry (ADB + vms dir) before answering —
+        # mock the internal refresh so the test only exercises alias resolution.
+        with patch.object(self.farm, "_list_instances_unlocked", return_value=list(self.farm.instances.values())):
             self.assertEqual(self.farm.get_phone("Phone-2").name, "vm1.gmadoa")
 
 

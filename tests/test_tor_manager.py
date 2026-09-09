@@ -22,18 +22,27 @@ from automation.tor_manager import (
 
 class TorManagerTests(unittest.TestCase):
     def test_phone_http_ports_increment_per_index(self) -> None:
-        self.assertEqual(phone_http_port(0), 8118)
-        self.assertEqual(phone_http_port(1), 8119)
-        self.assertEqual(phone_http_port(2), 8120)
-        self.assertEqual(guest_proxy_endpoint(1), "127.0.0.1:8119")
+        # Base is env-configured and auto-evades ports already claimed by other
+        # processes (a live farm's Tor holds 8118+ on the dev box), so assert
+        # the relative contract against the module's resolved base.
+        from automation import tor_manager as tm
+
+        base = int(tm.HTTP_TUNNEL_BASE)
+        self.assertEqual(phone_http_port(0), base)
+        self.assertEqual(phone_http_port(1), base + 1)
+        self.assertEqual(phone_http_port(2), base + 2)
+        self.assertEqual(guest_proxy_endpoint(1), f"127.0.0.1:{base + 1}")
 
     def test_write_torrc_enables_http_tunnel_port(self) -> None:
+        from automation import tor_manager as tm
+
+        expected = int(tm.HTTP_TUNNEL_BASE)
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             cfg = write_torrc(0, data_root=root)
-            self.assertTrue(verify_http_tunnel_enabled(cfg, expected_port=8118))
+            self.assertTrue(verify_http_tunnel_enabled(cfg, expected_port=expected))
             text = cfg.read_text(encoding="utf-8")
-            self.assertIn("HTTPTunnelPort 8118", text)
+            self.assertIn(f"HTTPTunnelPort {expected}", text)
             self.assertIn(f"ControlPort 127.0.0.1:{phone_control_port(0)}", text)
 
     def test_parse_public_ip(self) -> None:

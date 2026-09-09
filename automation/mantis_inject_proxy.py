@@ -35,13 +35,24 @@ from automation.dabflow_mantis_client_patch import (
     prefetch_ssp_ads_prefer_paying,
     ssp_ads_paying_count,
 )
-from automation.mantis_inject_ca import (
-    ensure_ca_files,
-    install_ca_on_device,
-    ssl_context_for_host,
-)
-
 logger = logging.getLogger(__name__)
+
+
+def _ca():
+    """Lazy import of the CA module (needs the ``cryptography`` wheel).
+
+    Importing at module scope hard-crashed every cryptography-less environment
+    at import time (native-ARM py3.14 has no wheel; see runtime_paths.helper_python).
+    The proxy is importable everywhere; only the TLS-MITM paths below need the
+    CA, and those run under the deps-complete helper interpreter.
+    """
+    from automation.mantis_inject_ca import (  # noqa: PLC0415
+        ensure_ca_files,
+        install_ca_on_device,
+        ssl_context_for_host,
+    )
+
+    return ensure_ca_files, install_ca_on_device, ssl_context_for_host
 
 INJECT_BASE = int(os.environ.get("CPHARM_MANTIS_INJECT_BASE", "8218") or "8218")
 DABFLOW_HOSTS = ("getdabflow.app", "www.getdabflow.app")
@@ -556,7 +567,7 @@ class MantisInjectProxy:
         self.stats = {"connect": 0, "inject": 0, "tunnel": 0, "errors": 0}
 
     def start(self) -> None:
-        ensure_ca_files()
+        _ca()[0]()  # ensure_ca_files — lazy: needs cryptography wheel
         self._sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         # Do NOT set SO_REUSEADDR: on Windows it allows farm + watch_proxy to both
         # LISTEN on 8218+, and guest CONNECT randomly hits a dead/half peer → ads die.
@@ -677,7 +688,7 @@ class MantisInjectProxy:
 
     def _handle_mitm(self, client: socket.socket, host: str, port: int, _head: bytes) -> None:
         client.sendall(b"HTTP/1.1 200 Connection Established\r\n\r\n")
-        ctx = ssl_context_for_host(host)
+        ctx = _ca()[2](host)  # ssl_context_for_host — lazy import
         try:
             tls_client = ctx.wrap_socket(client, server_side=True)
         except ssl.SSLError as exc:
@@ -929,7 +940,7 @@ def ensure_inject_for_phone(
     ca_ok = True
     if install_ca:
         try:
-            ca_ok = install_ca_on_device(adb, serial)
+            ca_ok = _ca()[1](adb, serial)  # install_ca_on_device — lazy import
         except Exception as exc:
             logger.warning("CA install failed serial=%s: %s", serial, exc)
             ca_ok = False

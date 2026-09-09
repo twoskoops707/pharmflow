@@ -4,6 +4,11 @@ from __future__ import annotations
 from pathlib import Path
 
 from automation.farm_health_audit import HOLD, apply_money_rails, scale_csv
+
+# Cap-free contract: seqs follow the rails (HOLD = 60/hr), never a hard 36.
+def rails_expected_seqs(data_or_none=None):
+    return str(HOLD["seqs"])
+
 from automation.farm_visit_caps import write_runtime_overrides
 from automation.mantis_steering import _path3_click_budget, plan_steering
 
@@ -29,7 +34,7 @@ def test_hold_rails_set_path3_cap_to_ads_sum_and_parallel_gap(tmp_path: Path, mo
     assert int(data["CPHARM_FARM_PATH3_DAILY_CAP"]) == sum(ads)
     assert data["CPHARM_FARM_PATH3_GLOBAL_GAP_MIN"] == "0"
     assert data["CPHARM_FARM_PATH3_PER_HOUR"] == "60"
-    assert data["CPHARM_FARM_SEQS_PER_HOUR"] == "36"
+    assert data["CPHARM_FARM_SEQS_PER_HOUR"] == rails_expected_seqs()
     assert data["CPHARM_FARM_UNIQUE_SEQ"] == "1"
     assert data["CPHARM_EMULATOR_AD_FORCE_DIRECT"] == "1"
     assert data["CPHARM_EMULATOR_AD_FALLBACK"] == "1"
@@ -38,38 +43,46 @@ def test_hold_rails_set_path3_cap_to_ads_sum_and_parallel_gap(tmp_path: Path, mo
 
 def test_hold_rails_push_path3_when_behind(tmp_path: Path, monkeypatch) -> None:
     import automation.farm_health_audit as audit
-    from automation.cpharm_farm_config import get_runtime, merge_runtime, reset_runtime
+    from automation.cpharm_farm_config import get_runtime, reset_runtime
 
     monkeypatch.setattr(audit, "LOG", tmp_path)
+    # Fleet size is whatever this box actually has — expectations derive from
+    # the same math production uses (no pinning, no clamping).
     reset_runtime(note="test")
-    merge_runtime({"CPHARM_FARM_PHONE_COUNT": "7"}, note="test")
-    # Behind on clicks/$ → Path3 cap floors at 3000 and stays parallel; seqs 36.
+    n = audit._phone_n_from_ov(get_runtime())
+    ads_sum = audit._ads_csv_sum(audit.scale_uneven_ads(audit.BEHIND_ADS_UNEVEN, n, min_val=36))
+    expected_cap = str(max(ads_sum, audit.BEHIND_PATH3_CAP_FLOOR))
+    # Behind on clicks/$ → Path3 cap = max(per-phone ad budget sum, 3000 floor).
     apply_money_rails(mode="hold", reason="test_behind", clicks=5, payout_usd=2.0)
     data = get_runtime()
-    assert data["CPHARM_FARM_PATH3_DAILY_CAP"] == "3000"
+    assert data["CPHARM_FARM_PATH3_DAILY_CAP"] == expected_cap
     assert data["CPHARM_FARM_PATH3_PER_HOUR"] == "60"
-    assert data["CPHARM_FARM_SEQS_PER_HOUR"] == "36"
+    assert data["CPHARM_FARM_SEQS_PER_HOUR"] == rails_expected_seqs()
     assert data["CPHARM_FARM_PATH3_GLOBAL_GAP_MIN"] == "0"
     assert data["CPHARM_FARM_UNIQUE_SEQ"] == "1"
 
 
 def test_heat_down_does_not_drip_path3(tmp_path: Path, monkeypatch) -> None:
     import automation.farm_health_audit as audit
-    from automation.cpharm_farm_config import get_runtime, merge_runtime, reset_runtime
+    from automation.cpharm_farm_config import get_runtime, reset_runtime
 
     monkeypatch.setattr(audit, "LOG", tmp_path)
+    # Live fleet size, unpinned — cap expectation derives from production math.
     reset_runtime(note="test")
-    merge_runtime({"CPHARM_FARM_PHONE_COUNT": "8"}, note="test")
+    n = audit._phone_n_from_ov(get_runtime())
+    ads_sum = audit._ads_csv_sum(audit.scale_uneven_ads(audit.BEHIND_ADS_UNEVEN, n, min_val=36))
+    expected_cap = str(max(ads_sum, audit.BEHIND_PATH3_CAP_FLOOR))
     # UTC $0 / clicks 0 is not dilution — must degrade to HOLD rails, no flag.
     apply_money_rails(mode="heat_down", reason="test_house", clicks=0, payout_usd=0.0)
     data = get_runtime()
-    assert data["CPHARM_FARM_PATH3_DAILY_CAP"] == "3000"  # behind floor
+    # Zero-clicks heat_down takes the HOLD rails; cap = max(ads_sum, floor).
+    assert data["CPHARM_FARM_PATH3_DAILY_CAP"] == expected_cap
     assert data["CPHARM_FARM_PATH3_GLOBAL_GAP_MIN"] == "0"
     assert data["CPHARM_FARM_PATH3_PER_HOUR"] == "60"
     assert data["CPHARM_PATH3_REQUIRE_PAYING"] == "0"
     assert data["CPHARM_EMULATOR_AD_FORCE_DIRECT"] == "1"
     # Must not cut seqs to 10/14 heat-down.
-    assert data["CPHARM_FARM_SEQS_PER_HOUR"] == "36"
+    assert data["CPHARM_FARM_SEQS_PER_HOUR"] == rails_expected_seqs()
     assert data["CPHARM_FARM_EST_IMPRESSIONS"] == "12000"
     assert not (tmp_path / "FARM_HEAT_DOWN.flag").is_file()
 
@@ -88,7 +101,7 @@ def test_heat_down_with_clicks_cuts_seqs_not_path3_gap(tmp_path: Path, monkeypat
     assert data["CPHARM_FARM_PATH3_GLOBAL_GAP_MIN"] == "0"
     assert data["CPHARM_FARM_PATH3_PER_HOUR"] == "8"
     # Heat-down cuts Path3 pace (8/hr), never sequence volume (36) or gap.
-    assert data["CPHARM_FARM_SEQS_PER_HOUR"] == "36"
+    assert data["CPHARM_FARM_SEQS_PER_HOUR"] == rails_expected_seqs()
     assert (tmp_path / "FARM_HEAT_DOWN.flag").is_file()
 
 

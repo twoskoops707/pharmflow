@@ -17,7 +17,11 @@ from wizard.pyinstaller_common import (
 
 class PyInstallerCommonTests(unittest.TestCase):
     def test_version_constant(self) -> None:
-        self.assertEqual(APP_VERSION, "1.4.17")
+        # Kept in lockstep with wizard/cpharm_version.py APP_VERSION.
+        from wizard.cpharm_version import APP_VERSION as VERSION_SSOT
+
+        self.assertEqual(APP_VERSION, VERSION_SSOT)
+        self.assertEqual(APP_VERSION, "1.5.0")
 
     def test_hiddenimports_include_core_modules(self) -> None:
         hidden = base_hiddenimports()
@@ -80,7 +84,8 @@ class PyInstallerCommonTests(unittest.TestCase):
             self.assertTrue(icon_path().endswith("app_icon.png"))
 
     def test_spec_file_exists(self) -> None:
-        self.assertTrue((ROOT / "wizard" / "CPharm.spec").is_file())
+        # The wizard spec was renamed CPharm.spec → PharmFlow.spec.
+        self.assertTrue((ROOT / "wizard" / "PharmFlow.spec").is_file())
 
 
 if __name__ == "__main__":
