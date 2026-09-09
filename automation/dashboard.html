@@ -713,8 +713,15 @@ async function api(path, method = 'GET', body = null) {
 }
 
 // ── Phones ─────────────────────────────────────────────────────────
+// Accepts both the WS push (bare array) and the /api/phones envelope object.
+function phonesListOf(data) {
+  if (Array.isArray(data)) return data;
+  if (data && Array.isArray(data.phones)) return data.phones;
+  return [];
+}
+
 function onPhonesUpdate(data) {
-  phones = data;
+  phones = phonesListOf(data);
   renderPhones();
   updateStats();
 }
@@ -1387,11 +1394,11 @@ function setKpi(id, val) {
 }
 async function refreshKpi() {
   let phones = [], dk = null, grp = null, money = null;
-  try { phones = await api('/api/phones', 'GET', {}); } catch (e) {}
+  try { phones = phonesListOf(await api('/api/phones', 'GET', {})); } catch (e) {}
   try { dk = await api('/api/docker/status', 'GET', {}); } catch (e) {}
   try { grp = await api('/api/groups/status', 'GET', {}); } catch (e) {}
   try { money = await api('/api/money/status', 'GET', {}); } catch (e) {}
-  setKpi('kpi-phones',      (Array.isArray(phones) ? phones.length : 0));
+  setKpi('kpi-phones',      phones.length);
   setKpi('kpi-groups',      (grp && grp.running) ? (grp.running).length : 0);
   setKpi('kpi-containers',  (dk && dk.containers) ? dk.containers.filter(c => c.state === 'running').length : 0);
   setKpi('kpi-adb',         (dk && dk.containers) ? dk.containers.filter(c => c.adb_state === 'online').length : 0);

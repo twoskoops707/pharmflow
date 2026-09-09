@@ -63,8 +63,10 @@ import urllib.parse
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-if str(SCRIPT_DIR) not in sys.path:
-    sys.path.insert(0, str(SCRIPT_DIR))
+REPO_ROOT = SCRIPT_DIR.parent
+for _p in (SCRIPT_DIR, REPO_ROOT):
+    if str(_p) not in sys.path:
+        sys.path.insert(0, str(_p))
 
 try:
     from websockets.server import serve
@@ -2722,7 +2724,9 @@ async def handle_get(path: str) -> bytes:
             return html_resp(PLAYSTORE_FILE.read_text(encoding="utf-8"))
         return _http(404, "text/plain", b"playstore.html not found")
     if path == "/api/phones":
-        return json_ok(list_phones())
+        # Envelope object (not a bare list): the Farm Remote APK parses ``phones``
+        # from the JSON body; a top-level array would read as 0 phones there.
+        return json_ok({"ok": True, "phones": list_phones()})
     if path == "/api/stealth":
         return json_ok({"ok": True, "phones": _get_stealth_payload(), "updated_utc": time.time()})
     if path == "/api/stealth/verify":

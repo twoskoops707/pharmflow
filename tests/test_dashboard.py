@@ -30,8 +30,10 @@ class DashboardApiTests(unittest.TestCase):
             resp = _run(dashboard.handle_get("/api/phones"))
         self.assertEqual(resp[:12], b"HTTP/1.1 200")
         body = json.loads(resp.split(b"\r\n\r\n", 1)[1])
-        self.assertIsInstance(body, list)
-        self.assertEqual(body[0]["serial"], "127.0.0.1:16384")
+        # Envelope object: the Farm Remote APK's parsePhones reads ``phones``.
+        self.assertTrue(body.get("ok"))
+        self.assertIsInstance(body.get("phones"), list)
+        self.assertEqual(body["phones"][0]["serial"], "127.0.0.1:16384")
 
     def test_api_config_names_app(self) -> None:
         resp = _run(dashboard.handle_get("/api/config"))
