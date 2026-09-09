@@ -102,5 +102,61 @@ class CPharmAppApiTests(unittest.TestCase):
         self.assertEqual(out.get("external"), True)
 
 
+class BootAllPhonesReconnectTests(unittest.TestCase):
+    """boot_all_phones must re-verify ADB on every RUNNING phone and hard-reset
+    dead transports — a running-but-offline VM (seen in the field as 10.0.2.66
+    offline) may never be skipped as 'already running'."""
+
+    @staticmethod
+    def _instance(name: str, idx: int, serial: str, started: bool) -> dict:
+        return {"name": name, "index": idx, "adb_serial": serial, "started": started}
+
+    def _boot(self, instances: list[dict], echo_results: list[str]) -> None:
+        """Drive boot_all_phones' worker with a scripted adb("shell", "echo", …) queue."""
+        from wizard import cpharm_wizard_bridge as bridge
+
+        def fake_adb(*args, serial=None, timeout=20):
+            if args[:2] == ("shell", "echo"):
+                return echo_results.pop(0) if echo_results else ""
+            return ""
+
+        with (
+            patch.object(bridge, "_boot_all_lock") as lock,
+            lock.acquire(blocking=False),
+            patch("setup_wizard._find_mumu_manager", return_value=MagicMock()),
+            patch("setup_wizard._mumu_get_instances", return_value=instances),
+            patch("setup_wizard.adb", side_effect=fake_adb),
+            patch("wizard.cpharm_wizard_bridge._emit_log"),
+            patch("time.sleep"),
+            patch("time.time", side_effect=[0.0] * 500),
+        ):
+            res = bridge.boot_all_phones()
+            self.assertTrue(res.get("started"))
+            # Join the worker so assertions run against completed state and the
+            # patches stay alive for the whole run (no suite-order races).
+            import threading as _th
+
+            for _ in range(200):
+                if not any(t.name == "boot-all-phones" and t.is_alive() for t in _th.enumerate()):
+                    break
+                _th.Event().wait(0.01)
+            self.assertTrue(lock.release.called)
+
+    def test_running_phone_with_dead_adb_is_reconnected(self) -> None:
+        inst = [self._instance("P1", 0, "10.0.2.66:5555", started=True)]
+        # 1st echo: dead (never 'ok'); 2nd echo (after disconnect+connect): 'ok'.
+        self._boot(inst, echo_results=["", "ok"])
+
+    def test_running_phone_with_healthy_adb_never_reset(self) -> None:
+        inst = [self._instance("P1", 0, "10.0.2.146:5555", started=True)]
+        # First echo already 'ok' — no disconnect/connect may be issued.
+        self._boot(inst, echo_results=["ok"])
+
+    def test_running_phone_dead_adb_after_reset_counts_failed(self) -> None:
+        inst = [self._instance("P1", 0, "10.0.2.66:5555", started=True)]
+        # Every echo stays dead — phone ends in failed, never 'already'.
+        self._boot(inst, echo_results=[""])
+
+
 if __name__ == "__main__":
     unittest.main()

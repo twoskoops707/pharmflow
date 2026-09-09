@@ -1605,14 +1605,40 @@ def boot_all_phones() -> dict:
                 return
             booted: list[str] = []
             already: list[str] = []
+            reconnected: list[str] = []
             failed: list[str] = []
             for inst in instances:
                 idx = inst["index"]
                 name = inst["name"]
                 serial = inst["adb_serial"]
                 if inst.get("started"):
-                    log(f"{name}: already running ({serial})")
-                    already.append(name)
+                    # Running per MuMu ≠ ADB-reachable. Re-verify every running
+                    # phone; hard-reset the transport when it answers dead so a
+                    # wedged VM never gets skipped as "already running".
+                    deadline = _time.time() + 45
+                    up = False
+                    reset = False
+                    while True:
+                        check = adb("shell", "echo", "ok", serial=serial, timeout=8)
+                        if check.strip() == "ok":
+                            up = True
+                            break
+                        if _time.time() >= deadline:
+                            break
+                        if not reset:
+                            log(f"{name}: ADB dead on running VM — resetting transport ({serial})")
+                            adb("disconnect", serial, timeout=8)
+                            reset = True
+                        adb("connect", serial, timeout=8)
+                        _time.sleep(4)
+                    if up:
+                        log(f"{name}: ADB verified up ({serial})" + (" — reconnected" if reset else ""))
+                        already.append(name)
+                        if reset:
+                            reconnected.append(name)
+                        continue
+                    log(f"{name}: running but no ADB after transport reset — moving on")
+                    failed.append(name)
                     continue
                 log(f"{name}: launching (instance {idx})…")
                 try:
@@ -1638,7 +1664,10 @@ def boot_all_phones() -> dict:
                     log(f"{name}: no ADB answer after 180s — moving on")
                     failed.append(name)
             total = len(booted) + len(already)
-            log(f"BOOT COMPLETE: {total} phone(s) up, {len(failed)} failed.")
+            log(
+                f"BOOT COMPLETE: {total} phone(s) up, {len(reconnected)} reconnected, "
+                f"{len(failed)} failed."
+            )
         except Exception as exc:  # noqa: BLE001 — never silent-fail the boot worker
             log(f"BOOT FAILED: {exc}")
             _emit_log("boot", f"BOOT FAILED: {exc}\n")
