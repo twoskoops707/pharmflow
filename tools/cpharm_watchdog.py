@@ -147,6 +147,16 @@ FARM_KEEP_SCRIPTS = frozenset({
     "cpharm_watchdog.py",
     "project_agent.py",
     "cloud_agent.py",
+    # Unison stack (supervised lanes) — spawned detached, so their powershell
+    # parent exits immediately and the dead-parent rule would reap them every
+    # sweep without this allowlist (this killed the supervisor AND the
+    # adb-keeper/money lanes repeatedly in the field).
+    "cpharm_unison_supervisor.py",
+    "farm_watchdog.py",
+    "farm_money_monitor.py",
+    "adb_bond_keeper.py",
+    "cpharm_stealth_guard.py",
+    "agent_unison_freebuff_loop.py",
 })
 
 
