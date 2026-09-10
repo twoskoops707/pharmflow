@@ -688,6 +688,10 @@ def _rewire_missing_phones(farm: MuMuFarmOps, missing: list[str]) -> list[str]:
         for serial in candidates:
             if not serial or ":" not in serial or serial in seen:
                 continue
+            # Ghost dial protection: banned serials hang the shared adb server
+            # for the full TCP timeout each — never dial them.
+            if is_banned_serial(serial):
+                continue
             seen.add(serial)
             try:
                 r = farm.adb.run("connect", serial, timeout=6.0)
@@ -742,14 +746,21 @@ def _persist_live_phones(phones: list[str], farm: MuMuFarmOps) -> None:
     now, never a pinned canonical list that can go stale when VMs renumber.
     """
     live = [p for p in phones if p]
-    names = live or canonical_names_sorted()
+    # Only canonical vmN.gmadoa names belong in sticky config: synthetic
+    # adb-10-0-2-x names leak here when instance mapping lags and then poison
+    # every later boot (they cannot be mapped back to MuMu indexes/ports).
+    sticky = [p for p in live if re.match(r"^vm\d+\.gmadoa$", p)]
+    names = sticky or canonical_names_sorted()
     expect = len(live) or len(names)
     log_dir = Path(
         os.environ.get("CPHARM_LOGS")
         or os.environ.get("CPHARM_LOG_DIR")
         or r"C:\CPharm\logs"
     )
-    serials: dict[str, str] = dict(CANONICAL_FARM_PHONES)
+    # Live-fleet only: never seed the lock from canonical serials — stale IPs
+    # here are what keeps rewire/repin/watchers chasing dead guests forever.
+    # Non-live canonical names persist as empty strings (readers skip them).
+    serials: dict[str, str] = {name: "" for name in CANONICAL_FARM_PHONES}
     live_by_name = {p: p for p in live}
     seen: set[str] = set()
     for name in sorted(names, key=lambda n: int(re.match(r"vm(\d+)", n).group(1)) if re.match(r"vm(\d+)", n) else 0):

@@ -134,6 +134,8 @@ def _spawn_lane(name: str, script: str, args: tuple[str, ...] = ()) -> int | Non
     if not path.is_file():
         path = ROOT / "tools" / script
     if not path.is_file():
+        path = ROOT / "automation" / script
+    if not path.is_file():
         return None
     env = os.environ.copy()
     env["PYTHONPATH"] = str(ROOT)
