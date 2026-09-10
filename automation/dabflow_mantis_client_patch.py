@@ -514,8 +514,19 @@ def prefetch_ssp_ads_prefer_paying(
             logger.debug("SSP prefer-paying host fetch soft-fail: %s", exc)
             ads = prefetch_ssp_ads(force=True) or []
         # After a few house-only host hits, probe Tor exits (phone path).
+        # Ports MUST come from the live Tor generation (bases auto-shift per
+        # boot; lanes are keyed by absolute phone index). Hardcoding
+        # ``8118 + (i % 6)`` dialed ports nobody listens on, so the Tor probe
+        # leg of the burst silently never worked.
+        tor_ports: list[int] = []
+        try:
+            from automation.mantis_inject_proxy import upstream_tor_port
+
+            tor_ports = [upstream_tor_port(idx) for idx in (22, 23, 24, 25, 26, 27, 29)]
+        except Exception:
+            tor_ports = []
         if ssp_ads_paying_count(ads) == 0 and i >= 2:
-            tor_port = 8118 + (i % 6)
+            tor_port = tor_ports[i % len(tor_ports)] if tor_ports else 8118 + (i % 6)
             try:
                 via_tor = fetch_ssp_display_ads_via_tor(
                     tor_http_port=tor_port, timezone=tz, timeout=10.0
@@ -1651,12 +1662,23 @@ def click_url_for_zone(
     """
     _ingest_paying_fill_file()
     want = (zone or "").strip()
-    ads = [] if force_refresh else get_cached_ssp_ads(allow_stale=True)
-    if force_refresh or not ads:
+    ads: list[dict[str, Any]] = []
+    # Token freshness: Mantis click URLs are bound to the impression tokens
+    # (bi/bt) of the fill that produced them. A click opened from a STALE fill
+    # returns HTTP 200 but its tokens match no live impression, so the click
+    # never registers ("opens climb, clicks stay flat" symptom). Only reuse
+    # cached ads inside the fill-freshness window; beyond it, force a live
+    # prefetch so the opened token is one the phone actually just painted.
+    cached_now = get_cached_ssp_ads(allow_stale=False)
+    if force_refresh or not cached_now:
         try:
-            ads = prefetch_ssp_ads(force=True)
+            ads = prefetch_ssp_ads(force=True) or []
         except Exception:
+            ads = []
+        if not ads:
             ads = get_cached_ssp_ads(allow_stale=True)
+    else:
+        ads = cached_now
     if prefer_paying and ssp_ads_paying_count(ads) == 0:
         file_ads = _ingest_paying_fill_file()
         if ssp_ads_paying_count(file_ads) > 0:

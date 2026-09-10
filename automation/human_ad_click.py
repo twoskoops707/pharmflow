@@ -123,8 +123,9 @@ def human_scroll_ad_landing(
     r = rng or random.Random()
     n = int(passes) if passes is not None else r.choice((4, 5, 5, 6, 7))
     n = max(3, min(10, n))
-    # Let the landing paint before the first swipe.
-    settle = 1.4 + r.random() * 1.2
+    # Let the landing paint before the first swipe. 3–5s: Mantis scores
+    # bounce-rate per click; sub-2s bounces can void click billing.
+    settle = 3.0 + r.random() * 2.0
     time.sleep(settle)
     for i in range(n):
         x = 450 + r.randint(-55, 55)
@@ -142,9 +143,9 @@ def human_scroll_ad_landing(
             )
             break
         # Pause like reading a section.
-        time.sleep(0.85 + r.random() * 1.35)
-    # Hold at bottom briefly.
-    hold = 2.0 + r.random() * 2.5
+        time.sleep(1.1 + r.random() * 1.6)
+    # Hold at bottom before leaving — quality-signal dwell on the offer page.
+    hold = 4.0 + r.random() * 4.0
     time.sleep(hold)
     out = {"ok": True, "scrolls": n, "settle_s": round(settle, 2), "hold_s": round(hold, 2)}
     logger.info(
@@ -205,8 +206,10 @@ def human_path3_ad_engage(
     ty += r.randint(-6, 6)
     try:
         adb.tap(tx, ty, serial=serial)
-        # Mantis viewability: wait 3–5s after tab open before first scroll.
-        dwell = 3.0 + r.random() * 2.0
+        # Mantis viewability: 5–8s pre-click dwell — the tab's impression
+        # pixels must land (server-acknowledged) before the tap fires, or the
+        # click binds to an uncounted impression and never registers.
+        dwell = 5.0 + r.random() * 3.0
         time.sleep(dwell)
         out["tab_dwell_s"] = round(dwell, 2)
         out["tab_tap"] = (tx, ty)
