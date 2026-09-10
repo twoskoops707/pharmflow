@@ -37,6 +37,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 import automation.no_window  # noqa: E402,F401  (kill child console-window flashes)
+from automation import boot_gates  # noqa: E402
 from automation.farm_visit_caps import apply_runtime_overrides_to_env  # noqa: E402
 from automation.farm_pause import farm_halted  # noqa: E402
 
@@ -3576,6 +3577,20 @@ def main() -> int:
                     inst.adb_serial,
                 )
                 try:
+                    # Scaling-plan gate: same host-health rule as EXE boot —
+                    # wait for RAM/CPU headroom before respawning a VM so a
+                    # spin-up never wedges the other live earners. Host-health
+                    # only; there is no phone-count cap anywhere.
+                    if not boot_gates.wait_for_boot_headroom(
+                        label=phone,
+                        timeout_s=300.0,
+                    ):
+                        logger.warning(
+                            "SELF-HEAL %s deferred — host headroom gate timed out; will retry next cycle",
+                            phone,
+                        )
+                        heal_last.pop(phone, None)
+                        continue
                     farm.start_phone(phone)
                 except Exception as exc:
                     logger.warning("SELF-HEAL %s spin-up failed: %s", phone, exc)

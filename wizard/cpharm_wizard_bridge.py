@@ -13,6 +13,10 @@ from typing import Any, Callable
 from setup_wizard import CPharmWizard
 from wizard_theme import _style_scrollbars
 
+# Boot-order host gates (scaling plan): CPU/RAM headroom before each VM launch.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from automation import boot_gates as boot_gate  # noqa: E402
+
 # Mirrors CPharmWizard.PAGE_NAMES / PAGE_SUBTITLES (order matters).
 # Nine steps in four parts — sidebar shows phase headers; ids are stable for code.
 WIZARD_STEPS: list[dict[str, Any]] = [
@@ -1638,6 +1642,16 @@ def boot_all_phones() -> dict:
                             reconnected.append(name)
                         continue
                     log(f"{name}: running but no ADB after transport reset — moving on")
+                    failed.append(name)
+                    continue
+                # Scaling-plan gate: never launch the next VM into a starved
+                # host. Host-health gate only — no phone-count cap; if the
+                # host can absorb another phone, the boot continues.
+                if not boot_gate.wait_for_boot_headroom(
+                    label=name,
+                    log_fn=lambda m, _n=name: log(f"{_n}: {m}"),
+                ):
+                    log(f"{name}: skipped launch — host lacked headroom (gate timeout)")
                     failed.append(name)
                     continue
                 log(f"{name}: launching (instance {idx})…")
