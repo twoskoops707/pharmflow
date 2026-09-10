@@ -58,6 +58,9 @@ _Updated: 2026-09-09 ~17:30. Read this before touching anything. Update it whene
 - **Sequence-lag audit (measured, 2h window):** proxy/Tor/fingerprint phases are FAST (0.1–0.4s). The lag is: (1) ad-tap steps idling 73–108s on empty zones — fixed via multi-zone merge-fill (ff981da); (2) 242 ADB/uiautomator timeouts/2h (dump storms — CDP-first path is the mitigation, fills now supply real slots); (3) box saturation (100% CPU, <1 GB RAM free with 7 VMs) making every step crawl. Cycle ≈386s is within the manual's 400–600s band. More phones need more RAM — do not boot past free<2GB.
 - **Console flashes:** os.system(attrib)/powershell/taskkill spawns in run_farm_354 + config purge now use CREATE_NO_WINDOW (96274f6). Old-generation lanes running pre-fix code were the live flashers — full stack restart on new code stopped the storm.
 
+## Scaling
+- Phone-count scaling plan with measured limits lives in `SCALING_PLAN.md` (2026-09-10): CPU (8 cores @ 97%) is the wall, not RAM; per-VM all-in ~1.05 GB; phases: 7-8 phones now / 10-12 at 32 GB / 16-24 after a CPU upgrade. Boot order + gates are in the doc.
+
 ## In-flight / pending
 - [x] b7021c8 pushed (adb v37 unify + keeper spawn fix + ghost-poison fixes); CI building new EXE/APK — download from Release, swap, verify.
 - [x] ff981da pushed (money-freeze fixes); CI building — download new EXE from Release when green, swap (backup first), verify.
