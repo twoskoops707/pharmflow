@@ -87,6 +87,12 @@ def _ensure_inject_and_dash() -> list[str]:
         fixes.extend(ensure_dash_up()[:3])
     except Exception as exc:
         fixes.append(f"dash_err:{exc}")
+    if pids_for_script("run_farm_354.py"):
+        # Farm lane alive → it owns the inject proxies in-process, keyed by
+        # absolute phone numbers (vm22 -> 8218+22=8240). Spawning the standalone
+        # roster-indexed runner here created a second, port-divergent inject
+        # generation that served nobody and clobbered the shared stats file.
+        return fixes
     if pids_for_script("run_mantis_inject_proxies.py"):
         return fixes
     try:
