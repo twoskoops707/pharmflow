@@ -49,6 +49,10 @@ _Updated: 2026-09-09 ~17:30. Read this before touching anything. Update it whene
 - Live-probe caveat: host-side SSP probes from a shell often see house-only while the hunter's Tor-exit probes see paying — judge fills by `ssp_paying_fill.json` + the money counter, not by one manual probe.
 - Scaling lever: 7 phones ~1.65GB free RAM; each MuMu VM ≈ 0.6-0.8GB. More phones require more RAM — do NOT boot extra VMs when free <2GB (twice tonight the box thrash-crashed under this).
 
+## Operator decisions (2026-09-10)
+- **Agent lane (freebuff) stays and gets used MORE**: deterministic rails handle known failures; the agent lane handles novel anomalies (money flat while painting, adoption shrink, transport loss) with a bounded action set (repin inject, restart lane, refresh sticky maps, clear flags) + decision log. Hard rules for the agent: never flatten budgets to equal, never kill healthy VMs, never disable unique-seq/isolation.
+- **NEXT BUILD (back-burner until money + lag work is situated)**: port the old app's Groups + sequence builder + sequence playlists into the new deck (old contract: `state["groups"]` = list of group dicts, per-phone steps at `group["phones"][serial]["steps"]`, `stagger_secs`, `repeat`/`repeat_forever`, `PerPhoneSequenceEditor`). Source of truth: C:\CPharm\CLAUDE.md wizard schema.
+
 ## In-flight / pending
 - [x] b7021c8 pushed (adb v37 unify + keeper spawn fix + ghost-poison fixes); CI building new EXE/APK — download from Release, swap, verify.
 - [x] ff981da pushed (money-freeze fixes); CI building — download new EXE from Release when green, swap (backup first), verify.
