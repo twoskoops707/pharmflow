@@ -514,16 +514,18 @@ body:hover *::-webkit-scrollbar-thumb{background:var(--scroll-thumb)}
   <div style="background:var(--bg2);border:1px solid var(--bd);border-radius:var(--rad);padding:14px">
     <p style="font-size:.78rem;color:var(--t1);line-height:1.6;margin-bottom:10px">
       Run different sequences on different sets of phones at the same time.<br>
-      Build your groups in <strong>PharmFlow</strong>, then load them here and click Run All.
+      Create groups, edit per-phone steps, build sequence playlists — right here.
     </p>
     <div class="groups-ctrl" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+      <button class="btn-g btn-sm" id="btn-groups-new">+ New Group</button>
+      <button class="btn-b btn-sm" id="btn-groups-edit" disabled>Edit Groups</button>
       <button class="btn-b btn-sm" id="btn-groups-load">Load Saved Groups</button>
       <button class="btn-g" id="btn-groups-run" disabled>▶ Run All Groups</button>
       <button class="btn-r btn-sm" id="btn-groups-stop" disabled>Stop All</button>
     </div>
     <div id="groups-list" style="display:flex;flex-direction:column;gap:8px"></div>
     <div id="groups-empty" style="font-size:.75rem;color:var(--t2);margin-top:4px">
-      No groups loaded yet. Use PharmFlow to create groups, then click Load Saved Groups.
+      No groups yet — click <strong>+ New Group</strong> to build one, or Load Saved Groups.
     </div>
     <div id="farm-status" style="display:none;margin-top:14px">
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
@@ -1173,8 +1175,9 @@ async function loadGroups() {
     refreshFarmStatus();
     renderGroups();
     document.getElementById('btn-groups-run').disabled = loadedGroups.length === 0;
+    document.getElementById('btn-groups-edit').disabled = loadedGroups.length === 0;
     toast(`Loaded ${loadedGroups.length} group(s)`, 'ok');
-  } catch(e) { toast('No saved groups found — run the PharmFlow wizard first', 'err'); }
+  } catch(e) { toast('No saved groups found — create one with + New Group', 'err'); }
 }
 
 function renderGroups() {
@@ -1195,19 +1198,544 @@ function renderGroups() {
     nameEl.textContent = g.name;
     const metaEl = document.createElement('div');
     metaEl.className = 'grp-card-meta';
-    metaEl.textContent = `${(g.phones||[]).length} phone(s) · ${(g.steps||[]).length} steps · repeat ${g.repeat_forever?'forever':g.repeat+'×'} · stagger ${g.stagger_secs}s`;
+    metaEl.textContent = `${Object.keys(g.phones||{}).length} phone(s) · repeat ${g.repeat_forever?'forever':g.repeat+'×'} · stagger ${g.stagger_secs}s` + (g.apk ? ` · apk ${g.apk}` : '');
     info.appendChild(nameEl);
     info.appendChild(metaEl);
+    const btns = document.createElement('div');
+    btns.style.cssText = 'display:flex;gap:6px;flex-wrap:wrap';
+    const editBtn = document.createElement('button');
+    editBtn.textContent = 'Edit';
+    editBtn.className = 'btn-b btn-sm';
+    editBtn.onclick = () => openGroupEditor(i);
     const stopBtn = document.createElement('button');
     stopBtn.textContent = 'Stop';
     stopBtn.className = 'btn-r btn-sm';
     stopBtn.id = `grp-stop-${i}`;
     stopBtn.disabled = true;
     stopBtn.onclick = () => api('/api/groups/stop','POST',{name:g.name}).catch(()=>{});
+    const delBtn = document.createElement('button');
+    delBtn.textContent = 'Delete';
+    delBtn.className = 'btn-r btn-sm';
+    delBtn.onclick = () => deleteGroup(g.name);
+    btns.appendChild(editBtn);
+    btns.appendChild(stopBtn);
+    btns.appendChild(delBtn);
     card.appendChild(info);
-    card.appendChild(stopBtn);
+    card.appendChild(btns);
     list.appendChild(card);
   });
+}
+
+async function deleteGroup(name) {
+  if (!confirm(`Delete group "${name}"? This cannot be undone.`)) return;
+  try {
+    await api('/api/groups/delete','POST',{name});
+    toast(`Deleted group ${name}`,'ok');
+    loadedGroups = loadedGroups.filter(g => g.name !== name);
+    renderGroups();
+    document.getElementById('btn-groups-run').disabled = loadedGroups.length === 0;
+    document.getElementById('btn-groups-edit').disabled = loadedGroups.length === 0;
+  } catch(e) { toast('Delete failed: ' + e.message,'err'); }
+}
+
+async function startGroupsEditor() {
+  await ensureSequences();
+  openGroupEditor(-1);
+}
+
+document.getElementById('btn-groups-new').onclick  = () => startGroupsEditor();
+document.getElementById('btn-groups-edit').onclick = () => startGroupsEditor();
+if (loadedGroups.length) document.getElementById('btn-groups-edit').disabled = false;
+
+// ── Groups editor — ported from the old wizard's Groups page + PerPhoneSequenceEditor ──
+const STEP_TYPES = ['open_url','tap','wait','swipe','keyevent','type_text','clear_cookies','close_app','rotate_identity','full_reset','launch_app'];
+const KEYEVENTS  = [['4','BACK'],['3','HOME'],['82','MENU'],['26','POWER'],['66','ENTER'],['61','TAB'],['187','APP_SWITCH']];
+
+let _seqLib = [];
+async function ensureSequences() {
+  if (_seqLib.length) return _seqLib;
+  try {
+    const d = await api('/api/sequences/list','GET');
+    _seqLib = (d.sequences || []).filter(s => s.steps > 0);
+  } catch(e) { _seqLib = []; }
+  return _seqLib;
+}
+
+function _styleModal(m) {
+  m.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:1000;display:flex;align-items:center;justify-content:center;padding:16px';
+  const card = document.createElement('div');
+  card.style.cssText = 'background:var(--bg2,#161b22);border:1px solid var(--bd,#30363d);border-radius:10px;max-width:960px;width:100%;max-height:92vh;overflow:auto;padding:16px';
+  m.appendChild(card);
+  return card;
+}
+function _closeOnBackdrop(e, m) { if (e.target === m) m.remove(); }
+
+function openGroupEditor(idx) {
+  const isNew = idx < 0 || !loadedGroups[idx];
+  const src   = isNew ? {name:'',phones:{},stagger_secs:5,repeat:1,repeat_forever:false,apk:''} : loadedGroups[idx];
+  const draft = JSON.parse(JSON.stringify(src));
+  if (!draft.phones || typeof draft.phones !== 'object') draft.phones = {};
+  if (!Array.isArray(draft.steps)) draft.steps = [];
+
+  const m = document.createElement('div');
+  const card = _styleModal(m);
+  m.addEventListener('click', e => _closeOnBackdrop(e, m));
+
+  const title = document.createElement('div');
+  title.style.cssText = 'font-size:1.05rem;font-weight:800;color:var(--t1,#e6edf3);margin-bottom:10px';
+  title.textContent = isNew ? 'New Group' : `Edit Group — ${draft.name}`;
+  card.appendChild(title);
+
+  const row1 = document.createElement('div');
+  row1.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px';
+  const nameIn = document.createElement('input');
+  nameIn.placeholder = 'Group name';
+  nameIn.value = draft.name || '';
+  nameIn.style.cssText = 'flex:1;min-width:160px;padding:6px 8px;background:var(--bg1,#0d1117);border:1px solid var(--bd,#30363d);border-radius:6px;color:var(--t1,#e6edf3)';
+  const stagIn = document.createElement('input');
+  stagIn.type = 'number'; stagIn.min = '0'; stagIn.max = '3600';
+  stagIn.value = draft.stagger_secs ?? 5;
+  stagIn.title = 'Stagger between phones (seconds)';
+  stagIn.style.cssText = 'width:80px;padding:6px 8px;background:var(--bg1,#0d1117);border:1px solid var(--bd,#30363d);border-radius:6px;color:var(--t1,#e6edf3)';
+  const repIn = document.createElement('input');
+  repIn.type = 'number'; repIn.min = '1'; repIn.max = '9999';
+  repIn.value = draft.repeat ?? 1;
+  repIn.title = 'Repeat count';
+  repIn.style.cssText = 'width:70px;padding:6px 8px;background:var(--bg1,#0d1117);border:1px solid var(--bd,#30363d);border-radius:6px;color:var(--t1,#e6edf3)';
+  const foreverChk = document.createElement('label');
+  foreverChk.style.cssText = 'display:flex;align-items:center;gap:4px;font-size:.75rem;color:var(--t2,#8b949e)';
+  const foreverBox = document.createElement('input');
+  foreverBox.type = 'checkbox'; foreverBox.checked = !!draft.repeat_forever;
+  foreverChk.appendChild(foreverBox);
+  foreverChk.appendChild(document.createTextNode('forever'));
+  const apkIn = document.createElement('input');
+  apkIn.placeholder = 'APK filename (optional)';
+  apkIn.value = draft.apk || '';
+  apkIn.style.cssText = 'width:170px;padding:6px 8px;background:var(--bg1,#0d1117);border:1px solid var(--bd,#30363d);border-radius:6px;color:var(--t1,#e6edf3)';
+  row1.appendChild(nameIn); row1.appendChild(stagIn); row1.appendChild(repIn); row1.appendChild(foreverChk); row1.appendChild(apkIn);
+  card.appendChild(row1);
+
+  const phoneSec = document.createElement('div');
+  phoneSec.style.cssText = 'margin-bottom:10px';
+  const phoneHead = document.createElement('div');
+  phoneHead.style.cssText = 'font-size:.8rem;font-weight:700;color:var(--t1,#e6edf3);margin-bottom:6px';
+  phoneHead.textContent = 'Phones in group';
+  const addPhoneSel = document.createElement('select');
+  addPhoneSel.style.cssText = 'padding:5px 8px;background:var(--bg1,#0d1117);border:1px solid var(--bd,#30363d);border-radius:6px;color:var(--t1,#e6edf3);max-width:240px';
+  const addPhoneBtn = document.createElement('button');
+  addPhoneBtn.textContent = '+ Add phone';
+  addPhoneBtn.className = 'btn-b btn-sm';
+  const addAllBtn = document.createElement('button');
+  addAllBtn.textContent = 'Add all online';
+  addAllBtn.className = 'btn-b btn-sm';
+  phoneHead.appendChild(document.createTextNode(' '));
+  phoneHead.appendChild(addPhoneSel);
+  phoneHead.appendChild(addPhoneBtn);
+  phoneHead.appendChild(addAllBtn);
+  phoneSec.appendChild(phoneHead);
+  const phoneList = document.createElement('div');
+  phoneList.style.cssText = 'display:flex;flex-direction:column;gap:6px';
+  phoneSec.appendChild(phoneList);
+  card.appendChild(phoneSec);
+
+  function renderPhoneRows() {
+    phoneList.innerHTML = '';
+    const serials = Object.keys(draft.phones);
+    if (!serials.length) {
+      const hint = document.createElement('div');
+      hint.style.cssText = 'font-size:.72rem;color:var(--t2,#8b949e)';
+      hint.textContent = 'No phones yet — add one above.';
+      phoneList.appendChild(hint);
+    }
+    serials.forEach(serial => {
+      const ent = draft.phones[serial] || {};
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;align-items:center;gap:8px;background:var(--bg1,#0d1117);border:1px solid var(--bd,#30363d);border-radius:6px;padding:6px 8px';
+      const nm = document.createElement('span');
+      nm.style.cssText = 'font-size:.78rem;color:var(--t1,#e6edf3);min-width:120px';
+      nm.textContent = (phones.find(p => p.serial === serial) || {}).name || serial;
+      const info = document.createElement('span');
+      info.style.cssText = 'flex:1;font-size:.7rem;color:var(--t2,#8b949e)';
+      const nSteps = (ent.steps || []).length;
+      const nPl = (ent.sequence_playlist || []).length;
+      info.textContent = `${nSteps} step(s)` + (nPl ? ` · playlist ${nPl}` : '');
+      const editStepsBtn = document.createElement('button');
+      editStepsBtn.textContent = 'Steps';
+      editStepsBtn.className = 'btn-b btn-sm';
+      editStepsBtn.onclick = () => openPhoneStepsEditor(serial, ent);
+      const playlistBtn = document.createElement('button');
+      playlistBtn.textContent = 'Playlist';
+      playlistBtn.className = 'btn-b btn-sm';
+      playlistBtn.onclick = () => openPlaylistEditor(serial, ent);
+      const rm = document.createElement('button');
+      rm.textContent = '✕';
+      rm.className = 'btn-r btn-sm';
+      rm.onclick = () => { delete draft.phones[serial]; renderPhoneRows(); };
+      row.appendChild(nm); row.appendChild(info);
+      row.appendChild(editStepsBtn); row.appendChild(playlistBtn); row.appendChild(rm);
+      phoneList.appendChild(row);
+    });
+  }
+
+  function refreshPhonePicker() {
+    addPhoneSel.innerHTML = '';
+    const inGroup = new Set(Object.keys(draft.phones));
+    const pool = (phones || []).filter(p => !inGroup.has(p.serial));
+    if (!pool.length) {
+      const o = document.createElement('option');
+      o.textContent = (phones||[]).length ? 'all added' : 'no phones online';
+      o.value = '';
+      addPhoneSel.appendChild(o);
+      addPhoneBtn.disabled = true; addAllBtn.disabled = true;
+      return;
+    }
+    addPhoneBtn.disabled = false; addAllBtn.disabled = false;
+    pool.forEach(p => {
+      const o = document.createElement('option');
+      o.value = p.serial;
+      o.textContent = `${p.name || p.serial} (${p.serial})`;
+      addPhoneSel.appendChild(o);
+    });
+  }
+  addPhoneBtn.onclick = () => {
+    const serial = addPhoneSel.value;
+    if (!serial || draft.phones[serial]) return;
+    draft.phones[serial] = { steps: [] };
+    refreshPhonePicker(); renderPhoneRows();
+  };
+  addAllBtn.onclick = () => {
+    (phones || []).forEach(p => { if (!draft.phones[p.serial]) draft.phones[p.serial] = { steps: [] }; });
+    refreshPhonePicker(); renderPhoneRows();
+  };
+
+  const saveBtn = document.createElement('button');
+  saveBtn.textContent = 'Save Group';
+  saveBtn.className = 'btn-g btn-sm';
+  const cancelBtn = document.createElement('button');
+  cancelBtn.textContent = 'Cancel';
+  cancelBtn.className = 'btn btn-sm';
+  const footRow = document.createElement('div');
+  footRow.style.cssText = 'display:flex;gap:8px;justify-content:flex-end;margin-top:12px';
+  footRow.appendChild(cancelBtn); footRow.appendChild(saveBtn);
+  card.appendChild(footRow);
+
+  cancelBtn.onclick = () => m.remove();
+  saveBtn.onclick = async () => {
+    const name = (nameIn.value || '').trim();
+    if (!name) { toast('Group name required','err'); return; }
+    if (!Object.keys(draft.phones).length) { toast('Add at least one phone','err'); return; }
+    if (!isNew && name !== src.name && loadedGroups.some(g => g.name === name)) {
+      toast('Another group already has that name','err'); return;
+    }
+    const out = {
+      name,
+      phones: draft.phones,
+      stagger_secs: Math.max(0, parseInt(stagIn.value,10) || 0),
+      repeat: Math.max(1, parseInt(repIn.value,10) || 1),
+      repeat_forever: foreverBox.checked,
+      apk: (apkIn.value || '').trim(),
+    };
+    if (!isNew) out._replace = src.name;
+    try {
+      const groups = loadedGroups.filter(g => g.name !== (out._replace || ''));
+      groups.push(out);
+      await api('/api/groups/save','POST',{groups});
+      toast(`Saved group ${name}`,'ok');
+      m.remove();
+      await loadGroups();
+    } catch(e) { toast('Save failed: ' + e.message,'err'); }
+  };
+
+  refreshPhonePicker();
+  renderPhoneRows();
+  document.body.appendChild(m);
+}
+
+function openPhoneStepsEditor(serial, ent) {
+  const draft = JSON.parse(JSON.stringify(ent.steps || []));
+  const m = document.createElement('div');
+  const card = _styleModal(m);
+  m.addEventListener('click', e => _closeOnBackdrop(e, m));
+  const title = document.createElement('div');
+  title.style.cssText = 'font-size:1rem;font-weight:800;color:var(--t1,#e6edf3);margin-bottom:8px';
+  title.textContent = `Steps — ${serial}`;
+  card.appendChild(title);
+  const list = document.createElement('div');
+  list.style.cssText = 'display:flex;flex-direction:column;gap:4px;margin-bottom:8px';
+  card.appendChild(list);
+
+  function renderSteps() {
+    list.innerHTML = '';
+    if (!draft.length) {
+      const hint = document.createElement('div');
+      hint.style.cssText = 'font-size:.72rem;color:var(--t2,#8b949e)';
+      hint.textContent = 'No steps — every iteration will use the playlist (if configured), otherwise nothing runs.';
+      list.appendChild(hint);
+    }
+    draft.forEach((st, i) => {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;align-items:center;gap:6px;background:var(--bg1,#0d1117);border:1px solid var(--bd,#30363d);border-radius:6px;padding:4px 6px';
+      const sel = document.createElement('select');
+      sel.style.cssText = 'padding:3px 5px;background:var(--bg2,#161b22);border:1px solid var(--bd,#30363d);border-radius:4px;color:var(--t1,#e6edf3);font-size:.72rem';
+      STEP_TYPES.forEach(t => {
+        const o = document.createElement('option');
+        o.value = t; o.textContent = t;
+        if (st.type === t) o.selected = true;
+        sel.appendChild(o);
+      });
+      sel.onchange = () => {
+        const fresh = { type: sel.value };
+        if (sel.value === 'wait') fresh.seconds = 2;
+        draft[i] = fresh;
+        renderSteps();
+      };
+      const fields = document.createElement('div');
+      fields.style.cssText = 'flex:1;display:flex;gap:5px;flex-wrap:wrap;align-items:center;font-size:.7rem;color:var(--t2,#8b949e)';
+      const num = (key, val, ph, min, max) => {
+        const inp = document.createElement('input');
+        inp.type = 'number';
+        inp.value = val;
+        if (min != null) inp.min = String(min);
+        if (max != null) inp.max = String(max);
+        inp.placeholder = ph;
+        inp.oninput = () => { const v = parseFloat(inp.value); if (!isNaN(v)) draft[i][key] = v; };
+        inp.style.cssText = 'width:64px;padding:3px 5px;background:var(--bg2,#161b22);border:1px solid var(--bd,#30363d);border-radius:4px;color:var(--t1,#e6edf3)';
+        return inp;
+      };
+      if (st.type === 'open_url') {
+        const url = document.createElement('input');
+        url.value = st.url || '';
+        url.placeholder = 'https://…';
+        url.oninput = () => { draft[i].url = url.value.trim(); };
+        url.style.cssText = 'flex:1;min-width:150px;padding:3px 5px;background:var(--bg2,#161b22);border:1px solid var(--bd,#30363d);border-radius:4px;color:var(--t1,#e6edf3)';
+        fields.appendChild(url);
+        fields.appendChild(num('post_wait_secs', st.post_wait_secs ?? 1.25, 'post wait'));
+      } else if (st.type === 'tap') {
+        fields.appendChild(num('x', st.x ?? 0, 'x', 0));
+        fields.appendChild(num('y', st.y ?? 0, 'y', 0));
+        fields.appendChild(num('retries', st.retries ?? 3, 'retries', 1, 8));
+      } else if (st.type === 'swipe') {
+        fields.appendChild(num('x1', st.x1 ?? 0, 'x1', 0));
+        fields.appendChild(num('y1', st.y1 ?? 0, 'y1', 0));
+        fields.appendChild(num('x2', st.x2 ?? 0, 'x2', 0));
+        fields.appendChild(num('y2', st.y2 ?? 0, 'y2', 0));
+        fields.appendChild(num('ms', st.ms ?? 400, 'ms', 1, 5000));
+      } else if (st.type === 'wait') {
+        fields.appendChild(num('seconds', st.seconds ?? 2, 'secs', 0, 300));
+      } else if (st.type === 'keyevent') {
+        const ksel = document.createElement('select');
+        ksel.style.cssText = 'padding:3px 5px;background:var(--bg2,#161b22);border:1px solid var(--bd,#30363d);border-radius:4px;color:var(--t1,#e6edf3)';
+        KEYEVENTS.forEach(([code, label]) => {
+          const o = document.createElement('option');
+          o.value = code; o.textContent = label;
+          if (String(st.keycode) === code) o.selected = true;
+          ksel.appendChild(o);
+        });
+        ksel.onchange = () => { draft[i].keycode = parseInt(ksel.value,10); };
+        fields.appendChild(ksel);
+      } else if (st.type === 'type_text') {
+        const txt = document.createElement('input');
+        txt.value = st.text || '';
+        txt.placeholder = 'text to type';
+        txt.oninput = () => { draft[i].text = txt.value; };
+        txt.style.cssText = 'flex:1;min-width:120px;padding:3px 5px;background:var(--bg2,#161b22);border:1px solid var(--bd,#30363d);border-radius:4px;color:var(--t1,#e6edf3)';
+        fields.appendChild(txt);
+      } else if (st.type === 'launch_app') {
+        const pkg = document.createElement('input');
+        pkg.value = st.package || '';
+        pkg.placeholder = 'com.example.app';
+        pkg.oninput = () => { draft[i].package = pkg.value.trim(); };
+        pkg.style.cssText = 'flex:1;min-width:120px;padding:3px 5px;background:var(--bg2,#161b22);border:1px solid var(--bd,#30363d);border-radius:4px;color:var(--t1,#e6edf3)';
+        fields.appendChild(pkg);
+      } else {
+        fields.appendChild(document.createTextNode('no parameters'));
+      }
+      const up = document.createElement('button');
+      up.textContent = '↑'; up.className = 'btn btn-sm';
+      up.disabled = i === 0;
+      up.onclick = () => { [draft[i-1], draft[i]] = [draft[i], draft[i-1]]; renderSteps(); };
+      const dn = document.createElement('button');
+      dn.textContent = '↓'; dn.className = 'btn btn-sm';
+      dn.disabled = i === draft.length - 1;
+      dn.onclick = () => { [draft[i+1], draft[i]] = [draft[i], draft[i+1]]; renderSteps(); };
+      const del = document.createElement('button');
+      del.textContent = '✕'; del.className = 'btn-r btn-sm';
+      del.onclick = () => { draft.splice(i,1); renderSteps(); };
+      row.appendChild(sel); row.appendChild(fields); row.appendChild(up); row.appendChild(dn); row.appendChild(del);
+      list.appendChild(row);
+    });
+  }
+
+  const addSel = document.createElement('select');
+  STEP_TYPES.forEach(t => {
+    const o = document.createElement('option');
+    o.value = t; o.textContent = '+ ' + t;
+    addSel.appendChild(o);
+  });
+  addSel.style.cssText = 'padding:5px 8px;background:var(--bg1,#0d1117);border:1px solid var(--bd,#30363d);border-radius:6px;color:var(--t1,#e6edf3)';
+  const addBtn = document.createElement('button');
+  addBtn.textContent = 'Add step';
+  addBtn.className = 'btn-b btn-sm';
+  addBtn.onclick = () => {
+    const t = addSel.value;
+    const fresh = { type: t };
+    if (t === 'open_url') fresh.url = 'https://';
+    if (t === 'wait') fresh.seconds = 2;
+    if (t === 'tap') { fresh.x = 450; fresh.y = 800; fresh.retries = 3; }
+    if (t === 'keyevent') fresh.keycode = 4;
+    draft.push(fresh);
+    renderSteps();
+  };
+  const addRow = document.createElement('div');
+  addRow.style.cssText = 'display:flex;gap:8px;align-items:center;margin-bottom:8px';
+  addRow.appendChild(addSel); addRow.appendChild(addBtn);
+  card.appendChild(addRow);
+
+  const okB = document.createElement('button');
+  okB.textContent = 'OK'; okB.className = 'btn-g btn-sm';
+  const cancelB = document.createElement('button');
+  cancelB.textContent = 'Cancel'; cancelB.className = 'btn btn-sm';
+  const fr = document.createElement('div');
+  fr.style.cssText = 'display:flex;gap:8px;justify-content:flex-end';
+  fr.appendChild(cancelB); fr.appendChild(okB);
+  card.appendChild(fr);
+  okB.onclick = () => { ent.steps = draft; m.remove(); };
+  cancelB.onclick = () => m.remove();
+  renderSteps();
+  document.body.appendChild(m);
+}
+
+async function openPlaylistEditor(serial, ent) {
+  const lib = await ensureSequences();
+  const draftA = (ent.sequence_playlist || []).slice();
+  const draftB = (ent.sequence_playlist_secondary || []).slice();
+  const mode0  = ent.sequence_playlist_mode || 'ordered';
+  const shuf0  = ent.sequence_playlist_shuffle || 'none';
+  const m = document.createElement('div');
+  const card = _styleModal(m);
+  m.addEventListener('click', e => _closeOnBackdrop(e, m));
+  const title = document.createElement('div');
+  title.style.cssText = 'font-size:1rem;font-weight:800;color:var(--t1,#e6edf3);margin-bottom:6px';
+  title.textContent = `Sequence Playlist — ${serial}`;
+  card.appendChild(title);
+  const hint = document.createElement('div');
+  hint.style.cssText = 'font-size:.7rem;color:var(--t2,#8b949e);margin-bottom:8px';
+  hint.textContent = 'Each iteration runs one sequence from the playlist (ordered / random / series). Playlist overrides inline steps when set.';
+  card.appendChild(hint);
+
+  const modeRow = document.createElement('div');
+  modeRow.style.cssText = 'display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:8px';
+  const modeSel = document.createElement('select');
+  [['ordered','ordered — one per iteration'],['random','random — one per iteration'],['series','series — concatenate all each iteration']].forEach(([v,l]) => {
+    const o = document.createElement('option'); o.value = v; o.textContent = l;
+    if (mode0 === v) o.selected = true;
+    modeSel.appendChild(o);
+  });
+  modeSel.style.cssText = 'padding:5px 8px;background:var(--bg1,#0d1117);border:1px solid var(--bd,#30363d);border-radius:6px;color:var(--t1,#e6edf3)';
+  const shufSel = document.createElement('select');
+  [['none','no shuffle'],['combined','shuffle combined'],['set_a','shuffle set A'],['set_b','shuffle set B'],['both_sets_separately','shuffle both sets']].forEach(([v,l]) => {
+    const o = document.createElement('option'); o.value = v; o.textContent = l;
+    if (shuf0 === v) o.selected = true;
+    shufSel.appendChild(o);
+  });
+  shufSel.style.cssText = 'padding:5px 8px;background:var(--bg1,#0d1117);border:1px solid var(--bd,#30363d);border-radius:6px;color:var(--t1,#e6edf3)';
+  modeRow.appendChild(modeSel); modeRow.appendChild(shufSel);
+  card.appendChild(modeRow);
+
+  const panes = document.createElement('div');
+  panes.style.cssText = 'display:flex;gap:10px;flex-wrap:wrap';
+  const profiles = [...new Set(lib.map(s => s.profile))].sort();
+  const profileSel = document.createElement('select');
+  profiles.forEach(pk => {
+    const o = document.createElement('option'); o.value = pk; o.textContent = pk;
+    profileSel.appendChild(o);
+  });
+  profileSel.style.cssText = 'padding:5px 8px;background:var(--bg1,#0d1117);border:1px solid var(--bd,#30363d);border-radius:6px;color:var(--t1,#e6edf3);margin-bottom:8px';
+  card.appendChild(profileSel);
+  card.appendChild(panes);
+
+  function mkPane(label, draftArr) {
+    const pane = document.createElement('div');
+    pane.style.cssText = 'flex:1;min-width:280px';
+    const head = document.createElement('div');
+    head.style.cssText = 'font-size:.78rem;font-weight:700;color:var(--t1,#e6edf3);margin-bottom:4px';
+    head.textContent = label;
+    pane.appendChild(head);
+    const avail = document.createElement('select');
+    avail.multiple = true; avail.size = 8;
+    avail.style.cssText = 'width:100%;padding:4px;background:var(--bg1,#0d1117);border:1px solid var(--bd,#30363d);border-radius:6px;color:var(--t1,#e6edf3);font-size:.7rem;margin-bottom:6px';
+    const chosen = document.createElement('div');
+    chosen.style.cssText = 'display:flex;flex-direction:column;gap:3px';
+    pane.appendChild(avail); pane.appendChild(chosen);
+    function fillAvail() {
+      avail.innerHTML = '';
+      const pk = profileSel.value;
+      const chosenSet = new Set(draftArr);
+      lib.filter(s => s.profile === pk && !chosenSet.has(s.ref)).forEach(s => {
+        const o = document.createElement('option');
+        o.value = s.ref;
+        o.textContent = `${s.folder ? s.folder + '/' : ''}${s.name} (${s.steps})`;
+        avail.appendChild(o);
+      });
+    }
+    function renderChosen() {
+      chosen.innerHTML = '';
+      draftArr.forEach((ref, i) => {
+        const row = document.createElement('div');
+        row.style.cssText = 'display:flex;align-items:center;gap:5px;background:var(--bg1,#0d1117);border:1px solid var(--bd,#30363d);border-radius:5px;padding:3px 6px;font-size:.7rem;color:var(--t1,#e6edf3)';
+        const nm = document.createElement('span');
+        nm.style.cssText = 'flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+        nm.textContent = ref;
+        nm.title = ref;
+        const up = document.createElement('button');
+        up.textContent = '↑'; up.className = 'btn btn-sm';
+        up.disabled = i === 0;
+        up.onclick = () => { [draftArr[i-1], draftArr[i]] = [draftArr[i], draftArr[i-1]]; renderChosen(); };
+        const rm = document.createElement('button');
+        rm.textContent = '✕'; rm.className = 'btn-r btn-sm';
+        rm.onclick = () => { draftArr.splice(i,1); renderChosen(); fillAvail(); };
+        row.appendChild(nm); row.appendChild(up); row.appendChild(rm);
+        chosen.appendChild(row);
+      });
+    }
+    avail.ondblclick = () => {
+      [...avail.selectedOptions].forEach(o => {
+        if (!draftArr.includes(o.value)) draftArr.push(o.value);
+      });
+      renderChosen(); fillAvail();
+    };
+    profileSel.addEventListener('change', fillAvail);
+    fillAvail(); renderChosen();
+    return pane;
+  }
+  panes.appendChild(mkPane('Set A (primary)', draftA));
+  panes.appendChild(mkPane('Set B (optional secondary)', draftB));
+
+  const okB = document.createElement('button');
+  okB.textContent = 'OK'; okB.className = 'btn-g btn-sm';
+  const clearB = document.createElement('button');
+  clearB.textContent = 'Clear playlist'; clearB.className = 'btn-r btn-sm';
+  const cancelB = document.createElement('button');
+  cancelB.textContent = 'Cancel'; cancelB.className = 'btn btn-sm';
+  const fr = document.createElement('div');
+  fr.style.cssText = 'display:flex;gap:8px;justify-content:flex-end;margin-top:10px';
+  fr.appendChild(cancelB); fr.appendChild(clearB); fr.appendChild(okB);
+  card.appendChild(fr);
+  okB.onclick = () => {
+    ent.sequence_playlist = draftA;
+    ent.sequence_playlist_secondary = draftB;
+    ent.sequence_playlist_mode = modeSel.value;
+    ent.sequence_playlist_shuffle = shufSel.value;
+    m.remove();
+  };
+  clearB.onclick = () => {
+    draftA.length = 0; draftB.length = 0;
+    ent.sequence_playlist = [];
+    ent.sequence_playlist_secondary = [];
+    m.remove();
+  };
+  cancelB.onclick = () => m.remove();
+  document.body.appendChild(m);
 }
 
 let _farmTimer = null;

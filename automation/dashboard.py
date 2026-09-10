@@ -42,6 +42,8 @@ def _force_utf8_stdio() -> None:
 
 _force_utf8_stdio()
 
+import automation.no_window  # noqa: E402,F401  — CREATE_NO_WINDOW for adb/tor children
+
 import datetime
 from datetime import timezone
 import asyncio
@@ -123,6 +125,7 @@ from sequence_playlist import (
     resolve_step_chunks,
     resolve_steps,
 )
+from wizard.wizard_paths import sequences_dir as _sequences_dir
 
 logging.basicConfig(level=logging.INFO, format="  %(message)s")
 log = logging.getLogger("cpharm")
@@ -2707,6 +2710,9 @@ async def handle_http(reader: asyncio.StreamReader, writer: asyncio.StreamWriter
             pass
 
 
+_SEQ_LIST_CACHE: tuple = ()
+
+
 async def handle_get(path: str) -> bytes:
     static = {
         "/":              lambda: html_resp(_load_html()),
@@ -2775,9 +2781,66 @@ async def handle_get(path: str) -> bytes:
             try:
                 cfg = json.loads(GROUPS_CFG.read_text())
             except (json.JSONDecodeError, OSError):
-                return json_err("corrupt groups_config.json")
+                # Self-heal: never leave the operator locked out of group editing.
+                # Quarantine the corrupt file, save the good data that came with the
+                # request (or an empty config), and continue instead of erroring.
+                try:
+                    stamp = time.strftime("%Y%m%d_%H%M%S")
+                    (REC_DIR / f"groups_config.corrupt_{stamp}.json").write_text(
+                        GROUPS_CFG.read_text(errors="replace"), encoding="utf-8"
+                    )
+                except OSError:
+                    pass
+                salvage: list = []  # GET has no body; POST /api/groups/load salvages from body
+                try:
+                    REC_DIR.mkdir(parents=True, exist_ok=True)
+                    GROUPS_CFG.write_text(
+                        json.dumps({"groups": _normalize_groups_payload(salvage)}, indent=2),
+                        encoding="utf-8",
+                    )
+                except OSError:
+                    return json_err("groups_config.json corrupt and could not be repaired")
+                log.warning("groups_config.json was corrupt — quarantined and rebuilt")
+                return json_ok({"groups": salvage})
             return json_ok(cfg)
-        return json_err("no groups_config.json found — run PharmFlow first")
+        return json_err("no groups_config.json found — create a group below")
+    if path == "/api/sequences/list":
+        # Sequence library for playlist pickers: every *.json under the sequences
+        # tree keyed by profile (base resolution, e.g. 900x1600) and flow folder
+        # (ad, site, ...). Refs are sequences-root-relative so they survive
+        # normalize_playlist_ref / resolve_sequence_file round-trips. Uses the
+        # same sequences_dir() source as resolve_sequence_file — never a drift.
+        SEQ_ROOT = _sequences_dir()
+        global _SEQ_LIST_CACHE
+        now_s = time.time()
+        if _SEQ_LIST_CACHE and now_s - _SEQ_LIST_CACHE[0] < 60:
+            return json_ok(_SEQ_LIST_CACHE[1])
+        if not SEQ_ROOT.is_dir():
+            return json_ok({"ok": True, "sequences": [], "root": str(SEQ_ROOT)})
+        out: list[dict] = []
+        try:
+            # Names/paths only — no per-file reads (the real tree has thousands
+            # of sequences; opening each one made this endpoint time out).
+            for p in sorted(SEQ_ROOT.rglob("*.json")):
+                if p.name.startswith("_"):
+                    continue
+                rel = p.relative_to(SEQ_ROOT)
+                parts = rel.parts
+                if len(parts) < 2:
+                    continue
+                out.append(
+                    {
+                        "ref": rel.as_posix(),
+                        "name": p.stem,
+                        "profile": parts[0],
+                        "folder": parts[1] if len(parts) >= 3 else "",
+                    }
+                )
+        except OSError as e:
+            return json_err(f"scan failed: {e}")
+        payload = {"ok": True, "sequences": out, "root": str(SEQ_ROOT)}
+        _SEQ_LIST_CACHE = (now_s, payload)
+        return json_ok(payload)
     if path == "/api/groups/adb_errors":
         with _group_adb_errors_lock:
             snap = list(_group_adb_errors)
@@ -3864,6 +3927,30 @@ async def handle_post(path: str, body: bytes) -> bytes:
                     steps = (phone_map.get(serial) or {}).get("steps", []) if isinstance(phone_map.get(serial), dict) else []
                     return json_ok({"serial": serial, "steps": steps})
         return json_err("group not found")
+
+    # ── Delete a saved group (per-operator delete from the dashboard UI) ──
+    if path == "/api/groups/delete":
+        name = str(data.get("name") or "").strip()
+        if not name:
+            return json_err("missing group name")
+        if not GROUPS_CFG.exists():
+            return json_err("no groups_config.json found")
+        try:
+            cfg = json.loads(GROUPS_CFG.read_text())
+        except (json.JSONDecodeError, OSError):
+            return json_err("corrupt groups_config.json")
+        groups = cfg.get("groups") if isinstance(cfg, dict) else None
+        if not isinstance(groups, list):
+            return json_err("groups_config.json has no groups list")
+        before = len(groups)
+        groups = [g for g in groups if not (isinstance(g, dict) and str(g.get("name") or "").strip() == name)]
+        if len(groups) == before:
+            return json_err(f"group not found: {name}")
+        try:
+            GROUPS_CFG.write_text(json.dumps({"groups": groups}, indent=2), encoding="utf-8")
+        except OSError:
+            return json_err("could not write groups_config.json")
+        return json_ok({"ok": True, "deleted": name, "groups": len(groups)})
 
     # ── Save full groups config (dashboard / wizard parity with recordings/groups_config.json) ──
     if path == "/api/docker/action":

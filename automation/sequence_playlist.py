@@ -14,6 +14,20 @@ from wizard.wizard_paths import sequences_dir
 
 log = logging.getLogger(__name__)
 
+# Sequences root used by normalize_playlist_ref / resolve_sequence_file /
+# folder_json_refs when no explicit directory is passed. This was previously
+# referenced but never defined — any caller without an explicit directory
+# (e.g. the dashboard's /api/groups/save normalizing playlist refs) crashed
+# with NameError. Same source as load_steps_from_filename's default.
+def _resolve_sequences_dir() -> Path:
+    try:
+        return sequences_dir()
+    except Exception:  # noqa: BLE001 — frozen-app path failures must not kill imports
+        return Path.cwd() / "automation" / "recordings" / "sequences"
+
+
+SEQUENCES_DIR = _resolve_sequences_dir()
+
 SHUFFLE_MODES = frozenset({"none", "set_a", "set_b", "both_sets_separately", "combined"})
 
 

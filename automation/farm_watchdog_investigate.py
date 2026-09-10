@@ -22,6 +22,11 @@ if str(ROOT) not in sys.path:
 
 ADB = Path(r"C:\CPharm\bundled\adb.exe")
 
+# Groups state the dashboard editor serves from. Corruption here used to hard-lock
+# the operator out of group editing until manual intervention — the watchdog now
+# repairs it automatically (quarantine + rebuild), same policy as the /api/load fix.
+_GROUPS_CFG = ROOT / "automation" / "recordings" / "groups_config.json"
+
 
 def _helper_py() -> str:
     """Deps-complete interpreter for fix scripts (cryptography required).
@@ -404,6 +409,30 @@ def _restore_sticky_7() -> list[str]:
     return fixes
 
 
+def _repair_groups_config() -> list[str]:
+    """Quarantine + rebuild groups_config.json when it is unreadable or unparseable."""
+    fixes: list[str] = []
+    try:
+        if not _GROUPS_CFG.is_file():
+            return fixes
+        cfg = json.loads(_GROUPS_CFG.read_text(encoding="utf-8"))
+        if not isinstance(cfg, dict) or not isinstance(cfg.get("groups"), list):
+            raise ValueError("groups key missing or not a list")
+        return fixes  # healthy — nothing to do
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        try:
+            stamp = time.strftime("%Y%m%d_%H%M%S")
+            quarantine = _GROUPS_CFG.with_name(f"groups_config.corrupt_{stamp}.json")
+            quarantine.write_text(
+                _GROUPS_CFG.read_text(errors="replace"), encoding="utf-8"
+            )
+            _GROUPS_CFG.write_text('{"groups": []}\n', encoding="utf-8")
+            fixes.append(f"repaired_groups_config (was: {type(exc).__name__})")
+        except OSError as exc2:
+            fixes.append(f"repair_groups_config_fail:{exc2}")
+    return fixes
+
+
 def _clear_stale_progress_locks() -> list[str]:
     fixes: list[str] = []
     p = LOG / "farm_354_progress.json"
@@ -463,6 +492,13 @@ def apply_fixes(problems: list[dict[str, str]], ev: dict[str, Any], *, apply: bo
 
     if "farm_stuck_boot" in ids and ev.get("stale_active_locks"):
         fixes.extend(_clear_stale_progress_locks())
+
+    # Groups config health runs every cycle regardless of other problems — a
+    # corrupt file blocks group editing silently while the farm itself runs fine.
+    try:
+        fixes.extend(_repair_groups_config())
+    except Exception as exc:  # noqa: BLE001 — watchdog must never crash on repair
+        fixes.append(f"groups_repair_err:{exc}")
 
     try:
         from automation.farm_money_monitor import cull_hung_adb, evaluate
