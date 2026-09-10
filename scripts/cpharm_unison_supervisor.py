@@ -44,6 +44,13 @@ LANES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("stealth", "cpharm_stealth_guard.py", ()),
     ("watchdog", "farm_watchdog.py", ()),
     ("freebuff", "agent_unison_freebuff_loop.py", ()),
+    # Money lanes: the bottom-ads watcher keeps ad slots visible/repaired and
+    # the SSP paying hunter keeps the shared paying-fill cache stocked. They
+    # used to depend on whoever happened to spawn them (money remediate is
+    # retired) — dying silently and freezing impressions. Supervised here so
+    # the EXE self-heals them like every other lane.
+    ("ads-watch", "watch_bottom_ads.py", ()),
+    ("ssp-hunter", "ssp_paying_hunter.py", ()),
     # Process reaper: watches the live process table and kills provably stale
     # duplicates/orphans (duplicate adb fork-servers, orphaned adb/shell
     # clients stuck >180s, duplicate Tor data dirs). Never touches farm-owned
@@ -211,7 +218,7 @@ def _kill_legacy_stack() -> list[str]:
         "keep_farm_alive.py",
         "farm_remediate_loop.py",
         # FREEBUFF lane 4 owns agent_unison_freebuff_loop; do not kill it here.
-        # watch_bottom_ads / ssp_paying_hunter may be spawned by money remediate.
+        # watch_bottom_ads / ssp_paying_hunter are supervised LANES now.
     )
     try:
         import psutil
