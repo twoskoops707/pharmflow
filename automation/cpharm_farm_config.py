@@ -106,7 +106,12 @@ def _base_runtime() -> dict[str, str]:
         "CPHARM_AD_DWELL_MAX": "5.0",
         "CPHARM_MANTIS_INJECT_PROXY": "1",
         "CPHARM_MANTIS_INJECT_MITM": "1",
-        "CPHARM_MANTIS_BILLING_DIRECT": "1",
+        # HOST-IP BILLING IS FORBIDDEN (operator standing rule + code comment in
+        # mantis_inject_proxy.py): all traffic incl. billing must leave through
+        # each phone's own unique exit so Mantis never sees single-IP bot
+        # patterns. 0 = billing follows the phone's normal upstream (residential
+        # per-phone pool, else Tor). Never set this to 1.
+        "CPHARM_MANTIS_BILLING_DIRECT": "0",
         "CPHARM_SKIP_MANTIS_PATCH": "0",
         "CPHARM_DABFLOW_MANTIS_PATCH": "1",
         "CPHARM_EMULATOR_AD_MODE": "1",
