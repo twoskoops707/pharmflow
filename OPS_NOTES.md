@@ -51,6 +51,7 @@ _Updated: 2026-09-09 ~17:30. Read this before touching anything. Update it whene
 - Scaling lever: 7 phones ~1.65GB free RAM; each MuMu VM ≈ 0.6-0.8GB. More phones require more RAM — do NOT boot extra VMs when free <2GB (twice tonight the box thrash-crashed under this).
 
 ## Operator decisions (2026-09-10)
+- **TOP RULE: the EXE self-heals — no external band-aids.** Every fix must live in code the EXE owns (wizard bridge, supervisor, lanes, deck API) so it detects issues and repairs itself at runtime: lane supervision, boot reconnect, rewire ghost-skip, watchdog guards, flag consumers. A fix that needs me (or any script) to run again is not done.
 - **Agent lane (freebuff) stays and gets used MORE**: deterministic rails handle known failures; the agent lane handles novel anomalies (money flat while painting, adoption shrink, transport loss) with a bounded action set (repin inject, restart lane, refresh sticky maps, clear flags) + decision log. Hard rules for the agent: never flatten budgets to equal, never kill healthy VMs, never disable unique-seq/isolation.
 - **NEXT BUILD (back-burner until money + lag work is situated)**: port the old app's Groups + sequence builder + sequence playlists into the new deck (old contract: `state["groups"]` = list of group dicts, per-phone steps at `group["phones"][serial]["steps"]`, `stagger_secs`, `repeat`/`repeat_forever`, `PerPhoneSequenceEditor`). Source of truth: C:\CPharm\CLAUDE.md wizard schema.
 
