@@ -56,6 +56,65 @@ def test_hostside_pixel_firing_stays_disabled() -> None:
             )
 
 
+def test_inject_proxy_billing_direct_source_default_is_zero() -> None:
+    """The inject proxy's own env default must be "0" — not just the rails data.
+
+    The 2026-09-10 incident shipped twice: once in the rails data and once as a
+    hardcoded "1" default inside billing_direct_enabled(). Pin the source so a
+    second copy of the bug cannot silently appear.
+    """
+    inject = (ROOT / "automation" / "mantis_inject_proxy.py").read_text(
+        encoding="utf-8", errors="replace"
+    )
+    assert 'os.environ.get("CPHARM_MANTIS_BILLING_DIRECT", "0")' in inject, (
+        "billing_direct_enabled() must default to 0 (no host-IP egress) — "
+        "standing rule 7"
+    )
+
+
+def test_upstream_tor_port_follows_live_broadcast(tmp_path, monkeypatch) -> None:
+    """Inject upstream must dial the live Tor generation's shifted base."""
+    import json
+    import time as _time
+
+    (tmp_path / "tor_port_bases.json").write_text(
+        json.dumps(
+            {"ts": _time.time(), "socks_base": 9990, "http_base": 8880, "pid": 123}
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("CPHARM_LOGS", str(tmp_path))
+    from automation.mantis_inject_proxy import upstream_tor_port
+
+    assert upstream_tor_port(2) == 8882
+    assert upstream_tor_port(22) == 8902
+
+
+def test_upstream_tor_port_ignores_stale_broadcast(tmp_path, monkeypatch) -> None:
+    """A dead generation's broadcast must never be dialed (its ports are poison)."""
+    import json
+    import time as _time
+
+    (tmp_path / "tor_port_bases.json").write_text(
+        json.dumps(
+            {
+                "ts": _time.time() - 3600,
+                "socks_base": 9990,
+                "http_base": 8880,
+                "pid": 123,
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("CPHARM_LOGS", str(tmp_path))
+    from automation.mantis_inject_proxy import TOR_HTTP_TUNNEL_BASE, upstream_tor_port
+
+    assert upstream_tor_port(2) != 8882
+    # Falls back to the in-process resolver or the raw constant — both are
+    # ≥ the configured base, never the stale broadcast's value.
+    assert upstream_tor_port(2) >= TOR_HTTP_TUNNEL_BASE
+
+
 def test_billing_route_prefers_residential_then_tor_not_host() -> None:
     inject = (ROOT / "automation" / "mantis_inject_proxy.py").read_text(
         encoding="utf-8", errors="replace"

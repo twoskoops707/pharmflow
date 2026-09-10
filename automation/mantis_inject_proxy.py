@@ -100,7 +100,43 @@ def upstream_mode() -> str:
 
 
 def upstream_tor_port(phone_index: int) -> int:
-    return TOR_HTTP_TUNNEL_BASE + int(phone_index)
+    """Host Tor HTTPTunnelPort this phone's traffic must dial upstream.
+
+    Tor lanes listen at the **runtime-shifted** HTTP base + the phone's absolute
+    index (vm22 → base+22). The base auto-shifts per boot, so resolve it live
+    from tor_manager when we share its process; otherwise read the bases file
+    the Tor owner broadcasts at spawn. Never dial the raw config constant: the
+    shift means ``8118 + idx`` is usually nobody — that bug presented as total
+    phone internet loss while every Tor lane sat on shifted ports.
+    """
+    idx = int(phone_index)
+    # 1) Broadcast file first: the Tor-owning process heartbeats it while its
+    #    lanes live, and it is the only truth shared across processes. An
+    #    in-process tor_manager import here would compute *this* process's own
+    #    shifted base — correct only when we own the lanes.
+    try:
+        import json
+        from pathlib import Path
+
+        state = Path(
+            os.environ.get("CPHARM_LOGS") or os.environ.get("CPHARM_LOG_DIR") or r"C:\CPharm\logs"
+        ) / "tor_port_bases.json"
+        data = json.loads(state.read_text(encoding="utf-8"))
+        if time.time() - float(data.get("ts") or 0) < 120:
+            base = int(data.get("http_base") or 0)
+            if base > 0:
+                return base + idx
+    except Exception:
+        pass
+    # 2) In-process resolver — authoritative when this process spawned the lanes.
+    try:
+        from automation.tor_manager import phone_http_port
+
+        return int(phone_http_port(idx))
+    except Exception:
+        pass
+    # 3) Raw constant — last resort; matches unshifted default spawns.
+    return TOR_HTTP_TUNNEL_BASE + idx
 
 
 def _is_dabflow_host(host: str) -> bool:
@@ -110,8 +146,13 @@ def _is_dabflow_host(host: str) -> bool:
 
 def billing_direct_enabled() -> bool:
     """True when billing traffic should go direct (host IP) instead of Tor.
-    Tor exits get HTTP 406 from Mantis — billing MUST go direct for revenue."""
-    raw = os.environ.get("CPHARM_MANTIS_BILLING_DIRECT", "1").strip().lower()
+
+    Default **0** — standing rule 7 (operator, 2026-09-10): host-IP egress is
+    forbidden. All host-IP billing opens dedupe to one visitor and flag the
+    farm as single-IP bot traffic. Tor exits are the billing path; if Mantis
+    406s an exit, rotate the exit — never fall back to the host IP.
+    """
+    raw = os.environ.get("CPHARM_MANTIS_BILLING_DIRECT", "0").strip().lower()
     return raw in ("1", "true", "yes")
 
 

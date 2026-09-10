@@ -1208,15 +1208,124 @@ def _free_port_base(base: int, span: int, step: int = 10) -> int:
 # mantis injectors, etc.) that has already claimed part of that window.
 _CONFIGURED_SOCKS = _port_base_env("CPHARM_TOR_SOCKS_BASE", 9050)
 _CONFIGURED_HTTP = _port_base_env("CPHARM_TOR_HTTP_BASE", 8118)
-BASE_PORT = _free_port_base(_CONFIGURED_SOCKS, 8)
+
+
+def _read_broadcast_bases() -> tuple[int, int] | None:
+    """Port bases broadcast by the process that owns the live Tor generation.
+
+    The owning process heartbeats the file every 60s while its lanes live, so a
+    fresh file (<120s) proves both the writer and its generation are alive. A
+    stale file is ignored — that generation is dead and its bases are poison.
+    """
+    try:
+        import json
+        from pathlib import Path
+
+        state = Path(
+            os.environ.get("CPHARM_LOGS") or os.environ.get("CPHARM_LOG_DIR") or r"C:\CPharm\logs"
+        ) / "tor_port_bases.json"
+        data = json.loads(state.read_text(encoding="utf-8"))
+        age = time.time() - float(data.get("ts") or 0)
+        socks_b = int(data.get("socks_base") or 0)
+        http_b = int(data.get("http_base") or 0)
+        if age < 120 and socks_b > 0 and http_b > 0:
+            return socks_b, http_b
+    except Exception:
+        pass
+    return None
+
+
+def _free_base_or_adopt(configured: int, span: int, fallback_broadcast: int | None) -> int:
+    """Adopt the live generation's base when fresh; otherwise shift to a free one.
+
+    A fresh broadcast means lanes are listening on those bases *right now* —
+    adopting keeps every process in the same generation. Re-shifting on every
+    import is what made connectivity nondeterministic across restarts.
+    """
+    if fallback_broadcast and fallback_broadcast > 0:
+        return fallback_broadcast
+    return _free_port_base(configured, span)
+
+
+_BROADCAST = _read_broadcast_bases()
+BASE_PORT = _free_base_or_adopt(
+    _CONFIGURED_SOCKS, 8, _BROADCAST[0] if _BROADCAST else None
+)
 # Per-phone HTTP proxy ports (Tor HTTPTunnelPort). Android ``global http_proxy`` expects
 # HTTP CONNECT — **not** SOCKS. Open alongside SocksPort in :func:`start_tor_for_phone`.
-HTTP_TUNNEL_BASE = _free_port_base(_CONFIGURED_HTTP, 8)
+HTTP_TUNNEL_BASE = _free_base_or_adopt(
+    _CONFIGURED_HTTP, 8, _BROADCAST[1] if _BROADCAST else None
+)
 if BASE_PORT != _CONFIGURED_SOCKS or HTTP_TUNNEL_BASE != _CONFIGURED_HTTP:
     logger.info(
         "Tor port bases auto-shifted to avoid other listeners: socks %s->%s http %s->%s",
         _CONFIGURED_SOCKS, BASE_PORT, _CONFIGURED_HTTP, HTTP_TUNNEL_BASE,
     )
+
+
+def _broadcast_port_bases() -> None:
+    """Publish the actual SOCKS/HTTP port bases to disk for *other* processes.
+
+    The inject proxies (farm lane / run_mantis_inject_proxies) dial Tor on these
+    bases but run in a different process than whoever spawned the Tor lanes, so
+    they cannot see this module's runtime auto-shift. Without this broadcast,
+    inject computes ``8118 + idx`` while Tor listens on the shifted base
+    (e.g. ``8138 + idx``) — every upstream connect is refused, which presents on
+    the phones as total loss of internet.
+    """
+    try:
+        import json
+        from pathlib import Path
+
+        state_dir = Path(
+            os.environ.get("CPHARM_LOGS") or os.environ.get("CPHARM_LOG_DIR") or r"C:\CPharm\logs"
+        )
+        state_dir.mkdir(parents=True, exist_ok=True)
+        (state_dir / "tor_port_bases.json").write_text(
+            json.dumps(
+                {
+                    "ts": time.time(),
+                    "socks_base": int(BASE_PORT),
+                    "http_base": int(HTTP_TUNNEL_BASE),
+                    "pid": os.getpid(),
+                }
+            ),
+            encoding="utf-8",
+        )
+    except Exception as exc:  # noqa: BLE001 — broadcast is best-effort
+        logger.debug("tor port-base broadcast failed: %s", exc)
+
+
+def _ensure_bases_heartbeat() -> None:
+    """Start (once per process) the 60s heartbeat that keeps the bases file fresh.
+
+    The freshness window in :func:`_read_broadcast_bases` doubles as a liveness
+    proof for the owning generation — so the heartbeat must run while lanes are
+    alive. When every lane in this process is gone, the heartbeat exits so a
+    stale file can never keep masking a dead generation.
+    """
+    global _BASES_HEARTBEAT
+    if _BASES_HEARTBEAT is not None and _BASES_HEARTBEAT.is_alive():
+        return
+
+    import threading
+
+    def _loop() -> None:
+        while True:
+            if _tor_procs and all(p.poll() is not None for p in _tor_procs.values()):
+                return  # generation dead — stop refreshing so consumers re-shift
+            _broadcast_port_bases()
+            time.sleep(60.0)
+
+    _BASES_HEARTBEAT = threading.Thread(
+        target=_loop, name="tor-bases-heartbeat", daemon=True
+    )
+    _BASES_HEARTBEAT.start()
+
+
+_BASES_HEARTBEAT: threading.Thread | None = None
+
+
 # On the emulator/phone, ``global http_proxy`` uses ``127.0.0.1:<port>`` with
 # ``adb reverse tcp:<device_port> tcp:<host_tor_tunnel>``.
 # **Per ``phone_idx``** we use the same port number on device and host (``8118 + idx``) with
@@ -2327,6 +2436,8 @@ def _start_tor_for_phone_locked(phone_idx: int) -> int:
         creationflags=flags,
     )
     _tor_procs[phone_idx] = proc
+    _broadcast_port_bases()
+    _ensure_bases_heartbeat()
     return socks_port
 
 

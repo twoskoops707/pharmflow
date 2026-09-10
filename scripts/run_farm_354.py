@@ -3207,12 +3207,19 @@ def main() -> int:
     )
 
     online: list[tuple[str, int]] = []
-    for idx, name in enumerate(phones):
+    for roster_i, name in enumerate(phones):
         inst = farm.get_phone(name)
         st = farm.get_phone_status(name) if inst else {}
         if inst and st.get("connected"):
+            # Absolute phone number (vm22 → 22), NOT roster position: Tor lanes,
+            # inject proxies and guest proxy pins are all keyed by the absolute
+            # index. Roster enumerate() here fed exit_ip_guard roster idx 0..6,
+            # so it probed ports belonging to nobody — "fetch_exit_ip failed
+            # phone=0 ... 8138 refused" while every lane actually listened.
+            stem = name.split(".", 1)[0]
+            idx = int(stem[2:]) if stem.startswith("vm") and stem[2:].isdigit() else roster_i
             online.append((name, idx))
-            logger.info("ONLINE %s serial=%s", name, inst.adb_serial)
+            logger.info("ONLINE %s serial=%s idx=%d", name, inst.adb_serial, idx)
         else:
             logger.error("OFFLINE %s - skipping (should not happen after discover)", name)
 
