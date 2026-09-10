@@ -370,6 +370,16 @@ def probe_phone(serial: str, port: int, name: str, *, farm_active: bool = False)
     fg = _fg_pkg(serial)
     px = _proxy(serial)
     want = f"127.0.0.1:{port}"
+    # True Chromium only — Brave/Opera also expose *.chrome.Main in dumpsys.
+    # The farm browser (com.farmbrowser.stealth.*) is Chromium-based and is
+    # the app the fleet actually runs in — counting it too; a false zero here
+    # starves the watcher/watchdog of real browser state.
+    _fg = (fg or "").lower()
+    _chromium_fg = (
+        "org.chromium.chrome" in _fg
+        or "com.android.chrome" in _fg
+        or "farmbrowser" in _fg
+    ) and ("brave" not in _fg)
     row: dict = {
         "name": name,
         "serial": serial,
@@ -377,12 +387,7 @@ def probe_phone(serial: str, port: int, name: str, *, farm_active: bool = False)
         "proxy": px,
         "proxy_ok": px == want,
         "fg": fg,
-        # True Chromium only — Brave/Opera also expose *.chrome.Main in dumpsys.
-        "chromium_fg": (
-            "org.chromium.chrome" in fg.lower() or "com.android.chrome" in fg.lower()
-        )
-        and ("brave" not in fg.lower())
-        and ("opera" not in fg.lower()),
+        "chromium_fg": _chromium_fg,
         "adsbymantis": 0,
         "cpharm": 0,
         "fat_bounds": None,

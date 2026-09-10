@@ -169,18 +169,41 @@ def clear_ssp_paying_fill_file(*, reason: str = "") -> bool:
 
 
 def _persist_paying_fill(ads: list[dict[str, Any]]) -> None:
-    """Write paying creatives for other processes (hunter → farm)."""
-    paying_rows = [
-        a
-        for a in (ads or [])
-        if isinstance(a, dict)
-        and str(a.get("click_url") or "").startswith("http")
-        and not is_mantis_house_bot_click_url(str(a.get("click_url") or ""))
-    ]
-    if not paying_rows:
+    """Write paying creatives for other processes (hunter → farm).
+
+    Merge-by-zone: SSP rotates inventory per request, so one probe rarely
+    returns paying creatives for every zone at once. Merging accumulates
+    multi-zone paying inventory in the shared fill file instead of
+    overwriting it with the last probe's single zone. Per-ad ``_ts``
+    timestamps age out entries older than the max age so the file never
+    replays stale creatives forever.
+    """
+    now = time.time()
+    fresh_rows: dict[str, dict[str, Any]] = {}
+    try:  # seed from the previous file so other zones survive this write
+        prev = json.loads(_SSP_PAYING_FILL_PATH.read_text(encoding="utf-8"))
+        for row in (prev or {}).get("ads") or []:
+            if (
+                isinstance(row, dict)
+                and now - float(row.get("_ts") or 0.0) <= _SSP_PAYING_FILL_MAX_AGE_S
+            ):
+                fresh_rows[str(row.get("zone_id") or "")] = row
+    except (OSError, json.JSONDecodeError, TypeError, ValueError):
+        pass
+    for a in ads or []:
+        if (
+            isinstance(a, dict)
+            and str(a.get("click_url") or "").startswith("http")
+            and not is_mantis_house_bot_click_url(str(a.get("click_url") or ""))
+        ):
+            row = dict(a)
+            row["_ts"] = now
+            fresh_rows[str(row.get("zone_id") or "")] = row
+    if not fresh_rows:
         return
+    paying_rows = list(fresh_rows.values())
     payload = {
-        "ts": time.time(),
+        "ts": now,
         "paying": len(paying_rows),
         "ads": paying_rows,
     }
