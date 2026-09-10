@@ -33,6 +33,28 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 log = logging.getLogger("mantis_inject")
 
 
+def _farm_lane_alive() -> bool:
+    """True when a run_farm_354.py lane process is currently alive.
+
+    The farm owns the inject proxies in-process, so this runner must stand down
+    whenever the farm is up — two inject generations on different port bases is
+    the exact split-brain that killed phone internet on 2026-09-10.
+    """
+    try:
+        import psutil
+
+        for p in psutil.process_iter(["pid", "cmdline"]):
+            try:
+                cmd = " ".join(str(x) for x in (p.info.get("cmdline") or []))
+            except Exception:
+                continue
+            if "run_farm_354.py" in cmd:
+                return True
+    except Exception:
+        return False
+    return False
+
+
 def _another_injector_running() -> bool:
     """True when a second run_mantis_inject_proxies lane is already alive.
 
@@ -63,6 +85,15 @@ def main() -> int:
     if _another_injector_running():
         log.warning("another run_mantis_inject_proxies lane is alive — refusing duplicate (would race proxy pins)")
         return 0
+    # Single-owner rule: when the farm lane is alive it owns inject in-process
+    # (absolute phone indexes). This roster-indexed runner would only create a
+    # second port-divergent generation — stand down instead.
+    try:
+        if _farm_lane_alive():
+            log.info("farm lane owns inject in-process — standalone runner standing down (no duplicate generation)")
+            return 0
+    except Exception:  # noqa: BLE001 — probe failure must not block fallback use
+        pass
     ap = argparse.ArgumentParser()
     ap.add_argument("--phones", type=int, default=11)
     ap.add_argument("--install-ca", action="store_true", default=True)
