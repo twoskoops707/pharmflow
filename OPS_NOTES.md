@@ -43,8 +43,15 @@ _Updated: 2026-09-09 ~17:30. Read this before touching anything. Update it whene
 - Money truth: `farm_money_history.jsonl` + `FARM_MONEY_HEALTH.json` (impressions>0, payout>0 = earning). 2026-09-09 17:14: first post-outage dollars ($0.02, 16 impr, eCPM 1.0).
 - Stack: lane(1) + keeper(0–1) + tors(7–13) + dash 8080 (CPHARM_BIND=0.0.0.0) + hunter. EXE build 66+ running from CI release.
 
+## Money-freeze root causes (2026-09-09, fixed in ff981da)
+- **Impressions froze at 267 while pages painted fine.** Chain verified healthy (Tor 8140-8146, inject 8240-8246, CA installed, sequences cycling, Mantis JS injected) — the wedge was **fill supply, not painting**: SSP rotates paying inventory per probe, and `_persist_paying_fill` **overwrote** the shared fill file each round with the last probe's single zone while the hunter locked on the first paying creative and slept 45s. 14 of 15 zones got nothing → `Wait for ad fill` → fallback taps → no impression beacons. Fill now **merges by zone** with per-ad `_ts` decay (120s) so inventory accumulates across probes instead of evaporating.
+- **Watcher/watchdog blind: `chromium_fg` counted only org.chromium/com.android chrome.** The fleet browser is `com.farmbrowser.stealth.debug` (Chromium-based) → probe returned 0 forever while every phone sat in the browser; the watchdog had earlier used this garbage to kill the ads watcher. Fixed to count farmbrowser too. Verified after fix: chromium_fg=7/7, bottom_ads_visible=true.
+- Live-probe caveat: host-side SSP probes from a shell often see house-only while the hunter's Tor-exit probes see paying — judge fills by `ssp_paying_fill.json` + the money counter, not by one manual probe.
+- Scaling lever: 7 phones ~1.65GB free RAM; each MuMu VM ≈ 0.6-0.8GB. More phones require more RAM — do NOT boot extra VMs when free <2GB (twice tonight the box thrash-crashed under this).
+
 ## In-flight / pending
 - [x] b7021c8 pushed (adb v37 unify + keeper spawn fix + ghost-poison fixes); CI building new EXE/APK — download from Release, swap, verify.
+- [x] ff981da pushed (money-freeze fixes); CI building — download new EXE from Release when green, swap (backup first), verify.
 - [ ] THIS TURN: boot-path ADB reconnect fix → tests → commit → CI build → download EXE → swap `C:\PharmFlow\PharmFlow.exe` (backup first) → relaunch → verify deck + farm.
 - [ ] Standing gap: watchdog reaper doesn't reap tor-by-parent-death (by design — farm adopts via ControlPort). Manual cleanup used: kill tor.exe whose parent PID is dead AND cmdline temp-cfg matches `automation\tor\tmp*.cfg`.
 - [ ] GitHub artifact quota hit on big builds; Release assets unaffected (that's how we ship).
