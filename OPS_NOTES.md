@@ -9,6 +9,7 @@ _Updated: 2026-09-09 ~17:30. Read this before touching anything. Update it whene
 4. **EXE must kill dead/unneeded processes itself** (orphaned tor, wedged adb) and **reconnect all phones on ADB** (boot + running-but-offline).
 5. Commit + push only when asked or when it's part of the delivery loop (CI build), per conversation precedent.
 6. Machine: **16 GB RAM, x64**. Farm = 7 MuMu ARM VMs + 3 pythonw lanes + EXE + WebView2. RAM is the #1 kill risk.
+7. **NO HOST-IP EGRESS for farm traffic — EVER.** Impressions AND billing clicks must leave through each phone's own unique exit (residential pool entry or Tor). Mantis flags single-IP traffic as bot and dedupes host-IP clicks. `CPHARM_MANTIS_BILLING_DIRECT` stays `0` — enforced by `tests/test_host_ip_guardrails.py` (9f8eee3). The old FARM_OPERATIONS_MANUAL's "billing_direct=True" section is WRONG and superseded by this rule; the inject proxy's own DISABLED-pixels comment is the authority.
 
 ## Environment map (verified 2026-09-09)
 - Repo: `C:\Users\jsmil\pharmflow` (origin: twoskoops707/pharmflow). Tests: `python -m pytest tests` in the **Python 3.14 ARM64** interpreter (244 tests).
