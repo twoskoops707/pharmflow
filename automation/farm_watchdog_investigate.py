@@ -169,6 +169,13 @@ def gather_evidence() -> dict[str, Any]:
     """Collect only measurable facts from disk/processes — never infer health."""
     mantis = _read_json(LOG / "mantis_today_state.json")
     money_health = _read_json(LOG / "FARM_MONEY_HEALTH.json")
+    try:
+        _mh_parsed = datetime.fromisoformat(str(money_health.get("ts") or ""))
+        money_health_age_s: float | None = max(
+            0.0, (datetime.now(timezone.utc) - _mh_parsed).total_seconds()
+        )
+    except Exception:
+        money_health_age_s = None
     progress = _read_json(LOG / "farm_354_progress.json")
     lock = _read_json(LOG / "ADB_SERIAL_MAP.lock.json")
     lines = _farm_log_tail(200)
@@ -182,7 +189,21 @@ def gather_evidence() -> dict[str, Any]:
     ]
 
     procs = _proc_cmdlines()
-    fighters = [pid for pid, cmd in procs if "watch_bottom_ads" in cmd or "farm_fail_review" in cmd]
+    # Only DUPLICATE instances are fighters now — single watch_bottom_ads /
+    # farm_fail_review are supervised unison lanes, not stray dump storms.
+    _fighter_names = ("watch_bottom_ads", "farm_fail_review")
+    _fighter_counts: dict[str, int] = {}
+    for _pid, _cmd in procs:
+        for _n in _fighter_names:
+            if _n in _cmd:
+                _fighter_counts[_n] = _fighter_counts.get(_n, 0) + 1
+                break
+    fighters = [
+        pid
+        for pid, cmd in procs
+        if any(n in cmd for n in _fighter_names)
+        and _fighter_counts[next(n for n in _fighter_names if n in cmd)] > 1
+    ]
     farm_pids = [pid for pid, cmd in procs if "run_farm_354" in cmd]
     dash_up = _port_listen(8091)
     tor_8118 = _port_listen(8118)
@@ -202,6 +223,7 @@ def gather_evidence() -> dict[str, Any]:
         "ts": _utc(),
         "mantis": {"payout_usd": payout, "clicks": clicks, "impressions": impr},
         "money_health": money_health,
+        "money_health_age_s": money_health_age_s,
         "adb_live_n": len(adb_live),
         "adb_live": adb_live,
         "lock_phones_n": len((lock.get("phones") or {})),
@@ -410,8 +432,28 @@ def apply_fixes(problems: list[dict[str, str]], ev: dict[str, Any], *, apply: bo
     fixes: list[str] = []
     ids = {p["id"] for p in problems}
 
-    PAUSE_ADS.write_text(_utc() + " watchdog", encoding="utf-8")
-    fixes.append("pause_bottom_ads_watch")
+    # Money signals from a STALE FARM_MONEY_HEALTH.json are ghosts, not facts —
+    # the monitor was down and the file still says $0.00. Never pause the ads
+    # watcher or kill lanes over data older than 10 minutes.
+    _mh = ev.get("money_health") or {}
+    _mh_age = ev.get("money_health_age_s")
+    _money_ghost = (
+        ids <= {"money_health_alert", "flat_dollar", "impr_up_money_flat"}
+        and isinstance(_mh_age, (int, float))
+        and _mh_age > 600
+    )
+    if _money_ghost:
+        fixes.append(f"money_data_stale_age_s={int(_mh_age)} — no lane kills")
+
+    _real_paint_problems = ids & {
+        "dump_fighters_running",
+        "adb_timeout_storm",
+        "seq_all_fail_no_ok",
+        "tor_on_inject_port",
+    }
+    if _real_paint_problems:
+        PAUSE_ADS.write_text(_utc() + " watchdog", encoding="utf-8")
+        fixes.append("pause_bottom_ads_watch")
 
     if "dump_fighters_running" in ids or "adb_timeout_storm" in ids or "seq_all_fail_no_ok" in ids:
         fixes.extend(_kill_pids(list(ev.get("dump_fighter_pids") or [])))
@@ -470,8 +512,8 @@ def apply_fixes(problems: list[dict[str, str]], ev: dict[str, Any], *, apply: bo
             )
             fixes.append("spawned_farm_operator_dash")
 
-    # Re-kill fighters money monitor may have respawned
-    fixes.extend(_kill_pids([pid for pid, cmd in _proc_cmdlines() if "watch_bottom_ads" in cmd or "farm_fail_review" in cmd]))
+    # Duplicates are already deduped by the supervisor (dedupe_keep_newest);
+    # the old blanket re-kill here murdered the supervised lanes every cycle.
 
     return fixes
 

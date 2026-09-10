@@ -876,5 +876,26 @@ def load_state() -> dict[str, Any]:
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
-    print(json.dumps(evaluate(do_fix=True), indent=2, default=str))
+    # Standalone supervision mode: `farm_money_monitor.py loop [--tick N]`
+    # runs the evaluate/fix cycle forever so the unison supervisor can own it
+    # as a lane (FARM_MONEY_HEALTH.json stays fresh even if the operator dash
+    # is down — stale money data made the watchdog panic and kill lanes).
+    if "loop" in sys.argv:
+        tick = 90.0
+        if "--tick" in sys.argv:
+            try:
+                tick = float(sys.argv[sys.argv.index("--tick") + 1])
+            except (IndexError, ValueError):
+                pass
+        logging.basicConfig(
+            level=logging.INFO,
+            format="%(asctime)s %(levelname)s %(message)s",
+            handlers=[
+                logging.FileHandler(LOG / "farm_money_monitor.log", encoding="utf-8"),
+                logging.StreamHandler(),
+            ],
+        )
+        _loop(DEFAULT_FLAT_MIN, tick)
+    else:
+        logging.basicConfig(level=logging.INFO)
+        print(json.dumps(evaluate(do_fix=True), indent=2, default=str))

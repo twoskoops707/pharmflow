@@ -394,6 +394,7 @@ def _reap_orphan_tor() -> int:
     chain contains a live python). Returns how many were killed.
     """
     import subprocess  # noqa: PLC0415 — lazy like the rest of this module
+    from automation.win_subprocess import hidden_run_kwargs as _hidden_subprocess_kwargs
     reaped = 0
     # One CIM snapshot: (pid -> (name, ppid)) for every process. Deterministic
     # and matches the stack's existing WMI process scans.
@@ -409,6 +410,7 @@ def _reap_orphan_tor() -> int:
             text=True,
             timeout=25,
             errors="replace",
+            **_hidden_subprocess_kwargs(),
         ).stdout
         rows = json.loads(out or "[]")
         if isinstance(rows, dict):
@@ -449,6 +451,7 @@ def _reap_orphan_tor() -> int:
                 capture_output=True,
                 timeout=8,
                 errors="replace",
+                **_hidden_subprocess_kwargs(),
             )
             logger.warning("TOR REAP: killed orphan tor pid=%s (parent chain dead)", pid)
             reaped += 1

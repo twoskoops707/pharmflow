@@ -51,6 +51,11 @@ LANES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     # the EXE self-heals them like every other lane.
     ("ads-watch", "watch_bottom_ads.py", ()),
     ("ssp-hunter", "ssp_paying_hunter.py", ()),
+    # Money monitor as its own lane: keeps FARM_MONEY_HEALTH.json fresh even
+    # when the operator dash is down — stale $0.00 data made the watchdog
+    # panic-fix (kill watcher) over ghost problems. Runs the module directly
+    # (automation/ path) in loop mode.
+    ("money-mon", "farm_money_monitor.py", ("loop", "--tick", "90")),
     # Process reaper: watches the live process table and kills provably stale
     # duplicates/orphans (duplicate adb fork-servers, orphaned adb/shell
     # clients stuck >180s, duplicate Tor data dirs). Never touches farm-owned

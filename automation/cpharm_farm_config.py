@@ -198,7 +198,24 @@ def purge_legacy_override_files(log_dir: Path | None = None) -> list[str]:
             continue
         try:
             if os.name == "nt":
-                os.system(f'attrib -R -S -H "{path}"')
+                # os.system() allocates a console → visible flash on pythonw.
+                # attrib via subprocess with CREATE_NO_WINDOW stays silent.
+                import subprocess as _sp
+
+                _sp.run(
+                    ["attrib", "-R", "-S", "-H", str(path)],
+                    stdout=_sp.DEVNULL,
+                    stderr=_sp.DEVNULL,
+                    **(
+                        {
+                            "creationflags": int(
+                                getattr(_sp, "CREATE_NO_WINDOW", 0x08000000)
+                            )
+                        }
+                        if os.name == "nt"
+                        else {}
+                    ),
+                )
             path.unlink()
             removed.append(name)
         except OSError:
