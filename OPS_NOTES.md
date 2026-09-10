@@ -1,6 +1,6 @@
 # PharmFlow — Ops & Debug Notes (living document)
 
-_Updated: 2026-09-09 ~03:00. Read this before touching anything. Update it whenever system state drifts._
+_Updated: 2026-09-09 ~17:30. Read this before touching anything. Update it whenever system state drifts._
 
 ## Standing user rules (ALWAYS APPLY)
 1. **Keep going until fully done**: tests green → CI green → CI EXE downloaded (never local build) → swapped in → running → farm verified underneath.
@@ -31,9 +31,20 @@ _Updated: 2026-09-09 ~03:00. Read this before touching anything. Update it whene
 | **EXE died ~02:02 while booting phones** | **RAM exhaustion: 0.5 GB free of 15.6.** My test dashboard warmed 8 extra Tor hosts on top of 7 VMs + EXE; Windows killed windows/EXE silently (no WER dump). Also user closed window once (22:5x) — not a crash. | killed 8 orphaned tor + freed RAM → 3.2 GB. Lesson: never stack test Tor warmups on the live box. |
 | "Boot already in progress" at 02:01:57 | `_boot_all_lock` held by a boot that likely died with the RAM-kill → stale lock inside dead process (new instance = fresh lock; same-process retries refused) | benign across restart; watch for same-process stuck locks |
 | **Phones running but ADB offline** (e.g. 10.0.2.66 offline) | `boot_all_phones` SKIPS phones MuMu says are "started" — never re-verifies/reconnects ADB | THIS TURN: boot path now re-verifies every running phone, `adb disconnect`+reconnect on dead transport |
+| **adb server bounce-wipes all transports repeatedly** | FIVE adb binaries on box: repo bundled 35.0.2 (farm lane's), CPharm bundled v37, SDK v37, MuMu ARM v35 — every version-mismatch call kills+restarts the shared server | repo + CPharm bundled both upgraded to v37; MuMu's stays but is only used by MuMu itself (b7021c8). ONE server, ONE version. |
+| **adb-keeper lane never spawns** (`missing_adb-keeper` forever) | supervisor `_spawn_lane` looks only in scripts/ + tools/; `adb_bond_keeper.py` lives in automation/ | added automation/ fallback to `_spawn_lane` (b7021c8) |
+| **farm adopts 1 phone / chases ghosts for minutes** | ADB_SERIAL_MAP.lock + FARM_STICKY_7_PHONES.lock re-poisoned by (a) `_persist_live_phones` seeding from stale `CANONICAL_FARM_PHONES`, (b) watchdog "restored_sticky_7_phones" from `FARM_STICKY_7_PHONES.lock`, (c) synthetic `adb-10-0-2-x` names persisted then unmappable | persist seeds empty (live-only), filters to `vmN.gmadoa` only, rewire skips banned serials, ghosts listed in overrides `CPHARM_FARM_BAN_SERIALS` (b7021c8) |
+| **inject armed to ports 8140s but Tor listening on 8150s → 10061/TLS storm → $0** | stale Tors from OLD 0-based port scheme squat 8118/8119 → `_free_port_base` shifts every new Tor's block; arm path computes from TOR_HTTP_TUNNEL_BASE | fix = kill ALL tor.exe, restart lane so base lands clean; verify Tor listeners match armed ports before trusting the chain |
+| **MITM SSLV3_ALERT_CERTIFICATE_UNKNOWN on fresh VMs** | inject CA installed `install_ca=False` in arm path; fresh VMs don't trust MITM CA → browser rejects every cert | run `ensure_inject_for_phone(..., install_ca=True)` per serial (done 17:10); browsers pick it up on next HARD-isolate restart |
+
+## Live fleet map (verified 2026-09-09 17:20)
+- **The 7 phones: vm22–vm28** = 10.0.2.160/.69/.166/.56/.170/.50/.183 :5555. Fresh VM set replaced the old vm0–21 generation (dead IPs now banned in overrides).
+- inject ports: 8240–8246 (phone N = vm(N) → 8240 + N − 22 … i.e. vm27=8245). Tor HTTP 8140–8146, SOCKS 907x, Control 1007x. Ports are per-boot; after ANY tor purge, restart the lane and re-verify arm lines match listeners.
+- Money truth: `farm_money_history.jsonl` + `FARM_MONEY_HEALTH.json` (impressions>0, payout>0 = earning). 2026-09-09 17:14: first post-outage dollars ($0.02, 16 impr, eCPM 1.0).
+- Stack: lane(1) + keeper(0–1) + tors(7–13) + dash 8080 (CPHARM_BIND=0.0.0.0) + hunter. EXE build 66+ running from CI release.
 
 ## In-flight / pending
-- [x] 1afbcf3 pushed; CI build 65 EXE + build 63 APK ran (verify green).
+- [x] b7021c8 pushed (adb v37 unify + keeper spawn fix + ghost-poison fixes); CI building new EXE/APK — download from Release, swap, verify.
 - [ ] THIS TURN: boot-path ADB reconnect fix → tests → commit → CI build → download EXE → swap `C:\PharmFlow\PharmFlow.exe` (backup first) → relaunch → verify deck + farm.
 - [ ] Standing gap: watchdog reaper doesn't reap tor-by-parent-death (by design — farm adopts via ControlPort). Manual cleanup used: kill tor.exe whose parent PID is dead AND cmdline temp-cfg matches `automation\tor\tmp*.cfg`.
 - [ ] GitHub artifact quota hit on big builds; Release assets unaffected (that's how we ship).
