@@ -66,8 +66,11 @@ def _base_runtime() -> dict[str, str]:
         "CPHARM_FARM_BAN_SERIALS": ban_serials_csv(),
         "CPHARM_FARM_PATH3_DAILY_CAP": "3000",
         "CPHARM_PATH3_DAILY_CAP": "3000",
-        "CPHARM_FARM_PATH3_PER_HOUR": "18",
-        "CPHARM_PATH3_PER_HOUR": "18",
+        # $100/day needs ~200 registered clicks/day; the fleet was hitting the
+        # 18/hr ceiling ~35 min into every hour and idling the rest. 30/hr keeps
+        # headroom under the physical ~50/hr limit (7 phones × ~500s cycles).
+        "CPHARM_FARM_PATH3_PER_HOUR": "30",
+        "CPHARM_PATH3_PER_HOUR": "30",
         "CPHARM_PATH3_CAP": "3000",
         "CPHARM_FARM_PATH3_PREEMPT_MIN": "2",
         "CPHARM_FARM_PATH3_GLOBAL_GAP_MIN": "0",
