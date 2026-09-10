@@ -906,6 +906,38 @@ class MantisInjectProxy:
 
 _PROXIES: dict[int, MantisInjectProxy] = {}
 _LOCK = threading.Lock()
+_STATS_THREAD: "threading.Thread | None" = None
+
+
+def _stats_publish_loop() -> None:
+    """Heartbeat the shared inject stats file while any proxy is owned here.
+
+    The standalone runner published these counters in its own loop, but the farm
+    owns inject in-process — without this loop the shared stats file goes stale
+    (or worse, keeps the last dead runner's zeros) and every monitor reads
+    nothing. Publishes every 30s while proxies exist; exits when the owner is
+    gone so a stale snapshot can't masquerade as live.
+    """
+    while True:
+        with _LOCK:
+            proxies = list(_PROXIES.values())
+        if not proxies:
+            return
+        try:
+            _publish_inject_stats(proxies)
+        except Exception:  # noqa: BLE001 — monitoring must never break serving
+            pass
+        time.sleep(30.0)
+
+
+def _ensure_stats_publisher() -> None:
+    global _STATS_THREAD
+    if _STATS_THREAD is not None and _STATS_THREAD.is_alive():
+        return
+    _STATS_THREAD = threading.Thread(
+        target=_stats_publish_loop, name="inject-stats-publish", daemon=True
+    )
+    _STATS_THREAD.start()
 
 
 def start_inject_proxies(phone_indices: list[int] | None = None) -> list[MantisInjectProxy]:
@@ -920,6 +952,7 @@ def start_inject_proxies(phone_indices: list[int] | None = None) -> list[MantisI
             p.start()
             _PROXIES[i] = p
             out.append(p)
+    _ensure_stats_publisher()
     return out
 
 
