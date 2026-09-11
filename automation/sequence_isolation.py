@@ -584,7 +584,10 @@ def isolate_before_sequence(
         report.errors.append(f"display: {exc}")
         logger.warning("[%s] display isolation soft-fail: %s", phone, exc)
 
-    # 4) HARD unique Tor exit IP (always — ignore env)
+    # 4) Unique Tor exit IP — always attempt (env cannot disable), but do NOT
+    # abort the sequence when the exit pool collides or NEWNYM sticks. Hard-fail
+    # here starved open_url/MITM (mantis connect=0) while phones burned minutes
+    # on retries. Soft-warn + continue so ads still fire; cookie/IMEI stay hard.
     try:
         ip_result = _force_unique_exit_ip(farm, phone, phone_idx, serial)
         report.ip_before = getattr(ip_result, "before", "") or ""
@@ -592,13 +595,16 @@ def isolate_before_sequence(
         report.ip_changed = bool(getattr(ip_result, "changed", False))
         report.ip_retries = int(getattr(ip_result, "retries", 0) or 0)
         if not report.ip_changed or not report.ip_after:
-            raise RuntimeError(ip_result.log_line() if hasattr(ip_result, "log_line") else "IP unchanged")
+            detail = (
+                ip_result.log_line()
+                if hasattr(ip_result, "log_line")
+                else "IP unchanged"
+            )
+            report.errors.append(f"IP soft: {detail}")
+            logger.warning("[%s] unique-exit soft-fail (continuing): %s", phone, detail)
     except Exception as exc:
-        report.errors.append(f"IP: {exc}")
-        ready[phone] = False
-        logger.error("[%s] %s", phone, report.log_line())
-        _append_isolation_jsonl(report)
-        raise RuntimeError(f"isolation IP switch failed: {exc}") from exc
+        report.errors.append(f"IP soft: {exc}")
+        logger.warning("[%s] unique-exit soft-fail (continuing): %s", phone, exc)
 
     # 5) Tor process up for unique exit; guest proxy is browser-aware (see
     # TorManager._setup_reverse — no MITM inject on Firefox/DDG).
