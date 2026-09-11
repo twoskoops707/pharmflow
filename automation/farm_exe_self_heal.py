@@ -772,6 +772,10 @@ def _tor_still_serving_money_ports(pid: int) -> bool:
     except (OSError, TypeError, ValueError, psutil.Error):
         return False
     return False
+
+
+def _cmdline_for_pid(pid: int) -> str:
+    """Best-effort process command line for ownership / storm classification."""
     if pid <= 0:
         return ""
     try:
