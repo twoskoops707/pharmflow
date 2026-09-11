@@ -336,16 +336,19 @@ def heal_inject_and_tor(*, live: list[str] | None = None) -> list[str]:
         fixes.append(
             f"tor_listeners_down up={len(up_tor)}/{len(tor_ports)} base={http_base}"
         )
-        # Only farm (or no-farm bootstrap) may warm Tor — money-mon/heal callers
-        # spawning Tor fleets caused 30+ tor.exe + conhost storms.
+        # Prefer farm-owned warm to avoid Tor fleet storms. If farm is alive but
+        # *zero* Tor HTTP listeners remain, heal may warm anyway — farm "alive"
+        # with dead Tor was stranding money until a sequence-gated reload.
         is_farm_proc = _current_process_is_farm()
-        if is_farm_proc or not farm_alive:
+        tor_totally_dead = len(up_tor) == 0
+        if is_farm_proc or not farm_alive or tor_totally_dead:
             try:
                 from automation import tor_manager
 
                 max_idx = max(idxs) if idxs else max(0, len(live_set) - 1)
                 tor_manager.ensure_tor_daemon_started_async(max_phone_idx=max_idx)
-                fixes.append(f"tor_warm_async max_idx={max_idx}")
+                who = "farm" if is_farm_proc else ("bootstrap" if not farm_alive else "heal_dead_tor")
+                fixes.append(f"tor_warm_async max_idx={max_idx} via={who}")
             except Exception as exc:  # noqa: BLE001
                 fixes.append(f"tor_warm_err:{exc}")
                 try:
@@ -357,6 +360,14 @@ def heal_inject_and_tor(*, live: list[str] | None = None) -> list[str]:
                     fixes.append(f"reload_flag_fail:{flag_exc}")
         else:
             fixes.append("tor_warm_skipped caller_not_farm farm_owns_tor")
+            try:
+                RELOAD_FLAG.write_text(
+                    f"exe_self_heal_tor_partial {_utc()} up={len(up_tor)}/{len(tor_ports)}\n",
+                    encoding="utf-8",
+                )
+                fixes.append("flagged_FARM_RELOAD_for_partial_tor")
+            except OSError as flag_exc:
+                fixes.append(f"reload_flag_fail:{flag_exc}")
     elif all_tor:
         fixes.append(f"tor_listeners_ok n={len(up_tor)} base={http_base}")
     elif any_tor:
@@ -368,14 +379,20 @@ def heal_inject_and_tor(*, live: list[str] | None = None) -> list[str]:
     if up_ports:
         fixes.append(_describe_inject_ownership(up_ports))
         owner_pids = sorted(set(_inject_port_owners(up_ports).values()))
-        wrong_owner = any(
-            _inject_owner_class(pid) not in ("keepalive", "farm") for pid in owner_pids
-        )
-        if wrong_owner:
-            fixes.append(
-                "inject_wrong_owner keepalive_preferred "
-                "(no_second_bind; restart keepalive after ports free)"
-            )
+        wrong_pids = [
+            pid
+            for pid in owner_pids
+            if _inject_owner_class(pid) not in ("keepalive", "farm")
+        ]
+        if wrong_pids:
+            for pid in wrong_pids:
+                cls = _inject_owner_class(pid)
+                if _kill_pid(pid):
+                    fixes.append(f"inject_wrong_owner_killed pid={pid} class={cls}")
+                else:
+                    fixes.append(f"inject_wrong_owner_kill_fail pid={pid} class={cls}")
+            time.sleep(1.0)
+            fixes.extend(_ensure_inject_keepalive_process(idxs=idxs))
 
     if need_inject:
         fixes.append(

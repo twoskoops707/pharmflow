@@ -41,6 +41,10 @@ LANES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     # them when the adb server drops them. Never churns VMs.
     ("adb-keeper", "adb_bond_keeper.py", ()),
     ("farm", "run_farm_354.py", ()),
+    # Inject keepalive is money-critical (holds 8242–8249). Previously only
+    # spawned opportunistically by self-heal/stealth — if it died, inject could
+    # stay down for a full heal cadence. Supervise it like every other lane.
+    ("inject-keep", "cpharm_inject_keepalive.py", ()),
     ("stealth", "cpharm_stealth_guard.py", ()),
     ("watchdog", "farm_watchdog.py", ()),
     ("freebuff", "agent_unison_freebuff_loop.py", ()),
