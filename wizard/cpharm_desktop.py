@@ -22,30 +22,62 @@ from tkinter import filedialog, messagebox
 
 import webbrowser
 
+# Frozen one-file: PyInstaller may ship wizard/*.py under _MEIPASS/wizard/
+# (datas) and/or as top-level modules. Source runs: this file's directory.
 _wizard_dir = Path(__file__).resolve().parent
-_sd = str(_wizard_dir)
-if _sd not in sys.path:
-    sys.path.insert(0, _sd)
+_path_candidates = [_wizard_dir]
+if getattr(sys, "frozen", False):
+    _mei = Path(getattr(sys, "_MEIPASS", "") or "")
+    if _mei.is_dir():
+        _path_candidates.extend([_mei, _mei / "wizard"])
+for _p in _path_candidates:
+    _sd = str(_p)
+    if _p.is_dir() and _sd not in sys.path:
+        sys.path.insert(0, _sd)
 
-from wizard_paths import automation_on_sys_path
-from cpharm_version import build_label, instance_title
+try:
+    from wizard_paths import automation_on_sys_path
+except ImportError:  # frozen datas layout: wizard.wizard_paths
+    from wizard.wizard_paths import automation_on_sys_path  # type: ignore[no-redef]
+
+try:
+    from cpharm_version import build_label, instance_title
+except ImportError:
+    from wizard.cpharm_version import build_label, instance_title  # type: ignore[no-redef]
 
 # Theme + helpers (lightweight path before setup_wizard pulls full tree)
-from wizard_theme import (
-    ACCENT,
-    BG,
-    BG2,
-    GREEN,
-    T1,
-    T2,
-    T3,
-    _style_scrollbars,
-    accent_top_strip,
-    style_primary_button,
-    style_secondary_button,
-    style_success_button,
-    themed_vertical_scrollbar,
-)
+try:
+    from wizard_theme import (
+        ACCENT,
+        BG,
+        BG2,
+        GREEN,
+        T1,
+        T2,
+        T3,
+        _style_scrollbars,
+        accent_top_strip,
+        style_primary_button,
+        style_secondary_button,
+        style_success_button,
+        themed_vertical_scrollbar,
+    )
+except ImportError:
+    from wizard.wizard_theme import (  # type: ignore[no-redef]
+        ACCENT,
+        BG,
+        BG2,
+        GREEN,
+        T1,
+        T2,
+        T3,
+        _style_scrollbars,
+        accent_top_strip,
+        style_primary_button,
+        style_secondary_button,
+        style_success_button,
+        themed_vertical_scrollbar,
+    )
 
 
 def _center(win: tk.Tk | tk.Toplevel, w: int, h: int) -> None:
