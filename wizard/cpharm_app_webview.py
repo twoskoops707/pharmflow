@@ -916,6 +916,13 @@ def run_cpharm_app_or_fallback(*, initial_view: str | None = None) -> None:
             run_startup_cleanup(first_time=False)
         except Exception:
             pass
+        try:
+            # Standing rule (OPS_NOTES): EXE kills dead/stale/unused helpers itself.
+            from automation.farm_exe_self_heal import reap_stale_processes
+
+            reap_stale_processes(apply=True)
+        except Exception:
+            pass
 
     if not is_pywebview_available():
         try:

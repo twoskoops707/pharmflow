@@ -81,19 +81,21 @@ os.environ["CPHARM_UNIQUE_EXIT_IP_RETRIES"] = os.environ.get("CPHARM_UNIQUE_EXIT
 # Ads must paint on Path1/2/3 browse — keep the live Mantis zone refresh on.
 os.environ["CPHARM_SKIP_MANTIS_PATCH"] = "0"
 os.environ.setdefault("CPHARM_DABFLOW_MANTIS_PATCH", "1")
+# Every sequence: cookies + fingerprint + IP + proxy + IMEI (never skip on live farm).
+os.environ["CPHARM_SKIP_SEQUENCE_ISOLATION"] = "0"
+os.environ["CPHARM_ALLOW_SEQUENCE_RUNS"] = "1"
 # Under Tor, briefly allow ad fill/fallback helpers so Path3 can engage when inventory is thin.
+# FORCE_DIRECT/FALLBACK default OFF — host-IP egress forbidden; SSOT/dash override if needed.
 os.environ.setdefault("CPHARM_EMULATOR_AD_MODE", "1")
-os.environ.setdefault("CPHARM_EMULATOR_AD_FORCE_DIRECT", "1")
-os.environ.setdefault("CPHARM_EMULATOR_AD_FALLBACK", "1")
+os.environ.setdefault("CPHARM_EMULATOR_AD_FORCE_DIRECT", "0")
+os.environ.setdefault("CPHARM_EMULATOR_AD_FALLBACK", "0")
 # MITM HTML inject + baked SSP creatives (Firefox/Brave/DDG have no Chromium CDP).
-# HARDCODED: never let stale overrides file or panel env disable inject.
+# Inject stays ON; Path3/ads only when dash/wizard enables them.
 os.environ["CPHARM_MANTIS_INJECT_PROXY"] = "1"
 os.environ["CPHARM_MANTIS_INJECT_MITM"] = "1"
 os.environ["CPHARM_MANTIS_BILLING_DIRECT"] = "0"
-# Path 1+2+3; ads via Path 3 rate limit (1/hour/phone by default)
-os.environ.setdefault("CPHARM_FARM_ALLOW_ADS", "1")
-os.environ.setdefault("CPHARM_FARM_PATHS", "1,2,3")
-os.environ.setdefault("CPHARM_FARM_PATH3_PER_HOUR", "4")
+# Do NOT setdefault ALLOW_ADS=1 / PATHS=1,2,3 — that kept Path3 constantly on.
+# Unset → _ads_allowed() false, _farm_paths() = {1,2}.
 os.environ.setdefault("CPHARM_FARM_SEQS_PER_HOUR", "15")
 
 from automation.config import REQUIRED_SEQUENCE_VERSION, sequences_run_allowed
@@ -159,7 +161,8 @@ def _env_int(name: str, default: str) -> int:
 
 
 def _path3_per_hour() -> int:
-    return max(8, _env_int("CPHARM_FARM_PATH3_PER_HOUR", "8"))
+    # Operator / dash value wins — never floor to 8 (that kept Path3 permanently hot).
+    return max(0, _env_int("CPHARM_FARM_PATH3_PER_HOUR", "0"))
 
 
 def _path3_farm_daily_cap() -> int:
@@ -201,7 +204,7 @@ EVENING_SEQS_PER_HOUR = max(0, _env_int("CPHARM_FARM_EVENING_SEQS_PER_HOUR", "0"
 EVENING_UNTIL = (os.environ.get("CPHARM_FARM_EVENING_UNTIL") or "").strip()
 # Farm-wide Path3 ceiling — re-read via _path3_farm_daily_cap() (sticky can change).
 PATH3_DAILY_CAP = max(0, _env_int("CPHARM_FARM_PATH3_DAILY_CAP", "9999"))
-PATH3_PER_HOUR = max(0, _env_int("CPHARM_FARM_PATH3_PER_HOUR", "4"))
+PATH3_PER_HOUR = max(0, _env_int("CPHARM_FARM_PATH3_PER_HOUR", "0"))
 PATH3_GLOBAL_MIN_GAP_MIN = max(0, _env_int("CPHARM_FARM_PATH3_GLOBAL_GAP_MIN", "0"))
 # Never schedule Path3 in the past (restart / late-hour flood), and require a short lead.
 PATH3_MIN_LEAD_MIN = _env_int("CPHARM_FARM_PATH3_LEAD_MIN", "0")
@@ -381,6 +384,161 @@ def _is_tablet_instance(name: str, serial: str) -> bool:
     if tab_ser and serial and serial == tab_ser:
         return True
     return False
+
+
+def _ensure_farm_inject(farm: object, online: list[tuple[str, int]]) -> None:
+    """Bind absolute inject ports + pin guests; spawn detached keepalive.
+
+    Standing rule: phones pinned to 8242+ with inject down = no bottom ads.
+    Farm arms listeners in-process AND spawns a detached keepalive so ports
+    survive farm thread death / lane restarts.
+    """
+    import subprocess as _sp
+
+    from automation.browse_proxy import pin_guest_proxy
+    from automation.mantis_inject_proxy import ensure_inject_for_phone, start_inject_proxies
+    from automation.win_subprocess import hidden_run_kwargs
+
+    idxs = sorted({int(idx) for _name, idx in online if int(idx) >= 0})
+    if not idxs:
+        return
+    started = start_inject_proxies(idxs)
+    logger.info("INJECT farm-owned listeners n=%s idxs=%s", len(started), idxs)
+    adb_bin = None
+    try:
+        from automation.adb_paths import adb_executable
+
+        adb_bin = adb_executable()
+    except Exception:
+        adb_bin = r"C:\CPharm\bundled\adb.exe"
+    for name, idx in online:
+        try:
+            inst = farm.get_phone(name)  # type: ignore[attr-defined]
+        except Exception:
+            inst = None
+        serial = getattr(inst, "adb_serial", None) if inst else None
+        if not serial:
+            continue
+        want_port = 8218 + int(idx)
+        try:
+            ensure_inject_for_phone(farm.adb, serial, int(idx), install_ca=True)  # type: ignore[attr-defined]
+            pinned = pin_guest_proxy(farm.adb, serial, int(idx), attempts=3)  # type: ignore[attr-defined]
+            # Hard assert absolute port — roster-idx pins (8218+0..3) keep winning races.
+            if adb_bin and Path(adb_bin).is_file():
+                _sp.run(
+                    [
+                        adb_bin,
+                        "-s",
+                        str(serial),
+                        "reverse",
+                        f"tcp:{want_port}",
+                        f"tcp:{want_port}",
+                    ],
+                    capture_output=True,
+                    timeout=10,
+                    **hidden_run_kwargs(),
+                )
+                _sp.run(
+                    [
+                        adb_bin,
+                        "-s",
+                        str(serial),
+                        "shell",
+                        "settings",
+                        "put",
+                        "global",
+                        "http_proxy",
+                        f"127.0.0.1:{want_port}",
+                    ],
+                    capture_output=True,
+                    timeout=10,
+                    **hidden_run_kwargs(),
+                )
+            logger.info("INJECT pin %s idx=%s -> %s (hard=%s)", name, idx, pinned, want_port)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("INJECT pin fail %s idx=%s: %s", name, idx, exc)
+    # Detached keepalive — must outlive this farm process's parent trees.
+    try:
+        from automation.cpharm_unison_dedupe import pids_for_script
+
+        if not pids_for_script("cpharm_inject_keepalive.py"):
+            script = ROOT / "scripts" / "cpharm_inject_keepalive.py"
+            if script.is_file():
+                pyw = sys.executable.replace("python.exe", "pythonw.exe")
+                if not Path(pyw).is_file():
+                    pyw = sys.executable
+                flags = int(getattr(_sp, "CREATE_NO_WINDOW", 0) or 0)
+                flags |= int(getattr(_sp, "DETACHED_PROCESS", 0x00000008) or 0)
+                flags |= int(getattr(_sp, "CREATE_NEW_PROCESS_GROUP", 0x00000200) or 0)
+                _sp.Popen(
+                    [pyw, "-u", str(script)],
+                    cwd=str(ROOT),
+                    env={**os.environ, "PYTHONPATH": str(ROOT)},
+                    stdout=_sp.DEVNULL,
+                    stderr=_sp.DEVNULL,
+                    creationflags=flags,
+                    close_fds=True,
+                )
+                logger.info("INJECT spawned detached cpharm_inject_keepalive")
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("INJECT keepalive spawn soft-fail: %s", exc)
+
+    def _inject_watchdog_loop() -> None:
+        while not _stop_requested():
+            time.sleep(25.0)
+            try:
+                import socket as _sock
+
+                dead = []
+                for i in idxs:
+                    port = 8218 + int(i)
+                    try:
+                        c = _sock.create_connection(("127.0.0.1", port), 0.35)
+                        c.close()
+                    except OSError:
+                        dead.append(port)
+                if not dead:
+                    continue
+                logger.warning("INJECT listeners dead %s — re-arm in-process", dead)
+                start_inject_proxies(idxs)
+                for name, idx in online:
+                    try:
+                        inst = farm.get_phone(name)  # type: ignore[attr-defined]
+                    except Exception:
+                        continue
+                    serial = getattr(inst, "adb_serial", None) if inst else None
+                    if not serial:
+                        continue
+                    want_port = 8218 + int(idx)
+                    try:
+                        pin_guest_proxy(farm.adb, serial, int(idx), attempts=2)  # type: ignore[attr-defined]
+                        if adb_bin and Path(adb_bin).is_file():
+                            _sp.run(
+                                [
+                                    adb_bin,
+                                    "-s",
+                                    str(serial),
+                                    "shell",
+                                    "settings",
+                                    "put",
+                                    "global",
+                                    "http_proxy",
+                                    f"127.0.0.1:{want_port}",
+                                ],
+                                capture_output=True,
+                                timeout=10,
+                                **hidden_run_kwargs(),
+                            )
+                    except Exception:
+                        pass
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("INJECT watchdog soft-fail: %s", exc)
+
+    if not getattr(_ensure_farm_inject, "_watch_started", False):
+        _ensure_farm_inject._watch_started = True  # type: ignore[attr-defined]
+        threading.Thread(
+            target=_inject_watchdog_loop, name="farm-inject-watch", daemon=True
+        ).start()
 
 
 def _reap_orphan_tor() -> int:
@@ -754,17 +912,18 @@ def _persist_live_phones(phones: list[str], farm: MuMuFarmOps) -> None:
     # adb-10-0-2-x names leak here when instance mapping lags and then poison
     # every later boot (they cannot be mapped back to MuMu indexes/ports).
     sticky = [p for p in live if re.match(r"^vm\d+\.gmadoa$", p)]
-    names = sticky or canonical_names_sorted()
-    expect = len(live) or len(names)
+    names = sticky  # never fall back to full canonical disk roster
+    if not names:
+        logger.warning("persist_live_phones: no vmN.gmadoa in live set — skip lock write")
+        return
+    expect = len(names)
     log_dir = Path(
         os.environ.get("CPHARM_LOGS")
         or os.environ.get("CPHARM_LOG_DIR")
         or r"C:\CPharm\logs"
     )
-    # Live-fleet only: never seed the lock from canonical serials — stale IPs
-    # here are what keeps rewire/repin/watchers chasing dead guests forever.
-    # Non-live canonical names persist as empty strings (readers skip them).
-    serials: dict[str, str] = {name: "" for name in CANONICAL_FARM_PHONES}
+    # LIVE ONLY — empty canonical slots re-poison rewire/inject/watchers.
+    serials: dict[str, str] = {}
     live_by_name = {p: p for p in live}
     seen: set[str] = set()
     for name in sorted(names, key=lambda n: int(re.match(r"vm(\d+)", n).group(1)) if re.match(r"vm(\d+)", n) else 0):
@@ -772,18 +931,20 @@ def _persist_live_phones(phones: list[str], farm: MuMuFarmOps) -> None:
         ser = str(getattr(inst, "adb_serial", "") or "").strip()
         if ser and ":" in ser and not is_banned_serial(ser):
             if ser in seen:
-                # Same serial claimed by two vm names (e.g. vm14+vm15 -> same IP) —
-                # clear the duplicate so the watchdog never pins a dead 8233 port.
-                serials[name] = ""
                 continue
             seen.add(ser)
             serials[name] = ser
         elif name in live_by_name and ser and not is_banned_serial(ser):
             if ser in seen:
-                serials[name] = ""
                 continue
             seen.add(ser)
             serials[name] = ser
+    # Drop names that never resolved a live serial.
+    names = [n for n in names if (serials.get(n) or "").strip()]
+    if not names:
+        logger.warning("persist_live_phones: zero resolved serials — skip lock write")
+        return
+    expect = len(names)
     now = datetime.now(timezone.utc).isoformat()
     ov_path = log_dir / "farm_runtime_overrides.json"
     try:
@@ -801,7 +962,7 @@ def _persist_live_phones(phones: list[str], farm: MuMuFarmOps) -> None:
         data["CPHARM_FARM_BAN_SERIALS"] = ban_serials_csv()
         data["updated"] = now
         data["tick_verify_note"] = (
-            f"canonical_sticky live={len(live)} expect={expect}"
+            f"live_only sticky live={len(live)} expect={expect}"
         )
         ov_path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
         os.environ["CPHARM_FARM_PHONES"] = str(data["CPHARM_FARM_PHONES"])
@@ -815,11 +976,11 @@ def _persist_live_phones(phones: list[str], farm: MuMuFarmOps) -> None:
             return 8218 + int(m.group(1)) if m else 0
 
         lock = {
-            "phones": serials,
+            "phones": {n: serials[n] for n in names},
             "tablet": {},
             "inject": {nm: _inject_port(nm) for nm in names},
             "locked_at": now,
-            "note": f"live_fleet live={len(live)} expect={expect}",
+            "note": f"live_fleet live={len(names)} expect={expect}",
             "updated": now,
         }
         tab = tablet_phone_name()
@@ -828,6 +989,11 @@ def _persist_live_phones(phones: list[str], farm: MuMuFarmOps) -> None:
             lock["tablet"] = {tab: tab_ser}
         (log_dir / "ADB_SERIAL_MAP.lock.json").write_text(
             json.dumps(lock, indent=2) + "\n", encoding="utf-8"
+        )
+        # Sticky lock must match live map — never restore ancient ghost IPs.
+        (log_dir / "FARM_STICKY_7_PHONES.lock").write_text(
+            json.dumps({"phones": dict(lock["phones"]), "updated": now}, indent=2) + "\n",
+            encoding="utf-8",
         )
     except OSError as exc:
         logger.debug("persist serial lock failed: %s", exc)
@@ -1144,21 +1310,25 @@ def _phone_seqs_this_hour(phone_idx: int, rng: random.Random | None = None) -> i
 
 
 def _phone_path3_this_hour(phone_idx: int, rng: random.Random | None = None) -> int:
-    """Path3 slots this hour: remaining ads, with operator per-hour floor.
+    """Path3 slots this hour from remaining ads + operator per-hour CAP.
 
-    Spreading ads/hours_left alone drips ~1 Path3/phone at day start. Floor at
-    CPHARM_FARM_PATH3_PER_HOUR so every money phone actually clicks.
+    Cap is CPHARM_FARM_PATH3_PER_HOUR (0 = no Path3). Never invent a floor
+    above the operator value — that kept Path3 on constantly.
     """
     if not _ads_allowed():
+        return 0
+    if "3" not in _farm_paths():
         return 0
     ads_left = _phone_ads_remaining(phone_idx)
     if ads_left <= 0:
         return 0
-    floor = min(ads_left, _path3_per_hour())
+    cap = _path3_per_hour()
+    if cap <= 0:
+        return 0
     if not _DAILY_BUDGET_ENABLED or _phone_ads_cap(phone_idx) <= 0:
-        return floor
+        return min(ads_left, cap)
     n = _stochastic_hour_quota(ads_left, _hours_left_today(), rng)
-    return max(n, floor)
+    return min(ads_left, cap, max(0, n))
 
 
 def _phone_ads_remaining(phone_idx: int) -> int:
@@ -3227,6 +3397,14 @@ def main() -> int:
     if not online:
         print("ERROR: no online phones after adapt")
         return 1
+
+    # Money path: farm MUST own absolute inject listeners (vm24→8242). Stealth
+    # stands down while farm is alive; without this arm, phones stay pinned to
+    # dead ports and bottom ads die. Re-arm at boot; keepalive child holds ports.
+    try:
+        _ensure_farm_inject(farm, online)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("farm inject arm failed: %s", exc)
 
     # HARD RULE: no two concurrent phones may share the same public exit IP.
     try:

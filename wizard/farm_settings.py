@@ -416,7 +416,11 @@ def apply_saved_to_env() -> int:
     saved = load_saved()
     if not saved:
         return 0
+    # Never let a sticky dash toggle skip per-seq isolation on the money path.
+    saved.pop("CPHARM_SKIP_SEQUENCE_ISOLATION", None)
     _apply_to_env(saved)
+    os.environ["CPHARM_SKIP_SEQUENCE_ISOLATION"] = "0"
+    os.environ.setdefault("CPHARM_ALLOW_SEQUENCE_RUNS", "1")
     return len(saved)
 
 

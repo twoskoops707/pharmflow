@@ -153,6 +153,9 @@ def _spawn_lane(name: str, script: str, args: tuple[str, ...] = ()) -> int | Non
     env["PYTHONPATH"] = str(ROOT)
     env["CPHARM_EXE_OWNED_FARM"] = "1"
     apply_farm_env(env)
+    # Operator standing rule: every sequence isolates (cookies/FP/IP/proxy/IMEI).
+    env["CPHARM_SKIP_SEQUENCE_ISOLATION"] = "0"
+    env["CPHARM_ALLOW_SEQUENCE_RUNS"] = "1"
     proc = subprocess.Popen(
         [_pyw(), "-u", str(path), *args],
         cwd=str(ROOT),
@@ -218,10 +221,21 @@ def _ensure_freebuff_queue() -> list[str]:
 def _kill_legacy_stack() -> list[str]:
     """Retire competing babysit scripts — unison owns the stack now."""
     killed: list[str] = []
+    keepalive_markers = (
+        "cpharm_inject_keepalive.py",
+        "_arm_inject_keepalive.py",
+    )
     retire = (
         "ensure_farm_24x7.py",
         "keep_farm_alive.py",
         "farm_remediate_loop.py",
+        "farm_health_monitor.py",
+        "emu_overnight_watchdog.py",
+        "_fix_tor_inject",
+        "_money_arm_inject",
+        "scripts/_fix_",
+        "scripts/_flash_",
+        "run_mantis_inject_proxies.py",
         # FREEBUFF lane 4 owns agent_unison_freebuff_loop; do not kill it here.
         # watch_bottom_ads / ssp_paying_hunter are supervised LANES now.
     )
@@ -232,6 +246,8 @@ def _kill_legacy_stack() -> list[str]:
             try:
                 cmd = " ".join(str(x) for x in (proc.info.get("cmdline") or []))
             except (psutil.Error, TypeError, ValueError):
+                continue
+            if any(marker in cmd for marker in keepalive_markers):
                 continue
             for needle in retire:
                 if needle in cmd and "-c" not in cmd:
@@ -262,17 +278,51 @@ def main() -> int:
     reset_runtime(note="unison_start")
     removed = purge_legacy_override_files()
     apply_farm_env()
+    # Dash/EXE operator file wins over code SSOT (Path3 off until operator enables).
+    try:
+        from wizard.farm_settings import apply_saved_to_env
+
+        n_saved = apply_saved_to_env()
+    except Exception as exc:  # noqa: BLE001
+        n_saved = 0
+        boot_notes_err = f"apply_saved_err:{exc}"
+    else:
+        boot_notes_err = ""
     boot_notes = _ensure_freebuff_queue()
+    if n_saved:
+        boot_notes.append(f"operator_settings={n_saved}")
+    if boot_notes_err:
+        boot_notes.append(boot_notes_err)
+    try:
+        from automation.farm_exe_self_heal import run_self_heal
+
+        heal = run_self_heal(reason="unison_boot")
+        boot_notes.extend((heal.get("fixes") or [])[:8])
+    except Exception as exc:
+        boot_notes.append(f"self_heal_boot_err:{exc}")
     print(
         f"cpharm_unison_supervisor pid={os.getpid()} "
         f"purged={removed} lanes={[n for n, _s, _a in LANES]} "
         f"{' '.join(boot_notes)}",
         flush=True,
     )
+    tick = 0
     try:
         while True:
             try:
                 notes = _kill_legacy_stack() + _ensure_lanes()
+                tick += 1
+                # Self-heal every other interval — tor seed, ghost prune, inject/tor down.
+                if tick % 2 == 0:
+                    try:
+                        from automation.farm_exe_self_heal import run_self_heal
+
+                        heal = run_self_heal(reason="unison_tick")
+                        notes.extend(
+                            f"heal:{x}" for x in (heal.get("fixes") or []) if "ok" not in str(x)
+                        )
+                    except Exception as exc:
+                        notes.append(f"self_heal_err:{exc}")
             except Exception as exc:
                 # Uncaught lane ensure used to kill the supervisor; stealth /
                 # keep-alive then respawned → crash/respawn loop.

@@ -88,14 +88,39 @@ def _ensure_inject_and_dash() -> list[str]:
     except Exception as exc:
         fixes.append(f"dash_err:{exc}")
     if pids_for_script("run_farm_354.py"):
-        # Farm lane alive → it owns the inject proxies in-process, keyed by
-        # absolute phone numbers (vm22 -> 8218+22=8240). Spawning the standalone
-        # roster-indexed runner here created a second, port-divergent inject
-        # generation that served nobody and clobbered the shared stats file.
+        # Farm owns inject in-process — but if listeners died while phones stay
+        # pinned, EXE self-heal must restore (do not spawn roster --phones N).
+        try:
+            from automation.farm_exe_self_heal import heal_inject_and_tor
+
+            fixes.extend(heal_inject_and_tor()[:8])
+        except Exception as exc:
+            fixes.append(f"heal_inject_err:{exc}")
         return fixes
     if pids_for_script("run_mantis_inject_proxies.py"):
         return fixes
+    if pids_for_script("cpharm_inject_keepalive.py"):
+        return fixes
     try:
+        # Absolute keepalive — lock-map ports — never roster 0..N-1 for vm24+.
+        script = ROOT / "scripts" / "cpharm_inject_keepalive.py"
+        if script.is_file():
+            pyw = sys.executable.replace("python.exe", "pythonw.exe")
+            if not Path(pyw).is_file():
+                pyw = sys.executable
+            env = os.environ.copy()
+            env["PYTHONPATH"] = str(ROOT)
+            creation = 0x08000000 if sys.platform == "win32" else 0
+            subprocess.Popen(
+                [pyw, "-u", str(script)],
+                cwd=str(ROOT),
+                env=env,
+                creationflags=creation,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            fixes.append("spawn_inject_keepalive")
+            return fixes
         span = max(8, inject_listener_count())
         pyw = sys.executable.replace("python.exe", "pythonw.exe")
         if not Path(pyw).is_file():

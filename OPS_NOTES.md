@@ -72,12 +72,23 @@ _Updated: 2026-09-09 ~17:30. Read this before touching anything. Update it whene
 ## Scaling
 - Phone-count scaling plan with measured limits lives in `SCALING_PLAN.md` (2026-09-10): CPU (8 cores @ 97%) is the wall, not RAM; per-VM all-in ~1.05 GB; phases: 7-8 phones now / 10-12 at 32 GB / 16-24 after a CPU upgrade. Boot order + gates are in the doc.
 
+## EXE stale-process reaper + per-seq isolation (2026-09-11)
+- **EXE reaps stale procs itself** (`farm_exe_self_heal.reap_stale_processes` + watchdog reaper): kills one-shot `_fix_*` / `_money_arm_*`, competing babysitters, roster `run_mantis_inject_proxies.py` when farm owns inject, orphan freebuff ticks, dup unison — **never** `cpharm_inject_keepalive.py` (lock-map ports). Stop Farm tears keepalive down via `_STOP_FARM_NEEDLES`.
+- **EXE auto-reaps process storms** (`farm_exe_self_heal.reap_process_storm`, end of every `reap_stale_processes` / self-heal tick): orphan `tor.exe` (no farm-owner python ancestor), dead-parent `conhost.exe`, Azure/Cursor telemetry `cmd.exe` storms, duplicate helper lanes (keep newest pid), stuck adb `shell` clients >120s — never MuMu/nemux/vmmem or PharmFlow/CPharm.exe.
+- **Per-seq isolation forced:** each sequence run gets fresh cookies, fingerprint, exit IP, proxy pin, and IMEI — no cross-seq bleed on the money path.
+
+## EXE self-heal for live failure classes (2026-09-10 night)
+- **Symptom class (proven):** ghost sticky IPs, empty ADB_SERIAL_MAP entries, missing `tor.exe` under TOR_DIR, inject/Tor listeners down while farm alive, `adb -s ""` → "more than one device".
+- **Root causes:** (1) watchdog `_restore_sticky_7` hard-coded ancient STICKY_PHONES; (2) `canonical_workset()` returned empty-serial rows when `online_serials` unset; (3) TOR_DIR not seeded from `C:\CPharm\automation\tor`; (4) money-monitor inject high port ceiling stuck at 8231 while live map uses 8242+.
+- **Fix (code, EXE-owned):** `automation/farm_exe_self_heal.py` — seed tor, connect running MuMu shells only, prune map+sticky to live ADB, flag reload when inject/Tor down. Wired into `farm_control.start_farm`, unison supervisor boot/tick, and watchdog sticky rebuild. Tests: `tests/test_farm_exe_self_heal.py` (3 passed).
+- **Live verify (this session):** heal pruned empty=15 dead=10 → live=8 (vm24–31); tor_n=8; inject_listeners_ok. Installed EXE is still **wizard-76** — these self-heal fixes are in repo HEAD but **not in the frozen binary** until Actions budget is topped up and CI ships a new Release (or an explicit local PyInstaller exception).
+
 ## In-flight / pending
 - [x] b7021c8 pushed (adb v37 unify + keeper spawn fix + ghost-poison fixes); CI building new EXE/APK — download from Release, swap, verify.
 - [x] ff981da pushed (money-freeze fixes); CI building — download new EXE from Release when green, swap (backup first), verify.
-- [ ] THIS TURN: boot-path ADB reconnect fix → tests → commit → CI build → download EXE → swap `C:\PharmFlow\PharmFlow.exe` (backup first) → relaunch → verify deck + farm.
+- [x] wizard-76 swapped + checksum-verified at `C:\PharmFlow\PharmFlow.exe` (sha 65429215…); deck+farm up.
+- [ ] **BLOCKER:** GitHub Actions budget exhausted — jobs fail with zero steps ("Actions budget is preventing further use"). Artifacts=0, runs pruned to 1. Deleting runs does **not** refund minutes. Need billing spend limit / minutes at https://github.com/settings/billing/summary before next EXE can ship with self-heal.
 - [ ] Standing gap: watchdog reaper doesn't reap tor-by-parent-death (by design — farm adopts via ControlPort). Manual cleanup used: kill tor.exe whose parent PID is dead AND cmdline temp-cfg matches `automation\tor\tmp*.cfg`.
-- [ ] GitHub artifact quota hit on big builds; Release assets unaffected (that's how we ship).
 
 ## Boot-path reconnect contract (this turn's fix)
 - `wizard/cpharm_wizard_bridge.py::boot_all_phones` — for every instance MuMu reports `started`:

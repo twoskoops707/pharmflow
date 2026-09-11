@@ -64,14 +64,15 @@ def _base_runtime() -> dict[str, str]:
         "CPHARM_FARM_PHONES": ",".join(names),
         "CPHARM_ADB_SERIALS": ",".join(serials),
         "CPHARM_FARM_BAN_SERIALS": ban_serials_csv(),
-        "CPHARM_FARM_PATH3_DAILY_CAP": "3000",
-        "CPHARM_PATH3_DAILY_CAP": "3000",
-        # $100/day needs ~200 registered clicks/day; the fleet was hitting the
-        # 18/hr ceiling ~35 min into every hour and idling the rest. 30/hr keeps
-        # headroom under the physical ~50/hr limit (7 phones × ~500s cycles).
-        "CPHARM_FARM_PATH3_PER_HOUR": "30",
-        "CPHARM_PATH3_PER_HOUR": "30",
-        "CPHARM_PATH3_CAP": "3000",
+        # Path3 / Allow-ads: OFF by default. Dash + wizard_farm_settings.json are
+        # authority (operator standing rule — never force Path3 on every phone).
+        # When the operator enables Path3 in the EXE, apply_saved_to_env /
+        # merge_runtime raise these; unison re-applies saved after apply_farm_env.
+        "CPHARM_FARM_PATH3_DAILY_CAP": "0",
+        "CPHARM_PATH3_DAILY_CAP": "0",
+        "CPHARM_FARM_PATH3_PER_HOUR": "0",
+        "CPHARM_PATH3_PER_HOUR": "0",
+        "CPHARM_PATH3_CAP": "0",
         "CPHARM_FARM_PATH3_PREEMPT_MIN": "2",
         "CPHARM_FARM_PATH3_GLOBAL_GAP_MIN": "0",
         "CPHARM_PATH3_GAP_MIN": "0",
@@ -81,18 +82,18 @@ def _base_runtime() -> dict[str, str]:
         "CPHARM_PREFER_PAYING": "1",
         "CPHARM_SSP_PREFER_PAYING": "1",
         "CPHARM_PATH3_REQUIRE_PAYING": "0",
-        "CPHARM_FARM_ALLOW_ADS": "1",
-        "CPHARM_ALLOW_ADS": "1",
-        "CPHARM_FARM_PATHS": "1,2,3",
-        "CPHARM_FARM_PATH3": "1",
-        "CPHARM_PATH3": "1",
-        "CPHARM_PATH3_ALLOW": "1",
+        "CPHARM_FARM_ALLOW_ADS": "0",
+        "CPHARM_ALLOW_ADS": "0",
+        "CPHARM_FARM_PATHS": "1,2",
+        "CPHARM_FARM_PATH3": "0",
+        "CPHARM_PATH3": "0",
+        "CPHARM_PATH3_ALLOW": "0",
         "CPHARM_FARM_UNIQUE_SEQ": "1",
         "CPHARM_FARM_IMMEDIATE_START": "1",
         "CPHARM_AUTOPILOT_PAUSE": "1",
         "CPHARM_FARM_STOP": "0",
-        "CPHARM_EMULATOR_AD_FALLBACK": "1",
-        "CPHARM_EMULATOR_AD_FORCE_DIRECT": "1",
+        "CPHARM_EMULATOR_AD_FALLBACK": "0",
+        "CPHARM_EMULATOR_AD_FORCE_DIRECT": "0",
         "CPHARM_SKIP_SEQUENCE_ISOLATION": "0",
         "CPHARM_FARM_START_STAGGER_WINDOW": "18",
         "CPHARM_FARM_START_STAGGER_BAND": "18",
@@ -236,20 +237,37 @@ def write_adb_serial_lock(
   *,
   log_dir: Path | None = None,
 ) -> None:
-    """Persist canonical phone→serial map (not override rails)."""
+    """Persist LIVE phone→serial map only (never full canonical empties/ghosts).
+
+    Writing CANONICAL_FARM_PHONES with blank serials re-poisoned ADB_SERIAL_MAP,
+    caused REWIRE storms, and killed bottom-ads inject pins. Money path requires
+    only currently live (name, serial) rows.
+    """
     log = log_dir or LOG_DIR
-    phones = dict(CANONICAL_FARM_PHONES)
+    phones: dict[str, str] = {}
     if live_by_name:
         for name, serial in live_by_name.items():
-            full = name if name.endswith(".gmadoa") else f"{name}.gmadoa"
-            if full in phones and serial:
-                phones[full] = serial
-    inject = {nm: 8218 + int(nm.split(".")[0][2:]) for nm in phones}
+            ser = str(serial or "").strip()
+            nm = str(name or "").strip()
+            if not ser or not nm:
+                continue
+            full = nm if nm.endswith(".gmadoa") else f"{nm}.gmadoa"
+            phones[full] = ser
+    if not phones:
+        # Refuse to wipe a good lock with an empty write — leave file alone.
+        return
+    inject: dict[str, int] = {}
+    for nm in phones:
+        try:
+            idx = int(nm.split(".", 1)[0][2:])
+        except (IndexError, ValueError):
+            continue
+        inject[nm] = 8218 + idx
     payload = {
         "phones": phones,
         "tablet": {},
         "inject": inject,
-        "note": "cpharm_farm_config_ssot",
+        "note": "live_only_money_lock",
         "updated": _utc(),
         "locked_at": _utc(),
     }

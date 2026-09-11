@@ -6,6 +6,7 @@ import queue
 import subprocess
 import sys
 import threading
+import time
 import tkinter as tk
 from pathlib import Path
 from typing import Any, Callable
@@ -223,6 +224,10 @@ _ready = threading.Event()
 _boot_error: str | None = None
 _call_queue: queue.Queue = queue.Queue()
 _boot_all_lock = threading.Lock()
+_boot_all_started_mono: float | None = None
+_boot_all_thread: threading.Thread | None = None
+_boot_all_cancel = threading.Event()
+_BOOT_LOCK_STALE_S = 600.0  # force-steal if boot worker hangs >10m (OPS_NOTES)
 _farm_start_lock = threading.Lock()
 _farm_starting = False
 _farm_start_result: dict[str, Any] = {}
@@ -1580,10 +1585,41 @@ def boot_all_phones() -> dict:
     any Tk window or page object. Runs in a daemon thread; per-phone progress
     streams to the deck's boot log via _emit_log("boot", …).
     """
-    if not _boot_all_lock.acquire(blocking=False):
-        return {"ok": False, "error": "Boot already in progress", "started": False}
+    global _boot_all_started_mono, _boot_all_thread
+
+    def _try_acquire_boot_lock() -> tuple[bool, str]:
+        """Acquire boot lock; force-steal if worker dead or hung > stale window."""
+        global _boot_all_started_mono
+        if _boot_all_lock.acquire(blocking=False):
+            return True, ""
+        thr = _boot_all_thread
+        thr_dead = thr is None or not thr.is_alive()
+        started = _boot_all_started_mono
+        age = (time.monotonic() - started) if started is not None else None
+        stale = age is not None and age >= _BOOT_LOCK_STALE_S
+        if not (thr_dead or stale):
+            return False, "Boot already in progress"
+        # Cancel the hung worker (it checks this between phones) then steal.
+        _boot_all_cancel.set()
+        try:
+            _boot_all_lock.release()
+        except RuntimeError:
+            pass
+        if not _boot_all_lock.acquire(blocking=False):
+            return False, "Boot already in progress"
+        why = "dead_thread" if thr_dead else f"stale_{int(age or 0)}s"
+        _emit_log("boot", f"BOOT LOCK stolen ({why}) — prior boot abandoned\n")
+        return True, why
+
+    got, steal_note = _try_acquire_boot_lock()
+    if not got:
+        return {"ok": False, "error": steal_note or "Boot already in progress", "started": False}
+
+    _boot_all_cancel.clear()
+    _boot_all_started_mono = time.monotonic()
 
     def work() -> None:
+        global _boot_all_started_mono
         import time as _time
 
         from setup_wizard import (
@@ -1612,6 +1648,9 @@ def boot_all_phones() -> dict:
             reconnected: list[str] = []
             failed: list[str] = []
             for inst in instances:
+                if _boot_all_cancel.is_set():
+                    log("BOOT CANCELLED — lock stolen by a newer boot request")
+                    break
                 idx = inst["index"]
                 name = inst["name"]
                 serial = inst["adb_serial"]
@@ -1623,6 +1662,8 @@ def boot_all_phones() -> dict:
                     up = False
                     reset = False
                     while True:
+                        if _boot_all_cancel.is_set():
+                            break
                         check = adb("shell", "echo", "ok", serial=serial, timeout=8)
                         if check.strip() == "ok":
                             up = True
@@ -1635,6 +1676,8 @@ def boot_all_phones() -> dict:
                             reset = True
                         adb("connect", serial, timeout=8)
                         _time.sleep(4)
+                    if _boot_all_cancel.is_set():
+                        break
                     if up:
                         log(f"{name}: ADB verified up ({serial})" + (" — reconnected" if reset else ""))
                         already.append(name)
@@ -1665,12 +1708,16 @@ def boot_all_phones() -> dict:
                 deadline = _time.time() + 180
                 up = False
                 while _time.time() < deadline:
+                    if _boot_all_cancel.is_set():
+                        break
                     _time.sleep(5)
                     adb("connect", serial, timeout=8)
                     check = adb("shell", "echo", "ok", serial=serial, timeout=8)
                     up = check.strip() == "ok"
                     if up:
                         break
+                if _boot_all_cancel.is_set():
+                    break
                 if up:
                     log(f"{name}: ADB up on {serial}")
                     booted.append(name)
@@ -1686,20 +1733,28 @@ def boot_all_phones() -> dict:
             log(f"BOOT FAILED: {exc}")
             _emit_log("boot", f"BOOT FAILED: {exc}\n")
         finally:
+            _boot_all_started_mono = None
             try:
                 _boot_all_lock.release()
             except RuntimeError:
                 pass
 
     try:
-        threading.Thread(target=work, daemon=True, name="boot-all-phones").start()
+        _boot_all_thread = threading.Thread(
+            target=work, daemon=True, name="boot-all-phones"
+        )
+        _boot_all_thread.start()
     except Exception as exc:  # noqa: BLE001
+        _boot_all_started_mono = None
         try:
             _boot_all_lock.release()
         except RuntimeError:
             pass
         return {"ok": False, "error": f"Could not start boot thread: {exc}", "started": False}
-    return {"ok": True, "started": True}
+    out: dict[str, Any] = {"ok": True, "started": True}
+    if steal_note:
+        out["lock_stolen"] = steal_note
+    return out
 
 
 def remove_group(index: int) -> dict:

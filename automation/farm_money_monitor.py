@@ -41,6 +41,11 @@ if str(ROOT) not in sys.path:
 
 import automation.no_window  # noqa: E402,F401  — hide adb consoles
 from automation import dabflow_mantis_client_patch as ssp_mod  # noqa: E402
+from automation.farm_exe_self_heal import (  # noqa: E402
+    _farm_lane_alive,
+    _inject_keepalive_alive,
+    heal_inject_and_tor,
+)
 from automation.farm_health_audit import apply_money_rails, behind_on_path3_clicks  # noqa: E402
 
 LOG = Path(r"C:\CPharm\logs")
@@ -70,9 +75,12 @@ FALLBACK_PHONE_PORTS: tuple[tuple[str, int, str], ...] = (
     ("10.0.2.124:5555", 8227, "vm9"),
 )
 PHONE_PORTS = FALLBACK_PHONE_PORTS
+# Absolute MuMu idx scheme: vmN → 8218+N (vm31 → 8249). Do not clamp the high
+# end — a stale 8231 ceiling skipped live inject ports and left reverse tunnels
+# pointing at dead listeners.
 _INJECT_LO = 8218
-_INJECT_HI = 8231
-_INJECT_SPAN = "14"
+_INJECT_HI = 8218 + 512
+_INJECT_SPAN = "live"
 
 DEFAULT_FLAT_MIN = 25.0  # minutes of flat $ while actives>0 → alert
 DEFAULT_TICK_S = 90.0
@@ -107,11 +115,14 @@ def live_phone_ports() -> list[tuple[str, int, str]]:
         rows = []
     out: list[tuple[str, int, str]] = []
     for name, serial, proxy in rows:
+        ser = (serial or "").strip()
+        if not ser:
+            continue
         try:
             port = int(str(proxy).rsplit(":", 1)[-1])
         except (TypeError, ValueError):
             continue
-        out.append((serial, port, name))
+        out.append((ser, port, name))
     return out
 
 
@@ -302,47 +313,43 @@ def ensure_watch_bottom_ads() -> list[str]:
     return fixes
 
 
+def _kill_roster_inject_proxies(fixes: list[str]) -> None:
+    """Kill standalone run_mantis_inject_proxies — roster poison when farm/keepalive owns inject."""
+    if psutil is None:
+        return
+    for proc in psutil.process_iter(["pid", "cmdline"]):
+        try:
+            cmd = " ".join(str(x) for x in (proc.info.get("cmdline") or []))
+        except (psutil.Error, TypeError, ValueError):
+            continue
+        if "run_mantis_inject_proxies.py" not in cmd:
+            continue
+        try:
+            proc.kill()
+            fixes.append(f"killed_roster_inject pid={proc.info.get('pid')}")
+        except (psutil.Error, OSError):
+            pass
+
+
 def soft_restart_inject_if_needed() -> list[str]:
     phones = live_phone_ports()
     ports = [p for _, p, _ in phones]
     if ports and all(_port_ok(p) for p in ports):
         return ["inject_listen_ok"]
     fixes = ["inject_ports_down → soft_restart"]
-    try:
-        import psutil
+    farm_alive = _farm_lane_alive()
+    keepalive_alive = _inject_keepalive_alive()
 
-        for proc in psutil.process_iter(["pid", "cmdline"]):
-            cmd = " ".join(proc.info.get("cmdline") or [])
-            if "run_mantis_inject" in cmd:
-                try:
-                    proc.kill()
-                    fixes.append(f"killed_inject pid={proc.info.get('pid')}")
-                except (psutil.Error, OSError):
-                    pass
-    except Exception:
-        pass
+    _kill_roster_inject_proxies(fixes)
     time.sleep(1.0)
-    try:
-        from automation.runtime_paths import helper_python as _hp
 
-        pyw = Path(_hp() or sys.executable)
-    except Exception:
-        pyw = Path(sys.executable)
-    script = ROOT / "scripts" / "run_mantis_inject_proxies.py"
-    try:
-        subprocess.Popen(
-            # --phones N = indices 0..N-1. vm10 uses index 10 → :8228.
-            [str(pyw if pyw.is_file() else sys.executable), "-u", str(script), "--phones", _INJECT_SPAN],
-            cwd=str(ROOT),
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            creationflags=int(getattr(subprocess, "CREATE_NO_WINDOW", 0) or 0),
-        )
-        time.sleep(3.5)
-        ok = all(_port_ok(p) for p in ports) if ports else False
-        fixes.append(f"inject_restarted listen_ok={ok}")
-    except OSError as exc:
-        fixes.append(f"inject_restart_fail:{exc}")
+    if farm_alive or keepalive_alive:
+        fixes.append("inject_owned_by_farm_or_keepalive")
+        fixes.extend(heal_inject_and_tor())
+        return fixes
+
+    # Neither farm nor keepalive — heal restores lock-map 8242+ inject via keepalive lane.
+    fixes.extend(heal_inject_and_tor())
     return fixes
 
 
@@ -393,8 +400,12 @@ def repin_all_inject() -> list[str]:
 def nudge_chromium_dabflow() -> list[str]:
     fixes: list[str] = []
     for serial, port, name in live_phone_ports():
+        ser = (serial or "").strip()
+        if not ser:
+            fixes.append(f"skip_am_start {name} empty_serial")
+            continue
         out = _adb(
-            serial,
+            ser,
             "shell",
             "am",
             "start",

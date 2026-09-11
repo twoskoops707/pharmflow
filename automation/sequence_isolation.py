@@ -188,17 +188,24 @@ def _apply_fresh_geo(adb: Any, serial: str) -> GeoLocale:
 def _force_unique_exit_ip(farm: Any, phone: str, phone_idx: int, serial: str) -> Any:
     """Always rotate until exit IP changes — env cannot disable this.
 
-    Retry count comes from CPHARM_UNIQUE_EXIT_IP_RETRIES (default 2). Hardcoding
-    12 NEWNYM loops was turning 4–5 min Path3 into 30–45 min wall clock.
+    Retry count from CPHARM_UNIQUE_EXIT_IP_RETRIES (farm default 12). Floor
+    scales with concurrent phones so 8-phone collision pools don't exhaust
+    a hard cap of 4 (that caused ~46% isolate fails on vm30/vm31).
     """
     if hasattr(farm, "setup_tor"):
         farm.setup_tor(phone)
     try:
-        max_retries = max(1, int(os.environ.get("CPHARM_UNIQUE_EXIT_IP_RETRIES") or "2"))
+        max_retries = max(1, int(os.environ.get("CPHARM_UNIQUE_EXIT_IP_RETRIES") or "12"))
     except (TypeError, ValueError):
-        max_retries = 2
-    # Cap hard — never allow the old 12-retry storm even if env is mis-set.
-    max_retries = min(max_retries, 4)
+        max_retries = 12
+    try:
+        active = len(getattr(farm, "instances", None) or {}) or 0
+    except Exception:
+        active = 0
+    if active <= 0:
+        active = 8
+    # Collision pool grows with farm size — give NEWNYM more chances.
+    max_retries = max(max_retries, 4 + (active // 2))
     # Call rotate_until_unique_ip directly so require_unique_exit_ip() env is irrelevant.
     ip_result = farm.tor.rotate_until_unique_ip(
         phone_idx,
@@ -375,7 +382,15 @@ def _best_effort_imei(
 
 
 def isolation_skip_allowed() -> bool:
-    """Live farm never skips isolation. Demo/verify scripts may set the skip env."""
+    """Live farm / EXE-owned stack never skips isolation.
+
+    Demo/verify scripts may set CPHARM_SKIP_SEQUENCE_ISOLATION only when they
+    are NOT live farm (ALLOW_SEQUENCE_RUNS off) and not EXE/unison owned.
+    """
+    if os.environ.get("CPHARM_EXE_OWNED_FARM", "").strip() in ("1", "true", "yes"):
+        return False
+    if os.environ.get("CPHARM_UNISON_MODE", "").strip() in ("1", "true", "yes"):
+        return False
     skip = os.environ.get("CPHARM_SKIP_SEQUENCE_ISOLATION", "").strip().lower() in (
         "1",
         "true",
@@ -475,7 +490,10 @@ def isolate_before_sequence(
             preferred_package=preferred_browser,
         ):
             report.errors.append("browser clear incomplete")
+            raise RuntimeError("isolation browser clear incomplete")
     except Exception as exc:
+        if "browser clear incomplete" in str(exc):
+            raise
         report.errors.append(f"browser clear: {exc}")
         raise RuntimeError(report.errors[-1]) from exc
 
@@ -605,7 +623,7 @@ def isolate_before_sequence(
         ready[phone] = False
         raise RuntimeError(f"isolation guest proxy pin failed: {exc}") from exc
 
-    # 6) New IMEI + serial (best effort + tracked) — align MuMu PhoneProp with scramble
+    # 6) New IMEI + serial — required every sequence (operator standing rule)
     try:
         report.imei, report.device_serial = _best_effort_imei(
             farm,
@@ -615,10 +633,11 @@ def isolate_before_sequence(
             brand=report.browser_brand or getattr(profile, "brand", "") or "",
             user_agent=getattr(profile, "user_agent", "") or "",
         )
+        if not (report.imei or "").strip():
+            raise RuntimeError("IMEI empty after apply_fingerprint")
     except Exception as exc:
         report.errors.append(f"imei: {exc}")
-        logger.warning("[%s] IMEI isolation soft-fail: %s", phone, exc)
-        report.imei = generate_imei()
+        raise RuntimeError(f"isolation IMEI failed: {exc}") from exc
 
     # 7) Bring sequence browser to dabflow FG — do not leave Lawnchair after isolate OK.
     try:

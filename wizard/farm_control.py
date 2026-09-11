@@ -58,6 +58,20 @@ _STOP_FARM_NEEDLES = (
     "cpharm_stealth_guard.py",
     "farm_watchdog.py",
     "agent_unison_freebuff_loop.py",
+    "agent_unison_freebuff_tick.py",
+    "adb_bond_keeper.py",
+    "farm_money_monitor.py",
+    "watch_bottom_ads.py",
+    "ssp_paying_hunter.py",
+    "cpharm_watchdog.py",
+    "ensure_farm_24x7.py",
+    "keep_farm_alive.py",
+    "farm_remediate_loop.py",
+    "farm_health_monitor.py",
+    "_fix_tor_inject",
+    "_money_arm_inject",
+    "run_mantis_inject_proxies.py",
+    "cpharm_inject_keepalive.py",
 )
 _helper_procs: dict[str, subprocess.Popen[Any]] = {}
 _helper_threads: dict[str, threading.Thread] = {}
@@ -613,10 +627,9 @@ def apply_profile_farm_env(profile: SiteProfile | None) -> None:
     os.environ.setdefault("CPHARM_BROWSE_PROXY_MODE", "scramble")
     os.environ["CPHARM_REQUIRE_UNIQUE_EXIT_IP"] = "1"
     os.environ["CPHARM_NEVER_SHARE_EXIT_IP"] = "1"
-    os.environ.setdefault("CPHARM_FARM_PATHS", "1,2,3")
-    os.environ.setdefault("CPHARM_FARM_PATH3", "1")
-    os.environ.setdefault("CPHARM_PATH3", "1")
-    os.environ.setdefault("CPHARM_FARM_ALLOW_ADS", "1")
+    # Paths / Path3 / Allow-ads: NEVER force ON here. Operator file + dash
+    # (wizard_farm_settings.json / apply_saved_to_env) are authority. Unset =
+    # Path1/2 only (_farm_paths default "1,2", _ads_allowed default off).
     os.environ.setdefault("CPHARM_FARM_UNIQUE_SEQ", "1")
     # Unique-seq Path1/2 needs dedicated stems per browser — sticky must not lock chromium-only.
     os.environ["CPHARM_FARM_CHROMIUM_ONLY"] = "0"
@@ -624,14 +637,16 @@ def apply_profile_farm_env(profile: SiteProfile | None) -> None:
     os.environ["CPHARM_FARM_PATH3_BROWSERS"] = PATH3_BROWSERS
     _persist_multi_browser_sticky()
     os.environ.setdefault("CPHARM_SITE_SLUG", "dabflow")
-    os.environ.setdefault("CPHARM_SKIP_SEQUENCE_ISOLATION", "0")
+    # Force isolation every sequence — dash must not leave skip=1 sticky.
+    os.environ["CPHARM_SKIP_SEQUENCE_ISOLATION"] = "0"
+    os.environ["CPHARM_ALLOW_SEQUENCE_RUNS"] = "1"
     # MITM inject: billing_direct + prefer-paying (no house fallback) live in
     # automation.mantis_inject_proxy / dabflow_mantis_client_patch — keep ON.
     os.environ.setdefault("CPHARM_MANTIS_INJECT_PROXY", "1")
     os.environ.setdefault("CPHARM_MANTIS_INJECT_MITM", "1")
-    os.environ.setdefault("CPHARM_MANTIS_BILLING_DIRECT", "1")
-    # AP DOWN by default so EXE Start cannot fight sticky Path3/ads.
-    os.environ.setdefault("CPHARM_AUTOPILOT_PAUSE", "1")
+    os.environ.setdefault("CPHARM_MANTIS_BILLING_DIRECT", "0")
+    # Autopilot: honor operator/dash only — do not force pause/sticky Path3 fights.
+    os.environ.setdefault("CPHARM_AUTOPILOT_PAUSE", "0")
     os.environ.setdefault("CPHARM_GEO_TIME_WINDOW", "1")
     os.environ.setdefault("CPHARM_GEO_WINDOW_START", "09:30")
     os.environ.setdefault("CPHARM_GEO_WINDOW_END", "00:00")
@@ -843,6 +858,16 @@ def start_farm(
                 _log(f"Applied {applied} wizard farm setting(s)", "ok")
         except Exception as exc:
             _log(f"apply wizard farm settings failed: {exc}", "warn")
+        # EXE self-heal BEFORE lanes arm: seed tor.exe, prune ghost serial maps,
+        # adb-connect live MuMu guests. Standing rule — no external band-aids.
+        try:
+            from automation.farm_exe_self_heal import run_self_heal
+
+            heal = run_self_heal(reason="start_farm")
+            for note in (heal.get("fixes") or [])[:12]:
+                _log(f"self-heal: {note}", "ok")
+        except Exception as exc:
+            _log(f"self-heal failed (continuing): {exc}", "warn")
         os.environ["CPHARM_FARM_STOP"] = "0"
         helper_py = _resolve_helper_python()
         # Prefer real pythonw workers; only use in-process farm when frozen w/o python.

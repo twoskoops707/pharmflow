@@ -48,13 +48,13 @@ from automation.browse_proxy import (  # noqa: E402
     remember_browser_package,
     resolve_browser_package,
 )
+from automation.mumu_shell_cli import phone_vm_index  # noqa: E402
 from automation.tor_manager import TorManager  # noqa: E402
 
 INTERVAL = float(os.environ.get("CPHARM_PROXY_WATCH_INTERVAL", "3") or "3")
 HEARTBEAT = Path(r"C:\CPharm\logs\proxy_watch_heartbeat.txt")
-# MuMu indices are not packed 0..N-1 (live farm uses 1,2,3,4 = vm11/vm3/vm4/vm5).
-# Cap must cover highest index we inject for (8218+idx); was 4 and skipped vm5 (idx=4).
-_MAX_PHONE = int(os.environ.get("CPHARM_PROXY_WATCH_MAX_INDEX", "16") or "16")
+# Absolute MuMu idx (vm24 → 24 → inject 8242). Never clamp to a packed roster.
+_MAX_PHONE = int(os.environ.get("CPHARM_PROXY_WATCH_MAX_INDEX", "512") or "512")
 
 
 def _is_cleared(proxy: str) -> bool:
@@ -63,11 +63,10 @@ def _is_cleared(proxy: str) -> bool:
 
 
 def _map(adb: AdbWrapper) -> dict[int, str]:
-    """Live MuMu serials only — never trust stale hardcoded 10.0.2.x fallbacks.
+    """Live MuMu serials keyed by absolute vmN index (not packed roster 0..N-1).
 
-    Indexes are MuMu VM indices (not packed 0..N-1). Live money-day set is
-    typically idx 1/2/3/4 (vm11/vm3/vm4/vm5) — must include idx>=4 so vm5
-    inject 8222 is watched.
+    Roster enumerate(live[:4]) → 8218..8221 must never run on a vm24–vm31 farm.
+    Prefer lock-map inject keys; fall back to phone_vm_index(name).
     """
     out: dict[int, str] = {}
     try:
@@ -76,15 +75,38 @@ def _map(adb: AdbWrapper) -> dict[int, str]:
         farm = MuMuFarmOps()
         farm.refresh_serials()
         for inst in farm.list_instances():
-            if inst.adb_serial and inst.index is not None and 0 <= int(inst.index) < _MAX_PHONE:
-                out[int(inst.index)] = str(inst.adb_serial)
+            if not inst.adb_serial:
+                continue
+            name = str(getattr(inst, "name", "") or "")
+            idx = phone_vm_index(name, int(getattr(inst, "index", 0) or 0))
+            if idx is None:
+                continue
+            idx_i = int(idx)
+            if 0 <= idx_i < _MAX_PHONE:
+                out[idx_i] = str(inst.adb_serial)
     except Exception as exc:
         print(f"map err {exc}", flush=True)
-    # If MuMu enumeration failed, fall back to live ADB order (best-effort).
-    if len(out) < 4:
-        live = [d.serial for d in adb.devices_detailed() if d.online]
-        for i, ser in enumerate(sorted(live)[:4]):
-            out.setdefault(i, ser)
+    if out:
+        return out
+    # Lock-map fallback: absolute ports already baked as 8218+vmN.
+    try:
+        lock_path = Path(os.environ.get("CPHARM_LOG_DIR", r"C:\CPharm\logs")) / "ADB_SERIAL_MAP.lock.json"
+        if lock_path.is_file():
+            import json
+
+            lock = json.loads(lock_path.read_text(encoding="utf-8"))
+            phones = lock.get("phones") if isinstance(lock, dict) else None
+            if isinstance(phones, dict):
+                live = {d.serial for d in adb.devices_detailed() if d.online}
+                for name, serial in phones.items():
+                    ser = str(serial or "").strip()
+                    if ser not in live:
+                        continue
+                    idx = phone_vm_index(str(name), None)
+                    if idx is not None and 0 <= int(idx) < _MAX_PHONE:
+                        out[int(idx)] = ser
+    except Exception as exc:
+        print(f"lock map err {exc}", flush=True)
     return out
 
 

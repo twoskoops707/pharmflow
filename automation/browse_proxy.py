@@ -471,7 +471,7 @@ def restore_inject_after_identity(
             for inj_try in range(max(1, int(attempts))):
                 try:
                     info = ensure_inject_for_phone(
-                        adb, ser, idx, install_ca=False
+                        adb, ser, idx, install_ca=True
                     )
                     endpoint = (info.get("endpoint") or "").strip()
                     if info.get("ok") and guest_proxy_healthy(endpoint, idx):
@@ -573,7 +573,7 @@ def pin_guest_proxy(
                 # inject is armed without a trusted CA on the guest.
                 from automation.mantis_inject_proxy import ensure_inject_for_phone
 
-                ensure_inject_for_phone(adb, ser, idx, install_ca=False)
+                ensure_inject_for_phone(adb, ser, idx, install_ca=True)
                 # CRITICAL: verify adb reverse tunnel exists -- ADB restarts destroy them
                 from automation.mantis_inject_proxy import verify_reverse_tunnel
                 if not verify_reverse_tunnel(adb, ser, want_port):

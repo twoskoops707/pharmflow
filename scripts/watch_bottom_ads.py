@@ -317,13 +317,33 @@ def _open_dabflow_chromium(serial: str) -> str:
     return f"am_start_dabflow {serial} ({msg})"
 
 
+def _lock_inject_ports() -> list[int]:
+    """Ports from live lock map — never assume 8218–8222."""
+    return sorted({int(p) for _, p, _ in _phones_from_lock() if int(p) > 0})
+
+
+def _farm_owns_inject() -> bool:
+    try:
+        from automation.process_scan import pids_for_script
+
+        return bool(pids_for_script("run_farm_354.py"))
+    except Exception:
+        return False
+
+
 def _soft_restart_inject() -> str:
+    """Never spawn roster inject while farm owns absolute ports (8242+)."""
     global _INJECT_SOFT_RESTART_AT
+    ports = _lock_inject_ports()
+    if not ports:
+        return "inject_restart_skipped_no_lock_ports"
+    if _farm_owns_inject():
+        ok = all(_port_listening(p) for p in ports)
+        return f"inject_farm_owned listen_ok={ok} ports={ports[0]}-{ports[-1]}"
     now = time.time()
     if now - _INJECT_SOFT_RESTART_AT < 180.0:
         return "inject_restart_skipped_cooldown"
     _INJECT_SOFT_RESTART_AT = now
-    # Kill existing inject listeners on 8218-8222 owners gently via taskkill pattern.
     try:
         from automation.process_scan import kill_matching
 
@@ -331,7 +351,6 @@ def _soft_restart_inject() -> str:
     except Exception:
         pass
     time.sleep(1.5)
-    # Helper interpreter + repo root derived at runtime (portable EXE contract).
     pyw = None
     try:
         from automation.runtime_paths import helper_python
@@ -340,19 +359,13 @@ def _soft_restart_inject() -> str:
     except Exception:
         pyw = None
     pyw = pyw or sys.executable
-    # Run the injector from the live code tree (bundle root), never a stale
-    # checkout copy — a stale injector lacks the current Tor/reverse fixes.
     root = Path(__file__).resolve().parents[1]
     script = root / "scripts" / "run_mantis_inject_proxies.py"
-    try:
-        from automation.farm_phone_discover import inject_listener_count
-
-        inject_n = str(max(11, int(inject_listener_count())))
-    except Exception:
-        inject_n = "11"
+    # Absolute scheme: need span covering max vm index (vm31 → 8249 needs ≥32).
+    max_idx = max((p - 8218) for p in ports) + 1
+    inject_n = str(max(max_idx, len(ports), 8))
     try:
         subprocess.Popen(
-            # --phones N = indices 0..N-1. vm10 → :8228 needs N>=11.
             [str(pyw), "-u", str(script), "--phones", inject_n],
             cwd=str(root),
             stdout=subprocess.DEVNULL,
@@ -362,8 +375,8 @@ def _soft_restart_inject() -> str:
     except OSError as exc:
         return f"inject_restart_fail:{exc}"
     time.sleep(3.5)
-    ok = all(_port_listening(p) for p in (8218, 8219, 8220, 8221, 8222, 8223))
-    return f"inject_soft_restart listen_ok={ok}"
+    ok = all(_port_listening(p) for p in ports)
+    return f"inject_soft_restart listen_ok={ok} ports={ports[0]}-{ports[-1]}"
 
 
 def probe_phone(serial: str, port: int, name: str, *, farm_active: bool = False) -> dict:
@@ -459,10 +472,11 @@ def remediate(phones: list[dict], chromium_ok: int, chromium_total: int, actives
         if fixes:
             return fixes
         return [f"skip_ui_rearm farm_active actives={actives}"]
-    ports_ok = all(_port_listening(p) for _, p, _ in _phones_from_lock())
-    if not ports_ok or not all(_port_listening(p) for p in (8218, 8219, 8220, 8221, 8222)):
+    lock_ports = _lock_inject_ports()
+    ports_ok = bool(lock_ports) and all(_port_listening(p) for p in lock_ports)
+    if not ports_ok:
         fixes.append(_soft_restart_inject())
-        ports_ok = all(_port_listening(p) for p in (8218, 8219, 8220, 8221, 8222))
+        ports_ok = bool(lock_ports) and all(_port_listening(p) for p in lock_ports)
 
     chromium_fg = sum(1 for p in phones if p.get("chromium_fg"))
     # Push toward 4+/5 Chromium FG for BOTTOM_ADS (Brave/Opera don't count).
@@ -551,7 +565,7 @@ def _write_honest(payload: dict, fixes: list[str], actives: int, stagger: str, u
         f"bottom_ads: {payload.get('bottom_ads_chromium_ok')}/{payload.get('bottom_ads_chromium_total')} "
         f"visible={payload.get('bottom_ads_visible')} missing={payload.get('bottom_ads_missing')}",
         f"stagger/unique: {stagger}",
-        f"inject_listen: {all(_port_listening(p) for p in (8218, 8219, 8220, 8221, 8222))}",
+        f"inject_listen: {all(_port_listening(p) for p in (_lock_inject_ports() or list(range(8242, 8250))))}",
         f"alert: {payload.get('alert')}",
         f"money_honest_file: {MONEY_HONEST.name}",
         "phones:",

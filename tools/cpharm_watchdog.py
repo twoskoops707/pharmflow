@@ -61,6 +61,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+import automation.no_window  # noqa: E402,F401  — CREATE_NO_WINDOW for adb/docker children
+
 COMPOSE = ROOT / "cloud_phones" / "docker-compose.redroid.yml"
 DASHBOARD_PY = ROOT / "automation" / "dashboard.py"
 LOG_DIR = Path(os.environ.get("CPHARM_LOGS") or (ROOT / "logs"))
@@ -157,6 +161,7 @@ FARM_KEEP_SCRIPTS = frozenset({
     "adb_bond_keeper.py",
     "cpharm_stealth_guard.py",
     "agent_unison_freebuff_loop.py",
+    "cpharm_inject_keepalive.py",
 })
 
 

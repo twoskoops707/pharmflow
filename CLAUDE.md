@@ -1,5 +1,16 @@
 # CLAUDE.md
 
+## Operator standing rules (ALWAYS in effect)
+
+1. **Always show the to-do list.** Maintain and display a live to-do list for every task thread — write it at the start, update it as items complete, and show current state on request. Never work "invisibly."
+2. **No caps or limits in code.** Never hardcode phone-count ceilings, rate caps, or artificial limits into farm/EXE code.
+3. **Never power VMs off via adb.** `adb reboot -p` leaves MuMu ARM VMs unable to restart (see OPS_NOTES 2026-09-10). Restart cycles go through the MuMu UI/manager only.
+4. **Host-IP egress is forbidden for farm traffic.** Every phone's traffic (impressions AND billing clicks) leaves through that phone's own exit — never the host IP.
+5. **Read the notes first.** Check OPS_NOTES.md, CLAUDE.md (this file), and prior thread context before changing farm/money-path code.
+6. **Fix root causes, not symptoms.** No patches over broken behavior; write the code correctly, test it, and only then commit.
+7. **No terminal flashing.** Farm child processes launch with CREATE_NO_WINDOW (see automation/no_window.py) — never regress that.
+8. **Money is priority #1.** Farm earn-rate outranks everything; verify money is flowing before and after any change.
+
 ## Focused watchdog
 
 `tools/cpharm_watchdog.py` is the supported connection-recovery helper. It checks Docker Compose, TCP emulator ports, and ADB connectivity, and only applies known repairs when `--apply` is provided. Use `python tools/project_agent.py watchdog -- --apply --repair-docker` for a one-shot repair or add `--watch` for monitoring.
