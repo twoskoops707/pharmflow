@@ -57,6 +57,82 @@ _SSP_FETCH_UA = (
 # Cross-process handoff: hunter runs out-of-process; in-memory _store_ssp_ads
 # never reaches farm workers. Persist paying creatives here for farm load.
 _SSP_PAYING_FILL_PATH = Path(r"C:\CPharm\logs\ssp_paying_fill.json")
+# Inject proxy publishes each phone's real browser fingerprint here; the host
+# SSP fetches below adopt it so Mantis serves the paying tier. Measured
+# 2026-09-11: bare urllib UA → paying=0 (bot tier) on every round, while the
+# same probe with phone client hints → paying=4. Without this the hunter's
+# bare probes saw only mantis-bot fill (utm_source=mantis-bot) for hours.
+_CLIENT_HINTS_PUBLISH_PATH = Path(r"C:\CPharm\logs\client_hints_by_phone.json")
+_CLIENT_HINTS_CACHE: tuple[float, dict[str, dict[str, str]]] = (0.0, {})
+_CLIENT_HINTS_LOCK = threading.Lock()
+
+
+def _load_client_hints(max_age_s: float = 600.0) -> dict[str, str] | None:
+    """Latest published phone client hints, or None when stale/missing.
+
+    The inject proxy refreshes the publish file as phones boot (its per-phone
+    updater stamps ``updated``), so mtime freshness is liveness proof — a stale
+    file falls back to the plain host UA rather than poisoning every fetch.
+    """
+    global _CLIENT_HINTS_CACHE
+    with _CLIENT_HINTS_LOCK:
+        cached_at, cached = _CLIENT_HINTS_CACHE
+    now = time.time()
+    if cached and now - cached_at < 30.0:
+        return dict(cached)
+    try:
+        raw = _CLIENT_HINTS_PUBLISH_PATH.read_text(encoding="utf-8-sig")
+        if now - _CLIENT_HINTS_PUBLISH_PATH.stat().st_mtime > max_age_s:
+            return None
+        data = json.loads(raw)
+    except (OSError, json.JSONDecodeError, ValueError):
+        return None
+    for row in (data or {}).values():
+        if isinstance(row, dict) and str(row.get("user_agent") or ""):
+            row["_src"] = str(row.get("updated") or 0.0)
+    best = max(
+        (r for r in (data or {}).values() if isinstance(r, dict) and r.get("user_agent")),
+        key=lambda r: float(r.get("_src") or 0.0),
+        default=None,
+    )
+    if not best:
+        return None
+    hints = {
+        "user_agent": str(best.get("user_agent") or ""),
+        "sec-ch-ua": str(best.get("sec_ch_ua") or ""),
+        "sec-ch-ua-mobile": str(best.get("sec_ch_ua_mobile") or "?1"),
+        "sec-ch-ua-platform": str(best.get("sec_ch_ua_platform") or "\"Android\""),
+        "sec-ch-ua-platform-version": str(best.get("sec_ch_ua_platform_version") or ""),
+        "sec-ch-ua-model": str(best.get("sec_ch_ua_model") or ""),
+        "sec-ch-ua-full-version-list": str(best.get("sec_ch_ua_full_version_list") or ""),
+    }
+    with _CLIENT_HINTS_LOCK:
+        _CLIENT_HINTS_CACHE = (now, hints)
+    return dict(hints)
+
+
+def _ssp_browser_headers() -> dict[str, str]:
+    """Host SSP headers shaped like the phones' real browser requests.
+
+    Falls back to the static mobile UA when the inject proxy has not published
+    hints yet (fresh install / phones down) — never returns an empty UA.
+    """
+    hints = _load_client_hints()
+    if not hints or not hints.get("user_agent"):
+        return {"User-Agent": _SSP_FETCH_UA}
+    headers = {"User-Agent": hints["user_agent"]}
+    for key in (
+        "sec-ch-ua",
+        "sec-ch-ua-mobile",
+        "sec-ch-ua-platform",
+        "sec-ch-ua-platform-version",
+        "sec-ch-ua-model",
+        "sec-ch-ua-full-version-list",
+    ):
+        val = (hints.get(key) or "").strip()
+        if val:
+            headers[key] = val
+    return headers
 # Wall-clock age of the *original* hunter write. Must NOT be refreshed on ingest
 # or the same creative is replayed forever while live SSP is house-only.
 _SSP_PAYING_FILL_MAX_AGE_S = 120.0
@@ -525,14 +601,24 @@ def prefetch_ssp_ads_prefer_paying(
             tor_ports = [upstream_tor_port(idx) for idx in (22, 23, 24, 25, 26, 27, 29)]
         except Exception:
             tor_ports = []
-        if ssp_ads_paying_count(ads) == 0 and i >= 2:
-            tor_port = tor_ports[i % len(tor_ports)] if tor_ports else 8118 + (i % 6)
+        # Probe through a real phone Tor lane every round: browser-shaped
+        # headers now travel on the Tor leg too (``fetch_ssp_display_ads_via_tor``
+        # adopts ``_ssp_browser_headers()``), and the phone exits are the tier
+        # Mantis actually serves paying fill to. Host-direct stays in the loop
+        # for redundancy — measured 2026-09-11: host-direct bare probes returned
+        # mantis-bot fill for hours while phone-exit probes got paying tier.
+        if ssp_ads_paying_count(ads) == 0 and tor_ports:
+            tor_port = tor_ports[i % len(tor_ports)]
             try:
                 via_tor = fetch_ssp_display_ads_via_tor(
                     tor_http_port=tor_port, timezone=tz, timeout=10.0
                 )
                 if via_tor:
                     ads = via_tor
+            except Exception as exc:
+                logger.debug(
+                    "SSP prefer-paying tor:%s soft-fail: %s", tor_port, exc
+                )
             except Exception as exc:
                 logger.debug(
                     "SSP prefer-paying tor:%s soft-fail: %s", tor_port, exc
@@ -1527,10 +1613,7 @@ def fetch_ssp_display_ads(
     req = urllib.request.Request(
         MANTIS_SSP_DISPLAY,
         data=json.dumps(body).encode("utf-8"),
-        headers={
-            "Content-Type": "text/plain",
-            "User-Agent": _SSP_FETCH_UA,
-        },
+        headers={**_ssp_browser_headers(), "Content-Type": "text/plain"},
     )
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         data = json.loads(resp.read().decode("utf-8"))
@@ -1566,11 +1649,17 @@ def fetch_ssp_display_ads_via_tor(
         ctx = ssl.create_default_context()
         tls = ctx.wrap_socket(raw, server_hostname=host)
         raw = None  # ownership transferred
-        req = (
-            f"POST /display HTTP/1.1\r\nHost: {host}\r\nContent-Type: text/plain\r\n"
-            f"Content-Length: {len(body)}\r\nUser-Agent: {_SSP_FETCH_UA}\r\n"
-            f"Connection: close\r\n\r\n"
-        ).encode() + body
+        tor_headers = _ssp_browser_headers()
+        header_lines = [f"POST /display HTTP/1.1", f"Host: {host}", "Content-Type: text/plain"]
+        for hk, hv in tor_headers.items():
+            header_lines.append(f"{hk}: {hv}")
+        header_lines += [
+            f"Content-Length: {len(body)}",
+            "Connection: close",
+            "",
+            "",
+        ]
+        req = "\r\n".join(header_lines).encode() + body
         tls.sendall(req)
         data = b""
         while True:

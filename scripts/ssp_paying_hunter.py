@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import socket
 import sys
 import time
 from pathlib import Path
@@ -54,14 +55,74 @@ def _hb(msg: str) -> None:
         pass
 
 
-def _newnym_all(tor: TorManager) -> int:
-    ok = 0
-    for idx in range(6):
+def _live_tor_control_ports() -> list[int]:
+    """ControlPorts of every running tor.exe, parsed from its own torrc.
+
+    Ground truth: each live ``tor.exe -f ...torrc`` command line names the file
+    that carries the lane's real ``ControlPort``. This is generation-proof —
+    port bases shift per boot, but the running process always knows its own
+    config. Sockets that fail to connect are dropped, so dead entries in
+    torrcs never count.
+    """
+    import psutil
+    import re as _re
+
+    ports: set[int] = set()
+    for proc in psutil.process_iter(["name", "cmdline"]):
         try:
-            if tor._control_newnym(idx):
-                ok += 1
-        except Exception:
-            pass
+            if (proc.info.get("name") or "").lower() != "tor.exe":
+                continue
+            argv = proc.info.get("cmdline") or []
+            if "-f" not in argv:
+                continue
+            torrc = Path(str(argv[argv.index("-f") + 1]))
+            if not torrc.is_file():
+                continue
+            m = _re.search(
+                r"^ControlPort\s+\S*?(\d+)$",
+                torrc.read_text(encoding="utf-8", errors="replace"),
+                _re.MULTILINE,
+            )
+            if m:
+                ports.add(int(m.group(1)))
+        except (psutil.Error, OSError, ValueError, IndexError):
+            continue
+    alive: list[int] = []
+    for port in sorted(ports):
+        try:
+            with socket.create_connection(("127.0.0.1", port), timeout=1.5):
+                alive.append(port)
+        except OSError:
+            continue
+    return alive
+
+
+def _signal_newnym_port(port: int) -> bool:
+    """AUTHENTICATE + SIGNAL NEWNYM on a bare control port (blank-cookie lanes)."""
+    try:
+        with socket.create_connection(("127.0.0.1", port), timeout=5.0) as sock:
+            sock.sendall(b'AUTHENTICATE ""\r\n')
+            auth = sock.recv(256).decode("utf-8", errors="replace")
+            if "250" not in auth:
+                sock.sendall(b"AUTHENTICATE\r\n")
+                auth = sock.recv(256).decode("utf-8", errors="replace")
+            if "250" not in auth:
+                return False
+            sock.sendall(b"SIGNAL NEWNYM\r\n")
+            resp = sock.recv(256).decode("utf-8", errors="replace")
+            return "250" in resp
+    except OSError:
+        return False
+
+
+def _newnym_all(tor: TorManager) -> int:
+    # Rotate every live Tor lane (ground-truth discovery above). The old code
+    # dialed fixed indices/ports for lanes that did not exist in this process,
+    # so NEWNYM reported 0 and probes hammered Mantis from the same exit IP.
+    ok = 0
+    for port in _live_tor_control_ports():
+        if _signal_newnym_port(port):
+            ok += 1
     return ok
 
 
