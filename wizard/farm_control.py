@@ -410,9 +410,9 @@ def _farm_heartbeat_alive() -> bool | None:
 
 def external_python_farm_running() -> bool:
     """True when FamFlow python money-path farm/cycles are already alive."""
-    hb = _farm_heartbeat_alive()
-    if hb is not None:
-        return hb
+    # Positive heartbeat only — stale log must not short-circuit process scan.
+    if _farm_heartbeat_alive() is True:
+        return True
     try:
         import psutil
     except ImportError:
@@ -469,26 +469,55 @@ def stop_external_python_farm(
 
 
 def farm_running() -> bool:
-    """True if unison supervisor or farm worker is alive."""
-    hb = _farm_heartbeat_alive()
-    if hb is not None:
-        return hb
+    """True if unison supervisor or farm worker is alive.
+
+    Heartbeat files are a fast *positive* signal only. A stale farm_354.log
+    must not override live processes — Start Farm was spawning unison then
+    immediately reporting \"Farm stack failed to arm\" because an old log made
+    ``_farm_heartbeat_alive()`` return False before any PID check ran.
+    """
+    if _farm_heartbeat_alive() is True:
+        return True
     with _farm_lock:
         if _farm_proc is not None and _farm_proc.poll() is None:
             return True
         if _farm_thread is not None and _farm_thread.is_alive():
             return True
-    # In-process / owned-child unison counts — start_farm never sets _farm_proc.
+    # Owned child or on-bus unison/farm counts even when heartbeat is stale.
     if _helper_already_alive("cpharm_unison_supervisor.py"):
+        return True
+    if _helper_already_alive("run_farm_354.py"):
         return True
     try:
         from automation.cpharm_unison_dedupe import pids_for_script
 
         if pids_for_script("cpharm_unison_supervisor.py"):
             return True
+        if pids_for_script("run_farm_354.py"):
+            return True
     except ImportError:
         pass
     return external_python_farm_running()
+
+
+def _wait_farm_armed(
+    *,
+    log: Callable[[str, str], None] | None = None,
+    timeout_s: float = 20.0,
+) -> bool:
+    """Poll until unison/farm is visible after ensure_operator_stack."""
+
+    def _log(msg: str, level: str = "ok") -> None:
+        if log:
+            log(msg, level)
+
+    deadline = time.time() + max(1.0, float(timeout_s))
+    while time.time() < deadline:
+        if farm_running():
+            return True
+        time.sleep(0.4)
+    _log("Farm arm wait timed out", "err")
+    return False
 
 
 def _kill_farm_stack(*, log: Callable[[str, str], None] | None = None) -> list[int]:
@@ -876,7 +905,7 @@ def start_farm(
         os.environ["CPHARM_UNISON_MODE"] = "1"
         # Unison owns farm + stealth + watchdog — do not also spawn run_farm_354 here.
         ensure_operator_stack(log=log)
-        if not farm_running():
+        if not _wait_farm_armed(log=log, timeout_s=20.0):
             _log("Farm stack failed to arm (unison/helpers not alive)", "err")
             clear_exe_owned()
             return False
