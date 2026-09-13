@@ -93,7 +93,7 @@ class FarmControlTests(unittest.TestCase):
             apply_profile_farm_env(None)
             self.assertEqual(os.environ["CPHARM_MANTIS_BILLING_DIRECT"], "1")
             self.assertEqual(os.environ["CPHARM_MANTIS_INJECT_PROXY"], "1")
-            self.assertEqual(os.environ["CPHARM_MANTIS_INJECT_MITM"], "1")
+            self.assertEqual(os.environ["CPHARM_MANTIS_INJECT_MITM"], "0")
             self.assertEqual(os.environ["CPHARM_FARM_PATH3"], "1")
             self.assertEqual(os.environ["CPHARM_PATH3"], "1")
             self.assertEqual(os.environ["CPHARM_FARM_UNIQUE_SEQ"], "1")
