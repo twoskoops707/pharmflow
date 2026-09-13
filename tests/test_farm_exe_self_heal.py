@@ -238,3 +238,89 @@ def test_reap_process_storm_dedupes_keepalive() -> None:
     kept_hits = [f for f in would if ":400:" in str(f)]
     assert dup_hits, f"older keepalive should be reaped: {would}"
     assert not kept_hits, f"newest keepalive must survive: {would}"
+
+
+def test_heal_restores_slot_tor_and_does_not_claim_async_warm(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Supervisor tick must start slot HTTP tunnels and report them still down."""
+    log = tmp_path / "logs"
+    log.mkdir()
+    serial_map = log / "ADB_SERIAL_MAP.lock.json"
+    serial_map.write_text(
+        json.dumps(
+            {
+                "phones": {
+                    "vm39.gmadoa": "10.0.2.10:5555",
+                    "vm40.gmadoa": "10.0.2.11:5555",
+                },
+                "inject": {"vm39.gmadoa": 8257, "vm40.gmadoa": 8258},
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(heal, "LOG", log)
+    monkeypatch.setattr(heal, "SERIAL_MAP", serial_map)
+    monkeypatch.setattr(heal, "RELOAD_FLAG", log / "FARM_RELOAD_FARM.flag")
+    monkeypatch.setattr(heal, "ensure_tor_binary", lambda: ["tor_present"])
+    monkeypatch.setattr(heal, "_port_open", lambda port, timeout=0.4: False)
+    monkeypatch.setattr(heal, "_farm_lane_alive", lambda: True)
+    monkeypatch.setattr(heal, "_current_process_is_farm", lambda: False)
+    monkeypatch.setattr(heal, "_inject_keepalive_alive", lambda: True)
+    monkeypatch.setattr(heal, "adb_live_serials", lambda: [])
+    monkeypatch.setattr(heal, "_ensure_inject_keepalive_process", lambda **_k: ["inject_keepalive_already"])
+
+    seen: dict[str, object] = {}
+
+    def fake_restore(slots: list[int]) -> dict:
+        seen["slots"] = list(slots)
+        return {
+            "http_base": 8118,
+            "restored": [],
+            "started": [],
+            "bootstrapping": [],
+            "still_dead": list(slots),
+            "errors": ["slot=0:RuntimeError:tor missing"],
+        }
+
+    def fake_start(idxs: list[int]) -> list:
+        seen["inject_idxs"] = list(idxs)
+        return []
+
+    monkeypatch.setattr(
+        "automation.tor_manager.restore_tor_http_for_slots",
+        fake_restore,
+    )
+    monkeypatch.setattr(
+        "automation.mantis_inject_proxy.start_inject_proxies",
+        fake_start,
+    )
+
+    fixes = heal.heal_inject_and_tor(live=[])
+    text = "\n".join(str(f) for f in fixes)
+    assert seen["slots"] == [0, 1], seen
+    assert seen["inject_idxs"] == [39, 40], seen
+    assert "tor_warm_async" not in text
+    assert "tor_warm_skipped" not in text
+    assert "inject_inproc_skipped" not in text
+    assert "tor_listeners_ok" not in text
+    assert "tor_listeners_not_restored" in text
+    assert "inject_restore_failed" in text
+    assert "inject_guest_pin_skipped adb_empty" in text
+
+
+def test_ensure_inject_not_ok_when_listener_down(monkeypatch) -> None:
+    from automation.mantis_inject_proxy import ensure_inject_for_phone
+
+    monkeypatch.setattr(
+        "automation.mantis_inject_proxy.start_inject_proxies",
+        lambda _idxs: [],
+    )
+    monkeypatch.setattr(
+        "automation.mantis_inject_proxy.inject_port_open",
+        lambda _port, timeout=0.35: False,
+    )
+    info = ensure_inject_for_phone(object(), "10.0.2.10:5555", 39, install_ca=True)
+    assert info.get("ok") is False
+    assert info.get("error") == "inject_listener_down"
+    assert info.get("port") == 8257

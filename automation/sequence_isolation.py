@@ -667,7 +667,10 @@ def isolate_before_sequence(
         logger.warning("[%s] post-isolate FG soft-fail: %s", phone, exc)
 
     ready[phone] = True
-    report.ok = True
+    # Unique exit is required. Cookie/IMEI still raise. A reused Tor exit must
+    # not be logged as isolated; do not raise here — that starved open_url
+    # while NEWNYM was stuck. The NEWNYM cookie auth is the rotation fix.
+    report.ok = bool(report.ip_changed and report.ip_after)
     logger.info("[%s] %s", phone, report.log_line())
     logging.getLogger("farm_354").info("[%s] %s", phone, report.log_line())
     _append_isolation_jsonl(report)

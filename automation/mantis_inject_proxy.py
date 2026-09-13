@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import select
 import socket
 import ssl
@@ -80,6 +81,15 @@ def phone_inject_port(phone_index: int) -> int:
     return INJECT_BASE + int(phone_index)
 
 
+def inject_port_open(port: int, timeout: float = 0.35) -> bool:
+    """True when the host inject listener actually accepts TCP."""
+    try:
+        with socket.create_connection(("127.0.0.1", int(port)), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+
 def mitm_enabled() -> bool:
     """MITM HTML inject — needs trusted CA on the phone (farm arms with ca=True).
 
@@ -99,15 +109,68 @@ def upstream_mode() -> str:
     return (os.environ.get("CPHARM_MANTIS_INJECT_UPSTREAM") or "tor").strip().lower()
 
 
+def _slot_from_env(phone_index: int) -> int | None:
+    """Slot map the farm owner exports at arm time (CPHARM_INJECT_SLOT_MAP).
+
+    JSON object {"<absolute idx>": <slot>}. The farm knows its live fleet, so
+    this is the authoritative mapping — file-based roster scans are a fallback
+    and can be re-polluted by rescans mid-flight.
+    """
+    raw = os.environ.get("CPHARM_INJECT_SLOT_MAP") or ""
+    if not raw.strip():
+        return None
+    try:
+        m = json.loads(raw)
+        val = m.get(str(int(phone_index)))
+        return int(val) if val is not None else None
+    except Exception:
+        return None
+
+
+def _fleet_slot(phone_index: int) -> int | None:
+    """Roster slot for a phone: its position among the LIVE vm fleet.
+
+    Slot = absolute index minus the fleet's minimum live index (the historical
+    working scheme: vm27 = Tor base + roster slot). Sources, in order: the
+    live rows of ADB_SERIAL_MAP.lock.json, then cpharm_config.json. Returns
+    None when the phone is not on the live roster or the roster has no vm rows.
+    """
+    idx = int(phone_index)
+    from pathlib import Path
+
+    logs_dir = Path(
+        os.environ.get("CPHARM_LOGS") or os.environ.get("CPHARM_LOG_DIR") or r"C:\CPharm\logs"
+    )
+    names: list[str] = []
+    try:
+        data = json.loads((logs_dir / "ADB_SERIAL_MAP.lock.json").read_text(encoding="utf-8"))
+        names = [str(k) for k, v in dict(data.get("phones") or {}).items() if str(v or "").strip()]
+    except Exception:
+        names = []
+    if not names:
+        try:
+            cfg = json.loads((logs_dir.parent / "cpharm_config.json").read_text(encoding="utf-8"))
+            names = [str(x) for x in (cfg.get("phones") or [])]
+        except Exception:
+            names = []
+    if not names:
+        return None
+    idxs = sorted(int(m.group(1)) for n in names if (m := re.match(r"^vm(\d+)\.", n)))
+    if not idxs or idx not in idxs:
+        return None
+    return idxs.index(idx)
+
+
 def upstream_tor_port(phone_index: int) -> int:
     """Host Tor HTTPTunnelPort this phone's traffic must dial upstream.
 
-    Tor lanes listen at the **runtime-shifted** HTTP base + the phone's absolute
-    index (vm22 → base+22). The base auto-shifts per boot, so resolve it live
-    from tor_manager when we share its process; otherwise read the bases file
-    the Tor owner broadcasts at spawn. Never dial the raw config constant: the
-    shift means ``8118 + idx`` is usually nobody — that bug presented as total
-    phone internet loss while every Tor lane sat on shifted ports.
+    Tor lanes are prewarmed for a contiguous SLOT range (0..N-1) at the runtime
+    HTTP base. Dialing ``base + absolute_index`` only works when slot 0 is
+    live; with vm39-47 as the fleet it produced 8118+39=8157 — nobody listening
+    — 10061 TLS storm + fleet-wide dead internet (2026-09-13 incident). The
+    base is resolved live from the Tor owner's broadcast file; the SLOT is
+    resolved from the live roster (idx - min live idx). Unmapped phones keep
+    the legacy absolute behavior rather than risk sharing another lane.
     """
     idx = int(phone_index)
     # 1) Broadcast file first: the Tor-owning process heartbeats it while its
@@ -115,7 +178,6 @@ def upstream_tor_port(phone_index: int) -> int:
     #    in-process tor_manager import here would compute *this* process's own
     #    shifted base — correct only when we own the lanes.
     try:
-        import json
         from pathlib import Path
 
         state = Path(
@@ -125,6 +187,11 @@ def upstream_tor_port(phone_index: int) -> int:
         if time.time() - float(data.get("ts") or 0) < 120:
             base = int(data.get("http_base") or 0)
             if base > 0:
+                slot = _slot_from_env(idx)
+                if slot is None:
+                    slot = _fleet_slot(idx)
+                if slot is not None:
+                    return base + slot
                 return base + idx
     except Exception:
         pass
@@ -615,19 +682,23 @@ class MantisInjectProxy:
         try:
             self._sock.bind(("127.0.0.1", self.listen_port))
         except OSError as exc:
-            # Another process (usually farm_354) already owns inject — adopt it.
             try:
                 self._sock.close()
             except OSError:
                 pass
             self._sock = None
-            logger.info(
-                "Mantis inject proxy phone=%d port %d already bound — adopting existing listener (%s)",
-                self.phone_index,
-                self.listen_port,
-                exc,
-            )
-            return
+            # Bind failure is an adopt only when something is actually
+            # accepting. A dead/half socket used to be treated as success and
+            # the heal tick reported the phone armed.
+            if inject_port_open(self.listen_port):
+                logger.info(
+                    "Mantis inject proxy phone=%d port %d already bound — adopting existing listener (%s)",
+                    self.phone_index,
+                    self.listen_port,
+                    exc,
+                )
+                return
+            raise
         self._sock.listen(64)
         self._sock.settimeout(1.0)
         self._thread = threading.Thread(
@@ -945,11 +1016,38 @@ def start_inject_proxies(phone_indices: list[int] | None = None) -> list[MantisI
     out: list[MantisInjectProxy] = []
     with _LOCK:
         for i in idxs:
-            if i in _PROXIES:
-                out.append(_PROXIES[i])
+            existing = _PROXIES.get(i)
+            if existing is not None and inject_port_open(existing.listen_port):
+                out.append(existing)
                 continue
+            if existing is not None:
+                try:
+                    existing.stop()
+                except Exception:
+                    pass
+                _PROXIES.pop(i, None)
             p = MantisInjectProxy(i)
-            p.start()
+            try:
+                p.start()
+            except OSError as exc:
+                logger.warning(
+                    "inject listen failed phone=%s port=%s: %s",
+                    i,
+                    p.listen_port,
+                    exc,
+                )
+                continue
+            if not inject_port_open(p.listen_port):
+                logger.warning(
+                    "inject not accepting phone=%s port=%s after start",
+                    i,
+                    p.listen_port,
+                )
+                try:
+                    p.stop()
+                except Exception:
+                    pass
+                continue
             _PROXIES[i] = p
             out.append(p)
     _ensure_stats_publisher()
@@ -1001,6 +1099,33 @@ def point_phone_at_inject(adb: object, serial: str, phone_index: int) -> str:
     adb.set_http_proxy("127.0.0.1", port, serial=serial)  # type: ignore[attr-defined]
     return f"127.0.0.1:{port}"
 
+def _device_has_inject_ca(adb: object, serial: str) -> bool:
+    """True when the guest already trusts the inject CA (fast probe, no reinstall)."""
+    try:
+        from pathlib import Path
+
+        from automation.mantis_inject_ca import android_cacert_hash
+        from cryptography import x509
+
+        cert_path = Path(r"C:\CPharm\certs\mantis_inject\ca.cert.pem")
+        if not cert_path.is_file():
+            return False
+        cert = x509.load_pem_x509_certificate(cert_path.read_bytes())
+        name = f"{android_cacert_hash(cert)}.0"
+    except Exception:
+        return False
+    try:
+        verify = adb.shell(  # type: ignore[attr-defined]
+            f"test -f /system/etc/security/cacerts/{name} && echo PRESENT "
+            f"|| test -f /apex/com.android.conscrypt/cacerts/{name} && echo PRESENT",
+            serial=serial,
+            timeout=8,
+        )
+        return "PRESENT" in (getattr(verify, "stdout", "") or "")
+    except Exception:
+        return False
+
+
 def ensure_inject_for_phone(
     adb: object,
     serial: str,
@@ -1008,20 +1133,76 @@ def ensure_inject_for_phone(
     *,
     install_ca: bool = True,
 ) -> dict:
+    """Bind the inject listener, pin the guest, and (by default) install the CA.
+
+    ``ok`` is True only when the listener accepts and, if ``install_ca``, the
+    CA is on the guest. A swallowed exception used to return ``ok: True`` with
+    a dead port — the heal tick then thought the phone was armed.
+    ``install_ca`` stays True by default (CERTIFICATE_UNKNOWN root cause).
+    """
+    port = phone_inject_port(phone_index)
     if not inject_enabled():
-        return {"skipped": True, "reason": "disabled"}
-    start_inject_proxies([phone_index])
+        return {
+            "ok": False,
+            "skipped": True,
+            "reason": "disabled",
+            "ca_installed": False,
+            "port": port,
+        }
+    try:
+        start_inject_proxies([phone_index])
+    except Exception as exc:
+        logger.warning(
+            "inject start failed serial=%s phone=%s: %s", serial, phone_index, exc
+        )
+        return {
+            "ok": False,
+            "endpoint": "",
+            "ca_installed": False,
+            "port": port,
+            "error": f"start:{exc}",
+        }
+    listening = inject_port_open(port)
     ca_ok = True
     if install_ca:
-        try:
-            ca_ok = _ca()[1](adb, serial)  # install_ca_on_device — lazy import
-        except Exception as exc:
-            logger.warning("CA install failed serial=%s: %s", serial, exc)
-            ca_ok = False
-    endpoint = point_phone_at_inject(adb, serial, phone_index)
+        if _device_has_inject_ca(adb, serial):
+            ca_ok = True
+        else:
+            try:
+                ca_ok = bool(_ca()[1](adb, serial))  # install_ca_on_device — lazy import
+            except Exception as exc:
+                logger.warning("CA install failed serial=%s: %s", serial, exc)
+                ca_ok = False
+    if not listening:
+        return {
+            "ok": False,
+            "endpoint": "",
+            "ca_installed": ca_ok,
+            "port": port,
+            "error": "inject_listener_down",
+        }
+    try:
+        endpoint = point_phone_at_inject(adb, serial, phone_index)
+    except Exception as exc:
+        logger.warning("inject pin failed serial=%s: %s", serial, exc)
+        return {
+            "ok": False,
+            "endpoint": "",
+            "ca_installed": ca_ok,
+            "port": port,
+            "error": f"pin:{exc}",
+        }
+    if install_ca and not ca_ok:
+        return {
+            "ok": False,
+            "endpoint": endpoint,
+            "ca_installed": False,
+            "port": port,
+            "error": "ca_install_failed",
+        }
     return {
         "ok": True,
         "endpoint": endpoint,
         "ca_installed": ca_ok,
-        "port": phone_inject_port(phone_index),
+        "port": port,
     }

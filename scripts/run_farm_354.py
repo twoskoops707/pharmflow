@@ -93,7 +93,10 @@ os.environ.setdefault("CPHARM_EMULATOR_AD_FALLBACK", "0")
 # Inject stays ON; Path3/ads only when dash/wizard enables them.
 os.environ["CPHARM_MANTIS_INJECT_PROXY"] = "1"
 os.environ["CPHARM_MANTIS_INJECT_MITM"] = "1"
-os.environ["CPHARM_MANTIS_BILLING_DIRECT"] = "0"
+# Operator-controllable: FARM_OPERATIONS_MANUAL / 2026-08-21 money contract —
+# clicks (~$0.50 each) only register with billing_direct=True (Tor exits get
+# HTTP 406 from Mantis). Wizard settings carry the value; default stays 0.
+os.environ["CPHARM_MANTIS_BILLING_DIRECT"] = os.environ.get("CPHARM_MANTIS_BILLING_DIRECT") or "0"
 # Do NOT setdefault ALLOW_ADS=1 / PATHS=1,2,3 — that kept Path3 constantly on.
 # Unset → _ads_allowed() false, _farm_paths() = {1,2}.
 os.environ.setdefault("CPHARM_FARM_SEQS_PER_HOUR", "15")
@@ -134,7 +137,16 @@ from automation.sequence_paths import discover_sequence_files
 from automation.sequence_runner import Sequence, SequenceRunner
 from automation.browser_apk_catalog import ensure_missing_farm_browsers_on_serials
 from wizard.mumu_farm_ops import MuMuFarmOps
-from wizard.wizard_paths import logs_dir, sequences_dir
+from wizard.wizard_paths import (
+    bind_live_phone_entries,
+    groups_config_path,
+    is_nested_recordings_path,
+    load_groups_list,
+    logs_dir,
+    phone_entry_steps,
+    resolve_playlist_ref,
+    sequences_dir,
+)
 
 logger = logging.getLogger("farm_354")
 
@@ -402,6 +414,14 @@ def _ensure_farm_inject(farm: object, online: list[tuple[str, int]]) -> None:
     idxs = sorted({int(idx) for _name, idx in online if int(idx) >= 0})
     if not idxs:
         return
+    # Export the slot map BEFORE arming: Tor lanes are prewarmed for slots
+    # 0..N-1 at the runtime HTTP base, so each phone's inject upstream must
+    # dial base + (idx - min idx). Absolute dialing (39 -> 8157) killed the
+    # whole fleet's upstream on 2026-09-13. The keepalive child inherits this
+    # env too, so adopted lanes resolve identically.
+    os.environ["CPHARM_INJECT_SLOT_MAP"] = json.dumps(
+        {str(i): pos for pos, i in enumerate(idxs)}, separators=(",", ":")
+    )
     started = start_inject_proxies(idxs)
     logger.info("INJECT farm-owned listeners n=%s idxs=%s", len(started), idxs)
     adb_bin = None
@@ -1530,7 +1550,62 @@ def _is_generic_site_path(path: Path) -> bool:
 
 def _sequence_root() -> Path:
     configured = os.environ.get("CPHARM_FARM_SEQUENCE_ROOT", "").strip()
-    return Path(configured) if configured else sequences_dir()
+    if configured:
+        path = Path(configured)
+        if not is_nested_recordings_path(path):
+            return path
+        logger.warning("ignoring nested sequence root %s", path)
+    return sequences_dir()
+
+
+def _playlist_files_for_serials(live_serials: list[str]) -> tuple[list[Path], list[str]]:
+    """Bind each live ADB serial to its groups playlist. Never invent phones.
+
+    Empty serials are skipped. If ADB has no serials, return no files — boot
+    stays blocked on HNS rather than a fabricated roster.
+    """
+    cfg, groups = load_groups_list(groups_config_path())
+    if not live_serials:
+        return [], [
+            f"ADB empty — not inventing phones; groups={cfg} boot blocked on HNS"
+        ]
+    def _accepts(path: Path) -> bool:
+        return _preflight(path, strict=True) is None
+
+    bound = bind_live_phone_entries(groups, live_serials)
+    files: list[Path] = []
+    seen: set[str] = set()
+    notes: list[str] = [f"groups={cfg} live={len(live_serials)} bound={len(bound)}"]
+    for serial, ent, source in bound:
+        refs: list[str] = []
+        for field in ("sequence_playlist", "sequence_playlist_secondary"):
+            raw = ent.get(field)
+            if isinstance(raw, list):
+                refs.extend(str(item).strip() for item in raw if str(item).strip())
+        resolved: list[str] = []
+        misses: list[str] = []
+        for ref in refs:
+            path = resolve_playlist_ref(ref, accept=_accepts)
+            if path is None:
+                misses.append(ref)
+                continue
+            resolved.append(path.name)
+            token = str(path.resolve()).lower()
+            if token not in seen:
+                seen.add(token)
+                files.append(path)
+        via = f" via {source}" if source != serial else ""
+        if not resolved:
+            why = "no v3 file passed preflight"
+            if misses:
+                why = f"{why} ({'; '.join(misses)})"
+            notes.append(f"{serial}{via} FAIL {why}")
+            continue
+        notes.append(
+            f"{serial}{via} steps={len(phone_entry_steps(ent, serial))} "
+            f"playlist={len(refs)} v3={len(resolved)} {', '.join(resolved)}"
+        )
+    return files, notes
 
 
 def _used_stems_path() -> Path:
@@ -2168,7 +2243,11 @@ def _pick(
     point the pool's pass resets. Ad (Path 3) sequences stay random but never
     repeat the same file concurrently (identity lock) or back-to-back farm-wide.
     """
-    if _ads_allowed() and pools.get("ad"):
+    # Pool selection follows the PER-SLOT want_ads flag, not the global ads
+    # switch. _ads_allowed() alone made every pick draw from the ad pool even
+    # on normal visit slots; the Path3 farm-cap guard then refused them all →
+    # 24×None → "no unique sequence available" → phones idle (2026-09-13).
+    if want_ads and _ads_allowed() and pools.get("ad"):
         candidates = list(pools["ad"])
         # Never the same ad file back-to-back across the whole farm.
         if last_ad and last_ad[0]:
@@ -3519,7 +3598,28 @@ def main() -> int:
 
     seq_root = _sequence_root()
     files = discover_sequence_files(seq_root)
-    logger.info("sequence root=%s site=%s", seq_root, os.environ.get("CPHARM_SITE_SLUG", "dabflow"))
+    live_serials: list[str] = []
+    for name, _idx in online:
+        inst = farm.get_phone(name)
+        ser = str(getattr(inst, "adb_serial", "") or "").strip() if inst else ""
+        if ser:
+            live_serials.append(ser)
+    playlist_files, playlist_notes = _playlist_files_for_serials(live_serials)
+    if playlist_files:
+        have = {str(path.resolve()).lower() for path in files}
+        for path in playlist_files:
+            token = str(path.resolve()).lower()
+            if token not in have:
+                files.append(path)
+                have.add(token)
+    logger.info(
+        "sequence root=%s groups=%s site=%s",
+        seq_root,
+        groups_config_path(),
+        os.environ.get("CPHARM_SITE_SLUG", "dabflow"),
+    )
+    for note in playlist_notes:
+        logger.info("playlist %s", note)
     pools = _classify(files)
     logger.info(
         "farm mode paths=%s ads_allowed=%s pacing=daily_visits÷hours_left "

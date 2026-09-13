@@ -1576,6 +1576,45 @@ def open_groups_manager() -> dict:
     return {"ok": True, "deck": "teams"}
 
 
+def _boot_serial_usable(serial: str) -> bool:
+    """True when ``serial`` is a published guest endpoint, not an empty or localhost stub."""
+    s = (serial or "").strip()
+    if not s or ":" not in s:
+        return False
+    # MuMu ARM does not publish the classic 127.0.0.1:16xxx ports. Connecting
+    # those (or calling adb with no -s) is the broken connector, not the guest.
+    if s.startswith("127.0.0.1:"):
+        return False
+    return True
+
+
+def _boot_serial_from_fleet(fleet: Any, name: str, idx: int) -> str:
+    """state.json AdbHost:AdbPort for this VM. Empty when the guest has not published one."""
+    if fleet is None:
+        return ""
+    try:
+        names = fleet.canonical_names_sorted()
+        serials = dict(zip(names, fleet.canonical_serials_sorted()))
+    except Exception:
+        return ""
+    keys = [str(name or ""), f"vm{int(idx)}.gmadoa", f"vm{int(idx)}"]
+    for key in keys:
+        got = str(serials.get(key) or "").strip()
+        if _boot_serial_usable(got):
+            return got
+    prefix = f"vm{int(idx)}."
+    for vm_name, raw in serials.items():
+        if str(vm_name).lower().startswith(prefix) and _boot_serial_usable(str(raw)):
+            return str(raw).strip()
+    return ""
+
+
+def _resolve_boot_serial(name: str, idx: int, current: str, fleet: Any) -> str:
+    if _boot_serial_usable(current):
+        return str(current).strip()
+    return _boot_serial_from_fleet(fleet, name, idx)
+
+
 def boot_all_phones() -> dict:
     """Boot every stopped MuMu ARM phone and wait for ADB — headless, no Tk.
 
@@ -1633,60 +1672,184 @@ def boot_all_phones() -> dict:
             _emit_log("boot", msg if msg.endswith("\n") else msg + "\n")
 
         try:
-            mgr = _find_mumu_manager()
-            if not mgr:
-                log("MuMu manager tool not found — install MuMuPlayer ARM first.")
-                _emit_log("boot", "BOOT FAILED: no manager\n")
-                return
-            instances = _mumu_get_instances(mgr, log_fn=log)
+            instances: list[dict[str, Any]] = []
+            mgr = None
+            try:
+                mgr = _find_mumu_manager()
+                if mgr:
+                    instances = _mumu_get_instances(mgr, log_fn=log) or []
+            except Exception as exc:  # noqa: BLE001 — fall through to disk fleet
+                log(f"MuMu manager discovery failed ({exc}) — using disk fleet instead.")
+                mgr = None
+            cli_fleet = None
+            cli_launch = None
+            if not instances:
+                # This MuMuPlayerARM build ships NO CLI manager — the only
+                # "Manager.exe" present is the GUI app
+                # (nemux-shell-winui.Manager.exe), which must never be
+                # executed (it opens the MuMu window). Enumerate the canonical
+                # fleet from the vms\ folder instead and launch every instance
+                # through the farm's proven shell launcher
+                # (automation.mumu_shell_cli.launch_instance_index: auth-token
+                # harvest from running shells + bare --VmIndex fallback), the
+                # same mechanism that farmed vm10 successfully.
+                try:
+                    from automation import farm_canonical_phones as _fcp
+                    from automation import mumu_shell_cli as _msc
+                except Exception as exc:
+                    log(f"BOOT FAILED: no MuMu manager and fleet helpers unavailable: {exc}")
+                    _emit_log("boot", "BOOT FAILED: no manager\n")
+                    return
+                cli_fleet = _fcp
+                cli_launch = _msc
+                names = _fcp.canonical_names_sorted()
+                serials = dict(zip(names, _fcp.canonical_serials_sorted()))
+                for name in names:
+                    if not name.lower().startswith("vm") or _fcp.is_banned_phone(name):
+                        continue
+                    idx = int(name[2:].split(".", 1)[0])
+                    instances.append(
+                        {
+                            "index": idx,
+                            "name": name,
+                            "adb_serial": serials.get(name, ""),
+                            "started": _msc.instance_shell_running(idx),
+                        }
+                    )
             if not instances:
                 log("No MuMu instances found — open MuMu once so it creates its VMs.")
                 _emit_log("boot", "BOOT FAILED: no instances\n")
                 return
+            # Serial overlay applies on the manager path too. Disk-fleet
+            # fallback above is unchanged; this only fills empty/localhost
+            # serials from state.json so adb is never called without -s.
+            _fleet_mod = cli_fleet
+            if _fleet_mod is None:
+                try:
+                    from automation import farm_canonical_phones as _fleet_mod
+                except Exception as exc:
+                    log(
+                        f"disk-fleet serial overlay unavailable ({exc}) — "
+                        "will not adb without a published guest serial"
+                    )
+                    _fleet_mod = None
+            try:
+                from automation import mumu_shell_cli as _player
+            except Exception as exc:
+                _player = cli_launch
+                if _player is None:
+                    log(f"player-show unavailable ({exc})")
             booted: list[str] = []
             already: list[str] = []
             reconnected: list[str] = []
+            windowless: list[str] = []
             failed: list[str] = []
             for inst in instances:
                 if _boot_all_cancel.is_set():
                     log("BOOT CANCELLED — lock stolen by a newer boot request")
                     break
-                idx = inst["index"]
                 name = inst["name"]
-                serial = inst["adb_serial"]
-                if inst.get("started"):
-                    # Running per MuMu ≠ ADB-reachable. Re-verify every running
-                    # phone; hard-reset the transport when it answers dead so a
-                    # wedged VM never gets skipped as "already running".
+                try:
+                    idx = int(inst["index"])
+                except (TypeError, ValueError, KeyError):
+                    log(f"{name}: bad instance index {inst.get('index')!r}")
+                    failed.append(name)
+                    continue
+                serial = _resolve_boot_serial(
+                    name, idx, str(inst.get("adb_serial") or ""), _fleet_mod
+                )
+
+                def _shell_up(_idx: int = idx) -> bool:
+                    if _player is None:
+                        return False
+                    try:
+                        return bool(_player.instance_shell_running(_idx))
+                    except Exception:
+                        return False
+
+                def _show_player(_idx: int = idx, _name: str = name) -> bool:
+                    if _player is None:
+                        return False
+                    try:
+                        if _player.player_window_visible(_idx):
+                            return True
+                        ok_show, note = _player.show_instance_player(_idx)
+                        if note:
+                            log(f"{_name}: {note}")
+                        return bool(ok_show) or bool(_player.player_window_visible(_idx))
+                    except Exception as exc:
+                        log(f"{_name}: player show failed: {exc}")
+                        return False
+
+                if _shell_up():
+                    # Live shell: show the player in place, then reconnect ADB.
+                    # Do not spawn a second shell (that can replace the VM) and
+                    # do not count a windowless process as a visible player.
+                    visible = _show_player()
                     deadline = _time.time() + 45
                     up = False
                     reset = False
+                    missing_serial_logged = False
                     while True:
                         if _boot_all_cancel.is_set():
                             break
-                        check = adb("shell", "echo", "ok", serial=serial, timeout=8)
-                        if check.strip() == "ok":
-                            up = True
-                            break
+                        if not _boot_serial_usable(serial):
+                            serial = _resolve_boot_serial(name, idx, "", _fleet_mod)
+                        if _boot_serial_usable(serial):
+                            check = adb("shell", "echo", "ok", serial=serial, timeout=8)
+                            if check.strip() == "ok":
+                                up = True
+                                break
                         if _time.time() >= deadline:
                             break
-                        if not reset:
-                            log(f"{name}: ADB dead on running VM — resetting transport ({serial})")
-                            adb("disconnect", serial, timeout=8)
-                            reset = True
-                        adb("connect", serial, timeout=8)
+                        if not _boot_serial_usable(serial):
+                            if not missing_serial_logged:
+                                log(
+                                    f"{name}: shell running, AdbHost not published — "
+                                    "not calling adb without a serial"
+                                )
+                                missing_serial_logged = True
+                        else:
+                            if not reset:
+                                log(
+                                    f"{name}: ADB dead on running VM — "
+                                    f"resetting transport ({serial})"
+                                )
+                                adb("disconnect", serial, timeout=8)
+                                reset = True
+                            adb("connect", serial, timeout=8)
                         _time.sleep(4)
                     if _boot_all_cancel.is_set():
                         break
-                    if up:
-                        log(f"{name}: ADB verified up ({serial})" + (" — reconnected" if reset else ""))
+                    if not visible:
+                        visible = _show_player()
+                    if up and visible:
+                        log(
+                            f"{name}: ADB verified up ({serial})"
+                            + (" — reconnected" if reset else "")
+                            + " (player visible)"
+                        )
                         already.append(name)
                         if reset:
                             reconnected.append(name)
                         continue
-                    log(f"{name}: running but no ADB after transport reset — moving on")
+                    if up and not visible:
+                        log(
+                            f"{name}: ADB up on {serial} but player window missing — "
+                            "not a visible player (VM left running)"
+                        )
+                        windowless.append(name)
+                        if reset:
+                            reconnected.append(name)
+                        continue
+                    log(
+                        f"{name}: running but no ADB after transport reset — "
+                        "VM left running (HNS NIC attach may still be wedged)"
+                    )
                     failed.append(name)
                     continue
+                if inst.get("started") and not _shell_up():
+                    log(f"{name}: marked started but shell is not running — launching")
                 # Scaling-plan gate: never launch the next VM into a starved
                 # host. Host-health gate only — no phone-count cap; if the
                 # host can absorb another phone, the boot continues.
@@ -1698,36 +1861,81 @@ def boot_all_phones() -> dict:
                     failed.append(name)
                     continue
                 log(f"{name}: launching (instance {idx})…")
+                launch_ok = False
                 try:
-                    _mumu_launch(mgr, idx, log_fn=None)
+                    if cli_launch is not None:
+                        launch_ok, note = cli_launch.launch_instance_index(idx, timeout=120.0)
+                        log(f"{name}: {note}")
+                    else:
+                        launch_ok = bool(_mumu_launch(mgr, idx, log_fn=log))
+                        log(f"{name}: launch returned {launch_ok}")
                 except Exception as exc:  # noqa: BLE001 — keep booting the rest
                     log(f"{name}: launch failed: {exc}")
                     failed.append(name)
                     continue
+                shell_after = _shell_up()
+                if not launch_ok and not shell_after:
+                    failed.append(name)
+                    continue
+                if not launch_ok and shell_after:
+                    log(
+                        f"{name}: shell running without a visible player — "
+                        "reconnecting ADB; not a visible player until the window is up"
+                    )
                 _time.sleep(2)
                 deadline = _time.time() + 180
                 up = False
+                target = serial if _boot_serial_usable(serial) else ""
+                missing_serial_logged = False
                 while _time.time() < deadline:
                     if _boot_all_cancel.is_set():
                         break
-                    _time.sleep(5)
-                    adb("connect", serial, timeout=8)
-                    check = adb("shell", "echo", "ok", serial=serial, timeout=8)
-                    up = check.strip() == "ok"
+                    if not _boot_serial_usable(target):
+                        # Guest publishes AdbHost only after the shell registers.
+                        # Re-read state.json. Never adb -s "".
+                        target = _resolve_boot_serial(name, idx, "", _fleet_mod)
+                    if _boot_serial_usable(target):
+                        adb("connect", target, timeout=8)
+                        check = adb("shell", "echo", "ok", serial=target, timeout=8)
+                        up = check.strip() == "ok"
+                    elif not missing_serial_logged:
+                        log(
+                            f"{name}: waiting for AdbHost in state.json — "
+                            "not calling adb without a serial"
+                        )
+                        missing_serial_logged = True
                     if up:
                         break
+                    _time.sleep(5)
                 if _boot_all_cancel.is_set():
                     break
-                if up:
-                    log(f"{name}: ADB up on {serial}")
+                visible = _show_player()
+                if up and visible:
+                    log(f"{name}: ADB up on {target} (player visible)")
                     booted.append(name)
+                elif up:
+                    log(
+                        f"{name}: ADB up on {target} but player window missing — "
+                        "not a visible player (VM left running)"
+                    )
+                    windowless.append(name)
                 else:
-                    log(f"{name}: no ADB answer after 180s — moving on")
+                    log(
+                        f"{name}: no ADB answer after 180s — moving on "
+                        "(HNS NIC attach may still be wedged; VM not killed)"
+                    )
                     failed.append(name)
             total = len(booted) + len(already)
+            hns_note = ""
+            if failed or windowless:
+                hns_note = (
+                    " Phones that never publish AdbHost still need an operator "
+                    "HNS restart; VMs were left running."
+                )
             log(
-                f"BOOT COMPLETE: {total} phone(s) up, {len(reconnected)} reconnected, "
-                f"{len(failed)} failed."
+                f"BOOT COMPLETE: {total} phone(s) up with a visible player, "
+                f"{len(reconnected)} ADB reconnected, {len(windowless)} windowless "
+                f"(not counted as a visible player), {len(failed)} failed.{hns_note}"
             )
         except Exception as exc:  # noqa: BLE001 — never silent-fail the boot worker
             log(f"BOOT FAILED: {exc}")

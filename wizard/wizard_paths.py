@@ -7,9 +7,15 @@ import logging
 import os
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 logger = logging.getLogger(__name__)
+
+# wizard_paths is imported from wizard/ before automation/ is on sys.path.
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+from automation.config import REQUIRED_SEQUENCE_VERSION  # noqa: E402
 
 # Windows install root
 CPHARM_WINDOWS_ROOT = Path(r"C:\CPharm")
@@ -524,6 +530,357 @@ def automation_on_sys_path() -> Path:
     if ap not in sys.path:
         sys.path.insert(0, ap)
     return chosen
+
+
+def is_nested_recordings_path(path: Path) -> bool:
+    """True for the mistaken ``recordings/automation/recordings`` copy."""
+    return "recordings/automation/recordings" in str(path).replace("\\", "/").lower()
+
+
+def groups_config_path() -> Path:
+    """Live groups file the frozen EXE must read.
+
+    Prefer ``C:\\CPharm\\automation\\recordings\\groups_config.json``.
+    Never a nested ``recordings/automation/recordings`` copy, and never a
+    path built by appending ``automation/recordings`` onto a recordings dir.
+    """
+    preferred = app_data_root() / "automation" / "recordings" / "groups_config.json"
+    windows = Path(r"C:\CPharm\automation\recordings\groups_config.json")
+    for cand in (preferred, windows):
+        if cand.is_file() and not is_nested_recordings_path(cand):
+            return cand
+    for root in _groups_search_roots():
+        cand = _groups_file_for_root(root)
+        if cand is None or is_nested_recordings_path(cand):
+            continue
+        if cand.is_file():
+            return cand
+    if not is_nested_recordings_path(preferred):
+        return preferred
+    return windows
+
+
+def _groups_search_roots() -> list[Path]:
+    roots: list[Path] = []
+    env = (os.environ.get("CPHARM_HOME") or os.environ.get("CPHARM_ROOT") or "").strip()
+    if env:
+        roots.append(Path(env).expanduser())
+    try:
+        roots.append(cpharm_install_root())
+    except Exception:
+        pass
+    roots.append(cpharm_default_install_root())
+    roots.append(Path.home() / "CPharm")
+    return roots
+
+
+def _groups_file_for_root(root: Path) -> Path | None:
+    """Join groups_config.json without nesting recordings under recordings."""
+    try:
+        root = root.expanduser()
+    except OSError:
+        return None
+    name = root.name.lower()
+    if name == "recordings":
+        return root / "groups_config.json"
+    if name == "automation":
+        return root / "recordings" / "groups_config.json"
+    return root / "automation" / "recordings" / "groups_config.json"
+
+
+def playlist_sequence_roots() -> list[Path]:
+    """Dirs that hold playlist JSON referenced from groups_config.
+
+    Playlist refs like ``900x1600/no-ad/...json`` live under
+    ``C:\\CPharm\\sequences``, not only under the v3 recordings tree.
+    """
+    roots: list[Path] = []
+    seen: set[str] = set()
+
+    def add(path: Path) -> None:
+        if is_nested_recordings_path(path):
+            return
+        try:
+            key = str(path.resolve()).lower()
+        except OSError:
+            key = str(path).lower()
+        if key in seen:
+            return
+        seen.add(key)
+        roots.append(path)
+
+    add(app_data_root() / "sequences")
+    add(Path(r"C:\CPharm\sequences"))
+    raw = (os.environ.get("CPHARM_SEQUENCES_DIR") or "").strip()
+    if raw:
+        add(Path(raw).expanduser())
+    add(Path.home() / "CPharm" / "sequences")
+    try:
+        add(sequences_dir())
+    except Exception:
+        pass
+    return roots
+
+
+def sequence_version_error(path: Path) -> str | None:
+    """Same version gate ``run_farm_354._preflight`` uses. None means the file passes it."""
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return f"unreadable: {exc}"
+    if not isinstance(data, dict):
+        return "unreadable: not an object"
+    try:
+        version = int(data.get("sequence_version") or 0)
+    except (TypeError, ValueError):
+        version = 0
+    if version < REQUIRED_SEQUENCE_VERSION:
+        return "bad sequence_version"
+    return None
+
+
+def _direct_playlist_file(rel: str) -> Path | None:
+    for root in playlist_sequence_roots():
+        cand = root / rel
+        if is_nested_recordings_path(cand):
+            continue
+        try:
+            if cand.is_file():
+                return cand
+        except OSError:
+            continue
+    return None
+
+
+def v3_pool_root() -> Path:
+    """Existing v3 sequence tree (``recordings/sequences``), never a nested copy."""
+    runtime = sequences_dir()
+    if (runtime / "base").is_dir() and not is_nested_recordings_path(runtime):
+        return runtime
+    live = Path(r"C:\CPharm\automation\recordings\sequences")
+    if (live / "base").is_dir():
+        return live
+    return runtime
+
+
+_PLAYLIST_MATERIALS = {
+    "mat-quartz": "quartz",
+    "mat-titanium": "titanium",
+    "mat-ceramic": "ceramic",
+}
+_PLAYLIST_CONCENTRATES = {
+    "conc-live-resin": "live_resin",
+    "conc-shatter": "shatter",
+    "conc-diamonds": "diamonds",
+    "conc-budder": "budder",
+    "conc-rosin": "rosin",
+    "conc-wax": "wax",
+}
+_PLAYLIST_HEATS = {
+    "heat-butane": "butane",
+    "heat-propane": "propane",
+}
+
+
+def _playlist_kind(rel: str) -> str:
+    text = rel.replace("\\", "/").lower()
+    if "/no-ad/" in text or "__no_ads__" in text or "__no-ad__" in text:
+        return "no-ad"
+    if "/ad/" in text or "__ad__" in text:
+        return "ad"
+    return "no-ad"
+
+
+def _token(text: str, table: dict[str, str]) -> str:
+    for raw, name in table.items():
+        if raw in text:
+            return name
+    return ""
+
+
+def playlist_v3_candidates(ref: str) -> list[Path]:
+    """Existing v3 pool files for a groups playlist ref. No stubs."""
+    rel = str(ref or "").strip().replace("\\", "/").lstrip("/").lower()
+    kind = _playlist_kind(rel)
+    mat = _token(rel, _PLAYLIST_MATERIALS)
+    conc = _token(rel, _PLAYLIST_CONCENTRATES)
+    heat = _token(rel, _PLAYLIST_HEATS)
+    if not (mat and conc and heat):
+        # Demo refs have no combo. Stable pool files that already exist.
+        if kind == "ad":
+            mat, conc, heat = "ceramic", "shatter", "butane"
+        else:
+            mat, conc, heat = "quartz", "shatter", "butane"
+    folder = v3_pool_root() / "base" / mat
+    if kind == "ad":
+        names = [
+            f"{mat}_{conc}_{heat}_p3a_homead0_ad.json",
+            f"{mat}_{conc}_{heat}_p3a_homead1_ad.json",
+        ]
+        pattern = f"{mat}_{conc}_{heat}_*_ad.json"
+    else:
+        names = [
+            f"{mat}_{conc}_{heat}_p1a_{browser}_complete.json"
+            for browser in ("brave", "chromium", "firefox", "duckduckgo")
+        ]
+        pattern = f"{mat}_{conc}_{heat}_*_complete.json"
+    found: list[Path] = []
+    seen: set[str] = set()
+
+    def add(path: Path) -> None:
+        if is_nested_recordings_path(path):
+            return
+        try:
+            if not path.is_file():
+                return
+            key = str(path.resolve()).lower()
+        except OSError:
+            return
+        if key in seen:
+            return
+        seen.add(key)
+        found.append(path)
+
+    for name in names:
+        add(folder / name)
+    if not found and folder.is_dir():
+        for path in sorted(folder.glob(pattern)):
+            add(path)
+    return found
+
+
+def resolve_playlist_ref(
+    ref: str,
+    accept: Callable[[Path], bool] | None = None,
+) -> Path | None:
+    """Resolve a playlist ref to a file the farm version gate accepts.
+
+    A direct hit is used only when it already passes the v3 version check.
+    Pre-v3 groups refs fall through to the existing v3 pool. Never a stub.
+    """
+    rel = str(ref or "").strip().replace("\\", "/").lstrip("/")
+    if not rel or ".." in rel.split("/"):
+        return None
+    gate = accept or (lambda path: sequence_version_error(path) is None)
+    direct = _direct_playlist_file(rel)
+    if direct is not None and gate(direct):
+        return direct
+    for cand in playlist_v3_candidates(rel):
+        if gate(cand):
+            return cand
+    return None
+
+
+def phone_entry_steps(ent: dict[str, Any], serial: str) -> list[Any]:
+    """Steps for one phone. Empty serial is not a phone. Playlist files fill empty steps."""
+    if not str(serial or "").strip() or not isinstance(ent, dict):
+        return []
+    inline = ent.get("steps")
+    if isinstance(inline, list) and inline:
+        return list(inline)
+    refs: list[str] = []
+    for key in ("sequence_playlist", "sequence_playlist_secondary"):
+        raw = ent.get(key)
+        if not isinstance(raw, list):
+            continue
+        refs.extend(str(item).strip() for item in raw if str(item).strip())
+    loaded: list[Any] = []
+    mode = str(ent.get("sequence_playlist_mode") or "ordered").strip().lower()
+    for ref in refs:
+        path = resolve_playlist_ref(ref)
+        if path is None:
+            continue
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError, UnicodeError):
+            continue
+        file_steps = data.get("steps") if isinstance(data, dict) else None
+        if not isinstance(file_steps, list) or not file_steps:
+            continue
+        loaded.extend(file_steps)
+        if mode != "series":
+            break
+    return loaded
+
+
+def _slot_sort_key(serial: str) -> tuple[int, int, str]:
+    """Farm-slot order for MuMu guest serials (``10.0.2.N:5555``)."""
+    text = str(serial or "").strip()
+    if text.startswith("10.0.2.") and ":" in text:
+        octet = text.split(":", 1)[0].rsplit(".", 1)[-1]
+        try:
+            return (0, int(octet), text)
+        except ValueError:
+            pass
+    if text.startswith("emulator-"):
+        try:
+            return (1, int(text.split("-", 1)[1]), text)
+        except ValueError:
+            pass
+    return (2, 0, text)
+
+
+def bind_live_phone_entries(
+    groups: list[Any],
+    live_serials: list[str],
+) -> list[tuple[str, dict[str, Any], str]]:
+    """Pair live ADB serials to configured playlists.
+
+    Exact serial match wins. If guest IPs churned, pair by farm-slot order.
+    Empty serials are skipped. An empty ADB list returns nothing — no invented phones.
+    """
+    live: list[str] = []
+    seen: set[str] = set()
+    for raw in live_serials:
+        serial = str(raw or "").strip()
+        if not serial or serial in seen:
+            continue
+        seen.add(serial)
+        live.append(serial)
+    if not live:
+        return []
+    configured = iter_group_phone_entries(groups)
+    by_serial = {serial: ent for serial, ent in configured}
+    if all(serial in by_serial for serial in live):
+        return [(serial, by_serial[serial], serial) for serial in live]
+    live_sorted = sorted(live, key=_slot_sort_key)
+    cfg_sorted = sorted(configured, key=lambda item: _slot_sort_key(item[0]))
+    n = min(len(live_sorted), len(cfg_sorted))
+    return [(live_sorted[i], cfg_sorted[i][1], cfg_sorted[i][0]) for i in range(n)]
+
+
+def iter_group_phone_entries(groups: list[Any]) -> list[tuple[str, dict[str, Any]]]:
+    """Non-empty serials from ``group['phones']``. First group wins. No invented phones."""
+    out: list[tuple[str, dict[str, Any]]] = []
+    seen: set[str] = set()
+    for group in groups:
+        if not isinstance(group, dict):
+            continue
+        phones = group.get("phones")
+        if not isinstance(phones, dict):
+            continue
+        for raw, ent in phones.items():
+            serial = str(raw or "").strip()
+            if not serial or not isinstance(ent, dict) or serial in seen:
+                continue
+            seen.add(serial)
+            out.append((serial, ent))
+    return out
+
+
+def load_groups_list(path: Path | None = None) -> tuple[Path, list[Any]]:
+    """Read the groups list from the live groups file. Empty list if unreadable."""
+    cfg = path or groups_config_path()
+    if is_nested_recordings_path(cfg) or not cfg.is_file():
+        return cfg, []
+    try:
+        raw = json.loads(cfg.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, UnicodeError, TypeError, ValueError):
+        return cfg, []
+    groups = raw.get("groups") if isinstance(raw, dict) else None
+    if not isinstance(groups, list):
+        return cfg, []
+    return cfg, groups
 
 
 def automation_data_dir() -> Path:

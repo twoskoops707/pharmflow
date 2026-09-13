@@ -111,7 +111,20 @@ def run_check_action(action: str, log: LogFn | None = None) -> dict:
 
 
 def _groups_config_path(install_root: Path) -> Path:
-    return install_root / "automation" / "recordings" / "groups_config.json"
+    """Live groups file. Do not append automation/recordings onto a recordings dir."""
+    from wizard_paths import (
+        _groups_file_for_root,
+        groups_config_path,
+        is_nested_recordings_path,
+    )
+
+    live = groups_config_path()
+    if live.is_file() and not is_nested_recordings_path(live):
+        return live
+    cand = _groups_file_for_root(install_root)
+    if cand is not None and not is_nested_recordings_path(cand):
+        return cand
+    return live
 
 
 def should_seed_groups(install_root: Path) -> bool:
@@ -176,6 +189,9 @@ def repair_groups_if_empty(
 def write_groups_config(serials: list[str], install_root: Path, *, force: bool = False) -> Path | None:
     if not force and not should_seed_groups(install_root):
         return None
+    serials = [str(s).strip() for s in serials if str(s or "").strip()]
+    if not serials:
+        return None
     phones = {
         s: farm.phone_playlist_entry(i, extended_ad=True)
         for i, s in enumerate(serials)
@@ -193,9 +209,8 @@ def write_groups_config(serials: list[str], install_root: Path, *, force: bool =
             }
         ],
     }
-    rec = install_root / "automation" / "recordings"
-    rec.mkdir(parents=True, exist_ok=True)
-    out = rec / "groups_config.json"
+    out = _groups_config_path(install_root)
+    out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(cfg, indent=2) + "\n", encoding="utf-8")
     return out
 

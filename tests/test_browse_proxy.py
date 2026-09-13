@@ -165,20 +165,24 @@ class RestoreInjectAfterIdentityTests(unittest.TestCase):
         self.assertEqual(got, "127.0.0.1:8221")
         self.assertTrue(bp.guest_proxy_healthy(got, phone_idx=3))
 
-    def test_firefox_scramble_allows_cleared_proxy(self) -> None:
+    def test_firefox_scramble_pins_tor_not_host(self) -> None:
         adb = MagicMock()
-        adb.shell.return_value = MagicMock(stdout=":0")
+        adb.shell.return_value = MagicMock(stdout="127.0.0.1:8119")
         adb.set_http_proxy = MagicMock()
         with patch.object(bp, "browse_proxy_mode", return_value="scramble"):
-            with patch.dict("os.environ", {"CPHARM_MANTIS_INJECT_PROXY": "1"}):
-                got = bp.restore_inject_after_identity(
-                    adb,
-                    "10.0.2.70:5555",
-                    1,
-                    browser_package="org.mozilla.firefox",
-                    attempts=1,
-                )
-        self.assertTrue(got.endswith(":0") or got in (":0", "null", ""))
+            with patch.object(bp, "expected_guest_proxy", return_value="127.0.0.1:8119"):
+                with patch.object(bp, "_host_port_listens", return_value=True):
+                    with patch.dict("os.environ", {"CPHARM_MANTIS_INJECT_PROXY": "1"}):
+                        got = bp.restore_inject_after_identity(
+                            adb,
+                            "10.0.2.70:5555",
+                            1,
+                            browser_package="org.mozilla.firefox",
+                            attempts=1,
+                        )
+        self.assertEqual(got, "127.0.0.1:8119")
+        joined = " ".join(str(c) for c in adb.shell.call_args_list)
+        self.assertNotIn("http_proxy :0", joined)
 
 
 if __name__ == "__main__":

@@ -75,6 +75,10 @@ _STOP_FARM_NEEDLES = (
 )
 _helper_procs: dict[str, subprocess.Popen[Any]] = {}
 _helper_threads: dict[str, threading.Thread] = {}
+# Set by the process that owns --start-farm / Start Farm. A helper that
+# re-execs PharmFlow.exe --start-farm inherits this and must exit, not loop.
+_START_FARM_OWNER_ENV = "CPHARM_START_FARM_OWNER"
+_UNISON_PID_FILE = Path(r"C:\CPharm\logs\cpharm_unison_supervisor.pid")
 
 
 def _inject_span() -> str:
@@ -156,6 +160,15 @@ def _resolve_helper_python(*, requires: str = "psutil") -> str | None:
         local / "Programs" / "Python" / f"Python{maj}{minor}" / "pythonw.exe",
         Path(f"C:\\Python{maj}{minor}\\pythonw.exe"),
     ]
+    # ARM64 freeze: prefer a same-arch pythonw so helpers do not die on x64
+    # .pyd mismatch and fall back to in-process, which re-execs this EXE.
+    arch = (os.environ.get("PROCESSOR_ARCHITECTURE") or "").upper()
+    if arch == "ARM64":
+        candidates = [
+            local / "Programs" / "Python" / f"Python{maj}{minor}-arm64" / "pythonw.exe",
+            local / "Programs" / "Python" / "Python314-arm64" / "pythonw.exe",
+            *candidates,
+        ]
     candidates += [
         local / "Python" / "pythoncore-3.14-64" / "pythonw.exe",
         local / "Python" / "pythoncore-3.13-64" / "pythonw.exe",
@@ -166,14 +179,64 @@ def _resolve_helper_python(*, requires: str = "psutil") -> str | None:
         Path(r"C:\Python311\pythonw.exe"),
     ]
     for cand in candidates:
-        if cand.is_file() and "CPharm" not in str(cand):
+        if cand.is_file() and not _is_frozen_app_exe(str(cand)):
             if _python_can_import(str(cand), requires):
                 return str(cand)
     for name in ("pythonw", "python"):
         found = shutil.which(name)
-        if found and "CPharm" not in found and _python_can_import(found, requires):
+        if found and not _is_frozen_app_exe(found) and _python_can_import(found, requires):
             return found
     return None
+
+
+def _is_frozen_app_exe(path: str) -> bool:
+    """True when *path* is this PharmFlow/CPharm EXE — never a helper interpreter."""
+    text = (path or "").strip()
+    if not text:
+        return False
+    stem = Path(text).stem.lower()
+    if stem in {"pharmflow", "cpharm"}:
+        return True
+    if "cpharm" in text.lower() and text.lower().endswith(".exe"):
+        return True
+    if not getattr(sys, "frozen", False):
+        return False
+    try:
+        return Path(text).resolve() == Path(sys.executable).resolve()
+    except OSError:
+        return False
+
+
+def claim_start_farm_owner() -> None:
+    """Record this PID as the Start Farm owner if nobody live owns it yet."""
+    existing = (os.environ.get(_START_FARM_OWNER_ENV) or "").strip()
+    if existing and existing != str(os.getpid()) and _pid_alive(_safe_int(existing)):
+        return
+    os.environ[_START_FARM_OWNER_ENV] = str(os.getpid())
+
+
+def _safe_int(text: str) -> int:
+    try:
+        return int(text)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _pid_alive(pid: int) -> bool:
+    if pid <= 0 or pid == os.getpid():
+        return False
+    try:
+        import psutil
+
+        proc = psutil.Process(pid)
+        status = str(proc.status() or "")
+        return bool(proc.is_running()) and status != "zombie"
+    except Exception:
+        try:
+            os.kill(pid, 0)
+        except OSError:
+            return False
+        return True
 
 
 def _helper_already_alive(needle: str) -> bool:
@@ -295,7 +358,18 @@ def ensure_operator_stack(*, log: Callable[[str, str], None] | None = None) -> l
             env = os.environ.copy()
             env["PYTHONPATH"] = str(root) + os.pathsep + env.get("PYTHONPATH", "")
             env.setdefault("CPHARM_FARM_STOP", "0")
+            env.setdefault(_START_FARM_OWNER_ENV, str(os.getpid()))
             helper_py = _helper_python_for(name)
+            # Never re-exec this EXE. A frozen child inherits --start-farm and
+            # hangs in another farm CLI loop instead of running the helper.
+            if helper_py and (
+                _is_frozen_app_exe(helper_py) or "--start-farm" in argv_extra
+            ):
+                _log(
+                    f"refusing to spawn {name} via frozen EXE (--start-farm re-entry)",
+                    "err",
+                )
+                helper_py = None
             if helper_py:
                 try:
                     proc = subprocess.Popen(
@@ -468,6 +542,43 @@ def stop_external_python_farm(
     return killed
 
 
+def _unison_supervisor_alive() -> bool:
+    """True when the supervisor pid file names a live unison process.
+
+    Heartbeat files stay positive-only. A stale farm_354.log must not hide a
+    live supervisor, and a cmdline AccessDenied must not make Start Farm
+    report that unison failed to arm.
+    """
+    try:
+        pid = int(_UNISON_PID_FILE.read_text(encoding="utf-8").strip())
+    except (OSError, ValueError):
+        return False
+    if not _pid_alive(pid):
+        return False
+    try:
+        import psutil
+
+        proc = psutil.Process(pid)
+        name = (proc.name() or "").lower()
+        if name and name not in {
+            "python.exe",
+            "pythonw.exe",
+            "pharmflow.exe",
+            "cpharm.exe",
+        }:
+            return False
+        try:
+            cmd = " ".join(str(x) for x in (proc.cmdline() or []))
+        except psutil.Error:
+            return True
+        if "cpharm_unison_supervisor.py" in cmd and "-c" not in cmd.split():
+            return True
+        # In-process supervisor keeps the EXE command line, not the script path.
+        return name in {"pharmflow.exe", "cpharm.exe"} and "--start-farm" in cmd
+    except Exception:
+        return True
+
+
 def farm_running() -> bool:
     """True if unison supervisor or farm worker is alive.
 
@@ -497,6 +608,8 @@ def farm_running() -> bool:
             return True
     except ImportError:
         pass
+    if _unison_supervisor_alive():
+        return True
     return external_python_farm_running()
 
 
@@ -898,6 +1011,7 @@ def start_farm(
         except Exception as exc:
             _log(f"self-heal failed (continuing): {exc}", "warn")
         os.environ["CPHARM_FARM_STOP"] = "0"
+        claim_start_farm_owner()
         helper_py = _resolve_helper_python()
         # Prefer real pythonw workers; only use in-process farm when frozen w/o python.
         in_process = bool(getattr(sys, "frozen", False) and not helper_py)

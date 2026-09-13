@@ -362,13 +362,10 @@ def expected_guest_proxy(phone_idx: int, browser_package: str | None = None) -> 
     """Preferred guest http_proxy endpoint.
 
     Chromium → inject 8218+ (MITM paints Mantis creatives when CA trusted).
-    Brave/Firefox/DuckDuckGo → never MITM. Scramble/direct → clear (:0);
-    Brave still paints via CDP; FF/DDG rely on real SSP. Tor mode → Tor 8118+.
+    Brave/Firefox/DuckDuckGo → never MITM, but still Tor HTTP. Clearing to
+    :0 is host-IP egress and is forbidden.
     """
-    mode = browse_proxy_mode()
     if skips_mitm(browser_package):
-        if mode in ("scramble", "direct", "upstream"):
-            return ""
         from automation.tor_manager import phone_http_port
 
         return f"127.0.0.1:{int(phone_http_port(phone_idx))}"
@@ -379,8 +376,6 @@ def expected_guest_proxy(phone_idx: int, browser_package: str | None = None) -> 
             return f"127.0.0.1:{int(phone_inject_port(phone_idx))}"
     except Exception:
         pass
-    if mode in ("scramble", "direct", "upstream"):
-        return ""
     from automation.tor_manager import phone_http_port
 
     return f"127.0.0.1:{int(phone_http_port(phone_idx))}"
@@ -459,7 +454,7 @@ def restore_inject_after_identity(
         remember_browser_package(ser, pkg)
 
     if skips_mitm(pkg):
-        # MITM-skip browsers: :0/direct is correct under scramble/direct/upstream.
+        # MITM-skip browsers still pin Tor HTTP. Never clear to :0.
         return pin_guest_proxy(
             adb, ser, idx, attempts=attempts, browser_package=pkg
         )
@@ -522,9 +517,8 @@ def pin_guest_proxy(
 ) -> str:
     """Idempotently force guest http_proxy to the right port for this browser.
 
-    Never treat :0 / null / empty as success when a real port is required.
-    When expected_guest_proxy returns "" (scramble/direct for Firefox/DDG),
-    clear the guest proxy so SSP ads can fill without Tor/MITM cert failures.
+    Never treat :0 / null / empty as success. An empty expected endpoint
+    falls back to the slot Tor HTTP port. Never write http_proxy :0.
     """
     idx = int(phone_idx)
     ser = str(serial)
@@ -534,17 +528,15 @@ def pin_guest_proxy(
     last = ""
 
     if not want:
-        for attempt in range(tries):
-            try:
-                adb.shell("settings put global http_proxy :0", serial=ser)  # type: ignore[union-attr]
-            except Exception as exc:
-                logger.debug("clear proxy failed serial=%s: %s", ser, exc)
-            last = _read_guest_proxy(adb, ser)
-            if not last or last.lower() in _CLEARED_PROXY_VALUES or last.endswith(":0"):
-                return ":0"
-            if attempt + 1 < tries:
-                time.sleep(0.12 * (attempt + 1))
-        return last if last else ":0"
+        from automation.tor_manager import phone_http_port
+
+        want = f"127.0.0.1:{int(phone_http_port(idx))}"
+        logger.warning(
+            "pin_guest_proxy empty expected serial=%s phone=%d — using Tor HTTP %s (not :0)",
+            ser,
+            idx,
+            want,
+        )
 
     want_port = int(want.rsplit(":", 1)[-1])
 
@@ -564,7 +556,30 @@ def pin_guest_proxy(
     for attempt in range(tries):
         cur = _read_guest_proxy(adb, ser)
         if guest_proxy_healthy(cur, idx) and cur == want:
-            return cur
+            if _host_port_listens(want_port):
+                return cur
+            logger.warning(
+                "pin_guest_proxy dead listener serial=%s phone=%d proxy=%s — restoring",
+                ser,
+                idx,
+                cur,
+            )
+            if use_inject:
+                try:
+                    from automation.mantis_inject_proxy import start_inject_proxies
+
+                    start_inject_proxies([idx])
+                except Exception as exc:
+                    logger.warning("pin inject restart failed serial=%s: %s", ser, exc)
+            else:
+                try:
+                    from automation.tor_manager import start_tor_for_phone
+
+                    start_tor_for_phone(idx)
+                except Exception as exc:
+                    logger.warning("pin tor restart failed serial=%s: %s", ser, exc)
+            if _host_port_listens(want_port):
+                return cur
 
         applied = False
         if use_inject:
@@ -573,13 +588,23 @@ def pin_guest_proxy(
                 # inject is armed without a trusted CA on the guest.
                 from automation.mantis_inject_proxy import ensure_inject_for_phone
 
-                ensure_inject_for_phone(adb, ser, idx, install_ca=True)
+                info = ensure_inject_for_phone(adb, ser, idx, install_ca=True)
+                if not info.get("ok"):
+                    logger.warning(
+                        "pin inject not restored serial=%s phone=%d err=%s ca=%s",
+                        ser,
+                        idx,
+                        info.get("error"),
+                        info.get("ca_installed"),
+                    )
+                    applied = False
+                else:
+                    applied = True
                 # CRITICAL: verify adb reverse tunnel exists -- ADB restarts destroy them
                 from automation.mantis_inject_proxy import verify_reverse_tunnel
-                if not verify_reverse_tunnel(adb, ser, want_port):
+                if applied and not verify_reverse_tunnel(adb, ser, want_port):
                     logger.warning("REVERSE TUNNEL MISSING port=%d serial=%s — re-establishing", want_port, ser)
                     adb.reverse(str(want_port), str(want_port), serial=ser)  # type: ignore[union-attr]
-                applied = True
             except Exception as exc:
                 logger.debug("pin inject failed serial=%s: %s", ser, exc)
 
@@ -598,7 +623,11 @@ def pin_guest_proxy(
                 logger.debug("pin tor proxy failed serial=%s: %s", ser, exc)
 
         last = _read_guest_proxy(adb, ser)
-        if guest_proxy_healthy(last, idx) and (last == want or last.endswith(f":{want_port}")):
+        if (
+            guest_proxy_healthy(last, idx)
+            and (last == want or last.endswith(f":{want_port}"))
+            and _host_port_listens(want_port)
+        ):
             return last
         if attempt + 1 < tries:
             time.sleep(0.12 * (attempt + 1))
@@ -614,18 +643,17 @@ def pin_guest_proxy(
         except (IndexError, ValueError):
             last_port = 0
         if last_port > 0 and not _host_port_listens(last_port):
+            # Do not clear to :0. That is host-IP egress (MuMu NAT). Leave the
+            # pin so the heal tick can restore the listener without opening
+            # the phone onto the host route.
             logger.warning(
-                "pin_guest_proxy DEAD PIN serial=%s phone=%d proxy=%s host:%d not listening — clearing proxy to keep phone internet",
+                "pin_guest_proxy DEAD PIN serial=%s phone=%d proxy=%s host:%d not listening — not clearing to :0 (host-IP egress forbidden)",
                 ser,
                 idx,
                 last,
                 last_port,
             )
-            try:
-                adb.shell("settings put global http_proxy :0", serial=ser)  # type: ignore[union-attr]
-            except Exception:
-                pass
-            return ":0"
+            return last
         return last
     logger.warning(
         "pin_guest_proxy still unhealthy serial=%s phone=%d last=%r want=%s pkg=%s",

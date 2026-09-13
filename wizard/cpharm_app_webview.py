@@ -3,9 +3,11 @@ Unified CPharm WebView shell — 9-step wizard matching CPharmWizard.
 """
 from __future__ import annotations
 
+import ctypes
 import json
 import os
 import sys
+import threading
 import traceback
 from pathlib import Path
 from typing import Any
@@ -74,12 +76,31 @@ def _log_webview_soft_warn(reason: str) -> None:
 
 
 def _log_webview_fallback(reason: str, *, interactive: bool = True) -> None:
-    """Never silently fall back to Tk — shout to stderr, boot log, and disk."""
-    banner = (
-        "WEBVIEW2 DECK FAILED — falling back to Tk Home UI.\n"
-        f"{reason}\n"
-        "--- end webview fallback reason ---"
-    )
+    """Never silently fall back to Tk — shout to stderr, boot log, and disk.
+
+    A frozen EXE must not open a Tk window titled Home and pretend that is
+    the Control Panel. Source checkouts may still fall back to Tk.
+    """
+    frozen = bool(getattr(sys, "frozen", False))
+    if frozen:
+        banner = (
+            "WEBVIEW2 DECK FAILED — frozen EXE will not open a Tk Home substitute.\n"
+            f"{reason}\n"
+            "--- end webview failure ---"
+        )
+        box_lead = (
+            "PharmFlow could not open the Control Panel (WebView2).\n\n"
+            "It will not open a Tk Home window in its place.\n\n"
+        )
+        box_title = "PharmFlow — Control Panel unavailable"
+    else:
+        banner = (
+            "WEBVIEW2 DECK FAILED — falling back to Tk Home UI.\n"
+            f"{reason}\n"
+            "--- end webview fallback reason ---"
+        )
+        box_lead = "PharmFlow WebView2 deck failed — using Tk fallback.\n\n"
+        box_title = "PharmFlow — WebView2 unavailable"
     try:
         print(banner, file=sys.stderr, flush=True)
     except Exception:
@@ -107,8 +128,8 @@ def _log_webview_fallback(reason: str, *, interactive: bool = True) -> None:
                 short = short[:900] + "…"
             ctypes.windll.user32.MessageBoxW(
                 0,
-                f"PharmFlow WebView2 deck failed — using Tk fallback.\n\n{short}",
-                "PharmFlow — WebView2 unavailable",
+                f"{box_lead}{short}",
+                box_title,
                 0x00000010,  # MB_ICONERROR
             )
         except Exception:
@@ -435,6 +456,10 @@ def emit_dragon_view(view: str) -> None:
 
 
 def _fallback_tk(*, initial_view: str | None = None) -> None:
+    """Source checkouts may use Tk. A frozen EXE must not open a Home window."""
+    if getattr(sys, "frozen", False):
+        _bootlog("frozen EXE refused Tk Home fallback")
+        return
     from cpharm_desktop import run_main_window
 
     run_main_window(initial_view=initial_view)
@@ -832,32 +857,175 @@ def _build_native_menu(api: "CPharmAppApi") -> list:
     ]
 
 
-def _ensure_webview2_runtime_path() -> str | None:
-    """Set pywebview WEBVIEW2_RUNTIME_PATH when native registry lookup would miss."""
-    existing = os.environ.get("WEBVIEW2_BROWSER_EXECUTABLE_FOLDER", "").strip()
-    if existing and Path(existing).is_dir():
-        return existing
-    if _webview2_nonwow_runtime_registered():
-        return None
-    folder = _discover_arm64_webview2_runtime_folder()
-    if not folder:
-        return None
-    os.environ["WEBVIEW2_BROWSER_EXECUTABLE_FOLDER"] = folder
-    try:
-        import webview
+# WebView2 parks a windowed (subsystem WINDOWS) form here while
+# EnsureCoreWebView2Async runs if STARTUPINFO.wShowWindow is SW_HIDE.
+# A left-hand monitor can be slightly negative; -8000 is never a real desktop.
+_OFFSCREEN_PARK = -8000
+_DECK_WIDTH = 1180
+_DECK_HEIGHT = 960
+_SW_SHOWNORMAL = 1
+_SWP_SHOWWINDOW = 0x0040
 
-        webview.settings["WEBVIEW2_RUNTIME_PATH"] = folder
-    except Exception:
-        pass
+
+def _user32():
+    """Private user32 so we do not mutate process-wide windll argtypes."""
+    lib = getattr(_user32, "_lib", None)
+    if lib is not None:
+        return lib
+    lib = ctypes.WinDLL("user32", use_last_error=True)
+    lib.GetSystemMetrics.argtypes = [ctypes.c_int]
+    lib.GetSystemMetrics.restype = ctypes.c_int
+    lib.IsWindowVisible.argtypes = [ctypes.c_void_p]
+    lib.IsWindowVisible.restype = ctypes.c_bool
+    lib.ShowWindow.argtypes = [ctypes.c_void_p, ctypes.c_int]
+    lib.ShowWindow.restype = ctypes.c_bool
+    lib.SetForegroundWindow.argtypes = [ctypes.c_void_p]
+    lib.SetForegroundWindow.restype = ctypes.c_bool
+    lib.GetWindowRect.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+    lib.GetWindowRect.restype = ctypes.c_bool
+    lib.SetWindowPos.argtypes = [
+        ctypes.c_void_p,
+        ctypes.c_void_p,
+        ctypes.c_int,
+        ctypes.c_int,
+        ctypes.c_int,
+        ctypes.c_int,
+        ctypes.c_uint,
+    ]
+    lib.SetWindowPos.restype = ctypes.c_bool
+    lib.IsIconic.argtypes = [ctypes.c_void_p]
+    lib.IsIconic.restype = ctypes.c_bool
+    lib.GetWindowTextW.argtypes = [ctypes.c_void_p, ctypes.c_wchar_p, ctypes.c_int]
+    lib.GetWindowTextW.restype = ctypes.c_int
+    lib.GetWindowThreadProcessId.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_ulong)]
+    lib.GetWindowThreadProcessId.restype = ctypes.c_ulong
+    lib.EnumWindows.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+    lib.EnumWindows.restype = ctypes.c_bool
+    _user32._lib = lib  # type: ignore[attr-defined]
+    return lib
+
+
+class _WinRect(ctypes.Structure):
+    _fields_ = [
+        ("left", ctypes.c_long),
+        ("top", ctypes.c_long),
+        ("right", ctypes.c_long),
+        ("bottom", ctypes.c_long),
+    ]
+
+
+def _deck_hwnd(window: Any) -> int | None:
+    native = getattr(window, "native", None)
+    if native is None:
+        return None
+    handle = getattr(native, "Handle", None)
+    if handle is None:
+        return None
+    for meth in ("ToInt64", "ToInt32"):
+        fn = getattr(handle, meth, None)
+        if not callable(fn):
+            continue
+        try:
+            return int(fn())
+        except Exception:
+            continue
     try:
-        print(
-            f"WEBVIEW2: non-WOW registry missing; using BrowserExecutableFolder={folder}",
-            file=sys.stderr,
-            flush=True,
-        )
-    except Exception:
-        pass
-    return folder
+        return int(handle)
+    except (TypeError, ValueError):
+        return None
+
+
+def _control_panel_hwnd_by_title() -> int | None:
+    """Find this process's deck even before pywebview exposes native.Handle."""
+    user32 = _user32()
+    found: list[int] = []
+    self_pid = int(os.getpid())
+
+    @ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
+    def _cb(hwnd, _lparam):  # type: ignore[misc]
+        pid = ctypes.c_ulong()
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+        if int(pid.value) != self_pid:
+            return True
+        buf = ctypes.create_unicode_buffer(512)
+        user32.GetWindowTextW(hwnd, buf, 512)
+        if "Control Panel" in (buf.value or ""):
+            found.append(int(hwnd))
+            return False
+        return True
+
+    # Keep the callback alive for the duration of EnumWindows.
+    _control_panel_hwnd_by_title._cb = _cb  # type: ignore[attr-defined]
+    user32.EnumWindows(_cb, 0)
+    return found[0] if found else None
+
+
+def _window_parked_or_hidden(hwnd: int) -> bool:
+    user32 = _user32()
+    if not user32.IsWindowVisible(hwnd):
+        return True
+    rect = _WinRect()
+    if not user32.GetWindowRect(hwnd, ctypes.byref(rect)):
+        return False
+    return rect.left <= _OFFSCREEN_PARK or rect.top <= _OFFSCREEN_PARK
+
+
+def _onscreen_origin(width: int, height: int) -> tuple[int, int]:
+    user32 = _user32()
+    sw = int(user32.GetSystemMetrics(0) or 0)  # SM_CXSCREEN
+    sh = int(user32.GetSystemMetrics(1) or 0)  # SM_CYSCREEN
+    if sw < width + 80:
+        sw = width + 160
+    if sh < height + 80:
+        sh = height + 160
+    return max(40, (sw - width) // 2), max(40, (sh - height) // 2)
+
+
+def _force_control_panel_visible(window: Any, *, width: int, height: int) -> None:
+    """Undo WebView2's (-25600, -25600) park and any SW_HIDE on the deck.
+
+    Never calls ShowWindow(SW_HIDE). Only acts when the form is hidden or
+    parked off-screen, so a later operator drag is left alone.
+    """
+    if sys.platform != "win32":
+        return
+    hwnd = _deck_hwnd(window) or _control_panel_hwnd_by_title()
+    if not hwnd or not _window_parked_or_hidden(hwnd):
+        return
+    user32 = _user32()
+    x, y = _onscreen_origin(width, height)
+    user32.SetWindowPos(hwnd, None, x, y, width, height, _SWP_SHOWWINDOW)
+    # SW_RESTORE if iconic; never SW_HIDE (0). WebView2 parks at -25600 when
+    # the process STARTUPINFO show-state is hidden — yank that back on-screen.
+    show = 9 if user32.IsIconic(hwnd) else _SW_SHOWNORMAL  # SW_RESTORE / SW_SHOWNORMAL
+    user32.ShowWindow(hwnd, show)
+    user32.SetForegroundWindow(hwnd)
+    _bootlog(f"Control Panel forced on-screen hwnd={hwnd} at {x},{y}")
+
+
+def _bind_control_panel_visibility(window: Any, *, width: int, height: int) -> None:
+    """Keep the deck on-screen after WebView2 init moves or hides it."""
+
+    def _pull_if_parked(x: int = 0, y: int = 0) -> None:
+        if int(x) <= _OFFSCREEN_PARK or int(y) <= _OFFSCREEN_PARK:
+            _force_control_panel_visible(window, width=width, height=height)
+
+    def _on_shown() -> None:
+        _force_control_panel_visible(window, width=width, height=height)
+
+    window.events.shown += _on_shown
+    window.events.loaded += _on_shown
+    window.events.restored += _on_shown
+    window.events.moved += _pull_if_parked
+
+    def _retries() -> None:
+        # EnsureCoreWebView2Async parks the form AFTER Shown. A few checks
+        # catch that; each is a no-op once the window is visible and on-screen.
+        for delay in (0.35, 0.9, 1.8, 3.5, 6.0, 10.0):
+            threading.Event().wait(delay)
+            _force_control_panel_visible(window, width=width, height=height)
+
+    threading.Thread(target=_retries, name="cpharm-deck-visible", daemon=True).start()
 
 
 def _bootlog(msg: str) -> None:
@@ -892,18 +1060,39 @@ def run_cpharm_app(*, initial_view: str | None = None) -> None:
 
     api = CPharmAppApi()
     _bootlog("api created")
+    title = instance_title("Control Panel")
+    if "Control Panel" not in title:
+        title = f"{title} — Control Panel"
+    origin_x, origin_y = (80, 60)
+    if sys.platform == "win32":
+        origin_x, origin_y = _onscreen_origin(_DECK_WIDTH, _DECK_HEIGHT)
     window = webview.create_window(
-        instance_title("Control Panel"),
+        title,
         _html_url(view=initial_view),
         js_api=api,
-        width=1180,
-        height=960,
+        width=_DECK_WIDTH,
+        height=_DECK_HEIGHT,
+        x=origin_x,
+        y=origin_y,
         min_size=(960, 720),
+        hidden=False,
+        minimized=False,
+        focus=True,
         background_color="#07090f",
     )
     api.bind_window(window)
-    _bootlog("window created, starting webview loop")
-    webview.start(gui="edgechromium", debug=False, menu=_build_native_menu(api))
+    _bind_control_panel_visibility(window, width=_DECK_WIDTH, height=_DECK_HEIGHT)
+    _bootlog(f"window created title={title!r} at {origin_x},{origin_y}, starting webview loop")
+
+    def _reveal_control_panel() -> None:
+        _force_control_panel_visible(window, width=_DECK_WIDTH, height=_DECK_HEIGHT)
+
+    webview.start(
+        _reveal_control_panel,
+        gui="edgechromium",
+        debug=False,
+        menu=_build_native_menu(api),
+    )
     _bootlog("webview loop returned")
 
 

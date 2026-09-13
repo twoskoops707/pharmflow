@@ -249,6 +249,159 @@ def prune_serial_map(*, live: list[str] | None = None) -> list[str]:
     return fixes
 
 
+def _heal_phone_rows(
+    phones: dict[str, str],
+    live_set: set[str],
+    inject: dict[str, Any],
+) -> list[tuple[str, str, int, int]]:
+    """(name, serial, absolute_idx, slot) for the lock-map fleet.
+
+    Empty ``live_set`` means ADB has no devices — still heal the map so
+    listeners exist when the HNS wedge clears. A non-empty set restricts to
+    serials that are actually ``device``. Slot is roster position (0..N-1),
+    the index Tor HTTP is bound on. No phone-count cap.
+    """
+    selected: list[tuple[str, str, int]] = []
+    for name, ser in phones.items():
+        if live_set and ser not in live_set:
+            continue
+        idx = _vm_index(name)
+        if idx is None:
+            try:
+                idx = int(inject.get(name) or 0) - 8218
+            except (TypeError, ValueError):
+                continue
+        if idx is None or int(idx) < 0:
+            continue
+        selected.append((name, ser, int(idx)))
+    selected.sort(key=lambda row: row[2])
+    return [(name, ser, idx, slot) for slot, (name, ser, idx) in enumerate(selected)]
+
+
+def _publish_slot_map(rows: list[tuple[str, str, int, int]]) -> None:
+    """Export the same slot map the farm arm path writes before inject dials Tor."""
+    slot_map = {str(idx): slot for _name, _ser, idx, slot in rows}
+    os.environ["CPHARM_INJECT_SLOT_MAP"] = json.dumps(slot_map, separators=(",", ":"))
+
+
+def _caller_tor_would_be_reaped() -> bool:
+    """True when this process is a helper whose child tor.exe the storm reaper kills.
+
+    Starting Tor here looks like a heal and dies on the next reap, so the HTTP
+    tunnel never finishes bootstrap. Unison / farm / watchdog are kept.
+    """
+    try:
+        blob = " ".join(str(x) for x in sys.argv).lower()
+    except (TypeError, ValueError):
+        blob = ""
+    return "farm_money_monitor" in blob
+
+
+def _restore_tor_slots(rows: list[tuple[str, str, int, int]]) -> list[str]:
+    """Start missing slot HTTP tunnels and refuse to call that a heal until they listen."""
+    slots = [slot for _name, _ser, _idx, slot in rows]
+    if not slots:
+        return ["tor_restore_skip_no_slots"]
+    if _caller_tor_would_be_reaped():
+        return [
+            "tor_restore_deferred caller_reaped "
+            "(unison/farm tick binds slot HTTP; money-mon tor is killed as helper fleet)"
+        ]
+    try:
+        from automation.tor_manager import restore_tor_http_for_slots
+
+        report = restore_tor_http_for_slots(slots)
+    except Exception as exc:  # noqa: BLE001 — must surface; do not look restored
+        return [f"tor_restore_err:{type(exc).__name__}:{exc}"]
+    if not isinstance(report, dict):
+        return [f"tor_restore_err:bad_report:{report!r}"]
+    restored = list(report.get("restored") or [])
+    boot = list(report.get("bootstrapping") or [])
+    still = list(report.get("still_dead") or [])
+    fixes = [
+        f"tor_restore base={report.get('http_base')} slots={slots} "
+        f"listening={restored} bootstrapping={boot} still_dead={still}"
+    ]
+    for err in report.get("errors") or []:
+        fixes.append(f"tor_restore_err:{err}")
+    if still or boot or len(restored) != len(slots):
+        fixes.append(
+            f"tor_listeners_not_restored up={len(restored)}/{len(slots)} "
+            f"bootstrapping={boot} still_dead={still}"
+        )
+        if still:
+            try:
+                RELOAD_FLAG.write_text(
+                    f"exe_self_heal_tor_down {_utc()}\n", encoding="utf-8"
+                )
+                fixes.append("flagged_FARM_RELOAD_for_tor")
+            except OSError as flag_exc:
+                fixes.append(f"reload_flag_fail:{flag_exc}")
+    else:
+        fixes.append(
+            f"tor_listeners_ok n={len(restored)} base={report.get('http_base')}"
+        )
+    return fixes
+
+
+def _restore_inject_listeners(
+    rows: list[tuple[str, str, int, int]],
+    inject: dict[str, Any],
+    live_set: set[str],
+) -> list[str]:
+    """Bind dead inject ports in this process and pin guests with CA install.
+
+    A running ``cpharm_inject_keepalive.py`` is not a restore — the old script
+    watched hardcoded 8242-8249. The tick itself must bind the lock-map ports
+    and must not report restored until those ports accept.
+    """
+    idxs = [idx for _name, _ser, idx, _slot in rows]
+    ports: list[int] = []
+    for name, _ser, idx, _slot in rows:
+        try:
+            ports.append(int(inject.get(name) or (8218 + idx)))
+        except (TypeError, ValueError):
+            ports.append(8218 + idx)
+    if not idxs:
+        return ["inject_restore_skip_no_idxs"]
+    fixes: list[str] = []
+    dead_before = [p for p in ports if not _port_open(p)]
+    if dead_before:
+        fixes.append(
+            f"inject_listeners_down up={len(ports) - len(dead_before)}/{len(ports)} "
+            f"dead={dead_before[:8]}"
+        )
+    try:
+        from automation.mantis_inject_proxy import start_inject_proxies
+
+        started = start_inject_proxies(idxs)
+        fixes.append(f"inject_start_called n={len(started)} idxs={idxs}")
+    except Exception as exc:  # noqa: BLE001
+        fixes.append(f"inject_start_err:{exc}")
+    if live_set:
+        fixes.extend(_repin_live_guests(
+            phones={name: ser for name, ser, _idx, _slot in rows},
+            inject=inject,
+            live=live_set,
+        ))
+    else:
+        fixes.append("inject_guest_pin_skipped adb_empty")
+    fixes.extend(_ensure_inject_keepalive_process(idxs=idxs))
+    still = [p for p in ports if not _port_open(p)]
+    if still:
+        fixes.append(f"inject_restore_failed still={still[:8]}")
+        try:
+            RELOAD_FLAG.write_text(
+                f"exe_self_heal_inject_down {_utc()}\n", encoding="utf-8"
+            )
+            fixes.append("flagged_FARM_RELOAD_for_inject")
+        except OSError as flag_exc:
+            fixes.append(f"reload_flag_fail:{flag_exc}")
+    elif ports:
+        fixes.append(f"inject_listeners_restored n={len(ports)}")
+    return fixes
+
+
 def heal_inject_and_tor(*, live: list[str] | None = None) -> list[str]:
     """Restore dead inject listeners + Tor upstream (EXE-owned, no band-aids).
 
@@ -301,81 +454,17 @@ def heal_inject_and_tor(*, live: list[str] | None = None) -> list[str]:
         if live_ports:
             inject_ports = sorted(set(live_ports))
 
-    idxs: list[int] = []
-    for name, port in inject.items():
-        if inject_ports and int(port) not in inject_ports:
-            continue
-        idx = _vm_index(name)
-        if idx is None:
-            try:
-                idx = int(port) - 8218
-            except (TypeError, ValueError):
-                continue
-        if idx >= 0:
-            idxs.append(idx)
-    idxs = sorted(set(idxs))
-
     up_ports = [p for p in inject_ports if _port_open(p)]
-    dead_ports = [p for p in inject_ports if p not in up_ports]
-    any_inject = bool(up_ports)
-    all_inject = bool(inject_ports) and not dead_ports
 
-    http_base = _tor_http_base()
-    tor_ports = sorted({http_base + i for i in idxs}) if idxs else []
-    if not tor_ports and inject_ports:
-        tor_ports = sorted({http_base + (p - 8218) for p in inject_ports if p >= 8218})
-    up_tor = [p for p in tor_ports if _port_open(p)]
-    any_tor = bool(up_tor)
-    all_tor = bool(tor_ports) and len(up_tor) == len(tor_ports)
-
+    # Tor HTTP is slot-based (http_base + roster position), not absolute VM
+    # index. vm39 dials base+0, not base+39. Warming 0..max(idx) clamped at 31
+    # never restored those listeners, and the async warm returned before any
+    # port was up — the tick treated that as a heal.
+    rows = _heal_phone_rows(phones, live_set, inject)
+    _publish_slot_map(rows)
     farm_alive = _farm_lane_alive()
-    need_inject = bool(inject_ports) and (not any_inject or bool(dead_ports))
-    need_tor = bool(idxs) and (not any_tor or not all_tor)
+    fixes.extend(_restore_tor_slots(rows))
 
-    if need_tor:
-        fixes.append(
-            f"tor_listeners_down up={len(up_tor)}/{len(tor_ports)} base={http_base}"
-        )
-        # Prefer farm-owned warm to avoid Tor fleet storms. If farm is alive but
-        # *zero* Tor HTTP listeners remain, heal may warm anyway — farm "alive"
-        # with dead Tor was stranding money until a sequence-gated reload.
-        is_farm_proc = _current_process_is_farm()
-        tor_totally_dead = len(up_tor) == 0
-        if is_farm_proc or not farm_alive or tor_totally_dead:
-            try:
-                from automation import tor_manager
-
-                max_idx = max(idxs) if idxs else max(0, len(live_set) - 1)
-                tor_manager.ensure_tor_daemon_started_async(max_phone_idx=max_idx)
-                who = "farm" if is_farm_proc else ("bootstrap" if not farm_alive else "heal_dead_tor")
-                fixes.append(f"tor_warm_async max_idx={max_idx} via={who}")
-            except Exception as exc:  # noqa: BLE001
-                fixes.append(f"tor_warm_err:{exc}")
-                try:
-                    RELOAD_FLAG.write_text(
-                        f"exe_self_heal_tor_down {_utc()}\n", encoding="utf-8"
-                    )
-                    fixes.append("flagged_FARM_RELOAD_for_tor")
-                except OSError as flag_exc:
-                    fixes.append(f"reload_flag_fail:{flag_exc}")
-        else:
-            fixes.append("tor_warm_skipped caller_not_farm farm_owns_tor")
-            try:
-                RELOAD_FLAG.write_text(
-                    f"exe_self_heal_tor_partial {_utc()} up={len(up_tor)}/{len(tor_ports)}\n",
-                    encoding="utf-8",
-                )
-                fixes.append("flagged_FARM_RELOAD_for_partial_tor")
-            except OSError as flag_exc:
-                fixes.append(f"reload_flag_fail:{flag_exc}")
-    elif all_tor:
-        fixes.append(f"tor_listeners_ok n={len(up_tor)} base={http_base}")
-    elif any_tor:
-        fixes.append(f"tor_listeners_partial up={len(up_tor)}/{len(tor_ports)}")
-
-    # Durable inject ownership: cpharm_inject_keepalive holds 8242+ listeners.
-    # Never in-process bind from money-mon / heal callers — only run_farm_354 backup.
-    is_farm = _current_process_is_farm()
     if up_ports:
         fixes.append(_describe_inject_ownership(up_ports))
         owner_pids = sorted(set(_inject_port_owners(up_ports).values()))
@@ -391,78 +480,9 @@ def heal_inject_and_tor(*, live: list[str] | None = None) -> list[str]:
                     fixes.append(f"inject_wrong_owner_killed pid={pid} class={cls}")
                 else:
                     fixes.append(f"inject_wrong_owner_kill_fail pid={pid} class={cls}")
-            time.sleep(1.0)
-            fixes.extend(_ensure_inject_keepalive_process(idxs=idxs))
+            time.sleep(0.4)
 
-    if need_inject:
-        fixes.append(
-            f"inject_listeners_down up={len(up_ports)}/{len(inject_ports)} "
-            f"dead={dead_ports[:8]}"
-        )
-        # 1) Persistent keepalive lane FIRST — survives money-mon / heal restarts.
-        fixes.extend(_ensure_inject_keepalive_process(idxs=idxs))
-        time.sleep(2.0)
-
-        up_mid = [p for p in inject_ports if _port_open(p)]
-        still_dead = [p for p in inject_ports if p not in up_mid]
-
-        # 2) In-process bind ONLY from run_farm_354 when keepalive did not restore.
-        if still_dead and is_farm:
-            try:
-                from automation.mantis_inject_proxy import start_inject_proxies
-
-                if idxs:
-                    started = start_inject_proxies(idxs)
-                    fixes.append(
-                        f"inject_started_inproc_farm_backup n={len(started)} idxs={idxs}"
-                    )
-            except Exception as exc:  # noqa: BLE001
-                fixes.append(f"inject_inproc_err:{exc}")
-        elif still_dead and not is_farm:
-            fixes.append(
-                f"inject_inproc_skipped caller_not_farm dead={still_dead[:8]}"
-            )
-
-        # 3) Re-pin live guests to lock-map inject ports + reverse tunnels.
-        fixes.extend(_repin_live_guests(phones=phones, inject=inject, live=live_set))
-
-        time.sleep(0.6)
-        up_after = [p for p in inject_ports if _port_open(p)]
-        if up_after:
-            fixes.append(_describe_inject_ownership(up_after))
-        if len(up_after) == len(inject_ports) and inject_ports:
-            fixes.append(f"inject_listeners_restored n={len(up_after)}")
-        elif up_after:
-            fixes.append(
-                f"inject_listeners_partial_after_heal up={len(up_after)}/{len(inject_ports)}"
-            )
-            try:
-                RELOAD_FLAG.write_text(
-                    f"exe_self_heal_inject_partial {_utc()}\n", encoding="utf-8"
-                )
-            except OSError:
-                pass
-        else:
-            fixes.append("inject_restore_failed still_0")
-            try:
-                RELOAD_FLAG.write_text(
-                    f"exe_self_heal_inject_down {_utc()}\n", encoding="utf-8"
-                )
-                fixes.append("flagged_FARM_RELOAD_for_inject")
-            except OSError as flag_exc:
-                fixes.append(f"reload_flag_fail:{flag_exc}")
-    elif all_inject:
-        fixes.append(f"inject_listeners_ok n={len(up_ports)}")
-        fixes.extend(_ensure_inject_keepalive_process(idxs=idxs))
-        fixes.extend(
-            _repin_live_guests(
-                phones=phones, inject=inject, live=live_set, only_if_wrong=True
-            )
-        )
-    elif any_inject:
-        fixes.append(f"inject_listeners_partial up={len(up_ports)}/{len(inject_ports)}")
-        fixes.extend(_ensure_inject_keepalive_process(idxs=idxs))
-        fixes.extend(_repin_live_guests(phones=phones, inject=inject, live=live_set))
+    fixes.extend(_restore_inject_listeners(rows, inject, live_set))
 
     if farm_alive:
         fixes.append("farm_lane_alive")
@@ -618,7 +638,16 @@ def _repin_live_guests(
                 timeout=10.0,
             )
             got = _guest_proxy_port(serial)
-            fixes.append(f"repin {serial} idx={idx} pinned={pinned} got={got}")
+            host_up = _port_open(want)
+            if not host_up or got in (None, 0) or str(pinned).endswith(":0"):
+                fixes.append(
+                    f"repin_fail {serial} idx={idx} pinned={pinned} got={got} "
+                    f"host_listen={host_up}"
+                )
+            else:
+                fixes.append(
+                    f"repin {serial} idx={idx} pinned={pinned} got={got}"
+                )
         except Exception as exc:  # noqa: BLE001
             fixes.append(f"repin_fail {serial}:{exc}")
     return fixes

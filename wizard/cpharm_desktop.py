@@ -1076,10 +1076,24 @@ def _bootlog(msg: str) -> None:
 
 
 def _in_cli_mode() -> bool:
-    """True when argv routes to a CLI mode instead of the GUI window."""
+    """True when argv routes to a CLI mode instead of the GUI window.
+
+    ``--start-farm`` / ``--stop-farm`` must be included. A windowed EXE starts
+    with ``sys.stdout is None``; if those flags are treated as GUI, the first
+    ``_ensure_console`` swallows output to ``os.devnull`` and the farm CLI looks
+    hung even when it is working.
+    """
     return any(
         flag in sys.argv
-        for flag in ("--version", "--agent", "--watchdog", "--cloud-phones-cli", "--internal-tk-page")
+        for flag in (
+            "--version",
+            "--agent",
+            "--watchdog",
+            "--cloud-phones-cli",
+            "--internal-tk-page",
+            "--start-farm",
+            "--stop-farm",
+        )
     )
 
 
@@ -1179,6 +1193,35 @@ def _farm_cli_mode() -> bool:
     return "--start-farm" in sys.argv or "--stop-farm" in sys.argv
 
 
+def _owner_pid_alive(pid: int) -> bool:
+    if pid <= 0 or pid == os.getpid():
+        return False
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    return True
+
+
+def _nested_start_farm_child() -> bool:
+    """True when this process is a helper that re-exec'd PharmFlow.exe --start-farm.
+
+    The owner sets CPHARM_START_FARM_OWNER before spawning. A child that inherits
+    it must exit immediately — entering run_farm_cli again hangs in a second loop
+    and never returns the farm to the operator.
+    """
+    if "--start-farm" not in sys.argv:
+        return False
+    owner = (os.environ.get("CPHARM_START_FARM_OWNER") or "").strip()
+    if not owner:
+        return False
+    try:
+        owner_pid = int(owner)
+    except ValueError:
+        return False
+    return _owner_pid_alive(owner_pid)
+
+
 def run_farm_cli() -> int:
     """Start or stop the unison money farm from the EXE itself.
 
@@ -1205,6 +1248,11 @@ def run_farm_cli() -> int:
         print("Farm already running — dashboard http://127.0.0.1:8091/")
         return 0
     ok = _sf(profile=_load_profile(None), hours=None, takeover=True)
+    if not ok and _fr():
+        # start_farm returns False when unison is already up. That is not a
+        # failed arm — the stale-log path used to take this branch by mistake.
+        print("Farm already running — dashboard http://127.0.0.1:8091/")
+        return 0
     if not ok:
         print("Start farm refused (see farm log)", file=sys.stderr)
         return 1
@@ -1223,6 +1271,13 @@ def run_farm_cli() -> int:
 
 def main() -> None:
     _bootlog("main: start")
+    if _nested_start_farm_child():
+        _ensure_console()
+        _bootlog("main: nested --start-farm ignored")
+        print("Farm already running — nested --start-farm ignored")
+        return
+    if "--start-farm" in sys.argv:
+        os.environ["CPHARM_START_FARM_OWNER"] = str(os.getpid())
     _ensure_console()
     if "--version" in sys.argv:
         import cpharm_version as ver
