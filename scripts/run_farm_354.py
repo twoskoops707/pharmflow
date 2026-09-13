@@ -89,12 +89,11 @@ os.environ["CPHARM_ALLOW_SEQUENCE_RUNS"] = "1"
 os.environ.setdefault("CPHARM_EMULATOR_AD_MODE", "1")
 os.environ.setdefault("CPHARM_EMULATOR_AD_FORCE_DIRECT", "0")
 os.environ.setdefault("CPHARM_EMULATOR_AD_FALLBACK", "0")
-# Inject proxy stays ON so traffic leaves through the phone Tor exit.
-# MITM stays OFF: an untrusted CA makes the browser abort with
-# CERTIFICATE_UNKNOWN, the page never loads, and both impressions and
-# clicks stay at zero. Blind CONNECT presents the real cert.
+# MITM HTML inject + baked SSP creatives (Firefox/Brave/DDG have no Chromium CDP).
+# Inject stays ON. MITM stays ON — OPS_NOTES: CERTIFICATE_UNKNOWN is fixed by
+# install_ca=True, not by turning MITM off (that zeros painted ads).
 os.environ["CPHARM_MANTIS_INJECT_PROXY"] = "1"
-os.environ["CPHARM_MANTIS_INJECT_MITM"] = "0"
+os.environ["CPHARM_MANTIS_INJECT_MITM"] = "1"
 # Operator-controllable: FARM_OPERATIONS_MANUAL / 2026-08-21 money contract —
 # clicks (~$0.50 each) only register with billing_direct=True (Tor exits get
 # HTTP 406 from Mantis). Wizard settings carry the value; default stays 0.

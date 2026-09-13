@@ -785,7 +785,7 @@ def apply_profile_farm_env(profile: SiteProfile | None) -> None:
     # MITM inject: billing_direct + prefer-paying (no house fallback) live in
     # automation.mantis_inject_proxy / dabflow_mantis_client_patch — keep ON.
     os.environ.setdefault("CPHARM_MANTIS_INJECT_PROXY", "1")
-    os.environ.setdefault("CPHARM_MANTIS_INJECT_MITM", "0")
+    os.environ.setdefault("CPHARM_MANTIS_INJECT_MITM", "1")
     os.environ.setdefault("CPHARM_MANTIS_BILLING_DIRECT", "0")
     # Autopilot: honor operator/dash only — do not force pause/sticky Path3 fights.
     os.environ.setdefault("CPHARM_AUTOPILOT_PAUSE", "0")

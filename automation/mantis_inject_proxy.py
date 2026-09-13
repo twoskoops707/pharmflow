@@ -93,12 +93,10 @@ def inject_port_open(port: int, timeout: float = 0.35) -> bool:
 def mitm_enabled() -> bool:
     """MITM HTML inject — needs trusted CA on the phone (farm arms with ca=True).
 
-    Default OFF. MITM with an untrusted CA aborts the page
-    (CERTIFICATE_UNKNOWN) and zeros impressions and clicks. Blind CONNECT
-    through the phone Tor exit presents the real cert. Set
-    CPHARM_MANTIS_INJECT_MITM=1 only after the guest trusts the CA.
+    Default ON so Firefox/Brave/DuckDuckGo (no CDP) still get Mantis creatives.
+    Set CPHARM_MANTIS_INJECT_MITM=0 to force blind CONNECT tunnel only.
     """
-    raw = os.environ.get("CPHARM_MANTIS_INJECT_MITM", "0").strip().lower()
+    raw = os.environ.get("CPHARM_MANTIS_INJECT_MITM", "1").strip().lower()
     return raw not in ("0", "false", "no", "off")
 
 
