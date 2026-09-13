@@ -83,15 +83,26 @@ if _is_arm64_host:
             "Microsoft.Web.WebView2.WinForms.dll"
         )
 
-    _webview_datas = [e for e in _webview_datas if not _is_stock_webview2_managed(e)]
-    _webview_binaries = [e for e in _webview_binaries if not _is_stock_webview2_managed(e)]
-    for _name in (
+    # Only drop pywebview's managed DLLs when both netcore replacements exist.
+    # Stripping with an empty bundled/webview2_netcore leaves the freeze with no
+    # WebView2 assemblies, so webview.start() never paints and the Control
+    # Panel title never appears.
+    _netcore_names = (
         "Microsoft.Web.WebView2.Core.dll",
         "Microsoft.Web.WebView2.WinForms.dll",
-    ):
-        _src = _webview2_netcore_dir / _name
-        if _src.is_file():
-            _webview_datas.append((str(_src), "webview/lib"))
+    )
+    _have_netcore = all((_webview2_netcore_dir / _name).is_file() for _name in _netcore_names)
+    if _have_netcore:
+        _webview_datas = [e for e in _webview_datas if not _is_stock_webview2_managed(e)]
+        _webview_binaries = [e for e in _webview_binaries if not _is_stock_webview2_managed(e)]
+        for _name in _netcore_names:
+            _webview_datas.append((str(_webview2_netcore_dir / _name), "webview/lib"))
+        print("WEBVIEW2: overlaying netcore managed DLLs from bundled/webview2_netcore", flush=True)
+    else:
+        print(
+            "WEBVIEW2: netcore overlays missing; keeping stock WebView2 managed DLLs",
+            flush=True,
+        )
 
 # Tor runtime data dirs (automation/tor/data_*) must NOT ship in the EXE:
 # their per-run 'lock' files raise PermissionError when PyInstaller reads
