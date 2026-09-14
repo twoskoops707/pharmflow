@@ -1,3 +1,5 @@
+> **Superseded:** the product is a single `PharmFlow.exe` in `C:\PharmFlow\` (`--watchdog`, `--agent`, phone setup in-process). Data still lives under `C:\CPharm\`. Ignore EXE names below.
+
 ﻿# Session notes — 2026-06-19 (DabFlow / MuMu demo)
 
 > **Superseded in part by Jul 2026 dual-exe work:** see [AGENT_HANDOFF_2026-07-04.md](./AGENT_HANDOFF_2026-07-04.md) for current operator path (CPharmMuMuSetup + CPharm.exe, browser policy, fingerprint).

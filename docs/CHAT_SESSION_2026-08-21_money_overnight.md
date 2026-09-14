@@ -1,3 +1,5 @@
+> **Superseded:** the product is a single `PharmFlow.exe` in `C:\PharmFlow\` (`--watchdog`, `--agent`, phone setup in-process). Data still lives under `C:\CPharm\`. Ignore EXE names below.
+
 # Chat session write-up — overnight money / Path3 (2026-08-20 → 08-21)
 
 **Audience:** next Cursor agent / other desktop / operator  

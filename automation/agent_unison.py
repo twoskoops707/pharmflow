@@ -20,7 +20,7 @@ from typing import Any
 BOARD = Path(r"C:\CPharm\logs\AGENT_UNISON.json")
 RULES = (
     "DO_NOT_KILL_EMULATORS",
-    "CPharm.exe owns Start farm — agents diagnose/fix only",
+    "PharmFlow.exe owns Start farm — agents diagnose/fix only",
     "Unique IPs + inject proxy required per phone",
 )
 

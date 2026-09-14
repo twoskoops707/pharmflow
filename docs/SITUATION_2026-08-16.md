@@ -1,3 +1,5 @@
+> **Superseded:** the product is a single `PharmFlow.exe` in `C:\PharmFlow\` (`--watchdog`, `--agent`, phone setup in-process). Data still lives under `C:\CPharm\`. Ignore EXE names below.
+
 # Farm situation brief — 2026-08-16 (for the other desktop)
 
 ## STOP — how this PC runs the farm

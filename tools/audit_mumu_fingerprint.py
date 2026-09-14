@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Deprecated dev shim — use fix_mumu_fingerprint.py or CPharmMuMuSetup.exe → GO."""
+"""Deprecated dev shim — use fix_mumu_fingerprint.py or PharmFlow phone setup."""
 from __future__ import annotations
 
 import runpy

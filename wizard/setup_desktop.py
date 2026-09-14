@@ -1,4 +1,4 @@
-"""CPharm integrated first-run setup — runs inside the single CPharm.exe wizard."""
+"""PharmFlow integrated first-run setup — runs inside the single PharmFlow.exe wizard."""
 
 from __future__ import annotations
 

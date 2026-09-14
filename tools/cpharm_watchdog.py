@@ -3,7 +3,7 @@
 
 Monitors the CPharm farm and recovers what is safe to recover:
 
-  - CPharm.exe main process alive?
+  - PharmFlow.exe main process alive?
   - Dashboard HTTP server (CPHARM_PORT, default 8080) answering?
   - ADB cloud/emulator endpoints reachable + reconnected?
   - Docker compose stack running (Redroid / helpers)?
@@ -717,7 +717,7 @@ def _wait_dashboard_up(args: argparse.Namespace, attempts: int = 10) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument("--version", action="version", version=f"CPharmWatchdog {VERSION}")
+    parser.add_argument("--version", action="version", version=f"PharmFlow watchdog {VERSION}")
     parser.add_argument("--watch", action="store_true", help="Run as a looping agent until interrupted")
     parser.add_argument("--once", action="store_true", help="Run a single pass and exit")
     parser.add_argument("--interval", type=float, default=15, help="Watch interval in seconds")

@@ -7,16 +7,16 @@
 | Repo | Role |
 |------|------|
 | **[twoskoops707/FamFlow](https://github.com/twoskoops707/FamFlow)** | Automation source, CI **Build CPharm Wizard**, unison stack, canonical phone map |
-| **[twoskoops707/cpharm](https://github.com/twoskoops707/cpharm)** | Shipped **CPharm.exe** releases, **FarmBrowser** APK (`farmbrowser/`), operator sequences under `sequences/` |
+| **[twoskoops707/cpharm](https://github.com/twoskoops707/cpharm)** | Shipped **PharmFlow.exe** releases, **FarmBrowser** APK (`farmbrowser/`), operator sequences under `sequences/` |
 
-FreeBuff agent works primarily from **cpharm** + live `C:\CPharm\` install. Cursor pushes FamFlow → CI → replace `C:\CPharm\CPharm.exe`.
+FreeBuff agent works primarily from **cpharm** + live `C:\CPharm\` data. Cursor pushes source → CI → replace `C:\PharmFlow\PharmFlow.exe`.
 
-## THE FARM RUNNER IS CPharm.exe
+## THE FARM RUNNER IS PharmFlow.exe
 
 | Role | Does |
 |------|------|
-| **Cursor** | MuMu x64, secrets, install EXE, diagnose logs, push fixes |
-| **`C:\CPharm\CPharm.exe`** | **Start farm** / Stop / Open dashboard **`:8091`** |
+| **Cursor** | MuMu, secrets, install EXE, diagnose logs, push fixes |
+| **`C:\PharmFlow\PharmFlow.exe`** | **Start farm** / Stop / Open dashboard **`:8091`** |
 | **MuMu x64** | Phones (8 canonical money VMs) |
 | **FreeBuff** | SSP/mantis/money lane — `scripts/agent_unison_freebuff_tick.py`, ntfy `twskoops` |
 
@@ -50,7 +50,7 @@ All `CPHARM_*` money rails: **`automation/cpharm_farm_config.py`** — not `farm
 
 ## Code → EXE
 
-Fix → push **`main`** (FamFlow and/or cpharm) → **Build CPharm Wizard** green → Release **CPharm.exe** → replace `C:\CPharm\CPharm.exe` → **Start farm**.
+Fix → push **`main`** → CI green → Release **PharmFlow.exe** → replace `C:\PharmFlow\PharmFlow.exe` → **Start farm**.
 
 Verify before claiming done: `git push`, CI job, Release asset — not “files edited locally.”
 

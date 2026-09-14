@@ -423,11 +423,11 @@ def _cmd_start_farm(*, force_restart: bool = False) -> str:
     if cpharm_exe_pids() or exe_owns_farm():
         if pids:
             return (
-                f"CPharm.exe already owns the farm pids={pids}. "
+                f"PharmFlow.exe already owns the farm pids={pids}. "
                 f"ADB={adb_n}/{expect_n}. {_live_status_text()}"
             )
         return (
-            "CPharm.exe is running — click Start farm in the CPharm window. "
+            "PharmFlow.exe is running — click Start farm in the PharmFlow window. "
             "This agent will not spawn a second Python farm. "
             f"ADB={adb_n}/{expect_n} missing={missing or 'none'}"
         )
@@ -439,7 +439,7 @@ def _cmd_start_farm(*, force_restart: bool = False) -> str:
         (
             "Started farm via CPharm start_farm (hours=0 daily caps)."
             if ok
-            else "start_farm returned False — click Start farm in CPharm.exe."
+            else "start_farm returned False — click Start farm in PharmFlow.exe."
         ),
         f"ADB={adb_n}/{expect_n} missing={missing or 'none'}.",
         _live_status_text(),

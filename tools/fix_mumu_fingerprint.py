@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Dev CLI — operators use **CPharmMuMuSetup.exe → GO** or CPharm Boot/Launch fingerprint buttons.
+Dev CLI — operators use **PharmFlow → Phones → Set up my phones** or Boot/Launch fingerprint buttons.
 """
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ def main() -> int:
 
     serials = args.serial or farm.order_farm_serials(farm.list_adb_serials())
     print("CPharm — phone fingerprint fix / audit (dev CLI)")
-    print("Operators: CPharmMuMuSetup.exe → GO")
+    print("Operators: PharmFlow → Phones → Set up my phones")
     print("=" * 50)
 
     if not serials:
@@ -59,7 +59,7 @@ def main() -> int:
         print("\nAll phones look OK.")
         return 0
     print(f"\n{summary.get('phones_with_leaks', 0)} phone(s) still leak.")
-    print("Fix: CPharmMuMuSetup.exe → GO")
+    print("Fix: PharmFlow → Phones → Set up my phones")
     return 1
 
 

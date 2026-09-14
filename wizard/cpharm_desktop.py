@@ -763,17 +763,8 @@ def run_main_window(*, initial_view: str | None = None) -> None:
     root.config(menu=menubar)
     root.protocol("WM_DELETE_WINDOW", _quit_cpharm)
 
-    def _on_root_destroy_cleanup(event: tk.Event) -> None:
-        if event.widget is not root:
-            return
-        try:
-            from setup_wizard import wiz_clear_phone_proxies_best_effort
-
-            wiz_clear_phone_proxies_best_effort(stop_tor_host=True)
-        except Exception:
-            pass
-
-    root.bind("<Destroy>", _on_root_destroy_cleanup)
+    # Do not clear guest http_proxy or stop Tor when this window closes.
+    # That drops farm traffic onto the host IP and kills the money exit.
 
     def _open_folder_from_state() -> None:
         d = (state.get("cpharm_dir") or "").strip()
@@ -991,6 +982,12 @@ def run_internal_tk_page(page_index: int, *, action: str | None = None) -> None:
             act = (action or "").strip().lower()
             if act == "edit_sequence" and idx == 5 and hasattr(page, "_edit_sequence"):
                 page._edit_sequence()
+            elif act == "install_all" and hasattr(page, "_install_all"):
+                page._install_all()
+            elif act == "android_install" and hasattr(page, "_auto_install"):
+                page._auto_install()
+            elif act == "create_phones" and hasattr(page, "_create"):
+                page._create()
             elif act == "start_server" and hasattr(page, "_start_server"):
                 page._start_server()
             elif act == "start_server_and_open_dashboard" and hasattr(page, "_start_server"):
@@ -1015,7 +1012,7 @@ def run_internal_tk_page(page_index: int, *, action: str | None = None) -> None:
                 _persist_groups_config()
         except Exception as exc:
             traceback.print_exc()
-            messagebox.showerror("CPharm", f"Action failed:\n{exc}", parent=root)
+            messagebox.showerror("PharmFlow", f"Action failed:\n{exc}", parent=root)
 
     def on_close() -> None:
         try:
@@ -1090,6 +1087,7 @@ def _in_cli_mode() -> bool:
             "--agent",
             "--watchdog",
             "--cloud-phones-cli",
+            "--cloud-agent",
             "--internal-tk-page",
             "--start-farm",
             "--stop-farm",
@@ -1285,11 +1283,14 @@ def main() -> None:
         return
     _bootlog("main: version/combined checks done")
 
-    # Combined-mode entrypoints: a single CPharm.exe can act as the agent or
-    # the watchdog too, so operators only need to keep one binary on disk.
+    # Combined-mode entrypoints: one PharmFlow.exe is the Control Panel,
+    # the project agent, the cloud agent, and the watchdog.
     agent_mode = run_combined_tool("--agent", "tools/project_agent.py")
     if agent_mode is not None:
         raise SystemExit(agent_mode)
+    cloud_agent_mode = run_combined_tool("--cloud-agent", "tools/cloud_agent.py")
+    if cloud_agent_mode is not None:
+        raise SystemExit(cloud_agent_mode)
     watchdog_mode = run_combined_tool("--watchdog", "tools/cpharm_watchdog.py")
     if watchdog_mode is not None:
         raise SystemExit(watchdog_mode)

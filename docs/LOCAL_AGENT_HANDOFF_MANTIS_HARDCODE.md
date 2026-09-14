@@ -17,7 +17,7 @@
 
 | Item | Location |
 |------|----------|
-| Latest release | **wizard-414** (or newer) — `CPharm.exe`, `CPharmMuMuSetup.exe` |
+| Latest release | **wizard-414** (or newer) — `PharmFlow.exe`, `PharmFlow.exe` |
 | 5 experimental seqs | `sequences/900x1600/ad/mantis-hardcode/dabflow__mantis_hardcode__0N__*.json` |
 | Sync script | `scripts/SYNC_CPHARM_FROM_GITHUB.ps1` |
 | Live test (double-click) | `scripts/RUN_MANTIS_LIVE.bat` |
@@ -57,10 +57,10 @@ dir C:\CPharm\sequences\900x1600\ad\mantis-hardcode\
 # Expect 5 JSON files
 
 dir C:\CPharm\*.exe
-# CPharm.exe + CPharmMuMuSetup.exe from latest Release
+# PharmFlow.exe + PharmFlow.exe from latest Release
 ```
 
-If `adb devices` shows **offline**: MuMu → USB debugging ON → `CPharmMuMuSetup.exe` → **GO** → retry.
+If `adb devices` shows **offline**: MuMu → USB debugging ON → `PharmFlow.exe` → **GO** → retry.
 
 ---
 
@@ -108,7 +108,7 @@ In `groups_config.json`, set one phone’s sequence to:
 
 `900x1600/ad/mantis-hardcode/dabflow__mantis_hardcode__01__mat-ceramic__conc-distillate__heat-butane.json`
 
-Then run from **CPharm.exe** dashboard after Tor/proxy ready.
+Then run from **PharmFlow.exe** dashboard after Tor/proxy ready.
 
 ---
 

@@ -1,3 +1,5 @@
+> **Superseded:** the product is a single `PharmFlow.exe` in `C:\PharmFlow\` (`--watchdog`, `--agent`, phone setup in-process). Data still lives under `C:\CPharm\`. Ignore EXE names below.
+
 # Overnight completion handoff — 2026-07-05
 
 Read this first in the morning. MuMu was **offline** overnight (no ADB devices); all **code + sequences + tests** were finished on the host.

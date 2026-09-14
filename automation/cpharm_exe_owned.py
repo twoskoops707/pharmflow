@@ -26,7 +26,7 @@ def mark_exe_owned(*, in_process: bool = False) -> None:
     try:
         EXE_OWNED_FLAG.parent.mkdir(parents=True, exist_ok=True)
         EXE_OWNED_FLAG.write_text(
-            "owned_by=CPharm.exe\n",
+            "owned_by=PharmFlow.exe\n",
             encoding="utf-8",
         )
     except OSError:

@@ -1,10 +1,10 @@
 """
-CPharmMuMuSetup.exe — run this FIRST on your PC (same folder as CPharm.exe).
+Phone setup runs in-process inside PharmFlow.exe (there is no separate setup EXE).
 
 Primary UI: pywebview (WebView2) with modern HTML/CSS frontend.
 Fallback: tkinter when pywebview is unavailable.
 
-Build: pyinstaller CPharmMuMuSetup.spec (see .github/workflows/build-wizard.yml)
+Build: pyinstaller PharmFlow.spec (see .github/workflows/build-wizard.yml)
 """
 
 from __future__ import annotations

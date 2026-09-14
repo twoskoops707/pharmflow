@@ -357,165 +357,12 @@ def _spawn_with_visible_fallback(
 
 
 def open_classic_wizard(step_id: str = "steps", *, auto_action: str | None = None) -> dict:
-    """Open a visible editor window on the tk bridge thread (must not spawn a second Tk())."""
+    """Open a visible wizard window in its own process. In-process Tcl dies under WebView2."""
     step_id = str(step_id or "steps").strip().lower()
     page_idx = _tk_page_index_for_step(step_id)
     if page_idx is None:
-        # Deck-only step (e.g. Site Map) — no classic Tk page to open.
         return {"ok": True, "deck": step_id, "mode": "deck"}
-    idx = int(page_idx)
-
-    def work() -> dict:
-        from setup_wizard import BG, CPharmWizard
-        from wizard_theme import _style_scrollbars
-
-        existing = [w for w in _classic_wizard_windows if _window_exists(w)]
-        _classic_wizard_windows[:] = existing
-        if existing:
-            win = existing[-1]
-            try:
-                host = win.winfo_children()[0] if win.winfo_children() else None
-                wiz_host = host.winfo_children()[0] if host and host.winfo_children() else None
-                if wiz_host and hasattr(wiz_host, "_show"):
-                    wiz_host._show(idx)
-                _show_tk_window(win)
-                if wiz_host and auto_action == "edit_sequence" and idx == 5:
-                    page = wiz_host._pages[5]
-                    win.after(250, page._edit_sequence)
-                elif wiz_host and auto_action == "add_group" and idx == 7:
-                    win.after(250, lambda: wiz_host._pages[7]._add_group())
-                elif wiz_host and auto_action == "humanize" and idx == 7:
-                    win.after(250, lambda: wiz_host._pages[7]._humanize_all_sequences())
-                elif wiz_host and auto_action == "start_server" and idx == 8:
-                    win.after(250, lambda: wiz_host._pages[8]._start_server())
-                elif wiz_host and auto_action == "run_groups" and idx == 8:
-                    win.after(250, lambda: wiz_host._pages[8]._run_groups())
-                elif wiz_host and auto_action == "start_automation" and idx == 8:
-                    win.after(250, lambda: wiz_host._pages[8]._start_automation_one_click())
-                return {"ok": True, "reused": True, "mode": "classic", "step": step_id}
-            except Exception as exc:
-                return {"ok": False, "error": f"Could not reuse Wizard window: {exc}"}
-
-        assert _tk_root is not None
-        from cpharm_version import instance_title
-        win = tk.Toplevel(_tk_dialog_parent())
-        win.title(instance_title("Wizard"))
-        win.geometry("1120x960")
-        win.minsize(960, 780)
-        win.config(bg=BG)
-        _style_scrollbars(win)
-        try:
-            sw = win.winfo_screenwidth()
-            sh = win.winfo_screenheight()
-            win.geometry(f"1120x960+{max(0, (sw - 1120) // 2)}+{max(0, (sh - 960) // 2)}")
-        except Exception:
-            pass
-
-        host = tk.Frame(win, bg=BG)
-        host.pack(fill="both", expand=True)
-        wiz = CPharmWizard(host)
-        wiz.pack(fill="both", expand=True)
-        wiz._show(idx)
-        _classic_wizard_windows.append(win)
-
-        def on_close() -> None:
-            try:
-                if win in _classic_wizard_windows:
-                    _classic_wizard_windows.remove(win)
-            except ValueError:
-                pass
-            try:
-                win.destroy()
-            except Exception:
-                pass
-            _restore_webview_from_tk()
-
-        win.protocol("WM_DELETE_WINDOW", on_close)
-
-        if auto_action == "edit_sequence" and idx == 5:
-
-            def open_editor() -> None:
-                try:
-                    page = wiz._pages[5]
-                    if hasattr(page, "on_enter"):
-                        page.on_enter()
-                    if hasattr(page, "_edit_sequence"):
-                        page._edit_sequence()
-                except Exception:
-                    pass
-
-            win.after(300, open_editor)
-        elif auto_action == "add_group" and idx == 7:
-
-            def add_group() -> None:
-                try:
-                    page = wiz._pages[7]
-                    if hasattr(page, "on_enter"):
-                        page.on_enter()
-                    if hasattr(page, "_add_group"):
-                        page._add_group()
-                except Exception:
-                    pass
-
-            win.after(300, add_group)
-        elif auto_action == "humanize" and idx == 7:
-
-            def humanize() -> None:
-                try:
-                    page = wiz._pages[7]
-                    if hasattr(page, "on_enter"):
-                        page.on_enter()
-                    if hasattr(page, "_humanize_all_sequences"):
-                        page._humanize_all_sequences()
-                except Exception:
-                    pass
-
-            win.after(300, humanize)
-        elif auto_action == "start_server" and idx == 8:
-
-            def start_srv() -> None:
-                try:
-                    page = wiz._pages[8]
-                    if hasattr(page, "on_enter"):
-                        page.on_enter()
-                    if hasattr(page, "_start_server"):
-                        page._start_server()
-                except Exception:
-                    pass
-
-            win.after(300, start_srv)
-        elif auto_action == "run_groups" and idx == 8:
-
-            def run_grp() -> None:
-                try:
-                    page = wiz._pages[8]
-                    if hasattr(page, "on_enter"):
-                        page.on_enter()
-                    if hasattr(page, "_run_groups"):
-                        page._run_groups()
-                except Exception:
-                    pass
-
-            win.after(300, run_grp)
-        elif auto_action == "start_automation" and idx == 8:
-
-            def start_auto() -> None:
-                try:
-                    page = wiz._pages[8]
-                    if hasattr(page, "on_enter"):
-                        page.on_enter()
-                    if hasattr(page, "_start_automation_one_click"):
-                        page._start_automation_one_click()
-                except Exception:
-                    pass
-
-            win.after(300, start_auto)
-
-        _show_tk_window(win)
-        return {"ok": True, "mode": "classic", "step": step_id}
-
-    return _run_on_tk(work)
-
+    return _spawn_visible_wizard(int(page_idx), auto_action or "")
 
 def _window_exists(win: Any) -> bool:
     try:
@@ -538,9 +385,9 @@ def _tk_dialog_parent() -> Any:
     parent = tk.Toplevel(_tk_root)
     try:
         from cpharm_version import instance_title
-        parent.title(instance_title("CPharm"))
+        parent.title(instance_title("PharmFlow"))
     except Exception:
-        parent.title("CPharm")
+        parent.title("PharmFlow")
     try:
         sw = parent.winfo_screenwidth()
         sh = parent.winfo_screenheight()
@@ -734,7 +581,7 @@ def _ensure_tk_thread() -> None:
         try:
             _tk_thread_ident = threading.get_ident()
             root = tk.Tk()
-            root.title("CPharm backend")
+            root.title("PharmFlow backend")
             root.withdraw()
             host = tk.Frame(root)
             host.pack()
@@ -863,6 +710,224 @@ def _run_async_on_tk(fn: Callable, *args, **kwargs) -> None:
     _call_queue.put((fn, args, kwargs, None))
 
 
+def _run_direct(fn: Callable, *args, **kwargs) -> Any:
+    """Run deck work on the caller thread. Never touch the Tk pump.
+
+    The frozen EXE owns the process main thread with WebView2. Tcl/Tk created
+    on a background thread dies with ``main thread is not in main loop``, and
+    every later button then sits in ``_call_queue`` until the 600s timeout.
+    State, disk, ADB, and localhost calls do not need a widget.
+    """
+    try:
+        return fn(*args, **kwargs)
+    except Exception as exc:  # noqa: BLE001 — surface to the WebView as an error dict
+        return {"ok": False, "error": str(exc)[:500]}
+
+
+_dashboard_proc: subprocess.Popen | None = None
+_dashboard_lock = threading.Lock()
+
+
+def _host_python_argv() -> tuple[list[str], str]:
+    """Real CPython for dashboard.py. The frozen EXE is not an interpreter."""
+    from setup_wizard import _probe_python_cmd, _resolve_python_cmd, state
+
+    argv, disp = _resolve_python_cmd(state.get("python_cmd"))
+    if getattr(sys, "frozen", False) and argv:
+        try:
+            same = Path(argv[0]).resolve() == Path(sys.executable).resolve()
+        except OSError:
+            same = str(argv[0]).lower() == str(sys.executable).lower()
+        if same:
+            for cand in (["py", "-3"], ["python"], ["python3"]):
+                if _probe_python_cmd(cand):
+                    state["python_cmd"] = " ".join(cand)
+                    state["python_cmd_argv"] = list(cand)
+                    return list(cand), " ".join(cand)
+            return ["python"], "python"
+    return list(argv), disp
+
+
+def _cpharm_dir() -> str:
+    from setup_wizard import _cpharm_install_root, state
+
+    d = str(state.get("cpharm_dir") or "").strip()
+    if not d:
+        d = str(_cpharm_install_root())
+        state["cpharm_dir"] = d
+    return d
+
+
+def _dashboard_post(path: str, body: dict | None = None, timeout: float = 12) -> dict:
+    """POST to the local dashboard. Same contract as LaunchPage._api, no widgets."""
+    import urllib.error
+    import urllib.request
+
+    from setup_wizard import dashboard_base_url, probe_dashboard_listen_port
+
+    payload = json.dumps(body or {}).encode()
+    delay = 0.35
+    last_err: Exception | None = None
+    retried_probe = False
+    for attempt in range(6):
+        url = f"{dashboard_base_url()}{path}"
+        req = urllib.request.Request(
+            url,
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as r:  # noqa: S310 — loopback
+                parsed = json.loads(r.read().decode())
+            return parsed if isinstance(parsed, dict) else {"ok": True, "data": parsed}
+        except urllib.error.HTTPError as e:
+            try:
+                raw = e.read().decode("utf-8", errors="replace")
+                parsed = json.loads(raw)
+                if isinstance(parsed, dict) and parsed.get("error"):
+                    return parsed
+            except Exception:
+                pass
+            return {"error": str(e)}
+        except (urllib.error.URLError, TimeoutError, ConnectionError, OSError) as e:
+            last_err = e
+            err_s = str(e).lower()
+            refused = "10061" in str(e) or "refused" in err_s or "actively refused" in err_s
+            if refused and not retried_probe:
+                retried_probe = True
+                if probe_dashboard_listen_port():
+                    continue
+            if attempt < 5 and (refused or "timed out" in err_s):
+                time.sleep(delay)
+                delay = min(delay * 1.65, 2.8)
+                continue
+            if refused:
+                return {"error": "The server is not running. On Go, tap Start service first."}
+            return {"error": str(e)}
+    if last_err and ("10061" in str(last_err) or "refused" in str(last_err).lower()):
+        return {"error": "The server is not running. On Go, tap Start service first."}
+    return {"error": str(last_err) if last_err else "Could not reach the server"}
+
+
+def _python_imports_ok(py_argv: list[str], modules: str) -> bool:
+    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if sys.platform == "win32" else 0
+    try:
+        chk = subprocess.run(
+            py_argv + ["-c", modules],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            creationflags=flags,
+        )
+        return chk.returncode == 0
+    except Exception:
+        return False
+
+
+def _start_dashboard_headless() -> dict:
+    """Launch automation/dashboard.py. No Tk page, no messagebox, no self.after."""
+    global _dashboard_proc
+    from setup_wizard import (
+        _DASHBOARD_SPAWN_FLAGS,
+        _dashboard_ready_timeout_sec,
+        clear_dashboard_listen_port_cache,
+        probe_dashboard_listen_port,
+    )
+
+    with _dashboard_lock:
+        if probe_dashboard_listen_port():
+            return {"ok": True, "started": True, "already_running": True}
+        alive = _dashboard_proc is not None and _dashboard_proc.poll() is None
+        if alive:
+            return {"ok": True, "started": True, "already_running": True}
+
+        root = _cpharm_dir()
+        dashboard = Path(root) / "automation" / "dashboard.py"
+        if not dashboard.is_file():
+            return {"ok": False, "error": f"dashboard.py not found at {dashboard}"}
+
+        clear_dashboard_listen_port_cache()
+        py_argv, py_disp = _host_python_argv()
+        _emit_log("go", f"Using Python: {py_disp}\n")
+        dep_stmt = "import websockets, psutil"
+        if not _python_imports_ok(py_argv, dep_stmt):
+            flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if sys.platform == "win32" else 0
+            pip = subprocess.run(
+                py_argv + ["-m", "pip", "install", "--quiet", "--user", "websockets>=12.0", "psutil>=5.9.0"],
+                capture_output=True,
+                text=True,
+                timeout=120,
+                creationflags=flags,
+            )
+            if pip.returncode != 0 and not _python_imports_ok(py_argv, dep_stmt):
+                err = (pip.stderr or pip.stdout or "pip failed").strip()[-400:]
+                return {"ok": False, "error": f"Cannot start dashboard: {err}"}
+
+        launch_cmd = py_argv + [str(dashboard)]
+        _emit_log("go", f"Launch command: {' '.join(launch_cmd)}\n")
+        flags = _DASHBOARD_SPAWN_FLAGS
+        # CREATE_NO_WINDOW and DETACHED_PROCESS together are ignored by Windows
+        # and a console flashes. Hide the console; do not detach.
+        if sys.platform == "win32":
+            flags = int(getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        proc = subprocess.Popen(
+            launch_cmd,
+            cwd=str(dashboard.parent),
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=flags,
+        )
+        _dashboard_proc = proc
+
+    ready_sec = min(90.0, float(_dashboard_ready_timeout_sec()))
+    deadline = time.time() + ready_sec
+    while time.time() < deadline:
+        if proc.poll() is not None:
+            return {"ok": False, "error": f"Dashboard exited immediately (code {proc.returncode})"}
+        if probe_dashboard_listen_port():
+            _emit_log("go", "Dashboard is up.\n")
+            return {"ok": True, "started": True, "ready": True}
+        time.sleep(0.45)
+    return {"ok": False, "error": f"Dashboard did not answer /api/config within {int(ready_sec)}s"}
+
+
+def _open_browser(url: str) -> None:
+    import webbrowser
+
+    webbrowser.open(url)
+
+
+def _boot_then_continue() -> dict:
+    """Start boot. An already-running boot is success, not a hard stop."""
+    boot_res = boot_all_phones()
+    if not isinstance(boot_res, dict):
+        return {"ok": True, "boot": boot_res}
+    if boot_res.get("ok") is not False:
+        return boot_res
+    err = str(boot_res.get("error") or "")
+    if boot_res.get("already_booting") or "already in progress" in err.lower():
+        _emit_log("boot", "Boot already running — continuing.\n")
+        return {"ok": True, "already_booting": True, "boot": boot_res}
+    return boot_res
+
+
+def _spawn_visible_wizard(page_index: int, action: str) -> dict:
+    """Tk-bound setup (install/SDK/create) runs in its own process main thread."""
+    spawned = _spawn_wizard_page(page_index, action=action)
+    if spawned.get("ok"):
+        return {
+            "ok": True,
+            "started": True,
+            "spawned": True,
+            "page": page_index,
+            "action": action,
+            "message": "Opened a wizard window — progress shows there, not in a hidden thread.",
+        }
+    return {"ok": False, "error": spawned.get("error") or "Could not open wizard window", "started": False}
+
+
 def wizard() -> Any:
     _ensure_tk_thread()
     assert _wizard is not None
@@ -888,30 +953,21 @@ def get_wizard_steps() -> list[dict]:
 
 
 def navigate_wizard_page(index: int) -> dict:
-    def work() -> dict:
-        deck_idx, err = _as_index(index, label="page index")
-        if err or deck_idx is None:
-            return {"ok": False, "error": err or "Invalid page index"}
-        step = WIZARD_STEPS[deck_idx] if 0 <= deck_idx < len(WIZARD_STEPS) else {}
-        page_idx = _tk_page_index_for_step(step.get("id") if step else None, deck_idx)
-        if page_idx is None:
-            return {
-                "ok": True,
-                "index": deck_idx,
-                "id": step.get("id", "") if step else "",
-                "tk": False,
-            }
-        pages = wizard()._pages
-        page_idx = max(0, min(int(page_idx), len(pages) - 1))
-        wizard()._show(page_idx)
-        return {
-            "ok": True,
-            "index": deck_idx,
-            "id": step.get("id", "") if step else "",
-            "page": page_idx,
-        }
+    """Deck already switched the view. Do not start a background Tk backend.
 
-    return _safe_run_on_tk(work)
+    Calling ``wizard()._show`` from here used to construct Tcl on a worker
+    thread. When that mainloop died, every later button waited 600s.
+    """
+    deck_idx, err = _as_index(index, label="page index")
+    if err or deck_idx is None:
+        return {"ok": False, "error": err or "Invalid page index"}
+    step = WIZARD_STEPS[deck_idx] if 0 <= deck_idx < len(WIZARD_STEPS) else {}
+    return {
+        "ok": True,
+        "index": deck_idx,
+        "id": step.get("id", "") if step else "",
+        "tk": False,
+    }
 
 
 def navigate_wizard_step(step_id: str) -> dict:
@@ -1043,171 +1099,200 @@ def get_journey_state() -> dict:
 
 
 def scan_prereqs() -> list[dict]:
-    def work() -> list[dict]:
-        page = install_page()
-        rows = []
-        checks = [
-            ("java", "Java (helper)", page._check_java),
-            ("python", "Python (helper)", page._check_python),
-            ("packages", "Extra bits", page._check_packages),
-            ("tor", "Safe internet (Tor)", page._check_tor),
-            ("cpharm", "CPharm files", page._check_cpharm),
-        ]
-        for key, label, fn in checks:
-            ok = False
-            try:
-                ok = bool(fn())
-            except Exception:
-                ok = False
-            rows.append({"key": key, "label": label, "ok": ok})
-        return rows
+    """Install checklist without constructing the Install page."""
+    from pathlib import Path as _Path
 
-    return _run_on_tk(work)
+    from setup_wizard import (
+        _automation_bundle_missing,
+        _cpharm_install_root,
+        _find_cpharm_dashboard_root,
+        _find_java_home,
+        _probe_python_cmd,
+        _resolve_python_cmd,
+        run_cmd,
+        state,
+    )
+
+    def _java() -> bool:
+        if _find_java_home():
+            return True
+        ok, _out = run_cmd(["java", "-version"])
+        return bool(ok)
+
+    def _python() -> bool:
+        py_argv, _disp = _resolve_python_cmd(state.get("python_cmd"))
+        return bool(_probe_python_cmd(py_argv))
+
+    def _packages() -> bool:
+        py_argv, py_disp = _resolve_python_cmd(state.get("python_cmd"))
+        if not _probe_python_cmd(py_argv):
+            return False
+        state["python_cmd"] = py_disp
+        state["python_cmd_argv"] = list(py_argv)
+        ok, _out = run_cmd(
+            py_argv
+            + [
+                "-c",
+                "import websockets, psutil, socks; from zoneinfo import ZoneInfo; ZoneInfo('UTC')",
+            ]
+        )
+        return bool(ok)
+
+    def _tor() -> bool:
+        from pathlib import Path as _P
+
+        candidates = []
+        d = str(state.get("cpharm_dir") or "")
+        if d:
+            candidates.append(_P(d) / "automation" / "tor" / "tor.exe")
+        try:
+            candidates.append(_cpharm_install_root() / "automation" / "tor" / "tor.exe")
+        except Exception:
+            pass
+        candidates.extend(
+            [
+                _P(r"C:\CPharm\automation\tor\tor.exe"),
+                _P(r"C:\CPharm\bundled\tor.exe"),
+                _P(r"C:\Tor\tor.exe"),
+                _P(r"C:\Program Files\Tor\tor.exe"),
+            ]
+        )
+        return any(p.is_file() for p in candidates)
+
+    def _cpharm() -> bool:
+        d = str(state.get("cpharm_dir") or "")
+        candidates: list[_Path] = []
+        if d:
+            candidates.append(_Path(d).resolve())
+        try:
+            candidates.append(_cpharm_install_root())
+        except Exception:
+            pass
+        for p in candidates:
+            if (p / "automation" / "dashboard.py").is_file() and not _automation_bundle_missing(p):
+                state["cpharm_dir"] = str(p)
+                return True
+            nested = _find_cpharm_dashboard_root(p)
+            if nested and not _automation_bundle_missing(nested):
+                state["cpharm_dir"] = str(nested)
+                return True
+        return False
+
+    rows: list[dict] = []
+    for key, label, fn in (
+        ("java", "Java (helper)", _java),
+        ("python", "Python (helper)", _python),
+        ("packages", "Extra bits", _packages),
+        ("tor", "Safe internet (Tor)", _tor),
+        ("cpharm", "CPharm files", _cpharm),
+    ):
+        ok = False
+        try:
+            ok = bool(fn())
+        except Exception:
+            ok = False
+        rows.append({"key": key, "label": label, "ok": ok})
+    return rows
 
 
 def run_install_all() -> dict:
-    """Start the full install; tell the WebView whether anything needed doing.
-
-    Runs synchronously through the TK queue so ``already_installed`` / ``busy``
-    are truthful when the button handler reads them (the old async enqueue
-    returned before ``work`` ran, so the UI always saw the defaults).
+    """Start the full install. Already-done is a file check; the worker is a
+    visible wizard process whose main thread owns Tcl (in-process Tk cannot).
     """
-
-    def work() -> dict:
-        page = install_page()
-        if getattr(page, "_working", False):
-            return {"ok": True, "started": False, "busy": True,
-                    "already_installed": False}
-        try:
-            already = bool(page._check_all())
-        except Exception:
-            already = False
-        page._install_all()
-        return {"ok": True, "started": True, "busy": False,
-                "already_installed": already}
-
-    return _run_on_tk(work)
+    rows = scan_prereqs()
+    if rows and all(r.get("ok") for r in rows):
+        return {"ok": True, "started": False, "busy": False, "already_installed": True}
+    return _spawn_visible_wizard(1, "install_all")
 
 
 def get_android_status() -> dict:
-    def work() -> dict:
-        from setup_wizard import find_sdk, state
+    from setup_wizard import find_sdk, state
 
-        page = _page(2)
-        sdk = find_sdk() or state.get("sdk_path") or ""
-        use_mumu = bool(state.get("use_mumu"))
-        status = getattr(page, "_status_lbl", None)
-        detail = getattr(page, "_detail_lbl", None)
-        return {
-            "sdk_path": str(sdk) if sdk else "",
-            "use_mumu": use_mumu,
-            "ready": bool(sdk) or use_mumu,
-            "status": status.cget("text") if status else "",
-            "detail": detail.cget("text") if detail else "",
-            "working": bool(getattr(page, "_working", False)),
-        }
-
-    return _run_on_tk(work)
+    sdk = find_sdk() or state.get("sdk_path") or ""
+    use_mumu = bool(state.get("use_mumu"))
+    ready = bool(sdk) or use_mumu
+    return {
+        "ok": True,
+        "sdk_path": str(sdk) if sdk else "",
+        "use_mumu": use_mumu,
+        "ready": ready,
+        "status": "Ready" if ready else "Not installed",
+        "detail": str(sdk) if sdk else ("MuMu selected" if use_mumu else ""),
+        "working": False,
+    }
 
 
 def run_android_install() -> dict:
-    def work() -> None:
-        page = _page(2)
-        page._auto_install()
-
-    _run_async_on_tk(work)
-    return {"ok": True, "started": True}
+    status = get_android_status()
+    if status.get("ready") and status.get("sdk_path"):
+        return {"ok": True, "started": False, "already_installed": True, "message": "Android SDK already found."}
+    return _spawn_visible_wizard(2, "android_install")
 
 
 def set_phone_farm_count(count: int) -> dict:
-    def work() -> dict:
-        page = _page(3)
-        n = int(count)
-        if hasattr(page, "_pick_count"):
-            page._pick_count(n)
-        return {"ok": True, "count": n}
+    from setup_wizard import state
 
-    return _run_on_tk(work)
+    n = int(count)
+    state["num_phones"] = n
+    return {"ok": True, "count": n}
 
 
 def run_create_phone_farm() -> dict:
-    def work() -> None:
-        page = _page(3)
-        page._create()
-
-    _run_async_on_tk(work)
-    return {"ok": True, "started": True}
+    return _spawn_visible_wizard(3, "create_phones")
 
 
 def run_test_url(url: str | None = None) -> dict:
-    def work() -> dict:
-        from site_prefs import apply_site_url_to_boot_page, load_target_site_url, save_target_site_url
+    from site_prefs import load_target_site_url, save_target_site_url
+    from setup_wizard import chrome_open_url, state
 
-        _prepare_editor_state()
-        from setup_wizard import state
-
-        phones = state.get("phones") or []
-        if not phones:
-            return {
-                "ok": False,
-                "error": (
-                    "No phones found — start your emulator (MuMu, Docker redroid, AVD) or plug a real phone, "
-                    "turn USB debugging ON, go to Step 4, click Check again, then Set up my phones."
-                ),
-            }
-        test_url = (url or "").strip() or load_target_site_url()
-        if not test_url:
-            return {
-                "ok": False,
-                "error": "Enter your site URL in Step 5, click Save, then try again.",
-            }
-        if url and url.strip():
-            save_target_site_url(url.strip())
-        page = _page(4)
-        apply_site_url_to_boot_page(page)
-        if hasattr(page, "_test_url_var"):
-            page._test_url_var.set(test_url)
-        serial = phones[0].get("serial") if isinstance(phones[0], dict) else str(phones[0])
-        name = phones[0].get("name", serial) if isinstance(phones[0], dict) else serial
-        try:
-            from setup_wizard import chrome_open_url
-
-            ok, note = chrome_open_url(serial, test_url)
-        except Exception as exc:
-            return {"ok": False, "error": str(exc), "serial": serial, "url": test_url}
-        if ok:
-            page._log_write(f"Opened {test_url} on {name} ({serial}).\n")
-            return {"ok": True, "url": test_url, "serial": serial, "note": note or ""}
-        page._log_write(f"Could not open {test_url} on {name}: {note or 'unknown'}\n")
+    _prepare_editor_state()
+    phones = state.get("phones") or []
+    if not phones:
         return {
             "ok": False,
-            "error": note or "Phone did not open a browser.",
-            "url": test_url,
-            "serial": serial,
+            "error": (
+                "No phones found — start your emulator (MuMu, Docker redroid, AVD) or plug a real phone, "
+                "turn USB debugging ON, go to Step 4, click Check again, then Set up my phones."
+            ),
         }
-
-    return _run_on_tk(work)
+    test_url = (url or "").strip() or load_target_site_url()
+    if not test_url:
+        return {
+            "ok": False,
+            "error": "Enter your site URL in Step 5, click Save, then try again.",
+        }
+    if url and url.strip():
+        save_target_site_url(url.strip())
+    serial = phones[0].get("serial") if isinstance(phones[0], dict) else str(phones[0])
+    name = phones[0].get("name", serial) if isinstance(phones[0], dict) else serial
+    try:
+        ok, note = chrome_open_url(serial, test_url)
+    except Exception as exc:
+        return {"ok": False, "error": str(exc), "serial": serial, "url": test_url}
+    if ok:
+        _emit_log("boot", f"Opened {test_url} on {name} ({serial}).\n")
+        return {"ok": True, "url": test_url, "serial": serial, "note": note or ""}
+    _emit_log("boot", f"Could not open {test_url} on {name}: {note or 'unknown'}\n")
+    return {
+        "ok": False,
+        "error": note or "Phone did not open a browser.",
+        "url": test_url,
+        "serial": serial,
+    }
 
 
 def get_site_settings() -> dict:
-    def work() -> dict:
-        from site_prefs import load_target_site_url, site_display_host
+    from site_prefs import load_target_site_url, site_display_host
 
-        u = load_target_site_url()
-        return {"url": u, "host": site_display_host(u)}
-
-    return _run_on_tk(work)
+    u = load_target_site_url()
+    return {"ok": True, "url": u, "host": site_display_host(u)}
 
 
 def save_site_url(url: str) -> dict:
-    def work() -> dict:
-        from site_prefs import apply_site_url_to_boot_page, save_target_site_url, site_display_host
+    from site_prefs import save_target_site_url, site_display_host
 
-        u = save_target_site_url(url)
-        apply_site_url_to_boot_page(wizard()._pages[4])
-        return {"ok": True, "url": u, "host": site_display_host(u)}
-
-    return _run_on_tk(work)
+    u = save_target_site_url(url)
+    return {"ok": True, "url": u, "host": site_display_host(u)}
 
 
 def scan_site(url: str = "") -> dict:
@@ -1259,7 +1344,7 @@ def apply_site_sequence(url: str = "") -> dict:
         host = target.split("//", 1)[-1].split("/", 1)[0]
         out_dir = app_data_root() / "sequences" / "site_scans"
         path = save_sequence(steps, host, output_dir=out_dir)
-        return _run_on_tk(lambda: commit(steps, str(path), draft))
+        return commit(steps, str(path), draft)
     except Exception as exc:  # noqa: BLE001 — surface as error dict
         return {"ok": False, "error": str(exc)[:300]}
 
@@ -1317,13 +1402,15 @@ def get_automation_info() -> dict:
         steps = list(state.get("default_steps") or [])
         return {"ok": True, "count": len(steps), "has_steps": bool(steps)}
 
-    return _safe_run_on_tk(work)
+    return _run_direct(work)
 
 
 def _sync_default_steps_to_seq_page(steps: list) -> None:
-    """Keep hidden Steps page in sync so load/save dialogs see the same list."""
+    """Optional widget sync. Never starts Tcl — a dead pump used to freeze the EXE."""
+    if _tk_root is None or _wizard is None or not _ready.is_set() or _boot_error:
+        return
     try:
-        page = wizard()._pages[5]
+        page = _wizard._pages[5]
         page._seq_steps.clear()
         page._seq_steps.extend(list(steps))
     except Exception:
@@ -1340,7 +1427,7 @@ def cursor_get_sequence() -> dict:
         steps = list(state.get("default_steps") or [])
         return {"ok": True, "steps": steps, "count": len(steps)}
 
-    return _safe_run_on_tk(work)
+    return _run_direct(work)
 
 
 def cursor_add_step(step: dict | None = None) -> dict:
@@ -1359,7 +1446,7 @@ def cursor_add_step(step: dict | None = None) -> dict:
         _persist_editor_state()
         return {"ok": True, "count": len(steps), "steps": steps}
 
-    return _safe_run_on_tk(work)
+    return _run_direct(work)
 
 
 def cursor_update_step(i: int, step: dict | None = None) -> dict:
@@ -1383,7 +1470,7 @@ def cursor_update_step(i: int, step: dict | None = None) -> dict:
         _persist_editor_state()
         return {"ok": True, "count": len(steps), "steps": steps}
 
-    return _safe_run_on_tk(work)
+    return _run_direct(work)
 
 
 def cursor_remove_step(i: int) -> dict:
@@ -1404,7 +1491,7 @@ def cursor_remove_step(i: int) -> dict:
         _persist_editor_state()
         return {"ok": True, "count": len(steps), "steps": steps}
 
-    return _safe_run_on_tk(work)
+    return _run_direct(work)
 
 
 def cursor_move_step(i: int, dir: int = 1) -> dict:
@@ -1431,7 +1518,7 @@ def cursor_move_step(i: int, dir: int = 1) -> dict:
         _persist_editor_state()
         return {"ok": True, "count": len(steps), "steps": steps}
 
-    return _safe_run_on_tk(work)
+    return _run_direct(work)
 
 
 def cursor_add_group() -> dict:
@@ -1483,7 +1570,7 @@ def cursor_add_group() -> dict:
         _persist_editor_state()
         return {"ok": True, **_groups_detail_from_state()}
 
-    return _safe_run_on_tk(work)
+    return _run_direct(work)
 
 
 def cursor_remove_group(i: int) -> dict:
@@ -1510,7 +1597,7 @@ def cursor_remove_group(i: int) -> dict:
         ) or f"Group {idx + 1}"
         return {"ok": True, "removed": removed_name, **_groups_detail_from_state()}
 
-    return _safe_run_on_tk(work)
+    return _run_direct(work)
 
 
 def cursor_rename_group(i: int, name: str = "") -> dict:
@@ -1533,37 +1620,12 @@ def cursor_rename_group(i: int, name: str = "") -> dict:
         _persist_editor_state()
         return {"ok": True, **_groups_detail_from_state()}
 
-    return _safe_run_on_tk(work)
+    return _run_direct(work)
 
 
 def run_edit_default_sequence() -> dict:
-    def work() -> dict:
-        from setup_wizard import PerPhoneSequenceEditor, _apply_default_steps_to_template_phones, state
-
-        _reload_persisted_wizard_state()
-        parent = _tk_dialog_parent()
-        page = wizard()._pages[5]
-        page.on_enter()
-        dlg = PerPhoneSequenceEditor(
-            parent,
-            serial="default",
-            phone_name="Default sequence (template for group assignments)",
-            steps_list=page._seq_steps,
-        )
-        dlg.transient(parent)
-        dlg.protocol("WM_DELETE_WINDOW", dlg.destroy)
-        _show_tk_window(dlg)
-        # The dialog is modal, but wait on the dialog itself. Waiting on the
-        # hidden 1x1 parent can leave the WebView callback blocked forever.
-        dlg.grab_set()
-        dlg.wait_window()
-        n = len(page._seq_steps)
-        state["default_steps"] = list(page._seq_steps)
-        _apply_default_steps_to_template_phones()
-        _persist_editor_state()
-        return {"ok": True, "count": n}
-
-    return _spawn_with_visible_fallback(5, action="edit_sequence", fallback=lambda: _run_on_tk(work))
+    """Open the sequence editor in its own process. The deck builder is the in-app editor."""
+    return _spawn_visible_wizard(5, "edit_sequence")
 
 
 def open_sequence_builder() -> dict:
@@ -1637,7 +1699,7 @@ def boot_all_phones() -> dict:
         age = (time.monotonic() - started) if started is not None else None
         stale = age is not None and age >= _BOOT_LOCK_STALE_S
         if not (thr_dead or stale):
-            return False, "Boot already in progress"
+            return False, "already_running"
         # Cancel the hung worker (it checks this between phones) then steal.
         _boot_all_cancel.set()
         try:
@@ -1652,6 +1714,15 @@ def boot_all_phones() -> dict:
 
     got, steal_note = _try_acquire_boot_lock()
     if not got:
+        # A live worker already owns the boot. That is not a failed click —
+        # the deck was toasting "Boot failed" and Start automation aborted.
+        if steal_note == "already_running":
+            return {
+                "ok": True,
+                "started": False,
+                "already_booting": True,
+                "message": "Boot already running — progress continues in the boot log.",
+            }
         return {"ok": False, "error": steal_note or "Boot already in progress", "started": False}
 
     _boot_all_cancel.clear()
@@ -1976,140 +2047,104 @@ def run_add_group() -> dict:
 
 
 def run_humanize_all_sequences() -> dict:
-    def work() -> dict:
-        _prepare_editor_state()
-        page = _page(7)
-        page.on_enter()
-        page._humanize_all_sequences()
-        _persist_editor_state()
-        msg = ""
-        try:
-            msg = str(page._grp_status.cget("text") or "").strip()
-        except Exception:
-            pass
-        if not msg:
-            msg = "Natural timing applied."
-        return {"ok": True, "message": msg}
+    """Per-phone timing jitter. Same digest seed as GroupsPage, no widget rebuild."""
+    import hashlib
+    import random
 
-    return _run_on_tk(work)
+    from sequence_humanize import humanize_steps
+    from setup_wizard import state
+
+    _prepare_editor_state()
+    n = 0
+    for g in state.get("groups") or []:
+        if not isinstance(g, dict):
+            continue
+        pmap = g.get("phones") or {}
+        if not isinstance(pmap, dict):
+            continue
+        for serial, ent in pmap.items():
+            if not isinstance(ent, dict):
+                continue
+            steps = ent.get("steps")
+            if not isinstance(steps, list) or not steps:
+                continue
+            digest = hashlib.sha256(str(serial).encode("utf-8", errors="replace")).digest()[:8]
+            seed = int.from_bytes(digest, "big")
+            ent["steps"] = humanize_steps(steps, random.Random(seed))
+            ent["explicit_override"] = True
+            ent["use_default_template"] = False
+            n += 1
+    _persist_editor_state()
+    msg = f"Applied natural timing tweaks on {n} phone sequence(s)."
+    return {"ok": True, "message": msg, "count": n}
+
+
+def _commit_default_steps(steps: list, path: str = "") -> dict:
+    from setup_wizard import _apply_default_steps_to_template_phones, state
+
+    state["default_steps"] = list(steps)
+    _apply_default_steps_to_template_phones()
+    _sync_default_steps_to_seq_page(steps)
+    _persist_editor_state()
+    out = {"ok": True, "count": len(steps), "steps": list(steps)}
+    if path:
+        out["path"] = path
+    return out
 
 
 def run_load_default_sequence() -> dict:
-    def work() -> dict:
-        from pathlib import Path
+    from native_dialogs import ask_open_json_file
 
-        from native_dialogs import ask_open_json_file
-        from setup_wizard import (
-            SequenceJsonLoadError,
-            _apply_default_steps_to_template_phones,
-            _load_sequence_document_from_path,
-            _normalize_sequence_steps,
-            state,
-        )
-
-        _prepare_editor_state()
-        page = wizard()._pages[5]
-        page.on_enter()
-        parent = _tk_dialog_parent()
-        path = ask_open_json_file(title="Load sequence", parent=parent)
-        if not path:
-            return {"ok": False, "cancelled": True}
-        try:
-            data, _meta = _load_sequence_document_from_path(Path(path))
-        except SequenceJsonLoadError as exc:
-            return {"ok": False, "error": str(exc)}
-        data = _normalize_sequence_steps(data)
-        page._seq_steps.clear()
-        page._seq_steps.extend(data)
-        state["default_steps"] = list(page._seq_steps)
-        _apply_default_steps_to_template_phones()
-        from setup_wizard import _persist_groups_config
-
-        _persist_groups_config()
-        return {"ok": True, "count": len(page._seq_steps), "path": path}
-
-    return _run_on_tk(work)
+    path = ask_open_json_file(title="Load sequence", parent=None)
+    if not path:
+        return {"ok": False, "cancelled": True}
+    return load_sequence_from_path(path)
 
 
 def run_save_default_sequence() -> dict:
-    def work() -> dict:
-        import json
-        from pathlib import Path
+    from native_dialogs import ask_save_json_file
+    from setup_wizard import state
 
-        from native_dialogs import ask_save_json_file
-        from setup_wizard import state
-
-        _prepare_editor_state()
-        page = wizard()._pages[5]
-        page.on_enter()
-        if not page._seq_steps:
-            return {"ok": False, "error": "No steps to save — use Edit default sequence first."}
-        parent = _tk_dialog_parent()
-        path = ask_save_json_file(title="Save sequence", parent=parent)
-        if not path:
-            return {"ok": False, "cancelled": True}
-        Path(path).write_text(json.dumps(page._seq_steps, indent=2), encoding="utf-8")
-        state["default_steps"] = list(page._seq_steps)
-        from setup_wizard import _persist_groups_config
-
-        _persist_groups_config()
-        return {"ok": True, "path": path}
-
-    return _run_on_tk(work)
+    _reload_persisted_wizard_state()
+    steps = list(state.get("default_steps") or [])
+    if not steps:
+        return {"ok": False, "error": "No steps to save — use Edit default sequence first."}
+    path = ask_save_json_file(title="Save sequence", parent=None)
+    if not path:
+        return {"ok": False, "cancelled": True}
+    return save_sequence_to_path(path)
 
 
 def load_sequence_from_path(path: str) -> dict:
-    def work() -> dict:
-        from pathlib import Path
+    from pathlib import Path
 
-        from setup_wizard import (
-            SequenceJsonLoadError,
-            _apply_default_steps_to_template_phones,
-            _load_sequence_document_from_path,
-            _normalize_sequence_steps,
-            state,
-        )
+    from setup_wizard import SequenceJsonLoadError, _load_sequence_document_from_path, _normalize_sequence_steps
 
-        _prepare_editor_state()
-        page = wizard()._pages[5]
-        page.on_enter()
-        try:
-            data, _meta = _load_sequence_document_from_path(Path(path))
-        except SequenceJsonLoadError as exc:
-            return {"ok": False, "error": str(exc)}
-        data = _normalize_sequence_steps(data)
-        page._seq_steps.clear()
-        page._seq_steps.extend(data)
-        state["default_steps"] = list(page._seq_steps)
-        _apply_default_steps_to_template_phones()
-        from setup_wizard import _persist_groups_config
-
-        _persist_groups_config()
-        return {"ok": True, "count": len(page._seq_steps), "path": path}
-
-    return _run_on_tk(work)
+    if not str(path or "").strip():
+        return {"ok": False, "error": "No sequence path"}
+    try:
+        data, _meta = _load_sequence_document_from_path(Path(path))
+    except SequenceJsonLoadError as exc:
+        return {"ok": False, "error": str(exc)}
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
+    return _commit_default_steps(_normalize_sequence_steps(data), str(path))
 
 
 def save_sequence_to_path(path: str) -> dict:
-    def work() -> dict:
-        import json
-        from pathlib import Path
+    import json
+    from pathlib import Path
 
-        from setup_wizard import state
+    from setup_wizard import state
 
-        _prepare_editor_state()
-        page = wizard()._pages[5]
-        page.on_enter()
-        if not page._seq_steps:
-            return {"ok": False, "error": "No steps to save — use Edit default sequence first."}
-        Path(path).write_text(json.dumps(page._seq_steps, indent=2), encoding="utf-8")
-        state["default_steps"] = list(page._seq_steps)
-        from setup_wizard import _persist_groups_config
-
-        _persist_groups_config()
-        return {"ok": True, "path": path}
-
-    return _run_on_tk(work)
+    if not str(path or "").strip():
+        return {"ok": False, "error": "No sequence path"}
+    _reload_persisted_wizard_state()
+    steps = list(state.get("default_steps") or [])
+    if not steps:
+        return {"ok": False, "error": "No steps to save — use Edit default sequence first."}
+    Path(path).write_text(json.dumps(steps, indent=2), encoding="utf-8")
+    return _commit_default_steps(steps, str(path))
 
 
 def get_groups_detail() -> dict:
@@ -2120,7 +2155,7 @@ def get_groups_detail() -> dict:
         _normalize_all_groups()
         return {"ok": True, **_groups_detail_from_state()}
 
-    return _safe_run_on_tk(work)
+    return _run_direct(work)
 
 
 def get_groups_summary() -> dict:
@@ -2128,31 +2163,39 @@ def get_groups_summary() -> dict:
 
 
 def is_dashboard_ready() -> dict:
-    def work() -> dict:
-        page = launch_page()
-        ready = bool(page._dashboard_config_reachable())
-        running = False
-        try:
-            proc = getattr(page, "_server_proc", None)
-            running = proc is not None and proc.poll() is None
-        except Exception:
-            running = ready
-        return {"ok": True, "ready": ready, "server_running": running or ready}
+    from setup_wizard import probe_dashboard_listen_port
 
-    return _safe_run_on_tk(work)
+    ready = bool(probe_dashboard_listen_port())
+    proc = _dashboard_proc
+    running = proc is not None and proc.poll() is None
+    return {"ok": True, "ready": ready, "server_running": running or ready}
 
 
 def get_launch_summary() -> dict:
-    def work() -> dict:
-        page = _page(8)
-        txt = ""
-        try:
-            txt = page._summary.get("1.0", "end").strip()
-        except Exception:
-            pass
-        return {"ok": True, "summary": txt}
+    from setup_wizard import state
 
-    return _safe_run_on_tk(work)
+    _reload_persisted_wizard_state()
+    groups = [g for g in (state.get("groups") or []) if isinstance(g, dict)]
+    phones = 0
+    for g in groups:
+        pmap = g.get("phones") or {}
+        if isinstance(pmap, dict):
+            phones += len(pmap)
+    steps = len(state.get("default_steps") or [])
+    try:
+        mode_info = get_browse_mode()
+        mode = str(mode_info.get("label") or mode_info.get("mode") or "")
+    except Exception:
+        mode = ""
+    lines = [
+        f"Groups: {len(groups)}",
+        f"Phones in groups: {phones}",
+        f"Default steps: {steps}",
+    ]
+    if mode:
+        lines.append(f"Browse mode: {mode}")
+    lines.append("Start the service, then run all groups. Farm start is the money path.")
+    return {"ok": True, "summary": "\n".join(lines)}
 
 
 def save_browse_mode(mode: str) -> dict:
@@ -2169,7 +2212,7 @@ def save_browse_mode(mode: str) -> dict:
         os.environ["CPHARM_BROWSE_PROXY_MODE"] = mode_l
         return {"ok": True, "mode": mode_l, "label": bp.browse_proxy_mode_label(mode_l)}
 
-    return _safe_run_on_tk(work)
+    return _run_direct(work)
 
 
 def get_browse_mode() -> dict:
@@ -2182,198 +2225,180 @@ def get_browse_mode() -> dict:
         m = bp.browse_proxy_mode()
         return {"ok": True, "mode": m, "label": bp.browse_proxy_mode_label(m)}
 
-    return _safe_run_on_tk(work)
+    return _run_direct(work)
 
 
 def start_server() -> dict:
-    """Start the control server on the hidden Launch page — no Tk Run window."""
+    """Start the control server. No Tk Run window and no background Tcl pump."""
 
-    def work() -> dict:
-        try:
-            page = launch_page()
-            page.on_enter()
-            if hasattr(page, "_start_server"):
-                page._start_server()
-            return {"ok": True, "started": True}
-        except Exception as exc:  # noqa: BLE001
-            return {"ok": False, "error": str(exc)[:500]}
+    def work() -> None:
+        res = _start_dashboard_headless()
+        if not res.get("ok"):
+            _emit_log("go", f"Start service failed: {res.get('error')}\n")
+        elif res.get("already_running"):
+            _emit_log("go", "Dashboard already running.\n")
 
-    return _safe_run_on_tk(work)
+    threading.Thread(target=work, name="cpharm-dashboard", daemon=True).start()
+    return {"ok": True, "started": True}
 
 
 def start_server_and_open_dashboard() -> dict:
-    """Start service + open dashboard without spawning a visible Tk Run window."""
+    """Start service, then open the dashboard in the browser once it answers."""
 
-    def work() -> dict:
-        try:
-            page = launch_page()
-            page.on_enter()
-            if hasattr(page, "_start_server"):
-                page._start_server()
-            # _start_server is intentionally asynchronous; waiting here blocks the Tk
-            # event loop and prevents the server thread's UI callbacks from running.
-            opened = False
-            if hasattr(page, "_open_dashboard_browser"):
-                page.after(250, lambda: page._open_dashboard_browser("/"))
-                opened = True
-            out: dict[str, Any] = {"ok": True, "started": True, "dashboard_opened": opened}
-            if not opened:
-                out["message"] = "Server starting — click Open dashboard in a moment."
-            return out
-        except Exception as exc:  # noqa: BLE001
-            return {"ok": False, "error": str(exc)[:500]}
+    def work() -> None:
+        from setup_wizard import dashboard_base_url
 
-    return _safe_run_on_tk(work)
+        res = _start_dashboard_headless()
+        if not res.get("ok"):
+            _emit_log("go", f"Start service failed: {res.get('error')}\n")
+            return
+        url = dashboard_base_url().rstrip("/") + "/"
+        _open_browser(url)
+        _emit_log("go", f"Opened dashboard {url}\n")
+
+    threading.Thread(target=work, name="cpharm-dashboard-open", daemon=True).start()
+    return {"ok": True, "started": True, "dashboard_opened": True}
+
+
+def _run_groups_on_dashboard() -> dict:
+    from setup_wizard import state
+
+    _persist_editor_state()
+    started = _start_dashboard_headless()
+    if not started.get("ok"):
+        return started
+    loaded = _dashboard_post("/api/groups/load", {})
+    if loaded.get("error"):
+        _emit_log("go", f"Load groups: {loaded['error']}\n")
+    groups = state.get("groups") or []
+    run_r = _dashboard_post("/api/groups/run", {"groups": groups}, timeout=120)
+    if run_r.get("error"):
+        _emit_log("go", f"Run groups failed: {run_r['error']}\n")
+        return {"ok": False, "error": str(run_r["error"])}
+    n = run_r.get("groups", len(groups))
+    pt = run_r.get("phones_targeted")
+    _emit_log("go", f"{n} group(s) running — {pt} phone(s) targeted.\n")
+    return {"ok": True, "started": True, "groups": n, "phones_targeted": pt}
 
 
 def run_all_groups() -> dict:
-    """Boot phones (async), then start service + run groups on the Tk thread.
+    """Boot phones, then start the service and run groups. Never waits on Tcl."""
+    boot_res = _boot_then_continue()
+    if boot_res.get("ok") is False:
+        return boot_res
 
-    No Tk Run window — progress streams to the deck go-log via LaunchPage wiring.
-    Boot runs off-thread so it cannot deadlock the Tk pump; group start still
-    goes through ``_safe_run_on_tk`` and returns ``{ok:false,error}`` on failure.
-    """
-    boot_res: dict | None = None
-    boot_fn = globals().get("boot_all_phones")
-    if callable(boot_fn):
-        try:
-            boot_res = boot_fn()
-        except Exception as exc:  # noqa: BLE001
-            return {"ok": False, "error": f"boot_all_phones failed: {exc}"}
-        if isinstance(boot_res, dict) and boot_res.get("ok") is False:
-            return {
-                "ok": False,
-                "error": boot_res.get("error") or "boot_all_phones failed",
-                "boot": boot_res,
-            }
+    def work() -> None:
+        res = _run_groups_on_dashboard()
+        if not res.get("ok"):
+            _emit_log("go", f"Run groups failed: {res.get('error')}\n")
 
-    def work() -> dict:
-        try:
-            page = launch_page()
-            page.on_enter()
-            try:
-                if hasattr(page, "_dashboard_config_reachable") and not page._dashboard_config_reachable():
-                    if hasattr(page, "_start_server"):
-                        page._start_server()
-            except Exception as start_exc:  # noqa: BLE001 — try start anyway, keep error
-                if hasattr(page, "_start_server"):
-                    try:
-                        page._start_server()
-                    except Exception as exc2:  # noqa: BLE001
-                        return {
-                            "ok": False,
-                            "error": f"start_server failed: {start_exc}; retry: {exc2}",
-                            "boot": boot_res,
-                        }
-            if hasattr(page, "_run_groups"):
-                page._run_groups()
-            out: dict[str, Any] = {"ok": True, "started": True}
-            if boot_res is not None:
-                out["boot"] = boot_res
-            return out
-        except Exception as exc:  # noqa: BLE001
-            err: dict[str, Any] = {"ok": False, "error": str(exc)[:500]}
-            if boot_res is not None:
-                err["boot"] = boot_res
-            return err
-
-    return _safe_run_on_tk(work)
+    threading.Thread(target=work, name="cpharm-run-groups", daemon=True).start()
+    return {"ok": True, "started": True, "boot": boot_res}
 
 
 def start_automation_one_click() -> dict:
-    """One-click automation on the hidden Launch page — no Tk Run window."""
-    boot_fn = globals().get("boot_all_phones")
-    if callable(boot_fn):
-        try:
-            boot_res = boot_fn()
-            if isinstance(boot_res, dict) and boot_res.get("ok") is False:
-                return {
-                    "ok": False,
-                    "error": boot_res.get("error") or "boot_all_phones failed",
-                    "boot": boot_res,
-                }
-        except Exception as exc:  # noqa: BLE001
-            return {"ok": False, "error": f"boot_all_phones failed: {exc}"}
+    """Boot, start the service, load groups, run them. An in-progress boot is not a failure."""
+    boot_res = _boot_then_continue()
+    if boot_res.get("ok") is False:
+        return boot_res
 
-    def work() -> dict:
-        try:
-            page = launch_page()
-            page.on_enter()
-            if hasattr(page, "_start_automation_one_click"):
-                page._start_automation_one_click()
-            return {"ok": True, "started": True}
-        except Exception as exc:  # noqa: BLE001
-            return {"ok": False, "error": str(exc)[:500]}
+    def work() -> None:
+        _emit_log("go", "Start automation: saving groups and starting service…\n")
+        res = _run_groups_on_dashboard()
+        if not res.get("ok"):
+            _emit_log("go", f"Start automation failed: {res.get('error')}\n")
+            return
+        _emit_log("go", "Start automation complete.\n")
 
-    return _safe_run_on_tk(work)
+    threading.Thread(target=work, name="cpharm-one-click", daemon=True).start()
+    return {"ok": True, "started": True, "boot": boot_res}
 
 
 def fix_phone_internet() -> dict:
-    def work() -> dict:
-        from setup_wizard import wiz_clear_phone_proxies_best_effort
+    """Re-pin live phones to their own inject/Tor exits.
 
-        n = wiz_clear_phone_proxies_best_effort(stop_tor_host=False)
-        return {"ok": True, "n": n}
+    The button used to call ``wiz_clear_phone_proxies_best_effort``, which
+    deletes ``global http_proxy``, drops Tor slots, and force-stops the
+    browser. That sends traffic out the VM/host path (forbidden) and is why
+    "Fix internet" killed the money exit. The EXE repair is the same heal the
+    farm already owns: reconnect ADB, restore Tor/inject, re-pin guests.
+    It does not reap farm lanes and it does not clear proxies to ``:0``.
+    """
+    from automation.farm_exe_self_heal import (
+        adb_live_serials,
+        connect_live_fleet,
+        heal_inject_and_tor,
+    )
 
-    return _run_on_tk(work)
+    notes: list[str] = []
+    try:
+        notes.extend(connect_live_fleet() or [])
+    except Exception as exc:  # noqa: BLE001
+        notes.append(f"connect_failed:{exc}")
+    try:
+        live = list(adb_live_serials() or [])
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "error": f"ADB check failed: {exc}", "n": 0}
+    try:
+        notes.extend(heal_inject_and_tor(live=live) or [])
+    except Exception as exc:  # noqa: BLE001
+        _emit_log("boot", f"Fix internet failed: {exc}\n")
+        return {"ok": False, "error": str(exc), "n": len(live)}
+    for line in notes:
+        _emit_log("boot", f"Fix internet: {line}\n")
+    failed = [
+        n
+        for n in notes
+        if "repin_fail" in n or n.startswith("inject_start_err") or n.startswith("connect_failed")
+    ]
+    out: dict[str, Any] = {"ok": not failed, "n": len(live), "fixes": notes}
+    if failed:
+        out["error"] = "; ".join(failed)[:500]
+    else:
+        out["message"] = f"Re-pinned {len(live)} phone(s) onto their own exits."
+    return out
 
 
 def open_dashboard() -> dict:
-    def work() -> dict:
-        page = launch_page()
-        ready = bool(page._dashboard_config_reachable())
-        running = False
-        try:
-            proc = getattr(page, "_server_proc", None)
-            running = proc is not None and proc.poll() is None
-        except Exception:
-            running = ready
-        if not ready and not running:
-            return {
-                "ok": False,
-                "error": "Service is not running — use Step 9 → Start service + open dashboard first.",
-            }
-        page._open_dashboard_browser("/")
-        return {"ok": True}
+    from setup_wizard import dashboard_base_url, probe_dashboard_listen_port
 
-    return _run_on_tk(work)
+    if not probe_dashboard_listen_port():
+        return {
+            "ok": False,
+            "error": "Service is not running — use Go → Start service + open dashboard first.",
+        }
+    url = dashboard_base_url().rstrip("/") + "/"
+    _open_browser(url)
+    return {"ok": True, "opened": True, "dashboard": url}
 
 
 def open_farm_dashboard() -> dict:
     """Open the live farm dashboard (127.0.0.1:8091) when it is up.
 
-    The farm dash is the operator screen the HUD/help text already point at.
-    It runs independently of the wizard control server, so the deck buttons
-    must not gate on that 8080 service. Falls back to the wizard page open
-    when the farm dash is unreachable.
+    The farm dash is the operator screen the HUD already points at. It does
+    not depend on the wizard control server. If the farm dash is down, open
+    the wizard dashboard when that one is answering.
     """
     import urllib.request
-    import webbrowser
 
-    FARM_DASH = "http://127.0.0.1:8091/"
+    farm_dash = "http://127.0.0.1:8091/"
+    try:
+        with urllib.request.urlopen(farm_dash, timeout=2.5):  # noqa: S310 — loopback
+            _open_browser(farm_dash)
+            return {"ok": True, "opened": True, "dashboard": farm_dash}
+    except Exception:
+        pass
+    from setup_wizard import dashboard_base_url, probe_dashboard_listen_port
 
-    def _reachable(url: str) -> bool:
-        try:
-            with urllib.request.urlopen(url, timeout=2.5):  # noqa: S310 — loopback
-                return True
-        except Exception:
-            return False
-
-    def work() -> dict:
-        if _reachable(FARM_DASH):
-            webbrowser.open(FARM_DASH)
-            return {"ok": True, "opened": True, "dashboard": FARM_DASH}
-        page = launch_page()
-        if bool(page._dashboard_config_reachable()):
-            page._open_dashboard_browser("/")
-            return {"ok": True, "opened": True}
-        return {
-            "ok": False,
-            "error": "Dashboard is not up yet — press Start service (Run step), or start the farm first.",
-            "dashboard": FARM_DASH,
-        }
-
-    return _run_on_tk(work)
+    if probe_dashboard_listen_port():
+        url = dashboard_base_url().rstrip("/") + "/"
+        _open_browser(url)
+        return {"ok": True, "opened": True, "dashboard": url}
+    return {
+        "ok": False,
+        "error": "Dashboard is not up yet — press Start service (Go step), or start the farm first.",
+        "dashboard": farm_dash,
+    }
 
 
 def get_farm_health() -> dict:
@@ -2520,27 +2545,38 @@ def save_cloud_agent_config(base: str = "", model: str = "", api_key: str = "") 
     return {"ok": True, "configured": bool(existing.get("api_key") or os.environ.get("CPHARM_CLOUD_AGENT_KEY"))}
 
 
+def _tool_argv(flag: str, rel: str, extra: list[str]) -> list[str]:
+    """Argv that runs a bundled tool from source or from the frozen EXE.
+
+    PharmFlow.exe is not CPython. Passing it a ``.py`` path opens another
+    Control Panel. Frozen, the same binary routes ``--watchdog`` / ``--agent``
+    / ``--cloud-agent`` in-process. From source, a real interpreter runs the script.
+    """
+    if getattr(sys, "frozen", False):
+        return [str(sys.executable), flag, *extra]
+    script = Path(__file__).resolve().parent.parent / rel
+    py, _disp = _host_python_argv()
+    return [*py, str(script), *extra]
+
+
 def run_cloud_agent(goal: str, *, apply: bool = False, base: str = "", model: str = "", max_steps: int = 12) -> dict:
     """Run the LLM cloud agent in a hidden process, streaming output to the Step 9 log."""
-    agent = _agent_script_path()
-    if not Path(agent).is_file():
-        _emit_log("go", f"[cloud agent] not found: {agent}\n")
+    if not getattr(sys, "frozen", False) and not Path(_agent_script_path()).is_file():
+        _emit_log("go", f"[cloud agent] not found: {_agent_script_path()}\n")
         return {"ok": False, "error": "cloud agent module missing in this build"}
 
     def work() -> None:
-        import os
-
-        cmd = [str(sys.executable), agent]
+        extra: list[str] = []
         if apply:
-            cmd.append("--apply")
+            extra.append("--apply")
         if base and base.strip():
-            cmd += ["--base", base.strip()]
+            extra += ["--base", base.strip()]
         if model and model.strip():
-            cmd += ["--model", model.strip()]
-        cmd += ["--max-steps", str(max(1, int(max_steps)))]
-        cmd += [str(goal)]
+            extra += ["--model", model.strip()]
+        extra += ["--max-steps", str(max(1, int(max_steps)))]
+        extra.append(str(goal))
+        cmd = _tool_argv("--cloud-agent", "tools/cloud_agent.py", extra)
         flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if sys.platform == "win32" else 0
-        env = dict(os.environ)
         _emit_log("go", "\n── Cloud agent started ──\n")
         try:
             proc = subprocess.Popen(
@@ -2548,7 +2584,6 @@ def run_cloud_agent(goal: str, *, apply: bool = False, base: str = "", model: st
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
-                env=env,
                 creationflags=flags,
             )
         except Exception as exc:
@@ -2565,46 +2600,66 @@ def run_cloud_agent(goal: str, *, apply: bool = False, base: str = "", model: st
 
 
 def agent_status() -> dict:
-    """Run the packaged watchdog once (dry-run) and stream a summary to Step 9 log."""
+    """Report live farm, ADB, and dashboard state. Does not reap or scan a fixed Docker port range.
 
-    def work() -> None:
-        wd = _watchdog_script_path()
-        if not Path(wd).is_file():
-            _emit_log("go", f"[agent] watchdog not found: {wd}\n")
-            return
-        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if sys.platform == "win32" else 0
-        try:
-            result = subprocess.run(
-                [str(sys.executable), wd, "--host", "127.0.0.1", "--count", "4"],
-                capture_output=True,
-                text=True,
-                timeout=120,
-                creationflags=flags,
-            )
-        except Exception as exc:
-            _emit_log("go", f"[agent] watchdog check failed: {exc}\n")
-            return
-        out = (result.stdout or "").strip()
-        try:
-            data = json.loads(out)
-        except Exception:
-            data = {"raw": out[-2000:]}
-        docker = data.get("docker") or {}
-        adb_rows = data.get("adb") or []
-        connected = [r for r in adb_rows if r.get("adb") == "connected"]
-        unreachable = [r for r in adb_rows if r.get("adb") == "unreachable"]
-        lines = [
-            "\n[agent] watchdog status",
-            f"  Docker/emulators: {'OK' if docker.get('ok') else docker.get('error', 'unknown')}",
-            f"  ADB devices checked: {len(adb_rows)}",
-            f"  Connected: {len(connected)}   Unreachable: {len(unreachable)}",
-        ]
-        if data.get("docker_repair"):
-            lines.append(f"  Docker repair: {data['docker_repair'].get('status', 'n/a')}")
-        _emit_log("go", "\n".join(lines) + "\n")
+    The old button spawned this EXE as if it were Python and scanned a fixed
+    localhost port range. That either opened a second Control Panel or
+    checked ports that are not this MuMu farm.
+    """
+    from wizard.farm_control import external_python_farm_running, farm_running
 
-    threading.Thread(target=work, daemon=True).start()
-    return {"ok": True, "started": True}
+    notes: list[str] = []
+    try:
+        running = bool(farm_running())
+    except Exception as exc:  # noqa: BLE001
+        running = False
+        notes.append(f"farm check failed: {exc}")
+    try:
+        external = bool(external_python_farm_running())
+    except Exception as exc:  # noqa: BLE001
+        external = False
+        notes.append(f"external farm check failed: {exc}")
+    live: list[str] = []
+    try:
+        from automation.farm_exe_self_heal import adb_live_serials
+
+        live = [str(s) for s in (adb_live_serials() or [])]
+    except Exception as exc:  # noqa: BLE001
+        notes.append(f"adb check failed: {exc}")
+    dash = False
+    try:
+        from setup_wizard import probe_dashboard_listen_port
+
+        dash = bool(probe_dashboard_listen_port())
+    except Exception as exc:  # noqa: BLE001
+        notes.append(f"control service check failed: {exc}")
+    farm_dash = False
+    try:
+        import urllib.request
+
+        with urllib.request.urlopen("http://127.0.0.1:8091/", timeout=1.5):  # noqa: S310
+            farm_dash = True
+    except Exception:
+        farm_dash = False
+    farm_up = running or external
+    lines = [
+        "\n[agent] status",
+        f"  Farm: {'running' if farm_up else 'down'}",
+        f"  ADB live: {len(live)}",
+        f"  Control service: {'up' if dash else 'down'}",
+        f"  Farm dashboard: {'up' if farm_dash else 'down'}",
+    ]
+    if live:
+        lines.append("  Phones: " + ", ".join(live))
+    lines.extend(f"  {n}" for n in notes)
+    _emit_log("go", "\n".join(lines) + "\n")
+    return {
+        "ok": True,
+        "running": farm_up,
+        "adb": len(live),
+        "dashboard": bool(farm_dash or dash),
+        "message": f"Farm {'running' if farm_up else 'down'} — {len(live)} phone(s) on ADB",
+    }
 
 
 # ── Farm start/stop (unison money stack) — added in pharmflow merge ──
@@ -2658,6 +2713,9 @@ def start_farm_from_app(profile_slug: str = "", hours: float = 0) -> dict:
             _emit_log("go", "[farm] Starting farm stack — checking profile and helper lanes…\n")
             profile = load_active_profile(profile_slug or None)
             ok = _sf(profile=profile, hours=hours or None, log=log, takeover=True)
+            if not ok and _fr():
+                ok = True
+                _emit_log("go", "[farm] Farm is already running — not a failed start.\n")
             if ok:
                 _emit_log("go", "[farm] Farm startup complete — unison, watchdog, and dashboard are live.\n")
                 with _farm_start_lock:
@@ -2704,60 +2762,48 @@ def stop_farm_from_app() -> dict:
     """Stop the unison money farm started by :func:`start_farm_from_app`."""
     from wizard.farm_control import farm_running as _fr, stop_farm as _stop
 
-    def work() -> dict:
-        global _farm_start_result
-        try:
-            if not _fr():
-                with _farm_start_lock:
-                    _farm_start_result = {
-                        "ok": True,
-                        "starting": False,
-                        "running": False,
-                        "message": "Farm is already stopped.",
-                    }
-                return {"ok": True, "stopped": False, "running": False, "message": "Farm is already stopped."}
-            stopped = _stop()
+    global _farm_start_result
+    try:
+        if not _fr():
             with _farm_start_lock:
                 _farm_start_result = {
-                    "ok": bool(stopped),
+                    "ok": True,
                     "starting": False,
                     "running": False,
-                    "message": "Farm stopped." if stopped else "Farm stop did not complete.",
+                    "message": "Farm is already stopped.",
                 }
-            return {"ok": bool(stopped), "stopped": bool(stopped), "running": False}
-        except Exception as exc:  # noqa: BLE001
-            with _farm_start_lock:
-                _farm_start_result = {
-                    "ok": False,
-                    "starting": False,
-                    "running": False,
-                    "error": f"stop_farm error: {exc}",
-                }
-            return {"ok": False, "error": f"stop_farm error: {exc}", "running": False}
-
-    return _run_on_tk(work)
+            return {"ok": True, "stopped": False, "running": False, "message": "Farm is already stopped."}
+        stopped = _stop()
+        with _farm_start_lock:
+            _farm_start_result = {
+                "ok": bool(stopped),
+                "starting": False,
+                "running": False,
+                "message": "Farm stopped." if stopped else "Farm stop did not complete.",
+            }
+        return {"ok": bool(stopped), "stopped": bool(stopped), "running": False}
+    except Exception as exc:  # noqa: BLE001
+        with _farm_start_lock:
+            _farm_start_result = {
+                "ok": False,
+                "starting": False,
+                "running": False,
+                "error": f"stop_farm error: {exc}",
+            }
+        return {"ok": False, "error": f"stop_farm error: {exc}", "running": False}
 
 
 def spin_up_test_phone_from_app() -> dict:
-    """User-clicked ONLY: bring up one phone (Docker redroid or MuMu VM) for testing.
-
-    Delegates to wizard.farm_control.spin_up_test_phone, which never runs
-    automatically and returns immediately (the boot continues in a background
-    thread). Every progress line is streamed to the deck's "boot" log so the
-    operator sees the phone come up live instead of a silent dead-end.
-    """
+    """User-clicked ONLY: bring up one phone (Docker redroid or MuMu VM) for testing."""
     from wizard.farm_control import spin_up_test_phone as _spin
 
     def _phone_log(msg: str, level: str = "ok") -> None:
         _emit_log("boot", f"[test phone] {msg}\n")
 
-    def work() -> dict:
-        try:
-            return _spin(log=_phone_log)
-        except Exception as exc:  # noqa: BLE001 — surface to UI
-            return {"ok": False, "error": f"spin_up_test_phone error: {exc}"}
-
-    return _run_on_tk(work)
+    try:
+        return _spin(log=_phone_log)
+    except Exception as exc:  # noqa: BLE001 — surface to UI
+        return {"ok": False, "error": f"spin_up_test_phone error: {exc}"}
 
 
 def get_machine_capabilities() -> dict:
@@ -2907,33 +2953,30 @@ def get_machine_capabilities() -> dict:
 
 
 def farm_status_from_app() -> dict:
-    """Lightweight farm status for the Run page."""
+    """Lightweight farm status for the Run page. Never waits on Tcl."""
     from wizard.farm_control import farm_running as _fr, external_python_farm_running as _ex
 
-    def work() -> dict:
-        try:
-            running = bool(_fr())
-            external = bool(_ex())
-            with _farm_start_lock:
-                result = dict(_farm_start_result)
-                starting = bool(_farm_starting)
-            if running or external:
-                result.update({"ok": True, "running": True, "starting": False})
-            elif starting:
-                result.setdefault("ok", True)
-                result["running"] = False
-                result["starting"] = True
-            else:
-                result.setdefault("ok", True)
-                result.setdefault("running", False)
-                result.setdefault("starting", False)
-            result["external"] = external
-            result["dashboard"] = "http://127.0.0.1:8091/"
-            return result
-        except Exception as exc:  # noqa: BLE001
-            return {"ok": False, "error": str(exc), "running": False, "starting": False}
-
-    return _run_on_tk(work)
+    try:
+        running = bool(_fr())
+        external = bool(_ex())
+        with _farm_start_lock:
+            result = dict(_farm_start_result)
+            starting = bool(_farm_starting)
+        if running or external:
+            result.update({"ok": True, "running": True, "starting": False})
+        elif starting:
+            result.setdefault("ok", True)
+            result["running"] = False
+            result["starting"] = True
+        else:
+            result.setdefault("ok", True)
+            result.setdefault("running", False)
+            result.setdefault("starting", False)
+        result["external"] = external
+        result["dashboard"] = "http://127.0.0.1:8091/"
+        return result
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "error": str(exc), "running": False, "starting": False}
 
 
 def get_farm_hud() -> dict:

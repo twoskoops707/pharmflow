@@ -741,7 +741,7 @@ def catalog_markdown() -> str:
             "py -3 scripts/sideload_farm_browsers.py --install",
             "```",
             "",
-            "Or from CPharm.exe setup (Install browsers step) which calls the same logic.",
+            "Or from PharmFlow.exe setup (Install browsers step) which calls the same logic.",
             "",
         ]
     )

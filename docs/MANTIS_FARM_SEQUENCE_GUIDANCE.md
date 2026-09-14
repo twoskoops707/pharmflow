@@ -27,7 +27,7 @@ git pull origin main
 powershell -ExecutionPolicy Bypass -File scripts\SYNC_CPHARM_FROM_GITHUB.ps1
 ```
 
-That script: `git pull`, mirrors `sequences/` → `C:\CPharm\sequences`, downloads latest **CPharm.exe** from Releases.
+That script: `git pull`, mirrors `sequences/` → `C:\CPharm\sequences`, downloads latest **PharmFlow.exe** from Releases.
 
 **Also read on farm laptop:** `docs/MANTIS_FARM_SEQUENCE_GUIDANCE.md` (this file).
 
@@ -479,7 +479,7 @@ $/click = payout / clicks  # if clicks > 0
 2. `git commit` + `git push origin main` (or PR branch merged to main).  
 3. Laptop: `git pull` + `scripts\SYNC_CPHARM_FROM_GITHUB.ps1`.  
 4. Verify sequence count under `C:\CPharm\sequences` (e.g. mantis-hardcode expect 5 in 900x1600).  
-5. CI builds **CPharm.exe** on push to `main` — Releases for exe updates.
+5. CI builds **PharmFlow.exe** on push to `main` — Releases for exe updates.
 
 ---
 

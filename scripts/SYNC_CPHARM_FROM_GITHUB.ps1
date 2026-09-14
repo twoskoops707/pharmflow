@@ -31,7 +31,7 @@ Write-Host "`n=== download latest Release exe ===" -ForegroundColor Yellow
 $tag = (gh release list --limit 1 --json tagName -q ".[0].tagName" 2>$null)
 if (-not $tag) { $tag = "wizard-427" }
 Write-Host "Release tag: $tag"
-gh release download $tag -p "CPharm.exe" -D $CPharm --clobber
+gh release download $tag -p "PharmFlow.exe" -D "C:\PharmFlow" --clobber
 Get-ChildItem "$CPharm\*.exe" | Format-Table Name, Length, LastWriteTime
 
 Write-Host "`n=== verify ===" -ForegroundColor Yellow

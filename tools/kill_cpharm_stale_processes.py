@@ -2,7 +2,7 @@
 """
 Close stale MuMu, adb, and CPharm processes (same logic as CPharmMuMuSetup startup).
 
-Operators normally do not need this — CPharmMuMuSetup.exe runs it automatically.
+Operators normally do not need this — PharmFlow.exe runs it on startup.
 Use when debugging stuck adb/MuMu/CPharm from a dev clone:
 
     python tools/kill_cpharm_stale_processes.py

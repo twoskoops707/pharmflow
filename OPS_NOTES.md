@@ -74,7 +74,7 @@ _Updated: 2026-09-09 ~17:30. Read this before touching anything. Update it whene
 
 ## EXE stale-process reaper + per-seq isolation (2026-09-11)
 - **EXE reaps stale procs itself** (`farm_exe_self_heal.reap_stale_processes` + watchdog reaper): kills one-shot `_fix_*` / `_money_arm_*`, competing babysitters, roster `run_mantis_inject_proxies.py` when farm owns inject, orphan freebuff ticks, dup unison — **never** `cpharm_inject_keepalive.py` (lock-map ports). Stop Farm tears keepalive down via `_STOP_FARM_NEEDLES`.
-- **EXE auto-reaps process storms** (`farm_exe_self_heal.reap_process_storm`, end of every `reap_stale_processes` / self-heal tick): orphan `tor.exe` (no farm-owner python ancestor), dead-parent `conhost.exe`, Azure/Cursor telemetry `cmd.exe` storms, duplicate helper lanes (keep newest pid), stuck adb `shell` clients >120s — never MuMu/nemux/vmmem or PharmFlow/CPharm.exe.
+- **EXE auto-reaps process storms** (`farm_exe_self_heal.reap_process_storm`, end of every `reap_stale_processes` / self-heal tick): orphan `tor.exe` (no farm-owner python ancestor), dead-parent `conhost.exe`, Azure/Cursor telemetry `cmd.exe` storms, duplicate helper lanes (keep newest pid), stuck adb `shell` clients >120s — never MuMu/nemux/vmmem or PharmFlow.exe/CPharm.exe.
 - **Per-seq isolation forced:** each sequence run gets fresh cookies, fingerprint, exit IP, proxy pin, and IMEI — no cross-seq bleed on the money path.
 
 ## EXE self-heal for live failure classes (2026-09-10 night)
@@ -104,3 +104,35 @@ _Updated: 2026-09-09 ~17:30. Read this before touching anything. Update it whene
 3. `adb devices` — all 7 serials `device` (not `offline`).
 4. Heartbeat file fresh (<2 min), inject stats updating.
 5. RAM ≥ 2 GB free before booting phones.
+
+## Fleet-wide VM boot wedge — ROOT CAUSE (2026-09-12 ~10:00)
+- **Symptom:** since ~01:18 every MuMu VM shell spawns then dies (~2s, exit 0), zero vmmemNemu, zero ADB. EXE self-heal loops spawns correctly — not an EXE bug.
+- **Root cause (System event log, proven):** `Hyper-V-VmSwitch` Event 32 storm "Failed to connect NIC … to port" — HNS (Host Network Service) is WEDGED. vmcompute/Hyper-V healthy, hypervisor present. HCS creates each VM, the NIC can't attach to the virtual switch, MuMu tears the VM down. Also explains "internet broken on all phones."
+- **Corroboration:** `nemu-hcs-tool -l nets/endpoints` hangs indefinitely (HNS RPC not answering); `Get-VMSwitch` shows only Default/WSL switches while the MuMuProVNet *adapter* lingers orphaned.
+- **Remedy (needs admin, timed out unapproved):** restart `hns` (+`winnat`) — rebuilds HNS networks; OR host reboot (equivalent, historically reliable). One command already prepared for re-approval.
+- **Boot fix shipped (this session, working tree):** `wizard/cpharm_wizard_bridge.py::boot_all_phones` now falls back to disk-fleet enumeration (`farm_canonical_phones`) + farm launcher (`mumu_shell_cli.launch_instance_index`) when no MuMu CLI manager exists (this ARM build ships GUI-only managers). Serial re-derivation after cold boot; no `adb -s ""`. Compile clean, boot-gate tests 6/6. Ships in next CI EXE.
+
+## 2026-09-13 — 48-ghost-phone incident: root causes + structural fixes (Buffy)
+
+**Symptom:** farm showed 48-49 phones; 8 real. Inject/Tor port split-brain (10061 storm), sequences starved, $0.
+
+**Root causes (proven, in order):**
+1. `wizard/mumu_farm_ops.py::_list_instances_unlocked` synced **every VM disk folder** into the roster via `_sync_phone_names` → `cpharm_config.json` phones=49. Only `i.running` phones belong in the roster (fix installed, both callsites).
+2. That 49-name roster was exported by the operator panel into `farm_runtime_overrides.json` + `FARM_PHONES_CAPACITY.lock`, which `ensure_farm_24x7` feeds to cycles/worker as `--phones` **every tick** — so ghost rosters kept resurrecting even after config fixes. Both files rewritten to the 8 live phones (vm39,40,41,42,43,44,45,47).
+3. `automation/mantis_inject_proxy.py::upstream_tor_port` dialed `http_base + absolute_idx` (vm39 → 8157) while Tor prewarms **slots 0..N-1** (8118-8127) → every upstream refused. Fixed: resolver now uses the farm-exported slot map (`CPHARM_INJECT_SLOT_MAP`, position-based) written by `run_farm_354` before arming; file-roster fallback added; `import re` added.
+4. Supervisor multiplication: repeated manual `run_farm_cycles` launches + keeper respawns = N supervisors, each (without `--no-kill`) killing the prior worker → rc=15 boot loop every ~11s. Fixed: `_acquire_single_instance_lock` (pid+create_time verified) in `run_farm_cycles.main`; exactly one keeper allowed to own the stack.
+
+**Verified after clean restart:** config=8, inject armed 8257-8265 for exactly the 8 live phones, **0 upstream errors**, Tor 8118-8127 healthy, phone→site fetch 200, sequences scheduled 15-21 slots/h per phone, Mantis JS injection confirmed (4662 fills logged).
+
+**Standing rules (new):**
+- Never launch a second `run_farm_cycles`/keeper by hand; the keeper owns the stack. If a wipe is needed, kill everything once and start ONE keeper.
+- Roster = live ADB phones only. Any rescan that writes disk-folder names into config/overrides is a bug.
+- After ANY inject/Tor touch: verify arm lines match listeners AND one phone→site fetch = 200 before trusting the chain.
+
+## 2026-09-14 — EXE deck buttons died on a background Tk thread
+
+**Symptom:** Control Panel actions (load/save sequence, browse mode, start service, fix internet, stop farm, spin-up, navigate, groups, humanize) returned `Timed out waiting for UI thread (600s)`. Some boots returned `Boot already in progress` and aborted Start automation. Setup actions logged `ok=False error=''`.
+
+**Root cause:** The WebView EXE owns the process main thread. Deck actions were queued onto a daemon thread that constructed `tk.Tk()`. Tcl requires the main thread; when that pump died (`main thread is not in main loop`) `_ready` stayed set and every later button waited 600s. Wizard page spawns also used `CREATE_NO_WINDOW|DETACHED_PROCESS`, which parks the child window off-screen.
+
+**Fix (source, not yet in the installed EXE):** `wizard/cpharm_wizard_bridge.py` runs state/ADB/localhost actions on the caller thread. Install/SDK/create open a visible wizard process. `automation/no_window.py` does not SW_HIDE `--internal-tk-page` children. Do not PyInstaller-freeze this on the live 16 GB box while the farm is up — that is the RAM-kill class. Installed `C:\PharmFlow\PharmFlow.exe` is still the previous freeze until a new ARM64 binary is built with the farm down or CI minutes exist.

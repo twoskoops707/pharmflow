@@ -1,10 +1,10 @@
-# CPharm Cloud Emulator Tools
+# PharmFlow Cloud Emulator Tools
 
 Unified tooling for local or hosted Android emulator instances (Redroid), including connection checks, backend recovery, and controlled phone-farm operations.
 
 ## Quick Start
 
-The primary Windows operator interface is `CPharm.exe`. The release also includes `CPharmAgent.exe` for project diagnostics and `CPharmWatchdog.exe` for Docker/ADB/emulator health checks. Keep all three EXEs in the same folder; run the main CPharm GUI first. The complete operator guide is [../docs/EXE_QUICK_START.md](../docs/EXE_QUICK_START.md).
+The Windows operator interface is `PharmFlow.exe` in `C:\PharmFlow\`. Diagnostics and the watchdog are `PharmFlow.exe --agent` and `PharmFlow.exe --watchdog` — not separate downloads. The complete operator guide is [../docs/EXE_QUICK_START.md](../docs/EXE_QUICK_START.md).
 
 The focused watchdog can repair only known Docker/ADB connection failures and does not touch unrelated processes.
 

@@ -2,7 +2,7 @@
 """
 Dev CLI — live fingerprint audit/apply for one phone.
 
-Operators: CPharmMuMuSetup.exe → GO (all phones) or CPharm → Re-apply hide emulator.
+Operators: PharmFlow phone setup (all phones) or Re-apply hide emulator.
 """
 from __future__ import annotations
 
@@ -37,7 +37,7 @@ def main() -> int:
     serial = args.serial.strip()
 
     print(f"CPharm live fingerprint — {serial}")
-    print("Operators: CPharmMuMuSetup.exe → GO")
+    print("Operators: PharmFlow → Phones → Set up my phones")
     print("=" * 55)
 
     if not _adb_ok(serial):

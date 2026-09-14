@@ -214,7 +214,7 @@ Fix:   Another process is holding the port. Run:
    C:\CPharm\bundled\adb.exe devices
    
 4. Start CPharm wizard:
-   CPharm.exe
+   PharmFlow.exe
    → Go to Launch → Preflight should show all phones
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

@@ -115,8 +115,55 @@ class MuMuSetupApi:
     def __init__(self, *, skip_launch_cpharm: bool = False) -> None:
         self._window: Any = None
         self._busy = False
+        self._worker: threading.Thread | None = None
         self._lock = threading.Lock()
         self._skip_launch_cpharm = skip_launch_cpharm
+
+    def _busy_or_claim(self) -> dict | None:
+        """Claim the setup lock, or report that a live worker already has it.
+
+        A dead worker must not leave ``_busy`` stuck — that made Install
+        browser return ``busy`` forever after a crashed setup thread.
+        """
+        with self._lock:
+            worker = self._worker
+            if self._busy and worker is not None and not worker.is_alive():
+                self._busy = False
+                self._worker = None
+            if self._busy:
+                return {
+                    "ok": True,
+                    "started": False,
+                    "already_running": True,
+                    "message": "A phone setup/install is already running.",
+                }
+            self._busy = True
+            return None
+
+    def _spawn_worker(self, target) -> dict:
+        held = self._busy_or_claim()
+        if held is not None:
+            return held
+
+        def wrapped() -> None:
+            try:
+                target()
+            finally:
+                with self._lock:
+                    self._busy = False
+                    self._worker = None
+
+        thread = threading.Thread(target=wrapped, name="cpharm-setup", daemon=True)
+        with self._lock:
+            self._worker = thread
+        try:
+            thread.start()
+        except Exception as exc:
+            with self._lock:
+                self._busy = False
+                self._worker = None
+            return {"ok": False, "error": f"Could not start setup worker: {exc}"}
+        return {"ok": True, "started": True}
 
     def bind_window(self, window: Any) -> None:
         self._window = window
@@ -152,11 +199,6 @@ class MuMuSetupApi:
         return {"ok": ok, "message": msg}
 
     def run_setup(self) -> dict:
-        with self._lock:
-            if self._busy:
-                return {"ok": False, "error": "busy"}
-            self._busy = True
-
         window = self._window
 
         def log(msg: str) -> None:
@@ -180,8 +222,6 @@ class MuMuSetupApi:
                 msg = f"Setup failed: {exc}"
                 log(msg)
             finally:
-                with self._lock:
-                    self._busy = False
                 if window is not None:
                     _emit(
                         window,
@@ -196,15 +236,9 @@ class MuMuSetupApi:
                 if ok and not self._skip_launch_cpharm and core.cpharm_exe_path().is_file():
                     core.launch_cpharm()
 
-        threading.Thread(target=work, daemon=True).start()
-        return {"ok": True, "started": True}
+        return self._spawn_worker(work)
 
     def install_chromium(self) -> dict:
-        with self._lock:
-            if self._busy:
-                return {"ok": False, "error": "busy"}
-            self._busy = True
-
         window = self._window
 
         def log(msg: str) -> None:
@@ -231,8 +265,6 @@ class MuMuSetupApi:
                 msg = f"Chromium install failed: {exc}"
                 log(msg)
             finally:
-                with self._lock:
-                    self._busy = False
                 if window is not None:
                     _emit(
                         window,
@@ -240,8 +272,7 @@ class MuMuSetupApi:
                         {"ok": ok, "message": msg},
                     )
 
-        threading.Thread(target=work, daemon=True).start()
-        return {"ok": True, "started": True}
+        return self._spawn_worker(work)
 
     def live_phone_options(self) -> list:
         """ADB-live phones the browser picker can target."""
@@ -291,11 +322,6 @@ class MuMuSetupApi:
         ``serial`` of "" / "all" targets every ADB-live phone; any other value
         must match a live serial or the install refuses with a clear message.
         """
-        with self._lock:
-            if self._busy:
-                return {"ok": False, "error": "busy"}
-            self._busy = True
-
         window = self._window
 
         def log(msg: str) -> None:
@@ -363,8 +389,6 @@ class MuMuSetupApi:
                 msg = f"Browser install failed: {exc}"
                 log(msg)
             finally:
-                with self._lock:
-                    self._busy = False
                 if window is not None:
                     _emit(
                         window,
@@ -372,8 +396,7 @@ class MuMuSetupApi:
                         {"ok": ok, "message": msg, "serials": serials, "results": results},
                     )
 
-        threading.Thread(target=work, daemon=True).start()
-        return {"ok": True, "started": True}
+        return self._spawn_worker(work)
 
 
 def run_webview_app(*, skip_launch_cpharm: bool = False) -> None:

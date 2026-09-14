@@ -5,7 +5,7 @@
 📋 WHAT IS CPHARMWATCHDOG?
 
 Self-healing health monitor for the CPharm farm. Continuously checks:
-  ✓ Is CPharm.exe main process alive?
+  ✓ Is PharmFlow.exe main process alive?
   ✓ Is Dashboard HTTP (8080) answering?
   ✓ Are ADB cloud/emulator endpoints reachable?
   ✓ Is Docker Redroid stack running?
@@ -22,16 +22,16 @@ Safety model:
 🎯 QUICK START:
 
 # One-time health check
-CPharmWatchdog.exe --once
+PharmFlow.exe --watchdog --once
 
 # Run in background, auto-repair
-CPharmWatchdog.exe --watch --interval 30 --apply --alert
+PharmFlow.exe --watchdog --watch --interval 30 --apply --alert
 
 # Check every 60s, repair dashboard if down
-CPharmWatchdog.exe --watch --interval 60 --repair-dashboard
+PharmFlow.exe --watchdog --watch --interval 60 --repair-dashboard
 
 # Verify specific ADB ports
-CPharmWatchdog.exe --once --host 127.0.0.1 --start-port 5555 --count 8
+PharmFlow.exe --watchdog --once --host 127.0.0.1 --start-port 5555 --count 8
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -50,8 +50,8 @@ Recovery Actions (use with --apply):
   --service NAME      Limit Docker repair to one service
   
   Examples:
-    CPharmWatchdog.exe --once --apply --repair-dashboard
-    CPharmWatchdog.exe --watch --apply --repair-docker
+    PharmFlow.exe --watchdog --once --apply --repair-dashboard
+    PharmFlow.exe --watchdog --watch --apply --repair-docker
 
 Process Reaper (built-in, every --reap-interval in --watch mode):
   Kills dead/used/unneeded/stale processes as soon as they are discovered:
@@ -67,9 +67,9 @@ Process Reaper (built-in, every --reap-interval in --watch mode):
   --reap-interval N   Min seconds between sweeps (default: 60)
   
   Examples:
-    CPharmWatchdog.exe --reap-only                    # report stale processes
-    CPharmWatchdog.exe --reap-only --apply            # kill stale immediately
-    CPharmWatchdog.exe --watch --apply                # monitor + kill every 60s
+    PharmFlow.exe --watchdog --reap-only                    # report stale processes
+    PharmFlow.exe --watchdog --reap-only --apply            # kill stale immediately
+    PharmFlow.exe --watchdog --watch --apply                # monitor + kill every 60s
 
 Stealth / exit-IP uniqueness (--stealth):
   Verifies every phone holds a UNIQUE Tor exit IP via the dashboard's
@@ -82,9 +82,9 @@ Stealth / exit-IP uniqueness (--stealth):
                       (runs with each reaper sweep; needs dashboard up)
 
   Examples:
-    CPharmWatchdog.exe --watch --apply --stealth        # sweep every 60s: reap + stealth
-    CPharmWatchdog.exe --reap-only --stealth            # single maintenance tick
-    CPharmWatchdog.exe --reap-only --stealth --apply    # kill stale + rotate dupes now
+    PharmFlow.exe --watchdog --watch --apply --stealth        # sweep every 60s: reap + stealth
+    PharmFlow.exe --watchdog --reap-only --stealth            # single maintenance tick
+    PharmFlow.exe --watchdog --reap-only --stealth --apply    # kill stale + rotate dupes now
 
 Monitoring:
   --alert             Send ntfy notifications on state changes
@@ -97,8 +97,8 @@ ADB Configuration:
   --count COUNT       Number of ADB ports to check (default: 8)
   
   Examples:
-    CPharmWatchdog.exe --once --host 127.0.0.1 --start-port 5555 --count 8
-    CPharmWatchdog.exe --once --host 127.0.0.1 --start-port 16384 --count 10  (MuMu)
+    PharmFlow.exe --watchdog --once --host 127.0.0.1 --start-port 5555 --count 8
+    PharmFlow.exe --watchdog --once --host 127.0.0.1 --start-port 16384 --count 10  (MuMu)
 
 Diagnostic:
   -h, --help          Show help
@@ -114,7 +114,7 @@ Status line:
   [CRITICAL] main=down dashboard=down docker=down adb_online=0
 
 Components:
-  main = Is CPharm.exe running?
+  main = Is PharmFlow.exe running?
   dashboard = Is HTTP server (8080) responding?
   docker = Are Redroid containers up?
   adb_online = How many ADB devices are online?
@@ -125,33 +125,33 @@ Components:
 
 Option 1: Manual checks
   Run before starting CPharm:
-    CPharmWatchdog.exe --once --apply --repair-docker
-    CPharm.exe
+    PharmFlow.exe --watchdog --once --apply --repair-docker
+    PharmFlow.exe
 
 Option 2: Background monitoring (Task Scheduler)
   Create scheduled task:
-    Program: C:\CPharm\CPharmWatchdog.exe
+    Program: C:\PharmFlow\PharmFlow.exe --watchdog
     Arguments: --watch --interval 30 --apply --alert
     Run: On startup (or at logon)
     User: SYSTEM or current user
 
   PowerShell:
     $trigger = New-ScheduledTaskTrigger -AtStartup
-    $action = New-ScheduledTaskAction -Execute "C:\CPharm\CPharmWatchdog.exe" `
+    $action = New-ScheduledTaskAction -Execute "C:\PharmFlow\PharmFlow.exe --watchdog" `
       -Argument "--watch --interval 30 --apply --alert"
     Register-ScheduledTask -TaskName "CPharm Watchdog" -Trigger $trigger -Action $action
 
 Option 3: Batch file wrapper
   Create: C:\CPharm\watchdog_background.bat
     @echo off
-    start "CPharm Watchdog" CPharmWatchdog.exe --watch --interval 30 --apply --alert
+    start "CPharm Watchdog" PharmFlow.exe --watchdog --watch --interval 30 --apply --alert
     REM Keep running, auto-restart if crashes
     :loop
     timeout /t 5 >nul
-    tasklist | find /i "CPharmWatchdog.exe" >nul || goto :start
+    tasklist | find /i "PharmFlow.exe --watchdog" >nul || goto :start
     goto :loop
     :start
-    CPharmWatchdog.exe --watch --interval 30 --apply --alert
+    PharmFlow.exe --watchdog --watch --interval 30 --apply --alert
     goto :loop
 
 Option 4: Docker container (for remote monitoring)
@@ -167,15 +167,15 @@ Option 4: Docker container (for remote monitoring)
 ⚙️ ADVANCED USAGE:
 
 Detect and repair stale processes:
-  CPharmWatchdog.exe --once --apply
+  PharmFlow.exe --watchdog --once --apply
   # Kills duplicate run_mantis_inject.py, farm_354.py, etc.
 
 Monitor multiple emulator farms:
   # Farm A: Docker Redroid (ports 5555-5562)
-  CPharmWatchdog.exe --watch --host 127.0.0.1 --start-port 5555 --count 8
+  PharmFlow.exe --watchdog --watch --host 127.0.0.1 --start-port 5555 --count 8
   
   # Farm B: MuMu emulators (ports 16384-16393)
-  CPharmWatchdog.exe --watch --host 127.0.0.1 --start-port 16384 --count 10
+  PharmFlow.exe --watchdog --watch --host 127.0.0.1 --start-port 16384 --count 10
 
 Integration with ntfy.sh alerts:
   Setup: Create ntfy.sh account or self-hosted instance
@@ -183,7 +183,7 @@ Integration with ntfy.sh alerts:
   Usage:
     set NTFY_TOPIC=mycpharm-alerts
     set NTFY_URL=https://ntfy.sh
-    CPharmWatchdog.exe --watch --interval 30 --alert
+    PharmFlow.exe --watchdog --watch --interval 30 --alert
   
   Receives notifications on state changes:
     [ALERT] CPharm: main down (recovered)
@@ -200,26 +200,26 @@ Exit codes:
 📊 SAMPLE OUTPUTS:
 
 Healthy farm:
-  $ CPharmWatchdog.exe --once
+  $ PharmFlow.exe --watchdog --once
   [HEALTHY] main=up dashboard=up docker=up adb_online=8
   $ echo %ERRORLEVEL%
   0
 
 Degraded (dashboard down, ADB OK):
-  $ CPharmWatchdog.exe --once
+  $ PharmFlow.exe --watchdog --once
   [DEGRADED] main=up dashboard=down docker=up adb_online=8
   $ echo %ERRORLEVEL%
   1
 
 Repair and recover:
-  $ CPharmWatchdog.exe --once --apply --repair-dashboard
+  $ PharmFlow.exe --watchdog --once --apply --repair-dashboard
   [DEGRADED] main=up dashboard=down docker=up adb_online=8
   [REPAIR] Respawning dashboard...
   [CHECKING] main=up dashboard=up (recovered!) docker=up adb_online=8
   [HEALTHY] main=up dashboard=up docker=up adb_online=8
 
 Background monitoring:
-  $ start "" CPharmWatchdog.exe --watch --interval 30 --alert
+  $ start "" PharmFlow.exe --watchdog --watch --interval 30 --alert
   [WATCH] Started monitoring every 30s
   [HEALTHY] main=up dashboard=up docker=up adb_online=8
   [HEALTHY] (repeat every 30s)
@@ -231,21 +231,21 @@ Background monitoring:
 
 🔗 INTEGRATION POINTS:
 
-In CPharm.exe wizard:
+In PharmFlow.exe wizard:
   - "Launch" step → Add "Health Check" button
-    Calls: CPharmWatchdog.exe --once --apply
+    Calls: PharmFlow.exe --watchdog --once --apply
     Shows: Health report + recommend next steps
 
 In CI/CD pipelines:
   Pre-flight check before starting CPharm:
     script: |
-      CPharmWatchdog.exe --once --apply --repair-docker
+      PharmFlow.exe --watchdog --once --apply --repair-docker
       if errorlevel 1 exit /b 1
-      CPharm.exe
+      PharmFlow.exe
 
 In monitoring dashboards:
   Read health status from watchdog output:
-    CPharmWatchdog.exe --once --json
+    PharmFlow.exe --watchdog --once --json
     (future feature: JSON output mode)
 
 ═══════════════════════════════════════════════════════════

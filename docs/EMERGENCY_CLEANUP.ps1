@@ -46,4 +46,4 @@ if ($mumuProc) {
 # 6. Done
 Write-Host "[6/6] Cleanup complete!" -ForegroundColor Green
 Write-Host ""
-Write-Host "Next: Start CPharm.exe and follow Launch wizard" -ForegroundColor Yellow
+Write-Host "Next: Start PharmFlow.exe and follow Launch wizard" -ForegroundColor Yellow

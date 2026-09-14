@@ -1,3 +1,5 @@
+> **Superseded:** the product is a single `PharmFlow.exe` in `C:\PharmFlow\` (`--watchdog`, `--agent`, phone setup in-process). Data still lives under `C:\CPharm\`. Ignore EXE names below.
+
 # CPharm agent handoff — 2026-07-04
 
 Notes for the next human operator or cloud agent. Supersedes scattered chat context from the Jul 2026 MuMu / fingerprint / dual-exe workstream.

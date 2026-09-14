@@ -56,6 +56,25 @@ def install() -> None:
     _orig_init = subprocess.Popen.__init__
 
     def _patched_init(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+        cmd = args[0] if args else kwargs.get("args")
+        parts = cmd if isinstance(cmd, (list, tuple)) else [cmd]
+        cmd_s = " ".join(str(x) for x in parts if x is not None)
+        # Wizard pages are GUI children. SW_HIDE + CREATE_NO_WINDOW parks them
+        # off-screen (same WebView2 startup-show bug) so the operator sees nothing.
+        if "--internal-tk-page" in cmd_s:
+            flags = int(kwargs.get("creationflags", 0) or 0)
+            flags &= ~(_CREATE_NO_WINDOW | _DETACHED_PROCESS | _CREATE_NEW_CONSOLE)
+            kwargs["creationflags"] = flags
+            si = kwargs.get("startupinfo")
+            if si is None:
+                si = subprocess.STARTUPINFO()
+            try:
+                si.dwFlags |= int(subprocess.STARTF_USESHOWWINDOW)
+                si.wShowWindow = 1  # SW_SHOWNORMAL
+                kwargs["startupinfo"] = si
+            except Exception:
+                pass
+            return _orig_init(self, *args, **kwargs)
         flags = int(kwargs.get("creationflags", 0) or 0)
         # CREATE_NO_WINDOW cannot be combined with DETACHED_PROCESS or
         # CREATE_NEW_CONSOLE — Windows ignores both and a console flashes.

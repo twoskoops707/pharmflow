@@ -1,18 +1,16 @@
-# CPharm — Virtual Phone Farm
+# PharmFlow — Virtual Phone Farm
 
 Run many Android phones on one Windows PC and control them from one place. **No Android Studio required** if you use **MuMu**.
 
-**Download:** [GitHub Releases](https://github.com/twoskoops707/cpharm/releases/latest) — download all three files into the same folder:
+**Download:** [GitHub Releases](https://github.com/twoskoops707/cpharm/releases/latest) — one file, `PharmFlow.exe`, into `C:\PharmFlow\`:
 
 | File | Role |
 |------|------|
-| **CPharm.exe** | Main GUI: wizard, MuMu setup, **Start farm**, operator dashboard **`:8091`**, sequences |
-| **CPharmAgent.exe** | Project status and bounded agent planning |
-| **CPharmWatchdog.exe** | ADB / inject / emulator health checks and known repairs |
+| **PharmFlow.exe** | Control Panel: wizard, phone setup, **Start farm**, operator dashboard **`:8091`**, sequences. Watchdog and agent are the same EXE (`PharmFlow.exe --watchdog`, `PharmFlow.exe --agent`). |
 
 **Automation source (CI mirror):** [github.com/twoskoops707/FamFlow](https://github.com/twoskoops707/FamFlow)
 
-**Run order:** Start `CPharm.exe` first. Use **Start farm** for the Mantis money farm (unison stack). Use `CPharmWatchdog.exe` for connection recovery. Keep all three EXEs in one folder.
+**Run order:** Start `PharmFlow.exe`. Use **Start farm** for the Mantis money farm (unison stack). Connection recovery is `PharmFlow.exe --watchdog` (same binary, not a second download).
 
 **Complete EXE guide:** [docs/EXE_QUICK_START.md](docs/EXE_QUICK_START.md)
 
@@ -24,13 +22,13 @@ Run many Android phones on one Windows PC and control them from one place. **No 
 
 1. MuMu x64 — **8** portrait phones online (canonical vm0,1,5,7,9,10,12,13).
 2. **FarmBrowser** installed on each phone (`farmbrowser/` → debug APK).
-3. Open **CPharm.exe** → **Start farm** (spawns unison: farm + stealth + watchdog + FreeBuff money lane).
+3. Open **PharmFlow.exe** → **Start farm** (spawns unison: farm + stealth + watchdog + FreeBuff money lane).
 4. Dashboard: **`http://127.0.0.1:8091/`** (not `:8080` wizard server).
-5. **Stop farm** in CPharm when done.
+5. **Stop farm** in PharmFlow when done.
 
 Sequences under `sequences/` use `preferred_browser: com.farmbrowser.stealth.debug` for Path3/ad flows.
 
-**Never** start the farm from Cursor/Python (`ensure_farm_24x7.py`, etc.) — **CPharm.exe owns Start farm**.
+**Never** start the farm from Cursor/Python (`ensure_farm_24x7.py`, etc.) — **PharmFlow.exe owns Start farm**.
 
 ---
 
@@ -39,14 +37,14 @@ Sequences under `sequences/` use `preferred_browser: com.farmbrowser.stealth.deb
 1. Install **MuMu for Windows ARM** on Snapdragon PCs ([mumuglobal.com/download](https://www.mumuglobal.com/download)) — not the x64 installer on ARM.
 2. MuMu Multi-instance: create phones as **Phone**, **900 × 1600**, **portrait**.
 3. On each phone: **USB debugging ON** (tap Build number 7× in About).
-4. Download **CPharm.exe**, **CPharmAgent.exe**, and **CPharmWatchdog.exe** into one folder (e.g. `C:\CPharm\`).
-5. Double-click **CPharm.exe** → **Phones (step 4)** → checklist → **Set up my phones** (cold-boot phones if prompted).
+4. Download **PharmFlow.exe** into `C:\PharmFlow\`.
+5. Double-click **PharmFlow.exe** → **Phones (step 4)** → checklist → **Set up my phones** (cold-boot phones if prompted).
 6. **Install** (step 2, first time) → **Boot** → **Go** (Tor + run groups).
 7. To test an app, use **Phones → Install APK** after ADB shows the phones as `device`.
 8. Dashboard: `http://localhost:8080` (port shown in Launch log if 8080 is busy).
-9. If Docker or ADB is unhealthy, run `CPharmWatchdog.exe` from PowerShell; see the EXE guide for commands.
+9. If ADB is unhealthy, from that folder run `.\PharmFlow.exe --watchdog`; see the EXE guide for flags.
 
-**All MuMu farm logic lives in CPharm.exe** — `wizard/mumu_farm_ops.py` is bundled in the binary. The agent and watchdog are separate utilities so the main GUI stays focused and the recovery tools can be run independently.
+**All MuMu farm logic lives in PharmFlow.exe** — `wizard/mumu_farm_ops.py` is bundled in the binary. The agent and watchdog are flags on the same EXE, not extra downloads. Settings and logs stay under `C:\CPharm\`.
 
 **Full MuMu guide:** [docs/CPharm_emulator_MuMu_and_sequences.md](docs/CPharm_emulator_MuMu_and_sequences.md)
 
@@ -281,7 +279,7 @@ Repo presets use **event-chain basenames**: ordered phases joined with `__`, der
 | Phone not on Boot list | Start it in MuMu → **Start all phones** on Boot |
 | Browser blank / no internet | Launch → **Fix the phone's internet** |
 | Page times out | Launch → **Set up Tor** — wait until log says ready |
-| Taps miss | MuMu **Phone** model, **900×1600** portrait; re-run **CPharmMuMuSetup → GO** |
+| Taps miss | MuMu **Phone** model, **900×1600** portrait; re-run **PharmFlow → Phones → Set up my phones** |
 | Groups won't run | **Reload groups file** on Launch after editing Groups |
 | Dashboard won't open | Launch → **Start server** first |
 | Out of memory | Stop extra MuMu instances; ~2–3 GB RAM per phone |

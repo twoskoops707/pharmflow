@@ -179,7 +179,7 @@ Scale scenarios in the APK use **N phones** from the field or live fetch; edit c
 | Caps truth | `C:\CPharm\logs\farm_runtime_overrides.json` |
 | Lock browsers | `CPHARM_FARM_BROWSERS=chromium` when click-leak |
 
-Uniqueness rails stay on. Ship notes: CPharm.exe Release body mirrors these bands.
+Uniqueness rails stay on. Ship notes: PharmFlow.exe Release body mirrors these bands.
 
 ---
 
@@ -222,7 +222,7 @@ Uniqueness rails stay on. Ship notes: CPharm.exe Release body mirrors these band
 1. Edit sequences or automation on laptop or via agent.
 2. `git commit` + `git push origin main`.
 3. Laptop: `git pull` + SYNC script.
-4. CI builds **CPharm.exe** + **CPharmScorecard.apk** on push to `main`.
+4. CI builds **PharmFlow.exe** + **CPharmScorecard.apk** on push to `main`.
 5. Verify Release on GitHub before telling operator “build shipped.”
 
 ---

@@ -105,7 +105,7 @@ for production readiness and correct integration into CPharm wizard.
    - ADB timeout patterns (detect if specific devices frequently hang)
 
 3. **CPharm Main Process:**
-   - CPharm.exe running: Process list
+   - PharmFlow.exe running: Process list
    - Dashboard HTTP (8080) responding: `curl http://localhost:8080/health`
    - Dashboard performance: Response time <1s
    - Dashboard logs for errors: tail -f C:\CPharm\logs\cpharm.log
@@ -142,7 +142,7 @@ for production readiness and correct integration into CPharm wizard.
   - Fingerprint audit: Every 4 hours (deep check)
 
 **Implementation:**
-  - Extend CPharmWatchdog.exe --watch to include all above checks
+  - Extend PharmFlow.exe --watchdog --watch to include all above checks
   - Create dashboard: http://localhost:8091/monitoring (or new port)
   - Real-time alerts: Console output + optional ntfy.sh notifications
   - Persistent metrics: Write to C:\CPharm\logs\monitoring_metrics.jsonl (append-only)

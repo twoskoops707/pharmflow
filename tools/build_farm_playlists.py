@@ -2,7 +2,7 @@
 """
 Dev CLI — write groups_config.json with rotated playlists.
 
-Operators: CPharmMuMuSetup.exe → GO writes the same file automatically.
+Operators: PharmFlow phone setup writes the same file automatically.
 """
 from __future__ import annotations
 
@@ -31,7 +31,7 @@ def main() -> int:
         serials = serials[: args.count]
 
     if not serials:
-        print("No phones — boot MuMu first, or use CPharmMuMuSetup.exe → GO.")
+        print("No phones — boot MuMu first, or use PharmFlow → Phones → Set up my phones.")
         return 1
 
     out = ROOT / "automation" / "recordings" / "groups_config.json"

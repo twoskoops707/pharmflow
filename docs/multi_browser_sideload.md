@@ -73,7 +73,7 @@ py -3 scripts/sideload_farm_browsers.py --force --install
 py -3 scripts/sideload_farm_browsers.py --print-catalog
 ```
 
-## How CPharm.exe uses this
+## How PharmFlow.exe uses this
 
 1. **First-run / Setup GO** (`wizard/mumu_setup_core.py`) calls
    `ensure_farm_browsers()` after Chromium — same catalog as the CLI.
@@ -123,7 +123,7 @@ If Mozilla FTP or GitHub rate-limits you:
 
 ## Implementing in other EXEs / forks
 
-Only one shipped EXE today (`wizard/CPharm.spec` → `CPharm.exe`). Any additional
+Only one shipped EXE today (`wizard/PharmFlow.spec` → `PharmFlow.exe`). Any additional
 EXE must:
 
 1. Keep `automation.browser_apk_catalog` and `wizard.browser_setup` in

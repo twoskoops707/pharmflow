@@ -16,7 +16,7 @@ from pathlib import Path
 def _repo_root() -> Path:
     """Project root. When frozen (PyInstaller onefile), ``__file__`` points into
     the temp ``_MEIPASS`` extraction dir, so resolve relative to the EXE location
-    instead. Keeping all three EXEs in the same folder makes that the project root."""
+    instead. The folder that contains PharmFlow.exe is the project root when frozen."""
     if getattr(sys, "frozen", False):
         return Path(sys.executable).resolve().parent
     return Path(__file__).resolve().parents[1]
@@ -108,7 +108,7 @@ def cloud(args: argparse.Namespace) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="project-agent", description=__doc__)
-    p.add_argument("--version", action="version", version=f"CPharmAgent {VERSION}")
+    p.add_argument("--version", action="version", version=f"PharmFlow agent {VERSION}")
     sub = p.add_subparsers(dest="command", required=True)
     s = sub.add_parser("status", help="Show detected project components")
     s.set_defaults(func=project_status)

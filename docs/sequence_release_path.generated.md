@@ -30,12 +30,12 @@ From `c:\Users\jsmil\CPharm\cpharm-clone\.github\workflows\build-wizard.yml` (re
 
 In the tracked repo (`source\repos\cpharm`) the workflow builds and publishes:
 
-- PyInstaller output: `wizard/dist/CPharm.exe`
+- PyInstaller output: `wizard/dist/PharmFlow.exe`
 - Actions artifact: `CPharm-exe` (retention 30 days)
 - GitHub Release on push/manual run:
   - tag: `wizard-${{ github.run_number }}`
   - release name: `CPharm (build ${{ github.run_number }})`
-  - attached asset: `CPharm.exe`
+  - attached asset: `PharmFlow.exe`
 
 Policy expectation: Releases are the primary download path; artifact is fallback/debug evidence.
 
@@ -75,7 +75,7 @@ Do not claim "done", "build exists", or "shipped" until all checks below are run
      - `gh release view <tag> --json url,assets`
 
 4. **Success criteria**
-   - If workflow ran and passed: latest run conclusion is `success` and release has `CPharm.exe`.
+   - If workflow ran and passed: latest run conclusion is `success` and release has `PharmFlow.exe`.
    - If workflow did not run for a sequence-only push: report that explicitly as expected due to `paths: ['wizard/**']`, then either:
      - run manual dispatch (`gh workflow run "Build CPharm (.exe)"`), or
      - ship a workflow trigger update in same logical change.

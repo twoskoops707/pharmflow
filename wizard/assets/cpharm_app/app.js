@@ -1017,7 +1017,7 @@
       if (res && res.checklist) renderChecklist(res.checklist);
       if (res && res.phones) setPhones(res.phones);
       if (res && (res.error || res.ok === false)) {
-        appendLog(setupLog, "[action] " + action + " failed: " + (res.error || "unknown error"), "log-line-warn");
+        appendLog(setupLog, "[action] " + action + " failed: " + (res.error || res.message || "unknown error"), "log-line-warn");
       } else {
         appendLog(setupLog, "[action] " + action + " complete.", "log-line-ok");
         showToast(action + " complete");
@@ -2373,6 +2373,10 @@
         window.CPharmSetup.setBusy(true);
         try {
           const res = await a.run_setup();
+          if (res && res.already_running) {
+            appendLog(setupLog, res.message || "A phone setup/install is already running.");
+            return;
+          }
           // Only async start leaves busy=true until onComplete; any failure must clear it.
           if (!res || res.error || res.ok === false || !res.started) {
             window.CPharmSetup.setBusy(false);
@@ -2477,13 +2481,15 @@
         );
         try {
           const res = await api.install_browser(id, serial);
-          if (!res || res.error || res.ok === false || res.error === "busy") {
+          if (res && res.already_running) {
+            appendLog(setupLog, res.message || "A phone setup/install is already running.");
+            return;
+          }
+          if (!res || res.error || res.ok === false) {
             window.CPharmSetup.setBusy(false);
-            if (res && res.error && res.error !== "busy") {
+            if (res && res.error) {
               showBackendError(res.error);
               appendLog(setupLog, res.error);
-            } else if (res && res.error === "busy") {
-              appendLog(setupLog, "A phone setup/install is already running.");
             }
             return;
           }
@@ -3177,7 +3183,7 @@
           const countStr = window.prompt("Number of instances:", "8");
           const count = parseInt(countStr || "8", 10);
           if (!count || count < 1) {
-            showToast("Enter a valid instance count (1-16)");
+            showToast("Enter a valid instance count");
             return;
           }
           const a = requireApi("Cloud setup");
@@ -3185,7 +3191,7 @@
             showBackendError("Cloud setup is not available in this build");
             return;
           }
-          const res = await a.cloud_phone_setup(host.trim(), Math.min(count, 16));
+          const res = await a.cloud_phone_setup(host.trim(), count);
           if (res && res.error) {
             showBackendError(res.error);
             return;

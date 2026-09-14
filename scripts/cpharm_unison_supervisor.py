@@ -6,7 +6,7 @@ Lane 2: cpharm_stealth_guard.py      — tor, inject, ADB, GPU, dash
 Lane 3: farm_watchdog.py             — evidence monitor + FARM_MONITOR_NOW
 Lane 4: agent_unison_freebuff_loop.py — SSP paying, flat-$, path3 OK (FREEBUFF)
 
-CPharm.exe Start Farm spawns THIS script (not ensure_farm / remediator soup).
+PharmFlow.exe Start Farm spawns THIS script (not ensure_farm / remediator soup).
 """
 from __future__ import annotations
 

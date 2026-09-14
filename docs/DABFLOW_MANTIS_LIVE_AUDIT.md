@@ -118,4 +118,4 @@ python3 automation/audit_dabflow_live.py
 2. Cloudflare dashboard → **Workers & Pages** → DabFlow project → confirm **Production branch** = `web`.
 3. Push → wait for green deployment → hard-refresh `https://getdabflow.app` on phone.
 4. Re-run `python3 automation/audit_dabflow_live.py` until **OK**.
-5. On farm PC: **CPharmMuMuSetup → GO** to sync sequences + `groups_config.json`.
+5. On farm PC: **PharmFlow → Phones → Set up my phones** to sync sequences + `groups_config.json`.

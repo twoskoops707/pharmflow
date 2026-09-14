@@ -2,7 +2,7 @@
 """
 Dev CLI — download Chromium APK for sideload.
 
-Operators: CPharmMuMuSetup.exe → GO auto-downloads when no browser is found.
+Operators: PharmFlow phone setup auto-downloads when no browser is found.
 """
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ def main() -> int:
     def log(msg: str) -> None:
         print(msg)
 
-    print("Operators: CPharmMuMuSetup.exe -> GO downloads Chromium automatically.")
+    print("Operators: PharmFlow phone setup downloads Chromium automatically.")
     apk = farm.download_chromium_apk(log)
     if not apk or not apk.is_file():
         print("Download failed.", file=sys.stderr)

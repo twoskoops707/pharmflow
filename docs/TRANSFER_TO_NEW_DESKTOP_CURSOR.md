@@ -1,11 +1,11 @@
-# Move CPharm farm to another Windows PC (Cursor sets up · **CPharm.exe runs**)
+# Move CPharm farm to another Windows PC (Cursor sets up · **PharmFlow.exe runs**)
 
 **Read this first. Follow this order. Do not invent alternatives.**
 
 | Who | Job |
 |-----|-----|
-| **Cursor** (on the new PC) | **Setup / diagnose only** — MuMu x64, secrets, install `CPharm.exe`, help wizard, verify ADB + dash |
-| **`C:\CPharm\CPharm.exe`** | **THE ONLY FARM RUNNER** — user clicks **Start farm** / **Stop farm** / **Open dashboard** |
+| **Cursor** (on the new PC) | **Setup / diagnose only** — MuMu x64, secrets, install `PharmFlow.exe`, help wizard, verify ADB + dash |
+| **`C:\PharmFlow\PharmFlow.exe`** | **THE ONLY FARM RUNNER** — user clicks **Start farm** / **Stop farm** / **Open dashboard** |
 | **MuMu Player x64** | The phones |
 
 ### Cursor must NEVER do these (farm via Python)
@@ -18,7 +18,7 @@ Do **not** start, schedule, or “bring up” the farm with:
 - `scripts\run_mantis_inject_proxies.py` as the farm owner
 - any “start the farm from the terminal” recipe
 
-Those scripts exist for **inside** CPharm after **Start farm**, or for old docs. On a new desktop, **if CPharm.exe is not running Start farm, you are doing it wrong.**
+Those scripts exist for **inside** CPharm after **Start farm**, or for old docs. On a new desktop, **if PharmFlow.exe is not running Start farm, you are doing it wrong.**
 
 ### Also forbidden
 
@@ -37,12 +37,12 @@ Those scripts exist for **inside** CPharm after **Start farm**, or for old docs.
 YOU + Cursor (setup ONLY — never Start farm from Python)
         │
         ├─ install MuMu Player x64
-        ├─ download CPharm.exe → C:\CPharm\CPharm.exe   ← REQUIRED PRODUCT
+        ├─ download PharmFlow.exe → C:\PharmFlow\PharmFlow.exe   ← REQUIRED PRODUCT
         ├─ apply secrets zip into C:\CPharm\
-        └─ open CPharm.exe → wizard → N phones online
+        └─ open PharmFlow.exe → wizard → N phones online
                 │
                 ▼
-     OPERATOR clicks in CPharm.exe UI:
+     OPERATOR clicks in PharmFlow.exe UI:
                 Start farm
                 │
                 ├─ farm worker + uniqueness locks
@@ -65,7 +65,7 @@ Read first (after clone):
   docs/START_HERE.md
 Follow those exactly. If any older doc says ensure_farm / run_farm_354 / start_hidden, IGNORE it.
 
-THE ONLY FARM RUNNER IS C:\CPharm\CPharm.exe
+THE ONLY FARM RUNNER IS C:\PharmFlow\PharmFlow.exe
 Human clicks Start farm / Stop farm / Open dashboard in that EXE.
 Dashboard MUST be http://127.0.0.1:8091/
 
@@ -75,12 +75,12 @@ Dashboard MUST be http://127.0.0.1:8091/
 - run_farm_354.py / run_farm_cycles.py / start_hidden.py to start the farm
 - run_mantis_inject_proxies.py as farm owner
 - Building a Cursor/Python farm and calling setup done
-- Skipping CPharm.exe
+- Skipping PharmFlow.exe
 - Stopping at 1 phone
 - Declaring done with no :8091 dash
 - Copying FamFlow .py over C:\CPharm\ and calling the EXE updated
 - Disabling unique-seq / isolation / draw-without-replacement
-If dash is down: tell the HUMAN to click Start farm in CPharm.exe. Do NOT spawn ensure_farm.
+If dash is down: tell the HUMAN to click Start farm in PharmFlow.exe. Do NOT spawn ensure_farm.
 
 ========== DO THIS IN ORDER ==========
 0) Machine: Intel/AMD x64, 16GB RAM min (32GB preferred), SSD, never-sleep on AC.
@@ -93,9 +93,9 @@ If dash is down: tell the HUMAN to click Start farm in CPharm.exe. Do NOT spawn 
    Set user env CPHARM_MUMU_ROOT if CPharm cannot find it.
 3) Create C:\CPharm\bundled, logs, apks, certs.
    Optional: copy %USERPROFILE%\FamFlow\bundled_adb\* → C:\CPharm\bundled\
-4) Download CPharm.exe from GitHub Releases wizard-64 or NEWER (app 1.4.9+):
+4) Download PharmFlow.exe from GitHub Releases wizard-64 or NEWER (app 1.4.9+):
      https://github.com/twoskoops707/FamFlow/releases
-   Place at C:\CPharm\CPharm.exe  — if this file is missing, setup has FAILED.
+   Place at C:\PharmFlow\PharmFlow.exe  — if this file is missing, setup has FAILED.
 5) Apply the private secrets zip (USB/email — NEVER commit):
      MANTIS.json → C:\CPharm\logs\
      cpharm_state\* → C:\CPharm\
@@ -106,15 +106,15 @@ If dash is down: tell the HUMAN to click Start farm in CPharm.exe. Do NOT spawn 
      phone_count = 6 (or 4–6)
      adb_path = C:\CPharm\bundled\adb.exe
    Delete stale serial maps: C:\CPharm\logs\adb_live_serials.json and ADB_SERIAL_MAP.lock.json
-6) Launch C:\CPharm\CPharm.exe. Wizard: detect MuMu x64, 6 phones, USB-debug tip once, install tools/browsers, create/start phones.
+6) Launch C:\PharmFlow\PharmFlow.exe. Wizard: detect MuMu x64, 6 phones, USB-debug tip once, install tools/browsers, create/start phones.
 7) Verify: C:\CPharm\bundled\adb.exe devices  → multiple "device" lines (4–6), not one emulator.
-8) TELL THE HUMAN: in CPharm.exe click Start farm, then Open dashboard.
+8) TELL THE HUMAN: in PharmFlow.exe click Start farm, then Open dashboard.
 9) Verify http://127.0.0.1:8091/ loads and shows phones. Chromium inject not stuck on :0/null.
 
 ========== DONE ONLY IF ALL TRUE ==========
 - MuMu x64 installed, 4–6 instances running
 - ADB N/N device via C:\CPharm\bundled\adb.exe
-- C:\CPharm\CPharm.exe running with Start farm ACTIVE (not idle wizard)
+- C:\PharmFlow\PharmFlow.exe running with Start farm ACTIVE (not idle wizard)
 - http://127.0.0.1:8091/ loads
 - Old PC farm STOPPED (one PC farms Mantis per day)
 
@@ -134,7 +134,7 @@ Uniqueness locks stay ON.
 | Power | Never sleep while plugged in |
 | Apps | Cursor + Git; Python optional (diagnose only — **not** to run the farm) |
 | Emulator | **MuMu Player x64 / Global** — https://www.mumuglobal.com |
-| Product | **CPharm.exe** from https://github.com/twoskoops707/FamFlow/releases |
+| Product | **PharmFlow.exe** from https://github.com/twoskoops707/FamFlow/releases |
 
 ---
 
@@ -169,11 +169,11 @@ Open **`$env:USERPROFILE\FamFlow`** in Cursor. Paste the prompt above.
 
 **Do not install Android Studio for this farm.**
 
-### 3) Install **CPharm.exe** (mandatory — this is the product)
+### 3) Install **PharmFlow.exe** (mandatory — this is the product)
 
 1. Open https://github.com/twoskoops707/FamFlow/releases  
-2. Download **CPharm.exe** from **wizard-64 or newer** (app 1.4.9+)  
-3. Place at **`C:\CPharm\CPharm.exe`**  
+2. Download **PharmFlow.exe** from **wizard-64 or newer** (app 1.4.9+)  
+3. Place at **`C:\PharmFlow\PharmFlow.exe`**  
 
 ```powershell
 New-Item -ItemType Directory -Force C:\CPharm\bundled, C:\CPharm\logs, C:\CPharm\apks, C:\CPharm\certs | Out-Null
@@ -203,9 +203,9 @@ Edit `C:\CPharm\cpharm_config.json` / `saved_paths.json`:
 Remove-Item C:\CPharm\logs\adb_live_serials.json, C:\CPharm\logs\ADB_SERIAL_MAP.lock.json -ErrorAction SilentlyContinue
 ```
 
-### 5) Run **CPharm.exe** wizard (not Python)
+### 5) Run **PharmFlow.exe** wizard (not Python)
 
-1. Double-click **`C:\CPharm\CPharm.exe`**  
+1. Double-click **`C:\PharmFlow\PharmFlow.exe`**  
 2. Wizard: detect MuMu x64 → **6 phones** → tools/browsers/phones  
 3. Confirm:
 
@@ -217,7 +217,7 @@ Multiple `device` lines required.
 
 ### 6) Human starts the farm **inside CPharm**
 
-In the **CPharm.exe** window (not Cursor terminal):
+In the **PharmFlow.exe** window (not Cursor terminal):
 
 1. **Start farm**  
 2. **Open dashboard** → `http://127.0.0.1:8091/`  
@@ -226,7 +226,7 @@ In the **CPharm.exe** window (not Cursor terminal):
 |-------|------|
 | MuMu | x64; 4–6 instances |
 | ADB | N/N `device` |
-| **CPharm.exe** | Process running; **Start farm** active |
+| **PharmFlow.exe** | Process running; **Start farm** active |
 | Dash | `:8091` loads |
 | Proxies | not stuck on `:0` / `null` |
 | Old PC | farm **stopped** |
@@ -234,7 +234,7 @@ In the **CPharm.exe** window (not Cursor terminal):
 ### 7) Daily use
 
 1. MuMu on  
-2. **`C:\CPharm\CPharm.exe` → Start farm**  
+2. **`C:\PharmFlow\PharmFlow.exe` → Start farm**  
 3. Dash `:8091`  
 4. **Stop farm** in CPharm when needed  
 
@@ -254,7 +254,7 @@ Get-CimInstance Win32_Process | Where-Object {
 Remove-Item "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup\FamFlowEnsure24x7.bat" -ErrorAction SilentlyContinue
 ```
 
-Also quit old **CPharm.exe** / Stop farm on the old PC. Only **one** PC farms Mantis per day.
+Also quit old **PharmFlow.exe** / Stop farm on the old PC. Only **one** PC farms Mantis per day.
 
 ---
 
@@ -263,15 +263,15 @@ Also quit old **CPharm.exe** / Stop farm on the old PC. Only **one** PC farms Ma
 | Cursor MAY | Cursor must NOT |
 |------------|-----------------|
 | Install MuMu x64, Git | Install Android Studio for the farm |
-| Download/install **CPharm.exe** to `C:\CPharm\` | Run `ensure_farm` / `run_farm_354` / `start_hidden` to start farming |
+| Download/install **PharmFlow.exe** to `C:\CPharm\` | Run `ensure_farm` / `run_farm_354` / `start_hidden` to start farming |
 | Apply secrets; fix `mumu_root` | Leave farm on 1 phone |
-| Help CPharm wizard / ADB | Skip CPharm.exe and farm from Python |
+| Help CPharm wizard / ADB | Skip PharmFlow.exe and farm from Python |
 | Ask human to click **Start farm** in CPharm | Call setup “done” with no dash / no CPharm |
 | Read `C:\CPharm\logs\` | Disable unique-seq; live-patch `.py` over EXE |
 
 ### Code fixes later
 
-Frozen EXE = bundled code. Fix in repo → push `main` → **Build CPharm Wizard** → new Release **CPharm.exe** → replace file → human **Start farm** again.
+Frozen EXE = bundled code. Fix in repo → push `main` → **Build CPharm Wizard** → new Release **PharmFlow.exe** → replace file → human **Start farm** again.
 
 ---
 
@@ -282,7 +282,7 @@ Frozen EXE = bundled code. Fix in repo → push `main` → **Build CPharm Wizard
 | This doc | `docs/TRANSFER_TO_NEW_DESKTOP_CURSOR.md` |
 | Situation (money + EXE) | [SITUATION_2026-08-16.md](SITUATION_2026-08-16.md) |
 | Operator short | [START_HERE.md](START_HERE.md) |
-| Releases (**install CPharm.exe here**) | https://github.com/twoskoops707/FamFlow/releases/tag/wizard-64 |
+| Releases (**install PharmFlow.exe here**) | https://github.com/twoskoops707/FamFlow/releases/tag/wizard-64 |
 | Dash | http://127.0.0.1:8091/ |
 
 ---
@@ -290,6 +290,6 @@ Frozen EXE = bundled code. Fix in repo → push `main` → **Build CPharm Wizard
 ## Older docs (do not follow for farm start)
 
 - [`MIGRATE_FARM_TO_INTEL_CURSOR_LAB.md`](MIGRATE_FARM_TO_INTEL_CURSOR_LAB.md) — **superseded**; its `ensure_farm_24x7.py` section is **wrong** for new desktops.  
-- Any guide that says `py scripts\run_farm_354.py` to start the farm — **wrong**; use **CPharm.exe → Start farm**.  
+- Any guide that says `py scripts\run_farm_354.py` to start the farm — **wrong**; use **PharmFlow.exe → Start farm**.  
 
 **If anything conflicts with this file, this file wins.**

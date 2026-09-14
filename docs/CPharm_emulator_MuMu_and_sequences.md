@@ -8,7 +8,7 @@ CPharm manages a farm of MuMu Player ARM emulator instances on Windows Snapdrago
 
 1. Download MuMu Player **ARM version** from [mumuglobal.com](https://www.mumuglobal.com)
 2. Install to default path or set `CPHARM_MUMU_ROOT`
-3. Run `CPharm.exe` — first launch runs integrated setup and verifies MuMu detection
+3. Run `PharmFlow.exe` — first launch runs integrated setup and verifies MuMu detection
 
 ### Phone Creation Defaults
 

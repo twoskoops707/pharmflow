@@ -240,7 +240,7 @@ adb connect IP:5555
 3. Commit: `git add . && git commit -m "message"`
 4. Push: `git push origin main`
 5. Wait for GitHub Actions build
-6. Download: `gh release download wizard-N --pattern "CPharm.exe" --dir /c/CPharm/ --clobber`
+6. Download: `gh release download wizard-N --pattern "PharmFlow.exe" --dir /c/CPharm/ --clobber`
 
 ### IF BUILD FAILS
 - Check test failures: `gh run view RUN_ID --log-failed`

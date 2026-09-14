@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Dev CLI — operators use **CPharmMuMuSetup.exe → GO** (same logic in ``wizard/mumu_farm_ops.py``).
+Dev CLI — operators use **PharmFlow → Phones → Set up my phones** (same logic in ``wizard/mumu_farm_ops.py``).
 """
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ import mumu_farm_ops as farm  # noqa: E402
 
 def main() -> int:
     ap = argparse.ArgumentParser(
-        description="Configure MuMu phones for CPharm (dev — use CPharmMuMuSetup.exe in production)",
+        description="Configure MuMu phones for PharmFlow (dev — use PharmFlow phone setup in production)",
     )
     ap.add_argument("--count", type=int, default=3, help="Expected phone count (default 3)")
     ap.add_argument(
@@ -55,7 +55,7 @@ def main() -> int:
         sys.stdout.flush()
 
     log("CPharm — set up MuMu phones (dev CLI)")
-    log("Operators: run CPharmMuMuSetup.exe → GO instead of this script.")
+    log("Operators: run PharmFlow → Phones → Set up my phones instead of this script.")
     log("")
 
     if args.fix_mumu_config:
@@ -76,7 +76,7 @@ def main() -> int:
 
     if not serials:
         log("")
-        log("No phones found — boot MuMu, enable USB debugging, run CPharmMuMuSetup.exe → GO.")
+        log("No phones found — boot MuMu, enable USB debugging, run PharmFlow → Phones → Set up my phones.")
         return 1
 
     rec = ROOT / "automation" / "recordings"
@@ -92,12 +92,12 @@ def main() -> int:
 
     leaks = summary.get("leaks_total", 0)
     if summary.get("any_vm_patched"):
-        log("Cold-boot each MuMu phone once, then run CPharmMuMuSetup.exe → GO again.")
+        log("Cold-boot each MuMu phone once, then run PharmFlow phone setup again.")
     if leaks:
         log(f"Warning: {leaks} fingerprint leak(s) — cold-boot and GO again.")
         return 1
     log("")
-    log("Done. Next: CPharm.exe → Install → Boot → Go.")
+    log("Done. Next: PharmFlow.exe → Install → Boot → Go.")
     return 0
 
 

@@ -91,7 +91,7 @@ class FarmControlTests(unittest.TestCase):
             for k in keys:
                 os.environ.pop(k, None)
             apply_profile_farm_env(None)
-            self.assertEqual(os.environ["CPHARM_MANTIS_BILLING_DIRECT"], "1")
+            self.assertEqual(os.environ["CPHARM_MANTIS_BILLING_DIRECT"], "0")
             self.assertEqual(os.environ["CPHARM_MANTIS_INJECT_PROXY"], "1")
             self.assertEqual(os.environ["CPHARM_MANTIS_INJECT_MITM"], "1")
             self.assertEqual(os.environ["CPHARM_FARM_PATH3"], "1")
@@ -275,6 +275,7 @@ class FarmControlTests(unittest.TestCase):
         assert path is not None
         self.assertTrue(Path(path).is_file())
         self.assertNotIn("CPharm.exe", path)
+        self.assertNotIn("PharmFlow.exe", path)
 
     def test_ensure_operator_stack_skips_alive_helpers(self) -> None:
         msgs: list[str] = []

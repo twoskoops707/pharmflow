@@ -28,16 +28,20 @@ class CPharmWizardBridgeContractTests(unittest.TestCase):
             self.assertNotIn("_open_wizard_page_window", block)
             self.assertNotIn("_spawn_with_visible_fallback", block)
 
-    def test_run_actions_use_hidden_launch_page(self):
+    def test_run_actions_are_headless(self):
+        """Deck Go actions must not wait on a background Tcl pump."""
         for fn in ("start_server", "run_all_groups", "start_automation_one_click"):
             block = BRIDGE.split("def %s(" % fn)[1].split("\ndef ")[0]
-            self.assertIn("launch_page()", block)
-            self.assertNotIn("_open_wizard_page_window(8", block)
+            self.assertNotIn("launch_page()", block)
+            self.assertNotIn("_run_on_tk", block)
+            self.assertNotIn("_safe_run_on_tk", block)
+        self.assertIn("def _start_dashboard_headless(", BRIDGE)
+        self.assertIn("already in progress", BRIDGE.split("def _boot_then_continue(")[1].split("\ndef ")[0])
 
     def test_run_all_groups_calls_boot_when_present(self):
         block = BRIDGE.split("def run_all_groups(")[1].split("\ndef ")[0]
-        self.assertIn("boot_all_phones", block)
-        self.assertIn("page._run_groups()", block)
+        self.assertIn("_boot_then_continue", block)
+        self.assertIn("_run_groups_on_dashboard", block)
 
     def test_boot_all_phones_exists(self):
         self.assertIn("def boot_all_phones(", BRIDGE)
@@ -95,6 +99,110 @@ class CPharmWizardBridgeContractTests(unittest.TestCase):
             self.assertNotIn("error", out3)
         finally:
             mod._spawn_wizard_page = original_spawn
+
+
+class HeadlessDeckTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        import importlib.util
+        import sys
+
+        root = Path(__file__).resolve().parents[1]
+        wizard_dir = str(root / "wizard")
+        if wizard_dir not in sys.path:
+            sys.path.insert(0, wizard_dir)
+        bridge_path = root / "wizard" / "cpharm_wizard_bridge.py"
+        spec = importlib.util.spec_from_file_location("cpharm_wizard_bridge_headless", bridge_path)
+        cls.mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cls.mod)
+
+    def test_navigation_does_not_start_tk_thread(self):
+        import threading
+
+        out = self.mod.navigate_wizard_page(3)
+        self.assertTrue(out.get("ok"))
+        self.assertFalse(out.get("tk"))
+        names = {t.name for t in threading.enumerate()}
+        self.assertNotIn("cpharm-tk-bridge", names)
+
+    def test_site_and_android_status_are_immediate(self):
+        import time
+
+        t0 = time.monotonic()
+        site = self.mod.get_site_settings()
+        android = self.mod.get_android_status()
+        self.assertLess(time.monotonic() - t0, 15)
+        self.assertIn("url", site)
+        self.assertIn("ready", android)
+        self.assertTrue(android.get("ok"))
+
+    def test_live_boot_is_not_a_failure(self):
+        import threading
+        import time
+
+        assert self.mod._boot_all_lock.acquire(blocking=False)
+        worker = threading.Thread(target=lambda: time.sleep(30), daemon=True)
+        worker.start()
+        self.mod._boot_all_thread = worker
+        self.mod._boot_all_started_mono = time.monotonic()
+        try:
+            out = self.mod.boot_all_phones()
+            self.assertTrue(out.get("ok"))
+            self.assertTrue(out.get("already_booting"))
+            self.assertNotIn("error", out)
+        finally:
+            self.mod._boot_all_cancel.set()
+            try:
+                self.mod._boot_all_lock.release()
+            except RuntimeError:
+                pass
+
+    def test_fix_internet_repins_exits_instead_of_clearing_proxy(self):
+        block = BRIDGE.split("def fix_phone_internet(")[1].split("\ndef ")[0]
+        self.assertNotIn("wiz_clear_phone_proxies_best_effort(", block)
+        self.assertIn("heal_inject_and_tor(live=", block)
+
+        calls: list[str] = []
+
+        def connect():
+            calls.append("connect")
+            return ["connected"]
+
+        def live():
+            return ["10.0.2.1:5555"]
+
+        def heal(*, live):
+            calls.append("heal:" + ",".join(live))
+            return ["repinned"]
+
+        import automation.farm_exe_self_heal as heal_mod
+
+        orig = (
+            heal_mod.connect_live_fleet,
+            heal_mod.adb_live_serials,
+            heal_mod.heal_inject_and_tor,
+        )
+        heal_mod.connect_live_fleet = connect
+        heal_mod.adb_live_serials = live
+        heal_mod.heal_inject_and_tor = heal
+        try:
+            out = self.mod.fix_phone_internet()
+        finally:
+            (
+                heal_mod.connect_live_fleet,
+                heal_mod.adb_live_serials,
+                heal_mod.heal_inject_and_tor,
+            ) = orig
+        self.assertIn("--cloud-agent", (ROOT / "wizard" / "cpharm_desktop.py").read_text(encoding="utf-8"))
+        agent = BRIDGE.split("def agent_status(")[1].split("\ndef ")[0]
+        self.assertNotIn('"--count"', agent)
+        self.assertNotIn("sys.executable", agent)
+        cloud = BRIDGE.split("def run_cloud_agent(")[1].split("\ndef ")[0]
+        self.assertIn("--cloud-agent", cloud)
+        self.assertEqual(calls, ["connect", "heal:10.0.2.1:5555"])
+        self.assertTrue(out.get("ok"))
+        self.assertEqual(out.get("n"), 1)
+        self.assertNotIn("error", out)
 
 
 if __name__ == "__main__":

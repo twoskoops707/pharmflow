@@ -19,14 +19,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Build
 
-GitHub Actions builds **two** Windows exes on every push to **`main`** (see `.github/workflows/build-wizard.yml`):
+GitHub Actions builds **one** Windows exe on every push to **`main`** (see `.github/workflows/build-wizard.yml`):
 
 | Spec | Output |
 |------|--------|
-| `wizard/CPharm.spec` | **CPharm.exe** (Home + full wizard + dashboard shell) |
-| `wizard/CPharmMuMuSetup.spec` | **CPharmMuMuSetup.exe** (MuMu checklist, fingerprint, browser, launch CPharm) |
+| `wizard/PharmFlow.spec` | **PharmFlow.exe** (Control Panel + phone setup + Start farm + `--watchdog` / `--agent`) |
 
-Both attach to the same [GitHub Release](https://github.com/twoskoops707/cpharm/releases) tag `wizard-<run_number>`.
+It attaches to the [GitHub Release](https://github.com/twoskoops707/cpharm/releases) tag `wizard-<run_number>`. Install path is `C:\PharmFlow\PharmFlow.exe`. Logs and settings stay under `C:\CPharm\`.
 
 There is no local PyInstaller build on Linux — CI runs on `windows-latest` only.
 
@@ -55,7 +54,7 @@ Dashboard serves on port `8080` (HTTP) and `8081` (WebSocket), defined in `autom
 
 ## Architecture
 
-### Dual-exe split (MuMu first-run)
+### Phone setup (inside PharmFlow.exe)
 
 | Component | Role |
 |-----------|------|
@@ -65,12 +64,12 @@ Dashboard serves on port `8080` (HTTP) and `8081` (WebSocket), defined in `autom
 | `automation/mumu_fingerprint.py` | VM + ADB fingerprint; `ensure_fingerprint_before_browse` before each `open_url` |
 | `automation/browser_adb.py` | Runtime browser order (MuMu Browser before Chrome) |
 
-Wizard **does not** re-run full fingerprint by default — copy points users to **CPharmMuMuSetup.exe** first.
+Wizard **does not** re-run full fingerprint by default — phone setup is **PharmFlow → Phones → Set up my phones**.
 
 ### Wizard UI vs automation server
 
-**1. CPharm (wizard module)** (`wizard/setup_wizard.py`, ~12k lines — large single module)
-- Single-file tkinter GUI (**CPharm**) that walks users through first-time setup
+**1. PharmFlow wizard module** (`wizard/setup_wizard.py`, ~12k lines — large single module)
+- Tkinter GUI used as the classic fallback and for `--internal-tk-page`. The shipped Control Panel is the WebView deck in `wizard/cpharm_app_webview.py`.
 - Nine primary screens (`CPharmWizard.PAGES`): Welcome → Prerequisites → Android Studio → Phone Farm → Boot → Automation → Sequence Generator → Groups → Launch (`wizard/setup_wizard.py`). Extra page classes (e.g. `WebpePage`, deprecated `PlayStorePage`) exist outside that linear flow (not in `PAGES`).
 - All pages extend `PageBase(tk.Frame)` and are shown by `CPharmWizard(tk.Tk)`
 - Phone sequences are stored **per-phone** inside groups: `group["phones"][serial]["steps"]` — not at the group level

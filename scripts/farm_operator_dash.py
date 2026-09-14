@@ -1422,12 +1422,13 @@ def _inject_proxy_alive() -> bool:
 
 
 def _cpharm_exe_running() -> bool:
-    """True when CPharm.exe owns the farm (1.4.1+ — no python run_farm_354)."""
+    """True when PharmFlow.exe (or a leftover CPharm.exe) is running."""
     try:
         import psutil
 
+        names = {"pharmflow.exe", "cpharm.exe"}
         for proc in psutil.process_iter(["name"]):
-            if str(proc.info.get("name") or "").lower() == "cpharm.exe":
+            if str(proc.info.get("name") or "").lower() in names:
                 return True
     except Exception:
         pass
@@ -1462,7 +1463,7 @@ def _farm_worker_alive(procs: list[dict[str, Any]] | None = None) -> bool:
     # so status/check-in do not flap DOWN between cycle ticks.
     if any("run_farm_cycles" in str(p.get("cmd", "")) for p in rows):
         return True
-    # EXE-owned farm: CPharm.exe + fresh progress / actives (no python worker).
+    # EXE-owned farm: PharmFlow.exe + fresh progress / actives (no python worker).
     if not _cpharm_exe_running():
         return False
     if _farm_progress_fresh():
@@ -1483,9 +1484,9 @@ def _farm_owner_label(procs: list[dict[str, Any]] | None = None) -> str:
     py = any("run_farm_354" in str(p.get("cmd", "")) for p in rows)
     exe = _cpharm_exe_running()
     if exe and not py:
-        return "CPharm.exe"
+        return "PharmFlow.exe"
     if py and exe:
-        return "python+CPharm.exe"
+        return "python+PharmFlow.exe"
     if py:
         return "python"
     return "none"
@@ -1553,7 +1554,7 @@ def _checkin_fallback_from_procs() -> dict[str, Any]:
     except (OSError, ValueError, TypeError):
         pass
     if farm_up:
-        owner = "CPharm.exe" if exe_up and not any(
+        owner = "PharmFlow.exe" if exe_up and not any(
             "run_farm_354" in str(p.get("cmd", "")) for p in procs
         ) else "python"
         phone_bit = (
@@ -1824,12 +1825,12 @@ def status_payload() -> dict[str, Any]:
         checkin["ok"] = True
         if str(checkin.get("verdict") or "").upper() in {"", "DOWN", "UNKNOWN", "?"}:
             checkin["verdict"] = "UP"
-        owner = farm_owner or "CPharm.exe"
+        owner = farm_owner or "PharmFlow.exe"
         text = str(checkin.get("text") or "")
         if "DOWN" in text.upper() or not text.strip():
             checkin["text"] = (
                 f"Farm check-in - UP (owner={owner}) · "
-                "CPharm.exe in-process farm"
+                "PharmFlow.exe in-process farm"
             )
     prog = _progress_blob()
     daily = _daily_budget_blob()

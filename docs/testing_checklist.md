@@ -18,7 +18,7 @@ Complete verification checklist for **every** phone farm feature. Use before eac
 | 1.4 | Manual path can be saved | Path saved to `cpharm_config.json` + `saved_paths.json` | [ ] |
 | 1.5 | Saved paths persist | Paths available in dropdown after restart | [ ] |
 
-**How to test 1.2–1.5:** Delete or rename `C:\CPharm\cpharm_config.json`, launch `CPharm.exe`, use **LOCATE MUMU** on setup checklist, restart app and confirm saved path appears.
+**How to test 1.2–1.5:** Delete or rename `C:\CPharm\cpharm_config.json`, launch `PharmFlow.exe`, use **LOCATE MUMU** on setup checklist, restart app and confirm saved path appears.
 
 ---
 
@@ -204,7 +204,7 @@ curl http://127.0.0.1:8080/api/tor
 
 | # | Test | Expected Result | Pass/Fail |
 |---|------|-----------------|-----------|
-| 13.1 | EXE builds | `CPharm.exe` from PyInstaller | [ ] |
+| 13.1 | EXE builds | `PharmFlow.exe` from PyInstaller | [ ] |
 | 13.2 | EXE runs standalone | No Python install required on target PC | [ ] |
 | 13.3 | All features in EXE | No `ModuleNotFoundError`; icons/sequences bundled | [ ] |
 | 13.4 | GitHub Release works | CI artifact + draft release uploaded | [ ] |

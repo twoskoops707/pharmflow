@@ -44,7 +44,7 @@ Step 3: Verify with adb
   Expected: 8 devices listed (127.0.0.1:5555 through 127.0.0.1:5562)
 
 Step 4: Start CPharm
-  CPharm.exe
+  PharmFlow.exe
   → Phones should auto-populate in Step 4 (Phones)
   → Go to Launch → all phones should show as "online"
 

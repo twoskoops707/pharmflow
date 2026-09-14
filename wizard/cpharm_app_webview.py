@@ -498,6 +498,9 @@ class CPharmAppApi:
                 raise RuntimeError(f"Setup API has no method {method}")
             result = fn(*args, **kwargs)
             if isinstance(result, dict):
+                if result.get("ok") is False and not result.get("error"):
+                    result = dict(result)
+                    result["error"] = str(result.get("message") or "Setup action failed")
                 return result
             if isinstance(result, list):
                 return {"ok": True, "items": result}
@@ -1101,7 +1104,7 @@ def run_cpharm_app_or_fallback(*, initial_view: str | None = None) -> None:
         try:
             from setup_startup_cleanup import run_startup_cleanup
 
-            # Main CPharm.exe must never kill running MuMu phones — only stale CPharm/adb dupes.
+            # PharmFlow.exe must never kill running MuMu phones — only stale PharmFlow/adb dupes.
             run_startup_cleanup(first_time=False)
         except Exception:
             pass

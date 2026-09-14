@@ -2055,7 +2055,7 @@ def run_sequence_step(serial: str, step: dict, interrupt_check=None, hv_rng=None
             if _fp.get("audit", {}).get("leaks"):
                 log.warning(
                     "open_url fingerprint leaks serial=%s count=%s — cold-boot MuMu after "
-                    "CPharmMuMuSetup.exe → GO, or PharmFlow Boot/Launch → Re-apply hide emulator",
+                    "PharmFlow Phones → Set up my phones, or Boot/Launch → Re-apply hide emulator",
                     serial,
                     len(_fp["audit"]["leaks"]),
                 )

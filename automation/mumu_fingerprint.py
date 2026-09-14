@@ -734,7 +734,7 @@ def _guest_cpu_ram() -> tuple[int, int]:
 def apply_farm_guest_rails(data: dict[str, Any]) -> dict[str, Any]:
     """Phone (not tablet), rooted, writable disk, lowest practical CPU/RAM.
 
-    Called whenever CPharm.exe creates or fingerprints a MuMu VM.
+    Called whenever PharmFlow.exe creates or fingerprints a MuMu VM.
     """
     data["DeviceRoot"] = True
     data["adb_debug"] = 1
@@ -1801,7 +1801,7 @@ def format_audit_report(serial: str, *, farm_index: int | None = None) -> str:
         for x in audit.leaks:
             lines.append(f"  ✗ {x}")
         lines.append("")
-        lines.append("Fix: run CPharmMuMuSetup.exe → GO, or CPharm → Re-apply hide emulator on ALL phones")
+        lines.append("Fix: run PharmFlow → Phones → Set up my phones, or Re-apply hide emulator on ALL phones")
         lines.append("Then fully stop and start each MuMu phone once.")
     else:
         lines.append("No obvious emulator leaks in phone settings.")
