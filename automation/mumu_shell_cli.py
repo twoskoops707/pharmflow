@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 _NAME_IDX = re.compile(r"^vm(\d+)", re.I)
 _SHELL = Path(r"C:\Program Files\Netease\MuMuPlayerARM\shell\nemux-shell-winui.exe")
 _HCS_TOOL = Path(r"C:\Program Files\Netease\MuMuPlayerARM\shell\nemu-hcs-tool.exe")
-_LAUNCH_CACHE = Path(r"C:\CPharm\logs\mumu_launch_cache.json")
+_LAUNCH_CACHE = Path(r"C:\PharmFlow\logs\mumu_launch_cache.json")
 # Token charset includes URL-safe base64 (-_) — truncating at '-' broke cache hits.
 _VM_IDX = re.compile(
     r"--VmIndex (\d+).*--ThumbnailName (\S+).*--T ([A-Za-z0-9+/=_-]+)"
@@ -32,7 +32,7 @@ def phone_vm_index(name: str, fallback: int = 0) -> int:
 
 
 def _shell_exe() -> Path | None:
-    env = Path(os.environ.get("CPHARM_MUMU_ROOT") or "")
+    env = Path(os.environ.get("PHARMFLOW_MUMU_ROOT") or "")
     candidates = [
         _SHELL,
         env / "shell" / "nemux-shell-winui.exe" if env else None,

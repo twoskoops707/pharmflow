@@ -4,11 +4,12 @@ Humanize recorded automation sequences (JSON array of steps).
 Adds bounded random variance to timing fields so playback looks less robotic.
 Stored ``tap.jitter`` is left unchanged: ``dashboard.run_sequence_step`` already
 applies :func:`human_variation.effective_tap_jitter` and per-tap coordinate noise
-when ``CPHARM_HUMAN_VARIATION=1``; baking the same bump into JSON doubled radius.
+when ``PHARMFLOW_HUMAN_VARIATION=1``; baking the same bump into JSON doubled radius.
 
-Respects the same numeric bounds as ``sequence_normalize`` / runtime. When
-``automation/`` is importable, spread constants match ``human_variation`` and
-output is passed through ``normalize_automation_steps`` for stable typing.
+When ``automation/`` is importable, spread constants match ``human_variation``
+and output is passed through ``normalize_automation_steps`` for stable typing.
+Variance is applied around the stored number. It is not pulled back under a
+hidden cap. A ``timer_complete`` wait is left exact.
 
 This module is stdlib-only aside from those optional automation passes.
 """
@@ -23,12 +24,12 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
-# One-time stderr notes when CPHARM_WIZARD_DEBUG or CPHARM_WIZ_DEBUG is set and optional imports fail.
+# One-time stderr notes when PHARMFLOW_WIZARD_DEBUG or PHARMFLOW_WIZ_DEBUG is set and optional imports fail.
 _seq_debug_keys: set[str] = set()
 
 
 def _seq_debug_enabled() -> bool:
-    for key in ("CPHARM_WIZARD_DEBUG", "CPHARM_WIZ_DEBUG"):
+    for key in ("PHARMFLOW_WIZARD_DEBUG", "PHARMFLOW_WIZ_DEBUG"):
         v = os.environ.get(key, "").strip().lower()
         if v and v not in ("0", "false", "no", "off"):
             return True
@@ -43,11 +44,6 @@ def _seq_debug_once(key: str, exc: BaseException) -> None:
         print(f"[sequence_humanize] {key}: {exc!r}", file=sys.stderr)
     except OSError:
         pass
-
-
-_MS_CAP = 10000.0
-_WAIT_CAP = 300.0
-_POST_WAIT_CAP = 120.0
 
 
 def _as_float(v: Any, default: float = 0.0) -> float:
@@ -125,9 +121,10 @@ def humanize_steps(
     - ``open_url.post_wait_secs``: same spread as waits when present and > 0.
     - ``tap.pre_wait_ms``: scaled when the key is present (``human_variation.PRE_WAIT_SPREAD``).
     - ``tap.jitter``: unchanged (see module docstring).
-    - ``swipe.ms``: ±10%, clamped to [1, 5000]; endpoints unchanged (precision).
+    - ``swipe.ms``: ±10%, at least 1 ms; endpoints unchanged (precision).
+    - ``timer_complete`` waits are not jittered.
 
-    With ``CPHARM_HUMAN_VARIATION=1``, wait and pre_wait_ms scale again at playback.
+    With ``PHARMFLOW_HUMAN_VARIATION=1``, wait and pre_wait_ms scale again at playback.
     """
     if not isinstance(steps, list):
         raise TypeError("steps must be a JSON array")
@@ -148,26 +145,26 @@ def humanize_steps(
         use_params = isinstance(step.get("params"), dict)
         bag: dict[str, Any] = step["params"] if use_params else step
 
-        if t == "wait":
+        if t == "wait" and str(step.get("checkpoint") or bag.get("checkpoint") or "") == "timer_complete":
+            bag["seconds"] = max(0.0, _as_float(bag.get("seconds", 1), 1.0))
+        elif t == "wait":
             base = _as_float(bag.get("seconds", 1), 1.0)
             lo, hi = 1.0 - w_spread, 1.0 + w_spread
-            bag["seconds"] = min(_WAIT_CAP, max(0.0, base * r.uniform(lo, hi)))
+            bag["seconds"] = max(0.0, base * r.uniform(lo, hi))
         elif t in ("open_url", "launch_app"):
             if "post_wait_secs" in bag:
                 base = _as_float(bag.get("post_wait_secs", 0), 0.0)
                 if base > 0:
                     lo, hi = 1.0 - w_spread, 1.0 + w_spread
-                    bag["post_wait_secs"] = min(
-                        _POST_WAIT_CAP, max(0.0, base * r.uniform(lo, hi))
-                    )
+                    bag["post_wait_secs"] = max(0.0, base * r.uniform(lo, hi))
         elif t == "tap":
             if "pre_wait_ms" in bag:
                 pw = _as_float(bag.get("pre_wait_ms", 0), 0.0)
                 lo, hi = 1.0 - pre_spread, 1.0 + pre_spread
-                bag["pre_wait_ms"] = min(_MS_CAP, max(0.0, pw * r.uniform(lo, hi)))
+                bag["pre_wait_ms"] = max(0.0, pw * r.uniform(lo, hi))
         elif t == "swipe":
             ms = _as_int(bag.get("ms", bag.get("duration_ms", 400)), 400)
-            new_ms = max(1, min(5000, int(ms * r.uniform(0.9, 1.1))))
+            new_ms = max(1, int(ms * r.uniform(0.9, 1.1)))
             if "duration_ms" in bag:
                 bag["duration_ms"] = new_ms
             if "ms" in bag or "duration_ms" not in bag:

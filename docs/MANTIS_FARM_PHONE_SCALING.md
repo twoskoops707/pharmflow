@@ -200,7 +200,7 @@ When operator adds phone **N → N+1**:
 1. Read **`scaling_targets(N+1)`** from `automation/scorecard_api.py` or `GET /api/scorecard`.
 2. Add phone block to `groups_config.json` with **`hits_per_day` 140–165** (not farm total ÷ N).
 3. **Do not** raise per-phone ad taps — still **0–1 per identity**; farm cap = `10 × (N+1)`.
-4. **Do not** lower dwell or disable `CPHARM_HUMAN_VARIATION` to “handle more phones.”
+4. **Do not** lower dwell or disable `PHARMFLOW_HUMAN_VARIATION` to “handle more phones.”
 5. Update scorecard red thresholds using scaled table (impressions, click cap).
 6. After **browse_only_after_clicks** farm-wide → switch playlists to **no-ad only** for all phones.
 7. Document `N` in commit message when changing scheduler/groups.

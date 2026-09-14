@@ -11,16 +11,16 @@ CLEANUP STATUS — 2026-06-21
 
 ## Release
 
-- Canonical exe: C:\Users\jsmil\Downloads\CPharm.exe
+- Canonical exe: C:\Users\jsmil\Downloads\PharmFlow.exe
 - Tag: wizard-378 (build 378), size 19,023,500 bytes
-- Removed: C:\Users\jsmil\Downloads\CPharm-latest\
+- Removed: C:\Users\jsmil\Downloads\PharmFlow-latest\
 
 ## Files deleted (by category)
 
 | Category | Count |
 |----------|------:|
-| CPharm root stale artifacts (_spot_*, _uia_*, TAIL_LIVE_*, PUSH_STATUS, proof xml) | 8 |
-| cpharm-clone root scratch (_patch_*, _tmp_*, _e2e_reset, etc.) | 8 |
+| PharmFlow root stale artifacts (_spot_*, _uia_*, TAIL_LIVE_*, PUSH_STATUS, proof xml) | 8 |
+| pharmflow-clone root scratch (_patch_*, _tmp_*, _e2e_reset, etc.) | 8 |
 | automation one-off live/proof scripts | 24 |
 | automation tor tmp*.cfg | 651 |
 | automation _live_smoke_screenshot png | 1 |
@@ -37,13 +37,13 @@ CLEANUP STATUS — 2026-06-21
 
 - automation/_run_ONE_live_direct.py, _build_*.py, _validate_*.py, test_*.py, session_notes_uia.py
 - automation/tor/data_* (Tor active — not touched)
-- cpharm-clone source tree
+- pharmflow-clone source tree
 
 ## py_compile
 
 Passed: setup_wizard.py, wizard_theme.py, sequence_humanize.py, sequence_playlist.py, generate_dabflow_gold_matrix.py, dabflow_layout.py
 
-## git status (cpharm-clone)
+## git status (pharmflow-clone)
 
 Modified: wizard/setup_wizard.py, wizard/wizard_theme.py, wizard/sequence_humanize.py, automation/recordings/desktop_prefs.json
 Not pushed (per user request).

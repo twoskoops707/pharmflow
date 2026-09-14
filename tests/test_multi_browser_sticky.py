@@ -20,28 +20,28 @@ from automation.farm_visit_caps import (
 class MultiBrowserStickyTests(unittest.TestCase):
     def test_enforce_rewrites_chromium_only(self) -> None:
         ov = {
-            "CPHARM_FARM_CHROMIUM_ONLY": "1",
-            "CPHARM_FARM_BROWSERS": "chromium",
-            "CPHARM_FARM_PATH3_BROWSERS": "chromium,firefox,brave",
+            "PHARMFLOW_FARM_CHROMIUM_ONLY": "1",
+            "PHARMFLOW_FARM_BROWSERS": "chromium",
+            "PHARMFLOW_FARM_PATH3_BROWSERS": "chromium,firefox,brave",
         }
         self.assertTrue(enforce_multi_browser(ov))
-        self.assertEqual(ov["CPHARM_FARM_CHROMIUM_ONLY"], "0")
-        self.assertEqual(ov["CPHARM_FARM_BROWSERS"], MULTI_BROWSER)
-        self.assertEqual(ov["CPHARM_FARM_PATH3_BROWSERS"], PATH3_BROWSERS)
+        self.assertEqual(ov["PHARMFLOW_FARM_CHROMIUM_ONLY"], "0")
+        self.assertEqual(ov["PHARMFLOW_FARM_BROWSERS"], MULTI_BROWSER)
+        self.assertEqual(ov["PHARMFLOW_FARM_PATH3_BROWSERS"], PATH3_BROWSERS)
         self.assertFalse(enforce_multi_browser(ov))
 
     def test_apply_runtime_overrides_refuses_chromium_lock(self) -> None:
         """Legacy sticky JSON is dead by design — code SSOT wins, chromium
-        can never re-lock via that path (cpharm_farm_config is the SSOT;
+        can never re-lock via that path (pharmflow_farm_config is the SSOT;
         legacy override files are purged at startup)."""
         with tempfile.TemporaryDirectory() as tmp:
             sticky = Path(tmp) / "farm_runtime_overrides.json"
             sticky.write_text(
                 json.dumps(
                     {
-                        "CPHARM_FARM_CHROMIUM_ONLY": "1",
-                        "CPHARM_FARM_BROWSERS": "chromium",
-                        "CPHARM_FARM_SEQS_PER_HOUR": "14",
+                        "PHARMFLOW_FARM_CHROMIUM_ONLY": "1",
+                        "PHARMFLOW_FARM_BROWSERS": "chromium",
+                        "PHARMFLOW_FARM_SEQS_PER_HOUR": "14",
                     }
                 ),
                 encoding="utf-8",
@@ -49,12 +49,12 @@ class MultiBrowserStickyTests(unittest.TestCase):
             env: dict[str, str] = {}
             apply_runtime_overrides_to_env(env, log_dir=Path(tmp))
             # SSOT values, NOT the sticky file's 14 / chromium lock.
-            from automation.cpharm_farm_config import get_runtime
+            from automation.pharmflow_farm_config import get_runtime
 
             ssot = get_runtime()
-            self.assertEqual(env["CPHARM_FARM_SEQS_PER_HOUR"], ssot["CPHARM_FARM_SEQS_PER_HOUR"])
-            self.assertEqual(env["CPHARM_FARM_CHROMIUM_ONLY"], "0")
-            self.assertEqual(env["CPHARM_FARM_BROWSERS"], MULTI_BROWSER)
+            self.assertEqual(env["PHARMFLOW_FARM_SEQS_PER_HOUR"], ssot["PHARMFLOW_FARM_SEQS_PER_HOUR"])
+            self.assertEqual(env["PHARMFLOW_FARM_CHROMIUM_ONLY"], "0")
+            self.assertEqual(env["PHARMFLOW_FARM_BROWSERS"], MULTI_BROWSER)
 
     def test_operator_config_cannot_relock_chromium(self) -> None:
         from automation import farm_pause
@@ -81,10 +81,10 @@ class MultiBrowserStickyTests(unittest.TestCase):
             ):
                 changed = farm_pause.apply_operator_config_to_overrides()
             data = json.loads(ov_path.read_text(encoding="utf-8"))
-            self.assertEqual(data["CPHARM_FARM_CHROMIUM_ONLY"], "0")
-            self.assertEqual(data["CPHARM_FARM_BROWSERS"], MULTI_BROWSER)
+            self.assertEqual(data["PHARMFLOW_FARM_CHROMIUM_ONLY"], "0")
+            self.assertEqual(data["PHARMFLOW_FARM_BROWSERS"], MULTI_BROWSER)
             self.assertIn("multi_browser", changed)
-            self.assertEqual(data["CPHARM_FARM_SEQS_PER_HOUR"], "14")
+            self.assertEqual(data["PHARMFLOW_FARM_SEQS_PER_HOUR"], "14")
 
 
 if __name__ == "__main__":

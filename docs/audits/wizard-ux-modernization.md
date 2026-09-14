@@ -2,7 +2,7 @@
 
 ## Summary
 
-Modernized scroll behavior, theme parity, and inline guidance across the CPharm setup wizard and automation dashboard. Work completes prerequisite task **3ecea01b**.
+Modernized scroll behavior, theme parity, and inline guidance across the PharmFlow setup wizard and automation dashboard. Work completes prerequisite task **3ecea01b**.
 
 ## Scroll fixes (all wizard surfaces)
 

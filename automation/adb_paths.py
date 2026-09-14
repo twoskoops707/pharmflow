@@ -1,5 +1,5 @@
 """
-Resolve the ``adb`` executable the same way CPharm (``wizard/setup_wizard.py``) prefers:
+Resolve the ``adb`` executable the same way PharmFlow (``wizard/setup_wizard.py``) prefers:
 ``ANDROID_HOME`` / default SDK layout / ``PATH``, not a bare ``adb`` name.
 """
 
@@ -19,7 +19,7 @@ def _platform_tools_adb(sdk_root: str) -> Path | None:
 
 def find_android_sdk() -> str:
     """Return SDK root containing ``platform-tools/``, or empty string."""
-    extra = (os.environ.get("CPHARM_ANDROID_SDK") or "").strip()
+    extra = (os.environ.get("PHARMFLOW_ANDROID_SDK") or "").strip()
     candidates = [
         extra,
         os.environ.get("ANDROID_HOME", ""),
@@ -42,13 +42,13 @@ def find_android_sdk() -> str:
 def adb_executable() -> str:
     """Resolve ONE adb binary for every component — bundled first.
 
-    Two adb binaries (the CPharm bundled copy vs Android SDK platform-tools)
+    Two adb binaries (the PharmFlow bundled copy vs Android SDK platform-tools)
     fighting over port 5037 is the classic wedge: the newer client kills the
     older server and starts its own, dropping every phone mid-sequence. Always
-    prefer the bundled adb (override with ``CPHARM_BUNDLED_ADB``), then fall
+    prefer the bundled adb (override with ``PHARMFLOW_BUNDLED_ADB``), then fall
     back to SDK / PATH so TCP emulators still work on machines without a bundle.
     """
-    override = (os.environ.get("CPHARM_BUNDLED_ADB") or "").strip()
+    override = (os.environ.get("PHARMFLOW_BUNDLED_ADB") or "").strip()
     if override:
         p = Path(override)
         if p.is_file():

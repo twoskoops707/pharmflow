@@ -16,12 +16,12 @@ class RuntimePathsTests(unittest.TestCase):
         self.assertTrue((root / "scripts" / "keep_farm_alive.py").is_file())
         self.assertTrue((root / "wizard" / "farm_control.py").is_file())
 
-    def test_helper_python_is_not_cpharm_exe(self) -> None:
+    def test_helper_python_is_not_pharmflow_exe(self) -> None:
         path = helper_python()
         self.assertIsNotNone(path)
         assert path is not None
         self.assertTrue(Path(path).is_file())
-        self.assertNotIn("cpharm.exe", path.lower())
+        self.assertNotIn("pharmflow.exe", path.lower())
 
     def test_mumu_search_prefers_x64_before_arm(self) -> None:
         names = [str(p) for p in MUMU_SEARCH_PATHS if p and str(p) != "."]
@@ -32,8 +32,8 @@ class RuntimePathsTests(unittest.TestCase):
 
 class NoDevMachineHardcodeTests(unittest.TestCase):
     _BANNED = (
-        r"C:\Users\jsmil\FamFlow",
-        r"C:\Users\jsmil\OneDrive\Desktop\FAMFLOW",
+        r"C:\Users\jsmil\PharmFlow",
+        r"C:\Users\jsmil\OneDrive\Desktop\PHARMFLOW",
         r"C:\Users\jsmil\AppData\Local\Python\pythoncore-3.14-64\pythonw.exe",
     )
 

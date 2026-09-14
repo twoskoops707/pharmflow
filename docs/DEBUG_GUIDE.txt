@@ -1,7 +1,7 @@
-> **Superseded:** the product is a single `PharmFlow.exe` in `C:\PharmFlow\` (`--watchdog`, `--agent`, phone setup in-process). Data still lives under `C:\CPharm\`. Ignore EXE names below.
+> **Superseded:** the product is a single `PharmFlow.exe` in `C:\PharmFlow\` (`--watchdog`, `--agent`, phone setup in-process). Data still lives under `C:\PharmFlow\`. Ignore EXE names below.
 
 ═══════════════════════════════════════════════════════════
-  CPHARM.EXE DEBUG & RECOVERY GUIDE
+  PHARMFLOW.EXE DEBUG & RECOVERY GUIDE
 ═══════════════════════════════════════════════════════════
 
 ✓ COMPLETED: Emergency cleanup (killed stale processes, cleared port locks, restarted ADB)
@@ -18,7 +18,7 @@
 
 2. ⚠️ TOR CIRCUITS DOWN (0/10 alive)
    ROOT CAUSE: Tor may not be running or injector crashed
-   FIX: 1. Start CPharm.exe
+   FIX: 1. Start PharmFlow.exe
         2. Go to Launch step → "Set up Tor"
         3. Click "Connect" and wait for READY status
    TEST: Dashboard → check "Tor: 10/10" in top bar
@@ -34,14 +34,14 @@
    ROOT CAUSE: Port 8080 or 8091 in use
    FIX: ✓ Cleanup script freed all ports
    TEST: Open http://localhost:8080 in browser
-        Should load CPharm dashboard (may take 30s)
+        Should load PharmFlow dashboard (may take 30s)
 
 5. ⚠️ UI MENUS NOT LOADING / OLD STYLE
    ROOT CAUSE: Cache corruption or old compiled code
-   FIX: 1. Close CPharm.exe completely
-        2. Delete: C:\CPharm\gui\__pycache__ (if exists)
-        3. Delete: %APPDATA%\CPharm (browser cache)
-        4. Restart CPharm.exe
+   FIX: 1. Close PharmFlow.exe completely
+        2. Delete: C:\PharmFlow\gui\__pycache__ (if exists)
+        3. Delete: %APPDATA%\PharmFlow (browser cache)
+        4. Restart PharmFlow.exe
    NOTE: First load takes 10–15s after cleanup
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -59,8 +59,8 @@
    ├─ Expected: all phones listed as "device"
    └─ If offline: cold boot MuMu again
 
-3. START CPHARM.EXE
-   ├─ Double-click C:\CPharm\CPharm.exe
+3. START PHARMFLOW.EXE
+   ├─ Double-click C:\PharmFlow\PharmFlow.exe
    ├─ Wait 20–30s for GUI to load (first boot is slow)
    ├─ If UI is frozen: wait another 30s
    └─ If still frozen: see ADVANCED RECOVERY below
@@ -88,10 +88,10 @@
 🛠️ ADVANCED RECOVERY (if still stuck):
 
 A. DASHBOARD STILL WON'T LOAD
-   1. Run cleanup again: powershell -ExecutionPolicy Bypass C:\CPharm\EMERGENCY_CLEANUP.ps1
+   1. Run cleanup again: powershell -ExecutionPolicy Bypass C:\PharmFlow\EMERGENCY_CLEANUP.ps1
    2. Check if port is truly free: netstat -ano | findstr :8080
    3. If process listed, note PID and: taskkill /PID <PID> /F
-   4. Restart CPharm.exe
+   4. Restart PharmFlow.exe
 
 B. ADB DEVICES STILL SHOW OFFLINE
    1. Fully restart MuMu:
@@ -104,22 +104,22 @@ B. ADB DEVICES STILL SHOW OFFLINE
       - Download MuMu for ARM (not x64): mumuglobal.com/download
       - Reinstall
 
-C. CPHARM FREEZES ON STARTUP
-   1. Clear cache: rmdir /s /q %APPDATA%\CPharm
-   2. Clear Python cache: rmdir /s /q C:\CPharm\gui\__pycache__
+C. PHARMFLOW FREEZES ON STARTUP
+   1. Clear cache: rmdir /s /q %APPDATA%\PharmFlow
+   2. Clear Python cache: rmdir /s /q C:\PharmFlow\gui\__pycache__
    3. Open Task Manager, kill all python.exe processes
-   4. Restart CPharm.exe
+   4. Restart PharmFlow.exe
    5. If still freezes: check System Event Viewer for Python errors
 
 D. TOR NEVER REACHES 10/10 CIRCUITS
    1. Check if Tor.exe is running: tasklist | findstr tor.exe
    2. If not running:
-      a. Open CPharm → Launch → "Set up Tor"
+      a. Open PharmFlow → Launch → "Set up Tor"
       b. Choose "Tor Browser" or "Expert Bundle" option
       c. If Tor Browser: make sure it's installed (download from torproject.org)
-      d. If Expert Bundle: extract to C:\CPharm\automation\tor\
+      d. If Expert Bundle: extract to C:\PharmFlow\automation\tor\
    3. Wait 3–5 min for circuits to bootstrap (normal)
-   4. Check logs: tail -f C:\CPharm\logs\farm_watchdog.log
+   4. Check logs: tail -f C:\PharmFlow\logs\farm_watchdog.log
 
 E. SPECIFIC PHONE WON'T CONNECT
    1. Get phone ID: adb devices
@@ -135,10 +135,10 @@ E. SPECIFIC PHONE WON'T CONNECT
 
 📊 LOGS TO CHECK:
 
-1. Real-time farm status: tail -f C:\CPharm\logs\farm_watchdog.log
-2. ADB/phone events:     C:\CPharm\logs\farm_master.log
-3. Dashboard errors:     C:\CPharm\logs\cpharm.log
-4. UI/web errors:        C:\CPharm\logs\dash_trace.log
+1. Real-time farm status: tail -f C:\PharmFlow\logs\farm_watchdog.log
+2. ADB/phone events:     C:\PharmFlow\logs\farm_master.log
+3. Dashboard errors:     C:\PharmFlow\logs\pharmflow.log
+4. UI/web errors:        C:\PharmFlow\logs\dash_trace.log
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -147,12 +147,12 @@ E. SPECIFIC PHONE WON'T CONNECT
 After recovery, you should see:
  □ All phones showing in MuMu as green ✓
  □ adb devices -l shows all phones as "device"
- □ CPharm.exe GUI loads without freezing
+ □ PharmFlow.exe GUI loads without freezing
  □ Dashboard at http://localhost:8080 loads
  □ Top bar shows: Devices 10/10, Inject 10/10, Tor 10/10
  □ No red error banners
- □ Recent logs in C:\CPharm\logs\farm_watchdog.log show activity
+ □ Recent logs in C:\PharmFlow\logs\farm_watchdog.log show activity
 
 If you still have issues, check logs first:
-  • tail -f C:\CPharm\logs\farm_watchdog.log
-  • grep ERROR C:\CPharm\logs\cpharm.log
+  • tail -f C:\PharmFlow\logs\farm_watchdog.log
+  • grep ERROR C:\PharmFlow\logs\pharmflow.log

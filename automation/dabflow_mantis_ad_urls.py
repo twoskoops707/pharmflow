@@ -55,31 +55,31 @@ ZONE_TO_AD_CHECKPOINT: dict[str, str] = {
 FALLBACK_LANDING_URLS: dict[str, str] = {
     "zone-one": (
         "https://www.grasscity.com/"
-        "?utm_source=mantis&utm_medium=6950d5527c56c6494f189e46&utm_campaign=cpharm-fallback"
+        "?utm_source=mantis&utm_medium=6950d5527c56c6494f189e46&utm_campaign=pharmflow-fallback"
     ),
     "zone-two": (
         "https://www.smokecartel.com/"
-        "?utm_source=mantis&utm_medium=6950d5527c56c6494f189e46&utm_campaign=cpharm-fallback"
+        "?utm_source=mantis&utm_medium=6950d5527c56c6494f189e46&utm_campaign=pharmflow-fallback"
     ),
     "zone-three": (
         "https://www.smokecartel.com/"
-        "?utm_source=mantis&utm_medium=6950d5527c56c6494f189e46&utm_campaign=cpharm-fallback"
+        "?utm_source=mantis&utm_medium=6950d5527c56c6494f189e46&utm_campaign=pharmflow-fallback"
     ),
     "zone-five": (
         "https://ageofhemp.com/collections/best-deals"
-        "?utm_source=mantis&utm_medium=6950d5527c56c6494f189e46&utm_campaign=cpharm-fallback"
+        "?utm_source=mantis&utm_medium=6950d5527c56c6494f189e46&utm_campaign=pharmflow-fallback"
     ),
     "zone-eight": (
         "https://ageofhemp.com/collections/best-deals"
-        "?utm_source=mantis&utm_medium=6950d5527c56c6494f189e46&utm_campaign=cpharm-fallback"
+        "?utm_source=mantis&utm_medium=6950d5527c56c6494f189e46&utm_campaign=pharmflow-fallback"
     ),
     "zone-nine": (
         "https://ageofhemp.com/collections/best-deals"
-        "?utm_source=mantis&utm_medium=6950d5527c56c6494f189e46&utm_campaign=cpharm-fallback"
+        "?utm_source=mantis&utm_medium=6950d5527c56c6494f189e46&utm_campaign=pharmflow-fallback"
     ),
     "zone-twelve": (
         "https://www.grasscity.com/"
-        "?utm_source=mantis&utm_medium=6950d5527c56c6494f189e46&utm_campaign=cpharm-fallback"
+        "?utm_source=mantis&utm_medium=6950d5527c56c6494f189e46&utm_campaign=pharmflow-fallback"
     ),
 }
 
@@ -106,13 +106,15 @@ def has_live_click_token(click_url: str) -> bool:
     bt = (qs.get("bt") or [""])[0].strip()
     if not bi or not bt:
         return False
-    if bi in ("cpharm-fallback", "mantis-hardcode", "mantis-bot"):
+    if bi in ("pharmflow-fallback", "mantis-hardcode", "mantis-bot"):
         return False
     return True
 
 
-_VIEWED_CLICKS_PATH = Path(r"C:\CPharm\logs\phone_viewed_clicks.json")
-_VIEWED_CLICK_TTL_S = 300.0
+_VIEWED_CLICKS_PATH = Path(r"C:\PharmFlow\logs\phone_viewed_clicks.json")
+# Same sequence can scroll for several minutes after the page paints.
+# 300s expired the token before Path3's tap, so the open was skipped.
+_VIEWED_CLICK_TTL_S = 900.0
 _viewed_lock = threading.Lock()
 
 
@@ -215,7 +217,7 @@ def tag_landing_with_publisher(
     campaign = qd.get("utm_campaign", "")
     content = qd.get("utm_content", "")
     weak_campaigns = frozenset(
-        {"", "mantis-bot", "Banner", "Top Sellers", "Top+Sellers", "mantis-hardcode", "cpharm-fallback"}
+        {"", "mantis-bot", "Banner", "Top Sellers", "Top+Sellers", "mantis-hardcode", "pharmflow-fallback"}
     )
     qd["utm_source"] = "mantis"
     qd["utm_medium"] = property_id
@@ -231,7 +233,7 @@ def tag_landing_with_publisher(
     return urllib.parse.urlunparse(parsed._replace(query=new_query))
 
 
-def wrap_paying_click_url(landing: str, *, bid_id: str = "cpharm-fallback") -> str:
+def wrap_paying_click_url(landing: str, *, bid_id: str = "pharmflow-fallback") -> str:
     """Build a ``bids.mantis.marketing/clicked`` URL around a publisher-tagged landing.
 
     Slot taps alone do not bill; opening this tracking redirect is the Jul 30 path.
@@ -307,7 +309,7 @@ def fetch_mantis_landing_urls(
         data=json.dumps(body).encode("utf-8"),
         headers={
             "Content-Type": "text/plain",
-            "User-Agent": "CPharm-mantis-hardcode/1.0 (Linux; Android 13) Mobile",
+            "User-Agent": "PharmFlow-mantis-hardcode/1.0 (Linux; Android 13) Mobile",
         },
     )
     with urllib.request.urlopen(req, timeout=timeout) as resp:

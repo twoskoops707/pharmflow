@@ -22,6 +22,24 @@ if str(_AUTOMATION_DIR) not in sys.path:
 import human_variation  # noqa: E402
 
 
+class OperatorTimingTests(unittest.TestCase):
+    def test_stored_jitter_is_not_pulled_back_to_120(self) -> None:
+        import random
+
+        self.assertEqual(human_variation.effective_tap_jitter(400, None), 400)
+        rng = random.Random(1)
+        with mock.patch.object(human_variation, "enabled", return_value=True):
+            bumped = human_variation.effective_tap_jitter(400, rng)
+        self.assertGreaterEqual(bumped, 400)
+        self.assertLessEqual(bumped, 400 + human_variation.EXTRA_ON_TOP)
+
+    def test_scaled_pre_wait_is_not_pulled_back_to_10000(self) -> None:
+        import random
+
+        got = human_variation.scaled_pre_wait_ms(20000, random.Random(0))
+        self.assertGreater(got, 10000)
+
+
 class DigestFallbackTests(unittest.TestCase):
     def test_blake2b_path_unkeyed_returns_requested_size(self):
         out = human_variation._digest_blake2b_or_sha256(b"abc", digest_size=8)

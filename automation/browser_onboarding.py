@@ -1293,7 +1293,7 @@ def _phone_idx_for_serial(serial: str) -> int | None:
     """Absolute vm index for a live serial, from the farm lock map."""
     try:
         data = json.loads(
-            Path(r"C:\CPharm\logs\ADB_SERIAL_MAP.lock.json").read_text(encoding="utf-8")
+            Path(r"C:\PharmFlow\logs\ADB_SERIAL_MAP.lock.json").read_text(encoding="utf-8")
         )
     except (OSError, json.JSONDecodeError):
         return None

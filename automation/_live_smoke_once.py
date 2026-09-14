@@ -9,7 +9,7 @@ import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
-os.environ["CPHARM_HUMAN_VARIATION"] = "0"
+os.environ["PHARMFLOW_HUMAN_VARIATION"] = "0"
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 os.chdir(SCRIPT_DIR)

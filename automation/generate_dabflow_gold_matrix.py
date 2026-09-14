@@ -2,8 +2,8 @@
 """
 Generate DabFlow gold automation JSON at baseline 900×1600, remapped per MuMu resolution.
 
-Output goes to the **local** sequences folder only (``CPHARM_SEQUENCES_DIR`` or
-``~/CPharm/sequences``) — never the git repo. Layout: ``{WxH}/{ad|no-ad}/*.json``.
+Output goes to the **local** sequences folder only (``PHARMFLOW_SEQUENCES_DIR`` or
+``~/PharmFlow/sequences``) — never the git repo. Layout: ``{WxH}/{ad|no-ad}/*.json``.
 
 Every combo includes: timer → tab excursion (Glass → select → exit → home) →
 stats scroll → (ad path) scroll-to-bottom → ad tap → ≥30s dwell → identity tail.
@@ -20,7 +20,7 @@ Humanization (within ``sequence_normalize`` / dashboard caps):
   - Segmented scrolls with pauses and occasional upward nudges
   - Tab-switch double micro-waits, think delays after timer reset
 
-Schema ceilings enforced here (cannot exceed without changing CPharm):
+Schema ceilings enforced here (cannot exceed without changing PharmFlow):
   - ``wait.seconds`` ≤ 300
   - ``tap.jitter`` ≤ 120
   - ``tap.pre_wait_ms`` ≤ 10000
@@ -2010,7 +2010,7 @@ def main() -> int:
         "--output",
         type=Path,
         default=None,
-        help="Local sequences root (default: CPHARM_SEQUENCES_DIR or ~/CPharm/sequences)",
+        help="Local sequences root (default: PHARMFLOW_SEQUENCES_DIR or ~/PharmFlow/sequences)",
     )
     ap.add_argument(
         "--url",

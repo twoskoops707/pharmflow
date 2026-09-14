@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-LOG = Path(r"C:\CPharm\logs")
+LOG = Path(r"C:\PharmFlow\logs")
 BOARD = LOG / "AGENT_UNISON.json"
 sys.path.insert(0, str(ROOT))
 

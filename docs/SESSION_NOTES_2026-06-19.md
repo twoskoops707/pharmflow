@@ -1,8 +1,8 @@
-> **Superseded:** the product is a single `PharmFlow.exe` in `C:\PharmFlow\` (`--watchdog`, `--agent`, phone setup in-process). Data still lives under `C:\CPharm\`. Ignore EXE names below.
+> **Superseded:** the product is a single `PharmFlow.exe` in `C:\PharmFlow\` (`--watchdog`, `--agent`, phone setup in-process). Data still lives under `C:\PharmFlow\`. Ignore EXE names below.
 
 ﻿# Session notes — 2026-06-19 (DabFlow / MuMu demo)
 
-> **Superseded in part by Jul 2026 dual-exe work:** see [AGENT_HANDOFF_2026-07-04.md](./AGENT_HANDOFF_2026-07-04.md) for current operator path (CPharmMuMuSetup + CPharm.exe, browser policy, fingerprint).
+> **Superseded in part by Jul 2026 dual-exe work:** see [AGENT_HANDOFF_2026-07-04.md](./AGENT_HANDOFF_2026-07-04.md) for current operator path (PharmFlowMuMuSetup + PharmFlow.exe, browser policy, fingerprint).
 
 ## What you wanted
 
@@ -26,12 +26,12 @@
 
 | File | Role |
 |------|------|
-| `C:\Users\jsmil\CPharm\sequences\900x1600\no-ad\dabflow__demo__ONE.json` | Main demo sequence (local sequences folder; repo JSONs purged for local-only storage). |
-| `C:\Users\jsmil\CPharm\USER_TAP_ANALYSIS.txt` | Parsed `USER_TAP_LOG` → taps mapped to JSON checkpoints. |
-| `C:\Users\jsmil\CPharm\GUIDED_DEMO_RESULT.txt` | Guided session outcome; short log warning. |
-| `C:\Users\jsmil\CPharm\DABFLOW_FLOW_FROM_REPO.md` | Flow reference from repo/web. |
-| `C:\Users\jsmil\CPharm\PROXY_FIX_STATUS.txt` | Proxy reverse fix verification steps. |
-| `C:\Users\jsmil\CPharm\cpharm-clone\` (git root) | Automation code changes (browser, dabflow layout, tor repair, wizard, docs). |
+| `C:\Users\jsmil\PharmFlow\sequences\900x1600\no-ad\dabflow__demo__ONE.json` | Main demo sequence (local sequences folder; repo JSONs purged for local-only storage). |
+| `C:\Users\jsmil\PharmFlow\USER_TAP_ANALYSIS.txt` | Parsed `USER_TAP_LOG` → taps mapped to JSON checkpoints. |
+| `C:\Users\jsmil\PharmFlow\GUIDED_DEMO_RESULT.txt` | Guided session outcome; short log warning. |
+| `C:\Users\jsmil\PharmFlow\DABFLOW_FLOW_FROM_REPO.md` | Flow reference from repo/web. |
+| `C:\Users\jsmil\PharmFlow\PROXY_FIX_STATUS.txt` | Proxy reverse fix verification steps. |
+| `C:\Users\jsmil\PharmFlow\pharmflow-clone\` (git root) | Automation code changes (browser, dabflow layout, tor repair, wizard, docs). |
 
 ## What did not finish
 
@@ -42,7 +42,7 @@
 
 ## When you resume
 
-1. **Replay demo ONE live** on MuMu using `dabflow__demo__ONE.json` and proof/run scripts under `cpharm-clone/automation/`.
+1. **Replay demo ONE live** on MuMu using `dabflow__demo__ONE.json` and proof/run scripts under `pharmflow-clone/automation/`.
 2. Or run a **full record session** with `getevent` kept alive for the whole flow (both `USER_TAP_LOG` and `GUIDED_TAP_LOG` patterns).
 3. **Emulator checklist**
    - `adb connect 10.0.2.179:5555`
@@ -51,6 +51,6 @@
 
 ## Cloud upload
 
-See `C:\Users\jsmil\CPharm\cpharm-clone\docs\SESSION_NOTES_2026-06-19.md` (copy in repo) and `CLOUD_UPLOAD_STATUS.txt` after push attempt.
+See `C:\Users\jsmil\PharmFlow\pharmflow-clone\docs\SESSION_NOTES_2026-06-19.md` (copy in repo) and `CLOUD_UPLOAD_STATUS.txt` after push attempt.
 
-**Do not run** separate `tools/` scripts unless you are developing from a git clone — operators use **CPharmMuMuSetup.exe → GO**.
+**Do not run** separate `tools/` scripts unless you are developing from a git clone — operators use **PharmFlow.exe → GO**.

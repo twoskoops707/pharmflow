@@ -1,4 +1,4 @@
-"""CPharm first-run theme — dark Signal desk (teal accent, readable)."""
+"""PharmFlow first-run theme — dark Signal desk (teal accent, readable)."""
 
 from __future__ import annotations
 

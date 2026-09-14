@@ -1,10 +1,10 @@
 @echo off
-title CPharm - Phone Farm Setup
+title PharmFlow - Phone Farm Setup
 color 0A
 cls
 echo.
 echo  =====================================================
-echo    CPharm  ^|  Virtual Android Phone Farm
+echo    PharmFlow  ^|  Virtual Android Phone Farm
 echo    Setup ^& Launch
 echo  =====================================================
 echo.
@@ -38,10 +38,10 @@ if errorlevel 1 (
 echo  [+] Packages OK
 
 :: ── Step 3: Launch wizard ────────────────────────────────────────────────────
-echo  [3/3] Launching CPharm...
+echo  [3/3] Launching PharmFlow...
 echo.
 echo  =====================================================
-echo    CPharm is starting - a window will open shortly
+echo    PharmFlow is starting - a window will open shortly
 echo  =====================================================
 echo.
 cd /d "%~dp0"
@@ -49,7 +49,7 @@ if exist "wizard\setup_wizard.py" (
     start "" pythonw wizard\setup_wizard.py
 ) else (
     echo  [!] wizard\setup_wizard.py not found.
-    echo      Make sure you are running this from the CPharm folder.
+    echo      Make sure you are running this from the PharmFlow folder.
     pause
     exit /b 1
 )

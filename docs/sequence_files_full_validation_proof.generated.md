@@ -1,6 +1,6 @@
 # Sequence files — full validation proof (generated)
 
-**Repository:** `C:\Users\jsmil\source\repos\cpharm`  
+**Repository:** `C:\Users\jsmil\source\repos\pharmflow`  
 **Generated:** 2026-05-06 (Pacific time per captured logs)  
 **Git (validation bundle on `main`):** `3d48c658b7d4fd4f1eba5bc7b8b3c0b52f921fcb` — adds recursive `load_sequence_steps_ui` coverage in `verify_sequences.py` and commits UTF-8 `.full.log` captures alongside this proof file.
 
@@ -13,7 +13,7 @@ This document records automated validation runs requested for **every** sequence
 **Command:**
 
 ```powershell
-(Get-ChildItem -Path 'C:\Users\jsmil\source\repos\cpharm\automation\recordings\sequences' -Recurse -File -Filter '*.json').Count
+(Get-ChildItem -Path 'C:\Users\jsmil\source\repos\pharmflow\automation\recordings\sequences' -Recurse -File -Filter '*.json').Count
 ```
 
 **Result:** `1297` sequence JSON files.
@@ -27,7 +27,7 @@ This document records automated validation runs requested for **every** sequence
 **Command:**
 
 ```bat
-cd /d C:\Users\jsmil\source\repos\cpharm
+cd /d C:\Users\jsmil\source\repos\pharmflow
 py -3 automation\verify_sequences.py
 ```
 

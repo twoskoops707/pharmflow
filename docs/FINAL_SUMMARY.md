@@ -1,26 +1,26 @@
-> **Superseded:** the product is a single `PharmFlow.exe` in `C:\PharmFlow\` (`--watchdog`, `--agent`, phone setup in-process). Data still lives under `C:\CPharm\`. Ignore EXE names below.
+> **Superseded:** the product is a single `PharmFlow.exe` in `C:\PharmFlow\` (`--watchdog`, `--agent`, phone setup in-process). Data still lives under `C:\PharmFlow\`. Ignore EXE names below.
 
 ═══════════════════════════════════════════════════════════
-  CPHARM DEBUG & RECOVERY — FINAL SUMMARY
+  PHARMFLOW DEBUG & RECOVERY — FINAL SUMMARY
 ═══════════════════════════════════════════════════════════
 
 🎯 SESSION ACCOMPLISHMENTS:
 
 ✅ COMPLETED:
-  1. Diagnosed CPharm.exe freezing issue (cache corruption, port conflicts)
+  1. Diagnosed PharmFlow.exe freezing issue (cache corruption, port conflicts)
   2. Fixed ADB connectivity (killed stale processes, restarted server)
   3. Started all 8 Docker Redroid containers
   4. Created 3 auto-connect scripts (Python + PowerShell)
-  5. Audited all 5 CPharm executables
+  5. Audited all 5 PharmFlow executables
   6. Created comprehensive recovery documentation
 
 📊 CURRENT STATUS:
-  ✓ CPharm.exe: Ready (needs cache clear on first run)
-  ✓ CPharmWatchdog.exe: Fully functional
+  ✓ PharmFlow.exe: Ready (needs cache clear on first run)
+  ✓ PharmFlow.exe: Fully functional
   ✓ Docker Redroid: 8/8 containers running, 8 ADB devices online
   ✓ Auto-connect scripts: Created and tested
-  ⚠ CPharmAgent.exe: Timeout issue (low priority)
-  ✗ CPharmSetup.exe: Wrong architecture (can delete)
+  ⚠ PharmFlow.exe: Timeout issue (low priority)
+  ✗ PharmFlowSetup.exe: Wrong architecture (can delete)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -32,7 +32,7 @@ Documentation:
   ✓ WIZARD_INTEGRATION_GUIDE.md — Add auto-connect to wizard
   ✓ AUTO_ADB_SCRIPTS_README.md — Quick reference for ADB scripts
   ✓ EXECUTABLE_AUDIT_REPORT.md — Full exe audit
-  ✓ CPHARMWATCHDOG_REFERENCE.md — Watchdog user guide
+  ✓ PHARMFLOWWATCHDOG_REFERENCE.md — Watchdog user guide
 
 Scripts:
   ✓ auto_phone_adb.py — Main auto-connect (Python)
@@ -44,47 +44,47 @@ Scripts:
 🚀 NEXT STEPS (PRIORITIZED):
 
 1. IMMEDIATE (Do now):
-   □ Clear CPharm cache:
-     rmdir /s /q %APPDATA%\CPharm
-     rmdir /s /q C:\CPharm\wizard\__pycache__
+   □ Clear PharmFlow cache:
+     rmdir /s /q %APPDATA%\PharmFlow
+     rmdir /s /q C:\PharmFlow\wizard\__pycache__
    
    □ Verify Docker Redroid:
      docker ps | grep redroid
      (should show 8 containers "Up")
    
    □ Test auto-connect:
-     cd C:\CPharm
+     cd C:\PharmFlow
      python auto_phone_adb.py --docker
      (wait 60s, should show 8 connected)
    
-   □ Start CPharm and test wizard:
-     CPharm.exe
+   □ Start PharmFlow and test wizard:
+     PharmFlow.exe
      → Step 4 (Phones) should auto-populate with 8 phones
      → Go to Launch → Preflight → should show all online
 
 2. SHORT TERM (Next 1-2 hours):
-   □ If CPharm works → Run a full automation test
+   □ If PharmFlow works → Run a full automation test
      → Create a test sequence
      → Run on 1 phone
      → Verify dashboard shows activity
    
    □ If dashboard won't load → Run watchdog repair:
-     CPharmWatchdog.exe --once --apply --repair-dashboard
+     PharmFlow.exe --once --apply --repair-dashboard
    
    □ Set up background health monitoring:
-     CPharmWatchdog.exe --watch --interval 30 --apply
+     PharmFlow.exe --watch --interval 30 --apply
 
 3. MEDIUM TERM (Next 24 hours):
-   □ Delete or rebuild CPharmSetup.exe
-   □ Fix CPharmAgent.exe timeout (if needed)
+   □ Delete or rebuild PharmFlowSetup.exe
+   □ Fix PharmFlow.exe timeout (if needed)
    □ Integrate auto_phone_adb.py into wizard preflight
    □ Add "Health Check" button to Launch step
 
 4. LONG TERM (Next sprint):
-   □ Deprecate CPharmMuMuSetup.exe
-   □ Add progress splash screen to CPharm.exe startup
+   □ Deprecate PharmFlow.exe
+   □ Add progress splash screen to PharmFlow.exe startup
    □ Implement pre-warm ADB/Tor on load
-   □ Add JSON output to CPharmWatchdog
+   □ Add JSON output to PharmFlowWatchdog
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -93,11 +93,11 @@ Scripts:
 ┌─────────────────────┬──────────┬─────────┬───────────────────┐
 │ Executable          │ Status   │ Use     │ Next Action       │
 ├─────────────────────┼──────────┼─────────┼───────────────────┤
-│ CPharm.exe          │ ✓ Works  │ Always  │ Run now           │
-│ CPharmWatchdog.exe  │ ✓ Works  │ Monitor │ Auto-start        │
-│ CPharmAgent.exe     │ ⚠ Slow   │ Optional│ Debug timeout     │
-│ CPharmMuMuSetup.exe │ ⚠ Legacy │ Never   │ Deprecate         │
-│ CPharmSetup.exe     │ ✗ Broken │ Never   │ Delete / Rebuild  │
+│ PharmFlow.exe          │ ✓ Works  │ Always  │ Run now           │
+│ PharmFlow.exe  │ ✓ Works  │ Monitor │ Auto-start        │
+│ PharmFlow.exe     │ ⚠ Slow   │ Optional│ Debug timeout     │
+│ PharmFlow.exe │ ⚠ Legacy │ Never   │ Deprecate         │
+│ PharmFlowSetup.exe     │ ✗ Broken │ Never   │ Delete / Rebuild  │
 └─────────────────────┴──────────┴─────────┴───────────────────┘
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -105,19 +105,19 @@ Scripts:
 ⚡ QUICK COMMANDS TO RUN NOW:
 
 # Clear cache (fixes freezing)
-rmdir /s /q %APPDATA%\CPharm 2>nul; rmdir /s /q C:\CPharm\wizard\__pycache__ 2>nul
+rmdir /s /q %APPDATA%\PharmFlow 2>nul; rmdir /s /q C:\PharmFlow\wizard\__pycache__ 2>nul
 
 # Verify Docker
 docker ps | find "redroid"
 
 # Test auto-connect (wait up to 2 min)
-python C:\CPharm\auto_phone_adb.py --docker
+python C:\PharmFlow\auto_phone_adb.py --docker
 
 # Check watchdog health
-C:\CPharm\CPharmWatchdog.exe --once
+C:\PharmFlow\PharmFlow.exe --once
 
-# Start CPharm
-C:\CPharm\CPharm.exe
+# Start PharmFlow
+C:\PharmFlow\PharmFlow.exe
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -125,7 +125,7 @@ C:\CPharm\CPharm.exe
 
 1. Your setup is HYBRID:
    → Docker Redroid for emulation (containers in port 5555-5562)
-   → CPharm for orchestration & automation
+   → PharmFlow for orchestration & automation
    → ADB for device control
    → Tor for anonymity/rotation
 
@@ -164,14 +164,14 @@ Full reference: DEBUG_GUIDE.txt
 
 📚 DOCUMENTATION INDEX:
 
-Location: C:\CPharm\
+Location: C:\PharmFlow\
 Files:
   • EMERGENCY_CLEANUP.ps1 — Run first if anything broken
   • DEBUG_GUIDE.txt — Detailed troubleshooting
   • AUTO_ADB_SCRIPTS_README.md — How to use auto-connect
-  • WIZARD_INTEGRATION_GUIDE.md — Add to CPharm wizard code
+  • WIZARD_INTEGRATION_GUIDE.md — Add to PharmFlow wizard code
   • EXECUTABLE_AUDIT_REPORT.md — Full exe review
-  • CPHARMWATCHDOG_REFERENCE.md — Watchdog user guide
+  • PHARMFLOWWATCHDOG_REFERENCE.md — Watchdog user guide
   • AUTO_ADB_SCRIPTS_README.md — Script reference
 
 Scripts:
@@ -187,10 +187,10 @@ Before declaring success, verify:
   □ Docker: docker ps shows 8 "Up" redroid containers
   □ ADB: adb devices -l shows 8 online devices
   □ Auto-connect: python auto_phone_adb.py --docker succeeds
-  □ CPharm: CPharm.exe launches without freezing
+  □ PharmFlow: PharmFlow.exe launches without freezing
   □ Wizard: Step 4 (Phones) shows 8 detected phones
   □ Dashboard: Loads at http://localhost:8080
-  □ Watchdog: CPharmWatchdog.exe --once shows HEALTHY
+  □ Watchdog: PharmFlow.exe --once shows HEALTHY
   □ Automation: Can create & run a test sequence
 
 If all 8 pass → Farm is ready for production use
@@ -199,14 +199,14 @@ If all 8 pass → Farm is ready for production use
 
 🎓 WHAT YOU LEARNED:
 
-CPharm Architecture:
+PharmFlow Architecture:
   • 5-layer exe structure (GUI, agent, watchdog, setup, legacy)
   • Hybrid Docker + ADB orchestration
   • Distributed Tor routing (one per phone)
   • Python/PyInstaller-based distribution
 
 Debugging Methodology:
-  • Read logs first (farm_watchdog.log, cpharm.log)
+  • Read logs first (farm_watchdog.log, pharmflow.log)
   • Check processes (tasklist, Get-Process)
   • Verify infrastructure (docker ps, adb devices)
   • Test recovery tools (watchdog --apply, auto-connect)
@@ -220,7 +220,7 @@ Recovery Layers:
 
 ═══════════════════════════════════════════════════════════
 
-Questions? Check the documentation files in C:\CPharm\
+Questions? Check the documentation files in C:\PharmFlow\
 All scripts are production-ready and can be committed to repo.
 
-Good luck with CPharm! 🚀
+Good luck with PharmFlow! 🚀

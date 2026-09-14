@@ -24,7 +24,7 @@ from browser_adb import (
     farmbrowser_identity_count,
 )
 
-log = logging.getLogger("cpharm")
+log = logging.getLogger("pharmflow")
 
 
 def assign_unique_identities(

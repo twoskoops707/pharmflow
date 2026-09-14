@@ -17,8 +17,29 @@ import re
 import time
 from datetime import datetime
 from typing import Any
+from zoneinfo import ZoneInfo
 
-LOG_DIR = os.environ.get("CPHARM_LOGS", r"C:\CPharm\logs")
+def _logs_dir() -> str:
+    """Same folder the operator dash reads. Call-time so env changes are visible."""
+    return (
+        os.environ.get("PHARMFLOW_LOG_DIR")
+        or os.environ.get("PHARMFLOW_LOGS")
+        or r"C:\PharmFlow\logs"
+    )
+
+
+# Session quality lives in the farm worker log. Other farm_*.log files
+# (money monitor, watchdog, cycles) are newer often and contain no step lines.
+_SESSION_LOG = "farm_354.log"
+_NOT_SESSION_LOGS = {
+    "farm_money_monitor.log",
+    "farm_watchdog.log",
+    "farm_fail_review.log",
+    "farm_cycles.log",
+    "farm_hourly_ntfy.log",
+    "farm_cli_start.out.log",
+    "farm_cli_start.err.log",
+}
 
 _STEP_RE = re.compile(r"\[(vm[\w.]+)\] step (\d+)")
 _TIMEOUT_RE = re.compile(
@@ -48,11 +69,17 @@ def _read_json(path: str) -> Any:
 
 
 def newest_farm_log() -> str | None:
-    logs = sorted(
-        glob.glob(os.path.join(LOG_DIR, "farm_*.log")),
-        key=os.path.getmtime,
-        reverse=True,
-    )
+    log_dir = _logs_dir()
+    primary = os.path.join(log_dir, _SESSION_LOG)
+    if os.path.isfile(primary):
+        return primary
+    logs = []
+    for path in glob.glob(os.path.join(log_dir, "farm_*.log")):
+        name = os.path.basename(path)
+        if name in _NOT_SESSION_LOGS or name.endswith(".out.log") or name.endswith(".err.log"):
+            continue
+        logs.append(path)
+    logs.sort(key=os.path.getmtime, reverse=True)
     return logs[0] if logs else None
 
 
@@ -193,7 +220,7 @@ def _phones(parsed: dict) -> list[dict]:
 
 
 def paying_state() -> dict:
-    hb = _read_text(os.path.join(LOG_DIR, "ssp_paying_hunter_heartbeat.txt")).strip()
+    hb = _read_text(os.path.join(_logs_dir(), "ssp_paying_hunter_heartbeat.txt")).strip()
     paying = None
     round_n = None
     newnym = None
@@ -213,7 +240,11 @@ def paying_state() -> dict:
             hb_ts = datetime.strptime(m.group(1), "%Y-%m-%d %H:%M:%S").timestamp()
         except ValueError:
             pass
-    fill = _read_json(os.path.join(LOG_DIR, "ssp_paying_fill.json")) or {}
+    if not m or m.group(1)[:10] != _pacific_today():
+        paying = None
+        round_n = None
+        newnym = None
+    fill = _read_json(os.path.join(_logs_dir(), "ssp_paying_fill.json")) or {}
     return {
         "paying": paying,
         "round": round_n,
@@ -224,20 +255,46 @@ def paying_state() -> dict:
     }
 
 
+def _pacific_today() -> str:
+    return datetime.now(ZoneInfo("America/Los_Angeles")).date().isoformat()
+
+
 def payout_latest() -> dict:
-    data = _read_json(os.path.join(LOG_DIR, "freebuff_payout_watch.json"))
+    data = _read_json(os.path.join(_logs_dir(), "freebuff_payout_watch.json"))
+    empty = {"payout_usd": None, "clicks": None, "impressions": None}
     if not isinstance(data, list) or not data:
-        return {"payout_usd": None, "clicks": None, "impressions": None}
+        return empty
     latest = data[-1]
+    if not isinstance(latest, dict):
+        return empty
+    try:
+        day = datetime.fromtimestamp(
+            float(latest.get("ts")),
+            ZoneInfo("America/Los_Angeles"),
+        ).date().isoformat()
+    except (TypeError, ValueError, OSError):
+        return empty
+    if day != _pacific_today():
+        return empty
     return {
         "payout_usd": latest.get("payout_usd"),
         "clicks": latest.get("clicks"),
         "impressions": latest.get("impressions"),
+        "date": day,
     }
 
 
 def snapshot(window_s: float = 3600.0) -> dict:
     log_path = newest_farm_log()
+    if not log_path:
+        return {
+            "ok": False,
+            "error": "No farm session log (farm_354.log) in the log folder.",
+            "window_s": window_s,
+            "log_path": None,
+            "farm_alive": False,
+            "phones": [],
+        }
     parsed = parse_farm_log(log_path, window_s=window_s)
     log_age_s = None
     if log_path:
@@ -251,7 +308,10 @@ def snapshot(window_s: float = 3600.0) -> dict:
         "window_s": window_s,
         "log_path": log_path,
         "log_age_s": log_age_s,
-        "farm_alive": log_age_s is not None and log_age_s < 120,
+        "log_fresh": log_age_s is not None and log_age_s < 120,
+        # A touched log is not a worker. Callers that need liveness must use
+        # the process check. This reader does not invent a running farm.
+        "farm_alive": False,
         "summary": {
             "steps": total_steps,
             "dump_timeouts": parsed["timeouts"],

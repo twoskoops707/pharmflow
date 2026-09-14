@@ -3,7 +3,7 @@
 Bypasses broken Chromium --remote-debugging-port by MITM'ing getdabflow.app
 and inserting the same PATCH_JS the CDP path would run.
 
-Ports: CPHARM_MANTIS_INJECT_BASE (default 8218) + phone_index
+Ports: PHARMFLOW_MANTIS_INJECT_BASE (default 8218) + phone_index
 Upstream modes:
   tor          — Tor HTTPTunnel 8118+idx (default)
   residential  — HTTP CONNECT via provider pool (unique IP per phone)
@@ -30,12 +30,9 @@ from automation.dabflow_mantis_ad_urls import record_phone_viewed_ads
 from automation.dabflow_mantis_client_patch import (
     PATCH_JS,
     _ssp_paint_expression,
-    ensure_ssp_cache_warm,
     filter_ssp_ads_prefer_paying,
-    fire_ssp_impression_pixels_hostside,
     get_cached_ssp_ads,
     prefetch_ssp_ads_prefer_paying,
-    ssp_ads_paying_count,
 )
 logger = logging.getLogger(__name__)
 
@@ -56,9 +53,9 @@ def _ca():
 
     return ensure_ca_files, install_ca_on_device, ssl_context_for_host
 
-INJECT_BASE = int(os.environ.get("CPHARM_MANTIS_INJECT_BASE", "8218") or "8218")
+INJECT_BASE = int(os.environ.get("PHARMFLOW_MANTIS_INJECT_BASE", "8218") or "8218")
 DABFLOW_HOSTS = ("getdabflow.app", "www.getdabflow.app")
-INJECT_MARKER = b"__cpharmMantisPatchV1"
+INJECT_MARKER = b"__pharmflowMantisPatchV1"
 # Tor exits often get house/bot SSP only (utm_source=mantis-bot) — GraphQL $/impr stay flat.
 # Route Mantis billing hosts DIRECT so native mantis.js + pixels see paying inventory.
 # Keep getdabflow.app / other browsing on Tor (identity). Default ON.
@@ -69,10 +66,10 @@ _MANTIS_BILLING_HOST_SUFFIXES = (
     "mantis.marketing",
     "mantisadnetwork.com",
 )
-_STATS_PATH = Path(r"C:\CPharm\logs\mantis_inject_stats.json")
+_STATS_PATH = Path(r"C:\PharmFlow\logs\mantis_inject_stats.json")
 # Farm publishes scrambled UA/Client Hints; inject proxy rewrites Chromium
 # request headers when MuMu Chromium has no DevTools (CDP Emulation dead).
-_CLIENT_HINTS_PATH = Path(r"C:\CPharm\logs\client_hints_by_phone.json")
+_CLIENT_HINTS_PATH = Path(r"C:\PharmFlow\logs\client_hints_by_phone.json")
 _CLIENT_HINTS_LOCK = threading.Lock()
 _CLIENT_HINTS_CACHE: dict[str, dict] = {}
 _CLIENT_HINTS_MTIME = 0.0
@@ -95,29 +92,29 @@ def mitm_enabled() -> bool:
     """MITM HTML inject — needs trusted CA on the phone (farm arms with ca=True).
 
     Default ON so Firefox/Brave/DuckDuckGo (no CDP) still get Mantis creatives.
-    Set CPHARM_MANTIS_INJECT_MITM=0 to force blind CONNECT tunnel only.
+    Set PHARMFLOW_MANTIS_INJECT_MITM=0 to force blind CONNECT tunnel only.
     """
-    raw = os.environ.get("CPHARM_MANTIS_INJECT_MITM", "1").strip().lower()
+    raw = os.environ.get("PHARMFLOW_MANTIS_INJECT_MITM", "1").strip().lower()
     return raw not in ("0", "false", "no", "off")
 
 
 def inject_enabled() -> bool:
-    raw = os.environ.get("CPHARM_MANTIS_INJECT_PROXY", "1").strip().lower()
+    raw = os.environ.get("PHARMFLOW_MANTIS_INJECT_PROXY", "1").strip().lower()
     return raw not in ("0", "false", "no", "off")
 
 
 def upstream_mode() -> str:
-    return (os.environ.get("CPHARM_MANTIS_INJECT_UPSTREAM") or "tor").strip().lower()
+    return (os.environ.get("PHARMFLOW_MANTIS_INJECT_UPSTREAM") or "tor").strip().lower()
 
 
 def _slot_from_env(phone_index: int) -> int | None:
-    """Slot map the farm owner exports at arm time (CPHARM_INJECT_SLOT_MAP).
+    """Slot map the farm owner exports at arm time (PHARMFLOW_INJECT_SLOT_MAP).
 
     JSON object {"<absolute idx>": <slot>}. The farm knows its live fleet, so
     this is the authoritative mapping — file-based roster scans are a fallback
     and can be re-polluted by rescans mid-flight.
     """
-    raw = os.environ.get("CPHARM_INJECT_SLOT_MAP") or ""
+    raw = os.environ.get("PHARMFLOW_INJECT_SLOT_MAP") or ""
     if not raw.strip():
         return None
     try:
@@ -133,14 +130,14 @@ def _fleet_slot(phone_index: int) -> int | None:
 
     Slot = absolute index minus the fleet's minimum live index (the historical
     working scheme: vm27 = Tor base + roster slot). Sources, in order: the
-    live rows of ADB_SERIAL_MAP.lock.json, then cpharm_config.json. Returns
+    live rows of ADB_SERIAL_MAP.lock.json, then pharmflow_config.json. Returns
     None when the phone is not on the live roster or the roster has no vm rows.
     """
     idx = int(phone_index)
     from pathlib import Path
 
     logs_dir = Path(
-        os.environ.get("CPHARM_LOGS") or os.environ.get("CPHARM_LOG_DIR") or r"C:\CPharm\logs"
+        os.environ.get("PHARMFLOW_LOGS") or os.environ.get("PHARMFLOW_LOG_DIR") or r"C:\PharmFlow\logs"
     )
     names: list[str] = []
     try:
@@ -150,7 +147,7 @@ def _fleet_slot(phone_index: int) -> int | None:
         names = []
     if not names:
         try:
-            cfg = json.loads((logs_dir.parent / "cpharm_config.json").read_text(encoding="utf-8"))
+            cfg = json.loads((logs_dir.parent / "pharmflow_config.json").read_text(encoding="utf-8"))
             names = [str(x) for x in (cfg.get("phones") or [])]
         except Exception:
             names = []
@@ -182,7 +179,7 @@ def upstream_tor_port(phone_index: int) -> int:
         from pathlib import Path
 
         state = Path(
-            os.environ.get("CPHARM_LOGS") or os.environ.get("CPHARM_LOG_DIR") or r"C:\CPharm\logs"
+            os.environ.get("PHARMFLOW_LOGS") or os.environ.get("PHARMFLOW_LOG_DIR") or r"C:\PharmFlow\logs"
         ) / "tor_port_bases.json"
         data = json.loads(state.read_text(encoding="utf-8"))
         if time.time() - float(data.get("ts") or 0) < 120:
@@ -220,9 +217,25 @@ def _store_viewed_beacon(phone_index: int, body: bytes) -> None:
         n = record_phone_viewed_ads(phone_index, ads)
     except Exception as exc:
         logger.warning("viewed-click store failed phone=%s: %s", phone_index, exc)
+        _beacon_note(f"store-fail phone={phone_index} {exc}")
         return
+    sample = ""
+    if not n and ads:
+        first = next((a for a in ads if isinstance(a, dict)), {})
+        sample = " url=" + str(first.get("click_url") or "")[:90].replace(" ", "")
+    _beacon_note(f"store phone={phone_index} n={n} ads={len(ads)}{sample}")
     if n:
         logger.info("stored phone-viewed clicks phone=%s n=%s", phone_index, n)
+
+
+def _beacon_note(line: str) -> None:
+    try:
+        path = Path(r"C:\PharmFlow\logs\inject_beacon.log")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as fh:
+            fh.write(time.strftime("%H:%M:%S ") + line + "\n")
+    except OSError:
+        pass
 
 
 def _is_dabflow_host(host: str) -> bool:
@@ -238,7 +251,7 @@ def billing_direct_enabled() -> bool:
     farm as single-IP bot traffic. Tor exits are the billing path; if Mantis
     406s an exit, rotate the exit — never fall back to the host IP.
     """
-    raw = os.environ.get("CPHARM_MANTIS_BILLING_DIRECT", "0").strip().lower()
+    raw = os.environ.get("PHARMFLOW_MANTIS_BILLING_DIRECT", "0").strip().lower()
     return raw in ("1", "true", "yes")
 
 
@@ -406,58 +419,44 @@ def _apply_client_hints_headers(
 def _build_inject_script() -> bytes:
     """PATCH_JS + delayed host SSP paint fallback (CDP /json often dead).
 
-    Keep ``__cpharmCssOnly=true`` so Path1/2 creatives stay non-clickable
+    Keep ``__pharmflowCssOnly=true`` so Path1/2 creatives stay non-clickable
     (pointer-events:none). Prefer paying host creatives; delay host-paint so
     native mantis.js can fill zones first (billable path). Host-paint only
     fills still-empty zones. Path3 flips cssOnly=false via CDP for clicks.
     """
-    ensure_ssp_cache_warm()
+    # Paint the bottom creative so the page is not empty. Do not store these
+    # host tokens for Path3 — their bi/bt were issued to this PC. The page's
+    # own SSP fetch is what Path3 opens.
     ads: list = []
     try:
-        # Paying only — house host-paint freezes the same 8 bot creatives all day
-        # and crowds out native mantis.js if a paying fill arrives late.
-        ads = prefetch_ssp_ads_prefer_paying(
-            attempts=8, delay_s=0.35, allow_house_fallback=False
-        )
-    except Exception as exc:
-        logger.debug("SSP prefer-paying prefetch failed: %s", exc)
         ads = filter_ssp_ads_prefer_paying(
             get_cached_ssp_ads(allow_stale=True) or [],
-            allow_house_fallback=False,
+            allow_house_fallback=True,
         )
-    paying_n = ssp_ads_paying_count(ads)        # DISABLED — host-side pixel firing routes ALL impressions through the
-        # HOST IP instead of each phone's Tor exit. Mantis flags single-IP
-        # traffic as bot. Impression pixels must fire from each phone's browser
-        # through its own Tor exit to appear as unique visitors.
-        # if paying_n:
-        #     fire_ssp_impression_pixels_hostside(ads, paying_only=True)
+        if not ads:
+            ads = prefetch_ssp_ads_prefer_paying(
+                attempts=4, delay_s=0.2, allow_house_fallback=True
+            )
+    except Exception as exc:
+        logger.debug("bottom-ad paint prefetch failed: %s", exc)
+        ads = []
     paint_js = ""
     if ads:
-        # Delayed empty-only host-paint: give native SDK time first; fill gaps.
-        expr = _ssp_paint_expression(ads, empty_only=True).strip()
+        expr = _ssp_paint_expression(ads, empty_only=False).strip()
         if expr.endswith(";"):
             expr = expr[:-1]
         paint_js = (
-            "window.__cpharmRunHostPaint=function(){"
+            "window.__pharmflowRunHostPaint=function(){"
             "return "
             + expr
             + ";};\n"
-            "setTimeout(function(){try{window.__cpharmRunHostPaint();}catch(e){}},2200);\n"
-            "setTimeout(function(){try{window.__cpharmRunHostPaint();}catch(e){}},4500);\n"
-            "setTimeout(function(){try{window.__cpharmRunHostPaint();}catch(e){}},7500);\n"
+            "setTimeout(function(){try{window.__pharmflowRunHostPaint();}catch(e){}},0);\n"
+            "setTimeout(function(){try{window.__pharmflowRunHostPaint();}catch(e){}},400);\n"
         )
-        logger.info(
-            "inject script embedding %d SSP creatives paying=%d zones=%s",
-            len(ads),
-            paying_n,
-            [a.get("zone_id") for a in ads[:8]],
-        )
-    else:
-        logger.info("inject script: no SSP creatives for host-paint")
     return (
-        "<script data-cpharm-mantis-inject=\"1\" data-cpharm-ssp-paint=\"1\">\n"
-        "window.__cpharmCssOnly=true;\n"
-        "window.__cpharmAllowSspPaint=true;\n"
+        "<script data-pharmflow-mantis-inject=\"1\" data-pharmflow-ssp-paint=\"1\">\n"
+        "window.__pharmflowCssOnly=true;\n"
+        "window.__pharmflowAllowSspPaint=true;\n"
         + PATCH_JS
         + "\n"
         + paint_js
@@ -791,6 +790,8 @@ class MantisInjectProxy:
             if method == "CONNECT":
                 self.stats["connect"] += 1
                 host, port = _host_port_from_target(target, 443)
+                if "bids.mantis.marketing" in (host or ""):
+                    _beacon_note(f"click-connect phone={self.phone_index} host={host}")
                 if mitm_enabled() and _is_dabflow_host(host) and port == 443:
                     self._handle_mitm(client, host, port, head)
                 else:
@@ -825,6 +826,7 @@ class MantisInjectProxy:
         except ssl.SSLError as exc:
             self.stats["errors"] += 1
             logger.warning("MITM handshake failed host=%s: %s", host, exc)
+            _beacon_note(f"handshake-fail phone={self.phone_index} host={host} {exc}")
             try:
                 client.close()
             except OSError:
@@ -865,7 +867,7 @@ class MantisInjectProxy:
                             break
                         body += chunk
                         need -= len(chunk)
-                if method == "POST" and "__cpharm_viewed" in target:
+                if method == "POST" and "__pharmflow_viewed" in target:
                     _store_viewed_beacon(self.phone_index, body)
                     tls_client.sendall(
                         b"HTTP/1.1 204 No Content\r\n"
@@ -874,12 +876,16 @@ class MantisInjectProxy:
                     )
                     continue
                 # Chromium on MuMu often has no DevTools — rewrite Client Hints here.
-                hints = _client_hints_for_phone(self.phone_index)
-                if hints and _is_dabflow_host(host):
+                # Strip brotli. We cannot rewrite br HTML, so the phone never gets
+                # the click-beacon script and Path3 has no token to open.
+                if _is_dabflow_host(host):
+                    req_headers["accept-encoding"] = "gzip, identity"
+                    hints = _client_hints_for_phone(self.phone_index)
+                    if hints:
+                        req_headers = _apply_client_hints_headers(req_headers, hints)
+                        self.stats["client_hints"] = int(self.stats.get("client_hints", 0)) + 1
                     status_line = headers_part.split(b"\r\n", 1)[0]
-                    req_headers = _apply_client_hints_headers(req_headers, hints)
                     remote.sendall(_rebuild_request(status_line, req_headers, body))
-                    self.stats["client_hints"] = int(self.stats.get("client_hints", 0)) + 1
                 else:
                     remote.sendall(headers_part + b"\r\n\r\n" + body)
 
@@ -902,6 +908,10 @@ class MantisInjectProxy:
                                 len(decompressed),
                                 len(new_body),
                             )
+                        # Inline inject must run or the viewed-click beacon never
+                        # posts. A page CSP that blocks script tags drops Path3.
+                        resp_headers.pop("content-security-policy", None)
+                        resp_headers.pop("content-security-policy-report-only", None)
                         # HTML rewritten — always serve uncompressed plaintext.
                         out = _rebuild_response(
                             status_line,
@@ -911,7 +921,15 @@ class MantisInjectProxy:
                         )
                         tls_client.sendall(out)
                     else:
-                        # Still compressed (unsupported codec) — keep encoding.
+                        self.stats["inject_skipped_encoding"] = (
+                            int(self.stats.get("inject_skipped_encoding", 0)) + 1
+                        )
+                        logger.warning(
+                            "inject skipped phone=%d host=%s encoding=%s",
+                            self.phone_index,
+                            host,
+                            encoding,
+                        )
                         out = _rebuild_response(
                             status_line,
                             resp_headers,
@@ -1134,7 +1152,7 @@ def _device_has_inject_ca(adb: object, serial: str) -> bool:
         from automation.mantis_inject_ca import android_cacert_hash
         from cryptography import x509
 
-        cert_path = Path(r"C:\CPharm\certs\mantis_inject\ca.cert.pem")
+        cert_path = Path(r"C:\PharmFlow\certs\mantis_inject\ca.cert.pem")
         if not cert_path.is_file():
             return False
         cert = x509.load_pem_x509_certificate(cert_path.read_bytes())

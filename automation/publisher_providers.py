@@ -20,8 +20,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-_LOG_DIR = Path(os.environ.get("CPHARM_LOG_DIR", r"C:\CPharm\logs"))
-_REGISTRY = Path(os.environ.get("CPHARM_PUBLISHERS_FILE", r"C:\CPharm\publishers.json"))
+_LOG_DIR = Path(os.environ.get("PHARMFLOW_LOG_DIR", r"C:\PharmFlow\logs"))
+_REGISTRY = Path(os.environ.get("PHARMFLOW_PUBLISHERS_FILE", r"C:\PharmFlow\publishers.json"))
 _LOCK = threading.RLock()
 
 # Mantis is the live, pull-configured publisher. AdSense/Ezoic/Other remain as

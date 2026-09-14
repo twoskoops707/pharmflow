@@ -1,4 +1,4 @@
-"""Generic Site Profile — CPharm farms any website/APK; not tied to one brand."""
+"""Generic Site Profile — PharmFlow farms any website/APK; not tied to one brand."""
 
 from __future__ import annotations
 

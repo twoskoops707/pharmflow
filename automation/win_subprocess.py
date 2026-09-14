@@ -27,7 +27,11 @@ def hidden_run_kwargs() -> dict[str, Any]:
 
 
 def hide_console_for_pid(pid: int) -> None:
-    """Best-effort: hide any visible top-level window owned by ``pid`` (Windows)."""
+    """Best-effort: hide any top-level window owned by ``pid`` (Windows).
+
+    Uses both ``ShowWindow(SW_HIDE)`` and ``ShowWindowAsync`` so Cascadia /
+    PseudoConsole flashes that race the poller still get suppressed.
+    """
     if sys.platform != "win32" or pid <= 0:
         return
     try:
@@ -35,15 +39,20 @@ def hide_console_for_pid(pid: int) -> None:
 
         user32 = ctypes.windll.user32
         pid_buf = ctypes.c_ulong()
+        SW_HIDE = 0
 
         @ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
         def _cb(hwnd, _lparam):  # type: ignore[misc]
             try:
-                if not user32.IsWindowVisible(hwnd):
-                    return True
                 user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid_buf))
-                if int(pid_buf.value) == int(pid):
-                    user32.ShowWindow(hwnd, 0)
+                if int(pid_buf.value) != int(pid):
+                    return True
+                # Hide even if not yet marked visible — catches 1-frame pops.
+                user32.ShowWindow(hwnd, SW_HIDE)
+                try:
+                    user32.ShowWindowAsync(hwnd, SW_HIDE)
+                except Exception:
+                    pass
             except Exception:
                 pass
             return True
@@ -53,7 +62,7 @@ def hide_console_for_pid(pid: int) -> None:
         return
 
 
-def hide_console_burst(pid: int, *, rounds: int = 20, delay_s: float = 0.05) -> None:
+def hide_console_burst(pid: int, *, rounds: int = 40, delay_s: float = 0.025) -> None:
     """Hide console windows repeatedly right after spawn (covers AllocConsole races)."""
     import time
 
@@ -63,8 +72,9 @@ def hide_console_burst(pid: int, *, rounds: int = 20, delay_s: float = 0.05) -> 
         try:
             import psutil
 
-            for child in psutil.Process(pid).children(recursive=False):
-                if (child.name() or "").lower() in {"conhost.exe", "conhost"}:
+            for child in psutil.Process(pid).children(recursive=True):
+                cname = (child.name() or "").lower()
+                if cname in {"conhost.exe", "conhost", "openconsole.exe"}:
                     hide_console_for_pid(child.pid)
         except Exception:
             pass

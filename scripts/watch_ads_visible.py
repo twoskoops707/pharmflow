@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Watch live farm for ads visibility / Mantis failures.
 
-Logs to C:\\CPharm\\logs\\ads_watch.log
+Logs to C:\\PharmFlow\\logs\\ads_watch.log
 Alerts (ntfy) only on sustained problems — not every sequence.
 """
 
@@ -21,14 +21,14 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-LOG_DIR = Path(r"C:\CPharm\logs")
+LOG_DIR = Path(r"C:\PharmFlow\logs")
 FARM_LOG = LOG_DIR / "farm_354.log"
 WATCH_LOG = LOG_DIR / "ads_watch.log"
 SHOT_DIR = LOG_DIR / "ads_watch_shots"
-ADB = os.environ.get("CPHARM_ADB") or r"C:\CPharm\bundled\adb.exe"
-TOPIC = os.environ.get("CPHARM_NTFY_TOPIC", "twskoops")
-INTERVAL_S = int(os.environ.get("CPHARM_ADS_WATCH_INTERVAL", "90") or "90")
-ALERT_COOLDOWN_S = int(os.environ.get("CPHARM_ADS_WATCH_ALERT_COOLDOWN", "1800") or "1800")
+ADB = os.environ.get("PHARMFLOW_ADB") or r"C:\PharmFlow\bundled\adb.exe"
+TOPIC = os.environ.get("PHARMFLOW_NTFY_TOPIC", "twskoops")
+INTERVAL_S = int(os.environ.get("PHARMFLOW_ADS_WATCH_INTERVAL", "90") or "90")
+ALERT_COOLDOWN_S = int(os.environ.get("PHARMFLOW_ADS_WATCH_ALERT_COOLDOWN", "1800") or "1800")
 
 PHONES = {
     "vm0.gmadoa": "10.0.2.86:5555",
@@ -169,7 +169,7 @@ def main() -> int:
             if not alive:
                 log.warning("farm_354 NOT running")
                 if time.time() - last_alert > ALERT_COOLDOWN_S:
-                    _ntfy("FamFlow farm missing", "[FamFlow] ads_watch: run_farm_354.py not running")
+                    _ntfy("PharmFlow farm missing", "[PharmFlow] ads_watch: run_farm_354.py not running")
                     last_alert = time.time()
 
             if FARM_LOG.is_file():

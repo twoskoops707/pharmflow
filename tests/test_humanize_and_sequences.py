@@ -89,5 +89,5 @@ def test_farm_prefs_include_hours_and_env() -> None:
     assert prefs["hours"] == 6.0
     assert prefs["path3_per_hour"] == 2
     apply_farm_prefs_to_environ(prefs)
-    assert os.environ.get("CPHARM_FARM_HOURS") == "6.0"
-    assert os.environ.get("CPHARM_FARM_PATH3_PER_HOUR") == "2"
+    assert os.environ.get("PHARMFLOW_FARM_HOURS") == "6.0"
+    assert os.environ.get("PHARMFLOW_FARM_PATH3_PER_HOUR") == "2"

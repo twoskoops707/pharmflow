@@ -8,7 +8,7 @@ Config (first match wins for key/base):
   FREELLMAPI_URL / FREELLMAPI_API_KEY
   OPENAI_BASE_URL / OPENAI_API_KEY  (base may end with /v1)
   ANTHROPIC_BASE_URL / ANTHROPIC_API_KEY
-  %LOCALAPPDATA%\\FamFlowTools\\freellmapi.env
+  %LOCALAPPDATA%\\PharmFlowTools\\freellmapi.env
   %APPDATA%\\FreeLLMAPI\\config.json  (port only; default 31415)
 
 Examples:
@@ -30,7 +30,7 @@ from pathlib import Path
 from typing import Any
 
 DEFAULT_PORT = 31415
-ENV_FILE = Path(os.environ.get("LOCALAPPDATA", "")) / "FamFlowTools" / "freellmapi.env"
+ENV_FILE = Path(os.environ.get("LOCALAPPDATA", "")) / "PharmFlowTools" / "freellmapi.env"
 CONFIG_FILE = Path(os.environ.get("APPDATA", "")) / "FreeLLMAPI" / "config.json"
 
 

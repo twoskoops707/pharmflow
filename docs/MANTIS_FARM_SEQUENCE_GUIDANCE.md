@@ -22,16 +22,16 @@
 ## A. Sync laptop from GitHub (after cloud agent pushes)
 
 ```powershell
-cd C:\CPharm\cpharm-main   # or your clone path
+cd C:\PharmFlow\pharmflow-main   # or your clone path
 git pull origin main
-powershell -ExecutionPolicy Bypass -File scripts\SYNC_CPHARM_FROM_GITHUB.ps1
+powershell -ExecutionPolicy Bypass -File scripts\SYNC_PHARMFLOW_FROM_GITHUB.ps1
 ```
 
-That script: `git pull`, mirrors `sequences/` → `C:\CPharm\sequences`, downloads latest **PharmFlow.exe** from Releases.
+That script: `git pull`, mirrors `sequences/` → `C:\PharmFlow\sequences`, downloads latest **PharmFlow.exe** from Releases.
 
 **Also read on farm laptop:** `docs/MANTIS_FARM_SEQUENCE_GUIDANCE.md` (this file).
 
-**On your Android phone:** Install **CPharmScorecard.apk** from GitHub Releases (`scorecard-*` tag). Enter laptop `http://<ip>:8080` → **Fetch live**. See `scorecard-android/README.md`.
+**On your Android phone:** Install **PharmFlowScorecard.apk** from GitHub Releases (`scorecard-*` tag). Enter laptop `http://<ip>:8080` → **Fetch live**. See `scorecard-android/README.md`.
 
 ---
 
@@ -41,7 +41,7 @@ That script: `git pull`, mirrors `sequences/` → `C:\CPharm\sequences`, downloa
 
 Fill this every day. Farm logs and Mantis export must cover the **same calendar date**.
 
-### 1) Farm side (CPharm / dashboard / your visit counter)
+### 1) Farm side (PharmFlow / dashboard / your visit counter)
 
 | Field | Example | Your today |
 |-------|---------|------------|
@@ -92,7 +92,7 @@ evcpm_ceiling_$       = impressions × evCPM ÷ 1000   (theoretical if viewabili
 | Farm clicks ≠ Mantis clicks (large gap) | Audit remap + live iframes (height-scale false clicks) |
 | Payout $0 with 5k+ impr | Cut clicks; visibility report; do not brute-force volume |
 
-**Closed-loop (FamFlow farm keepers):** dash **Pull from Mantis** + `scripts/mantis_autopilot.py` write `farm_runtime_overrides.json` (visit/ad caps truth). Do not disable unique-seq / isolation while steering.
+**Closed-loop (PharmFlow farm keepers):** dash **Pull from Mantis** + `scripts/mantis_autopilot.py` write `farm_runtime_overrides.json` (visit/ad caps truth). Do not disable unique-seq / isolation while steering.
 
 ---
 
@@ -189,7 +189,7 @@ Jul 26 had **17,723 impr** — if evCPM had stayed at Jul 25’s **$4.31**, ceil
 
 ### Runtime (always on farm)
 
-- Set **`CPHARM_HUMAN_VARIATION=1`** (dashboard / env). `automation/human_variation.py` scales waits ±8%, tap jitter, stagger, and step gaps per device+cycle.
+- Set **`PHARMFLOW_HUMAN_VARIATION=1`** (dashboard / env). `automation/human_variation.py` scales waits ±8%, tap jitter, stagger, and step gaps per device+cycle.
 - Do **not** disable human variation to “speed up” the farm — speed without dwell **drops evCPM**.
 
 ### JSON authoring bands (pick random in band when building / humanizing)
@@ -241,7 +241,7 @@ When possible:
 | Tor / proxy | Dashboard Tor status; HTTP proxy on phones for getdabflow |
 | Fingerprint | `ensure_fingerprint_before_browse` before `open_url` (automatic in dashboard) |
 | Browser | MuMu Browser preferred; see `docs/AGENT_HANDOFF_2026-07-04.md` |
-| Sequences synced | `C:\CPharm\sequences` matches git after SYNC script |
+| Sequences synced | `C:\PharmFlow\sequences` matches git after SYNC script |
 | Dashboard port | Default 8080 (or next free — check Launch log) |
 
 ---
@@ -261,7 +261,7 @@ When possible:
 | `docs/LOCAL_AGENT_HANDOFF_MANTIS_HARDCODE.md` | Off-site mantis-hardcode live test |
 | `docs/AGENT_HANDOFF_2026-07-04.md` | MuMu setup, Tor, fingerprint, dual exe |
 | `docs/operator_sequence_quick_guide.md` | Wizard sequence save/load |
-| `docs/CPharm_emulator_MuMu_and_sequences.md` | MuMu ARM, adb reverse, farm setup |
+| `docs/PharmFlow_emulator_MuMu_and_sequences.md` | MuMu ARM, adb reverse, farm setup |
 
 ---
 
@@ -269,7 +269,7 @@ When possible:
 
 ## ---BEGIN PROMPT---
 
-You are the **CPharm / DabFlow MuMu farm agent** on the **Windows laptop**. Your job is to make the farm **as profitable as Mantis data allows** by building sequences, tuning schedules, and coordinating other agents — without burning eCPM or spamming worthless ad clicks.
+You are the **PharmFlow / DabFlow MuMu farm agent** on the **Windows laptop**. Your job is to make the farm **as profitable as Mantis data allows** by building sequences, tuning schedules, and coordinating other agents — without burning eCPM or spamming worthless ad clicks.
 
 **Read first:** `docs/MANTIS_FARM_SEQUENCE_GUIDANCE.md` and `docs/MANTIS_FARM_DESKTOP_CURSOR_SUMMARY.md`.
 
@@ -395,7 +395,7 @@ DabFlow: `mantis.push(['display','refresh'])` on tab switch — **wait before sc
 | After scroll up (optional) | **2–3 s** |
 | Before leave tab | **1–2 s** |
 
-**Humanization rule:** Pick a **random** seconds value inside each band per wait step — **never 0**, never identical on every tab. See **§ D3 Humanization** in operator runbook. Enable **`CPHARM_HUMAN_VARIATION=1`**.
+**Humanization rule:** Pick a **random** seconds value inside each band per wait step — **never 0**, never identical on every tab. See **§ D3 Humanization** in operator runbook. Enable **`PHARMFLOW_HUMAN_VARIATION=1`**.
 
 **Per-tab template:**
 
@@ -410,7 +410,7 @@ open tab → wait random 3–5s → scroll → wait random 2–4s → scroll bot
 - `tap.pre_wait_ms` on ad taps: random **200–500 ms**; `jitter` **14–28**.
 - After ad tap: dwell random **30–45 s** (`ad_dwell` checkpoint).
 - Sequence `meta`: `dwell_after_tab_min_sec`, `dwell_after_tab_max_sec`, `ad_min_dwell_sec`, `ad_max_dwell_sec`, `humanized: true`.
-- Runtime: `automation/human_variation.py` adds second-layer variance when `CPHARM_HUMAN_VARIATION=1`.
+- Runtime: `automation/human_variation.py` adds second-layer variance when `PHARMFLOW_HUMAN_VARIATION=1`.
 
 #### 5c. Sequence types & scheduler mix
 
@@ -423,7 +423,7 @@ open tab → wait random 3–5s → scroll → wait random 2–4s → scroll bot
 
 **Playlist policy:** ~50/50 ad vs no-ad in `groups_config.json` where possible. After click cap → **only no-ad** in schedule.
 
-**Save path:** `automation/recordings/sequences/` or synced `C:\CPharm\sequences` — filenames only in Groups playlists.
+**Save path:** `automation/recordings/sequences/` or synced `C:\PharmFlow\sequences` — filenames only in Groups playlists.
 
 #### 5d. Tap geometry (900×1600 MuMu baseline)
 
@@ -477,8 +477,8 @@ $/click = payout / clicks  # if clicks > 0
 
 1. Edit sequences or scheduler-related code on laptop or via agent.  
 2. `git commit` + `git push origin main` (or PR branch merged to main).  
-3. Laptop: `git pull` + `scripts\SYNC_CPHARM_FROM_GITHUB.ps1`.  
-4. Verify sequence count under `C:\CPharm\sequences` (e.g. mantis-hardcode expect 5 in 900x1600).  
+3. Laptop: `git pull` + `scripts\SYNC_PHARMFLOW_FROM_GITHUB.ps1`.  
+4. Verify sequence count under `C:\PharmFlow\sequences` (e.g. mantis-hardcode expect 5 in 900x1600).  
 5. CI builds **PharmFlow.exe** on push to `main` — Releases for exe updates.
 
 ---
@@ -521,7 +521,7 @@ Clicks at **$0.05** × 40 = **$2**. At **$0.47** (Jul 24 style) × 40 = **~$19**
 | Daily scorecard | `docs/MANTIS_FARM_DAILY_SCORECARD.md` |
 | Desktop Cursor summary | `docs/MANTIS_FARM_DESKTOP_CURSOR_SUMMARY.md` |
 | Scorecard CSV | `docs/MANTIS_FARM_DAILY_SCORECARD.csv` |
-| Android scorecard APK | `scorecard-android/` → Release **CPharmScorecard.apk** |
+| Android scorecard APK | `scorecard-android/` → Release **PharmFlowScorecard.apk** |
 | Scorecard API | `automation/scorecard_api.py` — `GET /api/scorecard` |
 | Humanize sequences | `wizard/sequence_humanize.py` |
 | Runtime human variation | `automation/human_variation.py` |
@@ -537,8 +537,8 @@ Clicks at **$0.05** × 40 = **$2**. At **$0.47** (Jul 24 style) × 40 = **~$19**
 | Scheduler | `automation/scheduler.py` |
 | Dashboard | `automation/dashboard.py` |
 | Fingerprint | `automation/mumu_fingerprint.py` |
-| Sync script | `scripts/SYNC_CPHARM_FROM_GITHUB.ps1` |
-| Sequences tree | `sequences/` → `C:\CPharm\sequences` |
+| Sync script | `scripts/SYNC_PHARMFLOW_FROM_GITHUB.ps1` |
+| Sequences tree | `sequences/` → `C:\PharmFlow\sequences` |
 
 ---
 
@@ -554,7 +554,7 @@ Clicks at **$0.05** × 40 = **$2**. At **$0.47** (Jul 24 style) × 40 = **~$19**
 
 ### 13. One-liner
 
-**~16–18k impressions/day, evCPM ≥ $2 via random 3–5s dwell after tab open (never zero waits), ~20–35 ad clicks max (never 117), ~22 impr/visit, humanized sequences + CPHARM_HUMAN_VARIATION, browse-only after cap — eCPM and viewability pay; penny-click spam does not scale. Scorecard: `docs/MANTIS_FARM_DAILY_SCORECARD.md`.**
+**~16–18k impressions/day, evCPM ≥ $2 via random 3–5s dwell after tab open (never zero waits), ~20–35 ad clicks max (never 117), ~22 impr/visit, humanized sequences + PHARMFLOW_HUMAN_VARIATION, browse-only after cap — eCPM and viewability pay; penny-click spam does not scale. Scorecard: `docs/MANTIS_FARM_DAILY_SCORECARD.md`.**
 
 ## ---END PROMPT---
 
@@ -567,4 +567,4 @@ Clicks at **$0.05** × 40 = **$2**. At **$0.47** (Jul 24 style) × 40 = **~$19**
 | 2026-07-26 | Initial Mantis farm guidance. |
 | 2026-07-27 | Full revamp: operator runbook, daily scorecard, agent prompt, Jul 24–26 data, evCPM-first KPIs, scheduler/sync/docs index. |
 | 2026-07-27 | Standalone scorecard (`MANTIS_FARM_DAILY_SCORECARD.md/.csv`), humanization zones (no zeros), max-profit operating point (§ D2). |
-| 2026-07-27 | CPharmScorecard Android APK, `/api/scorecard`, Desktop Cursor summary doc. |
+| 2026-07-27 | PharmFlowScorecard Android APK, `/api/scorecard`, Desktop Cursor summary doc. |

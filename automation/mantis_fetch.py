@@ -1,6 +1,6 @@
 """Fetch today's Mantis publisher metrics (Dab Flow) for the operator dash.
 
-Auth: Playwright persistent profile under C:\\CPharm\\logs\\mantis_pw_profile
+Auth: Playwright persistent profile under C:\\PharmFlow\\logs\\mantis_pw_profile
 (login once; invisible reCAPTCHA usually works headless). Falls back to a
 cookie header file if present.
 """
@@ -28,13 +28,13 @@ AUTH_PAGE = "https://admin.mantisadnetwork.com/v4/auth/"
 ADMIN_ORIGIN = "https://admin.mantisadnetwork.com"
 METRICS = ("IMPRESSIONS", "CLICKS", "PAYOUT", "ECPM", "EVCPM")
 
-LOG_DIR = Path(r"C:\CPharm\logs")
+LOG_DIR = Path(r"C:\PharmFlow\logs")
 COOKIE_HEADER_FILE = LOG_DIR / "mantis_admin_cookie_header.txt"
 PW_PROFILE_DIR = LOG_DIR / "mantis_pw_profile"
 PW_STATE_FILE = LOG_DIR / "mantis_playwright_state.json"
 CREDS_CANDIDATES = (
     LOG_DIR / "MANTIS.json",
-    Path(os.environ.get("CPHARM_CODE_ROOT", "")) / "logs" / "MANTIS.json",
+    Path(os.environ.get("PHARMFLOW_CODE_ROOT", "")) / "logs" / "MANTIS.json",
 )
 
 CREATE_GQL = """
@@ -290,7 +290,7 @@ def load_creds() -> tuple[str, str]:
                 password = raw.split(":", 1)[1].strip()
         if user and password:
             return user, password
-    raise FileNotFoundError("MANTIS.json credentials not found under FamFlow/logs or C:\\CPharm\\logs")
+    raise FileNotFoundError("MANTIS.json credentials not found under PharmFlow/logs or C:\\PharmFlow\\logs")
 
 
 def load_cookie_header() -> str | None:
@@ -607,21 +607,21 @@ def pull_today(
         except (urlerror.URLError, urlerror.HTTPError, RuntimeError, TimeoutError, OSError) as exc:
             log.warning("cookie-header pull failed (%s) — trying Playwright", exc)
     # Remediator / money_mon: never open Playwright when skip flag set.
-    if os.environ.get("CPHARM_MANTIS_SKIP_PLAYWRIGHT", "").strip().lower() in (
+    if os.environ.get("PHARMFLOW_MANTIS_SKIP_PLAYWRIGHT", "").strip().lower() in (
         "1",
         "true",
         "yes",
         "on",
     ):
         raise RuntimeError(
-            f"cookie Mantis pull failed and CPHARM_MANTIS_SKIP_PLAYWRIGHT=1 "
+            f"cookie Mantis pull failed and PHARMFLOW_MANTIS_SKIP_PLAYWRIGHT=1 "
             f"(last cookie error was logged)"
         )
     # Never auto-open a headed Mantis browser from remediator/dash/money_mon.
     # Headed Chromium was popping the Mantis site then dying and looking like
     # the farm dash "shut down". Opt-in only via headed=True AND env flag.
     allow_headed = headed and (
-        os.environ.get("CPHARM_MANTIS_ALLOW_HEADED", "").strip().lower()
+        os.environ.get("PHARMFLOW_MANTIS_ALLOW_HEADED", "").strip().lower()
         in ("1", "true", "yes", "on")
     )
     try:
@@ -637,7 +637,7 @@ def pull_today(
         # visible browser that steals focus / looks like a crash.
         log.warning(
             "headless Mantis pull failed (%s) — NOT retrying headed "
-            "(set CPHARM_MANTIS_ALLOW_HEADED=1 for manual re-auth)",
+            "(set PHARMFLOW_MANTIS_ALLOW_HEADED=1 for manual re-auth)",
             first,
         )
         raise

@@ -18,7 +18,7 @@ def _json_initial_dir() -> str | None:
 def _owner_hwnd(parent: Any) -> int | None:
     """Prefer the WebView2 window so the dialog is not parked behind the deck."""
     try:
-        from cpharm_wizard_bridge import _webview_native_hwnd
+        from pharmflow_wizard_bridge import _webview_native_hwnd
 
         hwnd = _webview_native_hwnd()
         if hwnd:

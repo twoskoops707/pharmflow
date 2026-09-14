@@ -9,9 +9,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-os.environ.setdefault("CPHARM_MANTIS_INJECT_PROXY", "1")
+os.environ.setdefault("PHARMFLOW_MANTIS_INJECT_PROXY", "1")
 
+from automation.browse_proxy import guest_proxy_healthy
 from automation.farm_checkin import format_checkin, gather_checkin
+from automation.mantis_inject_proxy import inject_enabled, phone_inject_port
 from automation.tor_manager import phone_http_port
 from wizard.mumu_farm_ops import MuMuFarmOps
 
@@ -20,46 +22,48 @@ def main() -> int:
     farm = MuMuFarmOps()
     farm.refresh_serials()
     phones = [
-        "vm0.gmadoa",
-        "vm1.gmadoa",
-        "vm2.gmadoa",
-        "vm3.gmadoa",
+        (name, inst)
+        for name, inst in list(getattr(farm, "instances", {}).items())
+        if getattr(inst, "adb_serial", "")
     ]
+    if not phones:
+        print("No phones with an ADB serial. Nothing was repaired.")
+        return 1
     results: list[str] = []
-    for name in phones:
-        inst = farm.get_phone(name)
-        if not inst or not inst.adb_serial:
-            results.append(f"{name}=MISSING")
-            print(name, "MISSING")
-            continue
+    repaired = 0
+    for name, inst in phones:
         try:
             farm.setup_tor(name)
         except Exception as exc:
             print(name, "setup_tor fail", exc)
-        inject = 8218 + int(inst.index)
+        idx = int(inst.index)
+        port = phone_inject_port(idx) if inject_enabled() else phone_http_port(idx)
         ser = inst.adb_serial
-        farm.adb.shell(
-            f"settings put global http_proxy 127.0.0.1:{inject}",
-            serial=ser,
-            timeout=8,
-        )
-        http = phone_http_port(inst.index)
+        if port > 0:
+            farm.adb.set_http_proxy("127.0.0.1", port, serial=ser)
+        http = phone_http_port(idx)
         try:
-            farm.adb.reverse(str(http), str(http), serial=ser)
-            farm.adb.reverse(str(inject), str(inject), serial=ser)
+            if http > 0:
+                farm.adb.reverse(str(http), str(http), serial=ser)
+            if port > 0:
+                farm.adb.reverse(str(port), str(port), serial=ser)
         except Exception as exc:
             print(name, "reverse", exc)
         px = (
             farm.adb.shell("settings get global http_proxy", serial=ser, timeout=8).stdout or ""
         ).strip()
-        ok = px == f"127.0.0.1:{inject}"
+        ok = guest_proxy_healthy(px, idx)
+        if ok:
+            repaired += 1
         short = name.split(".")[0]
-        line = f"{short} -> {px}"
-        print(line, "OK" if ok else "BAD expect", f"127.0.0.1:{inject}")
+        line = f"{short} -> {px or 'none'}"
+        print(line, "OK" if ok else "NOT REPAIRED")
         results.append(line)
-
+    if repaired < 1:
+        print(f"No phone got a loopback exit ({repaired} of {len(phones)}).")
+        return 1
     fixes = [
-        "Proxy restored: all phones -> inject 8218+ (cleared :0 after ad-fill)",
+        f"Proxy restored on {repaired} of {len(phones)} phone(s).",
         "; ".join(results),
     ]
     c = gather_checkin(fixes=fixes)
@@ -67,7 +71,7 @@ def main() -> int:
     print(format_checkin(c))
     print("proxy_bad", c.proxy_bad)
     print("(ntfy skipped — max 1/2h; use check-in for digest)")
-    return 0 if not c.proxy_bad else 1
+    return 0 if repaired == len(phones) and not c.proxy_bad else 1
 
 
 if __name__ == "__main__":

@@ -250,7 +250,7 @@ def read_device_identity(adb: AdbWrapper, serial: str) -> DeviceIdentity:
 
 def read_chromium_version(adb: AdbWrapper, serial: str) -> str:
     """Read installed Chromium/Chrome version from the device package manager."""
-    override = os.environ.get("CPHARM_CHROME_VERSION", "").strip()
+    override = os.environ.get("PHARMFLOW_CHROME_VERSION", "").strip()
     if override:
         return override
     for pkg in (BROWSER_CHROMIUM, "com.android.chrome"):
@@ -306,7 +306,7 @@ def build_chromium_command_line(profile: BrowserSessionProfile, *, phone_index: 
     )
     # MuMu RO /system often cannot persist MITM CA into Zygote trust; allow Chromium
     # to accept inject MITM certs when Mantis MITM is armed (still needs system CA when possible).
-    if (os.environ.get('CPHARM_MANTIS_INJECT_MITM') or '1').strip().lower() not in ('0','false','no','off'):
+    if (os.environ.get('PHARMFLOW_MANTIS_INJECT_MITM') or '1').strip().lower() not in ('0','false','no','off'):
         if '--ignore-certificate-errors' not in base:
             base += ' --ignore-certificate-errors'
     # Telemetry/crash/sync hardening (see automation.browser_privacy limitations).
@@ -547,9 +547,9 @@ def write_firefox_user_agent_override(
     ]
     if not paths:
         # Profile may not exist yet — seed a default path Fenix will adopt.
-        paths = [f"/data/data/{BROWSER_FIREFOX}/files/mozilla/cpharm.default/prefs.js"]
+        paths = [f"/data/data/{BROWSER_FIREFOX}/files/mozilla/pharmflow.default/prefs.js"]
         adb.shell(
-            f"mkdir -p /data/data/{BROWSER_FIREFOX}/files/mozilla/cpharm.default",
+            f"mkdir -p /data/data/{BROWSER_FIREFOX}/files/mozilla/pharmflow.default",
             serial=serial,
         )
     ok_any = False

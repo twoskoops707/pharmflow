@@ -28,18 +28,18 @@ from automation.browse_proxy import (
     resolve_browser_package,
     skips_mitm,
 )
-from automation.cpharm_exe_owned import exe_owns_farm
+from automation.pharmflow_exe_owned import exe_owns_farm
 from automation.process_scan import pids_matching
 
 DEFAULT_TOPIC = "twskoops"
-LOG_DIR = Path(r"C:\CPharm\logs")
+LOG_DIR = Path(r"C:\PharmFlow\logs")
 PROGRESS = LOG_DIR / "farm_354_progress.json"
 RESULTS = LOG_DIR / "farm_354_results.jsonl"
 FARM_LOG = LOG_DIR / "farm_354.log"
 MANTIS_TODAY = LOG_DIR / "mantis_today_state.json"
 NTFY_THROTTLE = LOG_DIR / "ntfy_throttle.json"
 # Hard cap: at most one outbound ntfy to twskoops every 2 hours (unless force=True).
-NTFY_MIN_INTERVAL_S = int(os.environ.get("CPHARM_NTFY_MIN_INTERVAL_S", "7200") or "7200")
+NTFY_MIN_INTERVAL_S = int(os.environ.get("PHARMFLOW_NTFY_MIN_INTERVAL_S", "7200") or "7200")
 
 _START_RE = re.compile(r"START\s+(\d+)\s+phones")
 _ONLINE_RE = re.compile(r"ONLINE (vm\d+\.gmadoa)")
@@ -119,7 +119,7 @@ class FarmCheckin:
 
 
 def _topic() -> str:
-    return os.environ.get("CPHARM_NTFY_TOPIC", DEFAULT_TOPIC).strip() or DEFAULT_TOPIC
+    return os.environ.get("PHARMFLOW_NTFY_TOPIC", DEFAULT_TOPIC).strip() or DEFAULT_TOPIC
 
 
 def _ntfy_url() -> str:
@@ -168,13 +168,13 @@ def _today_local_start_ts() -> float:
     return start.timestamp()
 
 
-def _cpharm_exe_pids() -> list[int]:
-    """PharmFlow/CPharm.exe PIDs — GUI alone is not proof the farm is running."""
+def _pharmflow_exe_pids() -> list[int]:
+    """PharmFlow/PharmFlow.exe PIDs — GUI alone is not proof the farm is running."""
     try:
         import psutil
 
         out: list[int] = []
-        names = {"cpharm.exe", "pharmflow.exe"}
+        names = {"pharmflow.exe", "pharmflow.exe"}
         for proc in psutil.process_iter(["pid", "name"]):
             if str(proc.info.get("name") or "").lower() in names:
                 out.append(int(proc.info["pid"]))
@@ -204,20 +204,20 @@ def _farm_pids() -> list[int]:
         if pids:
             return pids
         # EXE-owned farm (1.4.1+): require ownership flag or fresh progress —
-        # an idle PharmFlow/CPharm window must not report farm UP.
-        exe_pids = _cpharm_exe_pids()
+        # an idle PharmFlow/PharmFlow window must not report farm UP.
+        exe_pids = _pharmflow_exe_pids()
         if exe_pids and (exe_owns_farm() or _progress_fresh()):
             return exe_pids
         return []
     except Exception:
-        exe_pids = _cpharm_exe_pids()
+        exe_pids = _pharmflow_exe_pids()
         if exe_pids and (exe_owns_farm() or _progress_fresh()):
             return exe_pids
         return []
 
 
 def _adb_devices() -> list[str]:
-    adb = os.environ.get("CPHARM_ADB") or r"C:\CPharm\bundled\adb.exe"
+    adb = os.environ.get("PHARMFLOW_ADB") or r"C:\PharmFlow\bundled\adb.exe"
     try:
         from automation.win_subprocess import hidden_run_kwargs
 
@@ -416,7 +416,7 @@ def _load_mantis_today() -> dict[str, Any]:
 
 
 def _read_proxy(serial: str) -> str | None:
-    adb = os.environ.get("CPHARM_ADB") or r"C:\CPharm\bundled\adb.exe"
+    adb = os.environ.get("PHARMFLOW_ADB") or r"C:\PharmFlow\bundled\adb.exe"
     try:
         from automation.win_subprocess import hidden_run_kwargs
 
@@ -475,8 +475,27 @@ def _phone_idx_for_serial(serial: str) -> int | None:
     return None
 
 
+def _roster_indexes() -> list[int]:
+    """Absolute vm indexes from the live serial map. Not a count ceiling."""
+    try:
+        data = json.loads((LOG_DIR / "ADB_SERIAL_MAP.lock.json").read_text(encoding="utf-8"))
+        names = [str(k) for k, v in dict(data.get("phones") or {}).items() if str(v or "").strip()]
+    except Exception:
+        names = []
+    out: list[int] = []
+    for name in names:
+        match = re.match(r"^vm(\d+)\.", name)
+        if match:
+            out.append(int(match.group(1)))
+    return out
+
+
 def _idx_from_guest_proxy(value: str) -> int | None:
-    """Infer phone index from 127.0.0.1:<inject|tor> port when MuMu map misses."""
+    """Infer phone index from 127.0.0.1:<inject|tor> port when MuMu map misses.
+
+    Inject ports are INJECT_BASE + index. Tor HTTPTunnelPort is base + slot.
+    Scanning indexes 0-15 marked every later live pin as broken.
+    """
     raw = (value or "").strip()
     if not raw.startswith("127.0.0.1:"):
         return None
@@ -487,14 +506,38 @@ def _idx_from_guest_proxy(value: str) -> int | None:
     if port <= 0:
         return None
     try:
-        from automation.mantis_inject_proxy import phone_inject_port
-        from automation.tor_manager import phone_http_port
+        from automation.mantis_inject_proxy import INJECT_BASE, phone_inject_port
+        from automation.tor_manager import HTTP_TUNNEL_BASE, phone_http_port
+    except Exception:
+        return None
 
-        for i in range(16):
-            if int(phone_inject_port(i)) == port or int(phone_http_port(i)) == port:
-                return i
+    for idx in _roster_indexes():
+        try:
+            if int(phone_http_port(idx)) == port or int(phone_inject_port(idx)) == port:
+                return idx
+        except Exception:
+            continue
+
+    try:
+        if port >= int(INJECT_BASE):
+            idx = port - int(INJECT_BASE)
+            if int(phone_inject_port(idx)) == port:
+                return idx
     except Exception:
         pass
+
+    try:
+        base = int(HTTP_TUNNEL_BASE)
+    except (TypeError, ValueError):
+        return None
+    if port < base:
+        return None
+    linear = port - base
+    try:
+        if int(phone_http_port(linear)) == port:
+            return linear
+    except Exception:
+        return None
     return None
 
 
@@ -556,7 +599,7 @@ def _proxy_health(serials: list[str]) -> tuple[int, int, list[str]]:
     readings = {ser: _read_proxy(ser) for ser in serials}
     suspect = [ser for ser, val in readings.items() if not _proxy_ok_for_serial(ser, val)]
     if suspect:
-        time.sleep(float(os.environ.get("CPHARM_CHECKIN_PROXY_RECHECK_S", "8") or "8"))
+        time.sleep(float(os.environ.get("PHARMFLOW_CHECKIN_PROXY_RECHECK_S", "8") or "8"))
         for ser in suspect:
             readings[ser] = _read_proxy(ser)
     ok = 0
@@ -577,7 +620,7 @@ def gather_checkin(*, fixes: list[str] | None = None, note: str = "") -> FarmChe
     prog = _progress()
     ran, ok, fail, p3, ip_sw, per = _cycle_stats_from_progress(prog)
     proxies_ok, proxies_total, proxy_bad = _proxy_health(serials)
-    expect = int(os.environ.get("CPHARM_FARM_EXPECT_PHONES") or "5")
+    expect = int(os.environ.get("PHARMFLOW_FARM_EXPECT_PHONES") or "5")
     # The cycle's own phone list beats the env default, which goes stale the
     # moment the farm is launched with a different --phones set.
     cycle_phones = len(prog.get("phones") or {})
@@ -585,7 +628,7 @@ def gather_checkin(*, fixes: list[str] | None = None, note: str = "") -> FarmChe
         expect = cycle_phones
     else:
         try:
-            panel = Path(r"C:\CPharm\logs\farm_operator_panel.json")
+            panel = Path(r"C:\PharmFlow\logs\farm_operator_panel.json")
             if panel.is_file():
                 pdata = json.loads(panel.read_text(encoding="utf-8"))
                 n_panel = len(pdata.get("phones") or [])

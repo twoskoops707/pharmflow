@@ -30,13 +30,13 @@ class BrowseProxyPrefsTests(unittest.TestCase):
     def tearDown(self) -> None:
         self._patch.stop()
         self._td.cleanup()
-        os.environ.pop("CPHARM_BROWSE_PROXY_MODE", None)
+        os.environ.pop("PHARMFLOW_BROWSE_PROXY_MODE", None)
 
     def test_mode_from_prefs_default_scramble(self) -> None:
         self.assertEqual(bp.browse_proxy_mode(), "scramble")
 
     def test_env_overrides_prefs(self) -> None:
-        os.environ["CPHARM_BROWSE_PROXY_MODE"] = "tor"
+        os.environ["PHARMFLOW_BROWSE_PROXY_MODE"] = "tor"
         self.assertEqual(bp.browse_proxy_mode(), "tor")
 
     def test_upstream_url_for_phone(self) -> None:
@@ -50,9 +50,16 @@ class BrowseProxyPrefsTests(unittest.TestCase):
         self.assertTrue(auth and auth.startswith("Basic "))
 
     def test_save_browse_prefs(self) -> None:
-        bp.save_browse_prefs(browse_proxy_mode="upstream")
+        saved = bp.save_browse_prefs(browse_proxy_mode="upstream")
+        self.assertIsInstance(saved, dict)
         data = json.loads(self.prefs.read_text(encoding="utf-8"))
         self.assertEqual(data["browse_proxy_mode"], "upstream")
+        self.assertEqual(data["phone_upstream_proxies"], ["http://u:p@1.2.3.4:8080"])
+
+    def test_corrupt_prefs_are_not_replaced(self) -> None:
+        self.prefs.write_text("{not json", encoding="utf-8")
+        self.assertIsNone(bp.save_browse_prefs(browse_proxy_mode="direct"))
+        self.assertEqual(self.prefs.read_text(encoding="utf-8"), "{not json")
 
 
 class BrowseProxySessionTests(unittest.TestCase):

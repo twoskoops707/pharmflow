@@ -5,12 +5,12 @@ Works with any Android device: AVD emulators, BlueStacks, Genymotion, MEmu, NOX,
 Launch (Windows): double-click automation/run_dashboard.bat or start_dashboard.bat — both ``cd``
 to ``automation/`` first so ``dashboard.html`` / config paths resolve next to ``dashboard.py``.
 
-Ports and default bind are set in ``config.py``. **Primary HTTP port** is ``CPHARM_PORT`` (default 8080);
-``CPHARM_WS_PORT`` defaults to HTTP+1. If the HTTP bind fails with address-in-use (Windows WinError 10048,
-Unix EADDRINUSE / errno 98), the server tries the next ports up to ``CPHARM_PORT_TRY_COUNT`` attempts (default 20).
+Ports and default bind are set in ``config.py``. **Primary HTTP port** is ``PHARMFLOW_PORT`` (default 8080);
+``PHARMFLOW_WS_PORT`` defaults to HTTP+1. If the HTTP bind fails with address-in-use (Windows WinError 10048,
+Unix EADDRINUSE / errno 98), the server tries the next ports up to ``PHARMFLOW_PORT_TRY_COUNT`` attempts (default 20).
 WebSocket binds to the configured WS port unless that equals the chosen HTTP port, then the next free port is used.
-If ``CPHARM_HOST`` is set, it overrides the bind address for HTTP/WebSocket and the ``bind`` field in ``/api/config``
-(otherwise ``BIND`` from config is used). For unattended Windows launches, ``CPHARM_UNATTENDED=1`` makes
+If ``PHARMFLOW_HOST`` is set, it overrides the bind address for HTTP/WebSocket and the ``bind`` field in ``/api/config``
+(otherwise ``BIND`` from config is used). For unattended Windows launches, ``PHARMFLOW_UNATTENDED=1`` makes
 ``start_dashboard.bat`` skip the final ``pause``.
 """
 
@@ -43,9 +43,15 @@ def _force_utf8_stdio() -> None:
 _force_utf8_stdio()
 
 import automation.no_window  # noqa: E402,F401  — CREATE_NO_WINDOW for adb/tor children
+from automation.session_notes_uia import (  # noqa: E402
+    dismiss_session_notes_verified,
+    step_wants_session_notes_dismiss,
+    step_wants_session_notes_gone,
+    wait_session_notes_gone,
+)
 
 import datetime
-from datetime import timezone
+from zoneinfo import ZoneInfo
 import asyncio
 import base64
 import errno
@@ -70,11 +76,17 @@ for _p in (SCRIPT_DIR, REPO_ROOT):
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
 
+from automation.earn_plan import (  # noqa: E402
+    compute_earn_plan,
+    load_earn_plan,
+    save_earn_plan,
+)
+
 try:
     from websockets.server import serve
 except ImportError as e:
     print(
-        "  [cpharm] Missing Python dependency (websockets).\n"
+        "  [pharmflow] Missing Python dependency (websockets).\n"
         "           Install with:  py -3 -m pip install --user \"websockets>=12.0\"\n"
         "           Offline/air-gap: pre-install wheels into this environment, or use a venv.\n",
         file=sys.stderr,
@@ -85,9 +97,9 @@ import tor_manager
 import mumu_fingerprint
 import teach as teach_mod
 import playstore as ps_mod  # legacy — not linked from dashboard.html operator UI
-from config import PORT, WS_PORT, BIND, APK_DIR, REC_DIR, EMULATOR_PORTS
+from config import PORT, WS_PORT, BIND, APK_DIR, REC_DIR
 
-# Config defaults (``CPHARM_PORT`` / ``CPHARM_WS_PORT``). Runtime listen ports may differ after bind fallback.
+# Config defaults (``PHARMFLOW_PORT`` / ``PHARMFLOW_WS_PORT``). Runtime listen ports may differ after bind fallback.
 CONFIG_HTTP_PORT = PORT
 CONFIG_WS_PORT = WS_PORT
 LISTEN_HTTP_PORT = PORT
@@ -108,8 +120,14 @@ from sequence_geometry import (
 )
 from device_open_url import am_start_view_url_argv
 from adb_paths import adb_executable
+from adb_wrapper import AdbWrapper
+from browse_proxy import guest_proxy_healthy, pin_guest_proxy
 from browser_adb import (
     _pkg_is_chrome_family,
+    am_start_reported_landing,
+    apk_install_reported,
+    monkey_launch_reported,
+    pm_clear_reported,
     browser_pkg_for_clear,
     invalidate_webview_inset_cache,
     looks_like_package,
@@ -128,9 +146,9 @@ from sequence_playlist import (
 from wizard.wizard_paths import sequences_dir as _sequences_dir
 
 logging.basicConfig(level=logging.INFO, format="  %(message)s")
-log = logging.getLogger("cpharm")
+log = logging.getLogger("pharmflow")
 
-LISTEN_HOST = os.environ.get("CPHARM_HOST", "").strip() or BIND
+LISTEN_HOST = os.environ.get("PHARMFLOW_HOST", "").strip() or BIND
 
 # Quick actions are fixed shortcuts (not sequence-scaled); tune per farm if needed.
 _QUICK_ACTIONS = {
@@ -204,6 +222,50 @@ def _get_phone_runs() -> list[dict]:
         return [dict(v) for v in _group_phone_runs.values()]
 
 
+def _group_finish_log(name: str) -> str:
+    """Finish line for a group run. Never a checkmark, and never 'done' with no completed phone."""
+    if not _running_groups.get(name):
+        return f"[{name}] Stopped"
+    runs = [r for r in _get_phone_runs() if r.get("group") == name]
+    failed = [r for r in runs if r.get("state") == "error"]
+    completed = [
+        r for r in runs if r.get("state") == "done" and r.get("result") == "completed"
+    ]
+    if not completed:
+        extra = f" ({len(failed)} failed)" if failed else ""
+        return f"[{name}] Finished with no completed phones{extra}"
+    if failed:
+        return f"[{name}] Finished — {len(completed)} phone(s) completed, {len(failed)} failed"
+    return f"[{name}] Finished — {len(completed)} phone(s) completed"
+
+
+def _load_groups_cfg() -> tuple[dict | None, str]:
+    """Read groups_config.json. A bad file is left on disk, not replaced with []."""
+    if not GROUPS_CFG.exists():
+        return None, "no groups_config.json found — create a group below"
+    try:
+        cfg = json.loads(GROUPS_CFG.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError, UnicodeError):
+        return None, "groups_config.json could not be read — the file was not replaced"
+    if not isinstance(cfg, dict) or not isinstance(cfg.get("groups"), list):
+        return None, "groups_config.json could not be read — the file was not replaced"
+    return cfg, ""
+
+
+def _persist_groups_cfg(cfg: dict) -> bool:
+    """Write groups_config.json and keep the claim only if the disk copy matches."""
+    expected = cfg.get("groups")
+    if not isinstance(expected, list):
+        return False
+    try:
+        REC_DIR.mkdir(parents=True, exist_ok=True)
+        GROUPS_CFG.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
+        stored = json.loads(GROUPS_CFG.read_text(encoding="utf-8"))
+    except (OSError, TypeError, json.JSONDecodeError, UnicodeError, ValueError):
+        return False
+    return stored.get("groups") == expected
+
+
 # Per-phone live stealth-panel state (exit IP, disguise, fingerprint, rotation count).
 _stealth_state: dict[str, dict] = {}
 _stealth_lock = threading.Lock()
@@ -243,6 +305,26 @@ def _bump_phone_rotation(serial: str) -> None:
     with _stealth_lock:
         st = _stealth_state.setdefault(serial, {})
         st["rotation_count"] = st.get("rotation_count", 0) + 1
+
+
+def _identity_reset_landed(result: dict | None) -> bool:
+    """A new circuit is not a reset unless the guest read is the written loopback exit."""
+    result = result or {}
+    return bool(result.get("tor_circuit_rotated")) and bool(result.get("http_proxy_applied"))
+
+
+def _identity_reset_log(label: str, result: dict | None) -> str:
+    """Finish line for a reset. Success means a new circuit and a pinned guest exit."""
+    result = result or {}
+    proxy = str(result.get("http_proxy") or "").strip()
+    if _identity_reset_landed(result):
+        return f"{label} identity reset — new Tor circuit on {proxy}"
+    if result.get("tor_circuit_rotated") and not result.get("http_proxy_applied"):
+        return (
+            f"{label} identity reset failed — circuit changed but the guest exit was not pinned"
+            + (f" ({proxy})" if proxy else "")
+        )
+    return f"{label} identity reset failed — no new Tor circuit"
 
 
 def _get_stealth_payload() -> list[dict]:
@@ -294,7 +376,8 @@ _farm_visits_last_write = 0.0
 
 
 def _tally_today_key() -> str:
-    return datetime.datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    """Pacific day, same day Mantis uses. A UTC date splits today's visits at 5pm."""
+    return datetime.datetime.now(ZoneInfo("America/Los_Angeles")).date().isoformat()
 
 
 def _load_farm_visits_tally() -> dict[str, int]:
@@ -358,7 +441,7 @@ def _start_exit_ip_verification_if_idle() -> None:
         if (
             not _stealth_verify_running
             and _unique_exit_ips_enabled()
-            and not _cpharm_skip_tor_wait()
+            and not _pharmflow_skip_tor_wait()
         ):
             _stealth_verify_running = True
             threading.Thread(target=_run_exit_ip_verification, daemon=True).start()
@@ -493,7 +576,7 @@ def _adb_env_disabled(name: str) -> bool:
 
 
 def _adb_debug_enabled() -> bool:
-    return _adb_truthy_env("CPHARM_ADB_DEBUG")
+    return _adb_truthy_env("PHARMFLOW_ADB_DEBUG")
 
 
 def _adb_debug(msg: str, *args) -> None:
@@ -502,7 +585,7 @@ def _adb_debug(msg: str, *args) -> None:
 
 
 def _adb_post_tor_grace_seconds() -> float:
-    raw = (os.environ.get("CPHARM_ADB_POST_TOR_GRACE_SEC") or "12").strip()
+    raw = (os.environ.get("PHARMFLOW_ADB_POST_TOR_GRACE_SEC") or "12").strip()
     try:
         return min(60.0, max(0.0, float(raw)))
     except (TypeError, ValueError):
@@ -531,7 +614,7 @@ def _adb_connect_on_failure_enabled(serial: str) -> bool:
     """Default **on** for ``IP:port`` ADB serials (TCP drops); off for USB ``emulator-*`` unless forced."""
     if not _TCP_ADB_SERIAL_RE.match(serial):
         return False
-    v = (os.environ.get("CPHARM_ADB_CONNECT_ON_FAILURE") or "").strip().lower()
+    v = (os.environ.get("PHARMFLOW_ADB_CONNECT_ON_FAILURE") or "").strip().lower()
     if v in ("0", "false", "no", "off"):
         return False
     if v in ("1", "true", "yes", "on"):
@@ -548,12 +631,12 @@ def _touch_wake_default_serial(serial: str) -> bool:
 
 def _emulator_automation_profile(serial: str) -> bool:
     """Wider tap jitter + wake defaults when treating this device as an emulator farm unit."""
-    return _adb_truthy_env("CPHARM_EMULATOR_MODE") or _touch_wake_default_serial(serial)
+    return _adb_truthy_env("PHARMFLOW_EMULATOR_MODE") or _touch_wake_default_serial(serial)
 
 
 def _touch_wake_enabled(serial: str) -> bool:
     """Wake before tap/swipe: explicit env wins; else default **on** for emulator TCP / ``emulator-*``."""
-    raw = (os.environ.get("CPHARM_TOUCH_WAKE_BEFORE_INPUT") or "").strip().lower()
+    raw = (os.environ.get("PHARMFLOW_TOUCH_WAKE_BEFORE_INPUT") or "").strip().lower()
     if raw in ("0", "false", "no", "off"):
         return False
     if raw in ("1", "true", "yes", "on"):
@@ -565,14 +648,14 @@ def _emulator_tap_jitter_multiplier(serial: str) -> float:
     if not _emulator_automation_profile(serial):
         return 1.0
     try:
-        m = float(os.environ.get("CPHARM_EMULATOR_TAP_JITTER_MULT", "1.35") or 1.35)
+        m = float(os.environ.get("PHARMFLOW_EMULATOR_TAP_JITTER_MULT", "1.35") or 1.35)
     except (TypeError, ValueError):
         return 1.35
     return min(3.0, max(1.0, m))
 
 
-def _cpharm_skip_tor_wait() -> bool:
-    return os.environ.get("CPHARM_SKIP_TOR_WAIT", "").strip().lower() in (
+def _pharmflow_skip_tor_wait() -> bool:
+    return os.environ.get("PHARMFLOW_SKIP_TOR_WAIT", "").strip().lower() in (
         "1",
         "true",
         "yes",
@@ -594,36 +677,47 @@ def _prefs_flag(name: str, default: bool | None = None) -> bool | None:
     return default
 
 
-def _write_stealth_prefs(**fields: bool | None) -> dict:
-    """Merge stealth settings into ``desktop_prefs.json`` so they survive restarts."""
+def _write_stealth_prefs(**fields: bool | None) -> dict | None:
+    """Merge stealth flags and keep them only if the disk copy matches.
+
+    A corrupt prefs file is not replaced. Replacing it used to wipe
+    ``mumu_setup_complete``.
+    """
+    updates = {k: v for k, v in fields.items() if isinstance(v, bool)}
+    if not updates:
+        return None
     data: dict = {}
-    try:
-        if DESKTOP_PREFS.exists():
-            try:
-                data = json.loads(DESKTOP_PREFS.read_text(encoding="utf-8"))
-            except (json.JSONDecodeError, OSError):
-                data = {}
-            if not isinstance(data, dict):
-                data = {}
-    except OSError:
-        pass
-    data.update({k: v for k, v in fields.items() if v is not None})
+    if DESKTOP_PREFS.exists():
+        try:
+            loaded = json.loads(DESKTOP_PREFS.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError, UnicodeError):
+            return None
+        if not isinstance(loaded, dict):
+            return None
+        data = loaded
+    data.update(updates)
     try:
         DESKTOP_PREFS.parent.mkdir(parents=True, exist_ok=True)
         DESKTOP_PREFS.write_text(json.dumps(data, indent=2), encoding="utf-8")
-    except OSError:
-        pass
-    return data
+        stored = json.loads(DESKTOP_PREFS.read_text(encoding="utf-8"))
+    except (OSError, TypeError, json.JSONDecodeError, UnicodeError, ValueError):
+        return None
+    if not isinstance(stored, dict):
+        return None
+    for key, value in updates.items():
+        if stored.get(key) is not value:
+            return None
+    return stored
 
 
 def _rotate_every_sequence_enabled() -> bool:
     """Rotate fingerprint/proxy/Tor/IMEI after every sequence run (default ON).
 
-    Precedence: ``CPHARM_ROTATE_EVERY_SEQUENCE`` env, then ``desktop_prefs.json``
+    Precedence: ``PHARMFLOW_ROTATE_EVERY_SEQUENCE`` env, then ``desktop_prefs.json``
     ``rotate_every_sequence``, then default ON. Set explicitly to ``0`` to restore
     the old playlist-cycle-end behavior.
     """
-    v = os.environ.get("CPHARM_ROTATE_EVERY_SEQUENCE")
+    v = os.environ.get("PHARMFLOW_ROTATE_EVERY_SEQUENCE")
     if v is not None:
         return v.strip().lower() not in ("0", "false", "no", "off")
     pref = _prefs_flag("rotate_every_sequence", True)
@@ -633,10 +727,10 @@ def _rotate_every_sequence_enabled() -> bool:
 def _unique_exit_ips_enabled() -> bool:
     """Enforce a unique Tor exit IP per phone (default ON).
 
-    Precedence: ``CPHARM_UNIQUE_EXIT_IPS`` env, then ``desktop_prefs.json``
+    Precedence: ``PHARMFLOW_UNIQUE_EXIT_IPS`` env, then ``desktop_prefs.json``
     ``unique_exit_ips``, then default ON.
     """
-    v = os.environ.get("CPHARM_UNIQUE_EXIT_IPS")
+    v = os.environ.get("PHARMFLOW_UNIQUE_EXIT_IPS")
     if v is not None:
         return v.strip().lower() not in ("0", "false", "no", "off")
     pref = _prefs_flag("unique_exit_ips", True)
@@ -732,23 +826,23 @@ def _adb_output_suggests_timeout(res: AdbResult) -> bool:
 
 
 def _adb_with_optional_daemon_recovery(argv: list[str], timeout: int) -> AdbResult:
-    """Run adb once; if the daemon is wedged (dead or timing out on every command),
-    ``adb kill-server`` + ``start-server`` once and retry.
+    """Run adb once; if the daemon looks dead, ``start-server`` once and retry.
 
-    Enabled by default (``CPHARM_ADB_START_SERVER=0`` to disable). A wedged server
-    presents as per-command timeouts (rc=15/None), not just "cannot connect", so
-    both failure modes trigger the recovery — otherwise every phone stalls and the
-    farm looks dead.
+    ``adb kill-server`` drops every live phone. A timeout on one command is not
+    a reason to do that. start-server brings a dead daemon up and leaves an
+    already-running daemon alone.
+
+    Enabled by default (``PHARMFLOW_ADB_START_SERVER=0`` to disable).
     """
     global _adb_session_start_server_attempted
     global _adb_server_recover_last
     res = _adb_combine_run(argv, timeout)
     now = time.time()
     if (
-        # Recovery is ON by default; only ``CPHARM_ADB_START_SERVER=0`` disables it.
+        # Recovery is ON by default; only ``PHARMFLOW_ADB_START_SERVER=0`` disables it.
         # (Earlier code required the var to be truthy, so a plain ``python dashboard.py``
         # never recovered from a wedged daemon — the farm stalled until a manual restart.)
-        _adb_env_disabled("CPHARM_ADB_START_SERVER")
+        _adb_env_disabled("PHARMFLOW_ADB_START_SERVER")
         or now - _adb_server_recover_last < _adb_server_recover_min_gap
         or not (_adb_output_suggests_daemon_failure(res) or _adb_output_suggests_timeout(res))
     ):
@@ -757,11 +851,10 @@ def _adb_with_optional_daemon_recovery(argv: list[str], timeout: int) -> AdbResu
     _adb_server_recover_last = now
     exe = argv[0] if argv else adb_executable()
     log.warning(
-        "ADB daemon wedged — killing and restarting the server, then retrying argv≈%s (next auto-recovery in %.0fs)",
+        "ADB command failed — start-server and retry argv≈%s (no kill-server; next try in %.0fs)",
         " ".join(str(x) for x in argv[:6]),
         _adb_server_recover_min_gap,
     )
-    _adb_combine_run([exe, "kill-server"], timeout=15)
     _adb_combine_run([exe, "start-server"], timeout=25)
     # MuMu TCP sessions drop with the server; reconnect the guest-bridge phones.
     _adb_reconnect_known_phones()
@@ -771,8 +864,7 @@ def _adb_with_optional_daemon_recovery(argv: list[str], timeout: int) -> AdbResu
 def _adb_reconnect_known_phones() -> None:
     """Re-``adb connect`` every known MuMu guest-bridge serial after a server restart.
 
-    ``adb kill-server`` drops all TCP sessions; without this the farm would sit with
-    zero online devices until the user manually reconnects. Known serials come from
+    A dropped TCP session is not a reason to kill the ADB server. Known serials come from
     the live ``devices`` list plus saved prefs so fresh IPs churned by MuMu are covered.
     """
     known: set[str] = set()
@@ -816,6 +908,11 @@ def _record_group_adb_error(group_name: str, serial: str, tag: str, res: AdbResu
     with _group_adb_errors_lock:
         _group_adb_errors.append(row)
         del _group_adb_errors[:-_GROUP_ADB_ERRORS_MAX]
+
+
+def _adb_landed(res: AdbResult) -> bool:
+    """True only when adb returned and did not report a failure."""
+    return not _adb_indicates_trouble(res)
 
 
 def _adb(serial: str, *args, timeout: int = 15) -> AdbResult:
@@ -898,7 +995,7 @@ def _maybe_log_tcp_reconnect_burst(serial: str, streak: int, every_n: int) -> No
     _tcp_reconnect_burst_log_at[serial] = now
     log.warning(
         "ADB TCP serial not responding (%s) — attempting adb connect (miss #%s; interval=%s). "
-        "Set CPHARM_ADB_CONNECT_ON_FAILURE=0 to disable reconnects for this serial class.",
+        "Set PHARMFLOW_ADB_CONNECT_ON_FAILURE=0 to disable reconnects for this serial class.",
         serial,
         streak,
         every_n,
@@ -908,10 +1005,10 @@ def _maybe_log_tcp_reconnect_burst(serial: str, streak: int, every_n: int) -> No
 def ensure_adb_serial_ready(serial: str, adb_issue_cb=None) -> bool:
     """Cheap preflight + optional TCP reconnect before sequence steps.
 
-    Skipped when ``CPHARM_SKIP_DEVICE_PREFLIGHT=1``. Uses a short per-serial cache so
+    Skipped when ``PHARMFLOW_SKIP_DEVICE_PREFLIGHT=1``. Uses a short per-serial cache so
     burst steps do not hammer ``adb shell echo``.
     """
-    if _adb_truthy_env("CPHARM_SKIP_DEVICE_PREFLIGHT"):
+    if _adb_truthy_env("PHARMFLOW_SKIP_DEVICE_PREFLIGHT"):
         return True
     now = time.time()
     ttl = _DEVICE_PREFLIGHT_TTL_SEC
@@ -933,7 +1030,7 @@ def ensure_adb_serial_ready(serial: str, adb_issue_cb=None) -> bool:
     if _adb_in_post_tor_grace(serial):
         for attempt in range(2):
             try:
-                bo = float(os.environ.get("CPHARM_ADB_POST_TOR_SHELL_RETRY_SEC", "0.55") or 0.55)
+                bo = float(os.environ.get("PHARMFLOW_ADB_POST_TOR_SHELL_RETRY_SEC", "0.55") or 0.55)
             except (TypeError, ValueError):
                 bo = 0.55
             time.sleep(min(2.0, max(0.15, bo * (attempt + 1))))
@@ -957,7 +1054,7 @@ def ensure_adb_serial_ready(serial: str, adb_issue_cb=None) -> bool:
         adb_issue_cb("device_preflight", res)
 
     try:
-        every_n = max(1, int(os.environ.get("CPHARM_ADB_RECONNECT_EVERY_N_FAILURES", "2") or "2"))
+        every_n = max(1, int(os.environ.get("PHARMFLOW_ADB_RECONNECT_EVERY_N_FAILURES", "2") or "2"))
     except (TypeError, ValueError):
         every_n = 2
     _device_tcp_miss_streak[serial] = _device_tcp_miss_streak.get(serial, 0) + 1
@@ -986,7 +1083,7 @@ def ensure_adb_serial_ready(serial: str, adb_issue_cb=None) -> bool:
         _maybe_log_tcp_reconnect_burst(serial, streak, every_n)
         _try_adb_tcp_reconnect(serial)
         try:
-            bo = float(os.environ.get("CPHARM_ADB_RECONNECT_BACKOFF_SEC", "") or 0)
+            bo = float(os.environ.get("PHARMFLOW_ADB_RECONNECT_BACKOFF_SEC", "") or 0)
         except (TypeError, ValueError):
             bo = 0.0
         if bo <= 0:
@@ -1001,7 +1098,7 @@ def ensure_adb_serial_ready(serial: str, adb_issue_cb=None) -> bool:
             _device_tcp_miss_streak[serial] = 0
             invalidate_cache(serial)
             log.info("ADB TCP reconnect OK serial=%s", serial)
-            if not _cpharm_skip_tor_wait():
+            if not _pharmflow_skip_tor_wait():
                 try:
                     idx = _phone_idx_from_serial(serial)
                     tor_manager.repair_adb_reverse_for_proxy(serial, idx)
@@ -1014,7 +1111,7 @@ def ensure_adb_serial_ready(serial: str, adb_issue_cb=None) -> bool:
     if not _serial_listed_as_online_device(serial):
         log.error(
             "Phone not responding (%s). If MuMu was closed, start that phone. "
-            "On Boot, click Start all phones. See docs/CPharm_emulator_MuMu_and_sequences.md",
+            "On Boot, click Start all phones. See docs/PharmFlow_emulator_MuMu_and_sequences.md",
             serial,
         )
     else:
@@ -1032,7 +1129,7 @@ def _maybe_wake_before_touch(serial: str) -> None:
         return
     _adb(serial, "shell", "input", "keyevent", "224", timeout=8)
     try:
-        dly = float(os.environ.get("CPHARM_TOUCH_WAKE_DELAY_SEC", "0.35") or 0.35)
+        dly = float(os.environ.get("PHARMFLOW_TOUCH_WAKE_DELAY_SEC", "0.35") or 0.35)
     except (TypeError, ValueError):
         dly = 0.35
     time.sleep(min(2.5, max(0.0, dly)))
@@ -1041,10 +1138,10 @@ def _maybe_wake_before_touch(serial: str) -> None:
 def _open_url_am_start_timeout_sec() -> float:
     """Timeout for each ``adb shell am start`` attempt (MuMu cold start / busy system).
 
-    Override ``CPHARM_OPEN_URL_AM_START_TIMEOUT_SEC`` (default **35**, clamped 15–120).
+    Override ``PHARMFLOW_OPEN_URL_AM_START_TIMEOUT_SEC`` (default **35**, clamped 15–120).
     """
     try:
-        v = float(os.environ.get("CPHARM_OPEN_URL_AM_START_TIMEOUT_SEC", "35") or 35)
+        v = float(os.environ.get("PHARMFLOW_OPEN_URL_AM_START_TIMEOUT_SEC", "35") or 35)
     except (TypeError, ValueError):
         v = 35.0
     return max(15.0, min(120.0, v))
@@ -1052,7 +1149,7 @@ def _open_url_am_start_timeout_sec() -> float:
 
 def _open_url_debug_enabled() -> bool:
     """Verbose ``open_url`` diagnostics (resolve-activity snapshot after PID timeout, etc.)."""
-    return _adb_truthy_env("CPHARM_OPEN_URL_DEBUG")
+    return _adb_truthy_env("PHARMFLOW_OPEN_URL_DEBUG")
 
 
 def _pid_wait_pkg_running(serial: str, pkg: str) -> bool:
@@ -1068,7 +1165,7 @@ def _wait_for_browser_pid_after_open(serial: str, step: dict) -> None:
     """Poll ``pidof`` for resolved browser packages after ``am start`` (cold/slow browser start).
 
     After the process appears, callers should still sleep for first-navigation paint when the step
-    omits ``post_wait_secs`` — see :func:`_open_url_settle_after_pid` (``CPHARM_OPEN_URL_*``).
+    omits ``post_wait_secs`` — see :func:`_open_url_settle_after_pid` (``PHARMFLOW_OPEN_URL_*``).
     For slow SPAs, add a sequence ``wait`` step following ``open_url``.
     """
     pref = str(step.get("package", "")).strip()
@@ -1076,7 +1173,7 @@ def _wait_for_browser_pid_after_open(serial: str, step: dict) -> None:
     if not pkgs:
         return
     try:
-        timeout = float(os.environ.get("CPHARM_OPEN_URL_LAUNCH_WAIT_SEC", "65"))
+        timeout = float(os.environ.get("PHARMFLOW_OPEN_URL_LAUNCH_WAIT_SEC", "65"))
     except (TypeError, ValueError):
         timeout = 65.0
     timeout = max(8.0, min(timeout, 180.0))
@@ -1088,7 +1185,7 @@ def _wait_for_browser_pid_after_open(serial: str, step: dict) -> None:
         time.sleep(0.48)
     log.warning(
         "ERROR_TIMEOUT browser PID wait serial=%s candidates=%s — cold/slow browser, MuMu quirk, or launch blocked; "
-        "raise CPHARM_OPEN_URL_LAUNCH_WAIT_SEC (default 65), add open_url post_wait_secs / sequence wait step (see docs).",
+        "raise PHARMFLOW_OPEN_URL_LAUNCH_WAIT_SEC (default 65), add open_url post_wait_secs / sequence wait step (see docs).",
         serial,
         pkgs[:8],
     )
@@ -1122,19 +1219,19 @@ def _open_url_default_extra_sleep(step: dict) -> float:
     if step.get("post_wait_secs") is not None and str(step.get("post_wait_secs", "")).strip() != "":
         return 0.0
     try:
-        v = float(os.environ.get("CPHARM_OPEN_URL_DEFAULT_WAIT_SEC", "6") or 6)
+        v = float(os.environ.get("PHARMFLOW_OPEN_URL_DEFAULT_WAIT_SEC", "6") or 6)
     except (TypeError, ValueError):
         return 0.0
-    return min(120.0, max(0.0, v))
+    return max(0.0, v)
 
 
 def _open_url_first_nav_floor_sec() -> float:
     """Minimum extra settle after browser PID (first paint / proxy path); merged with default wait via max()."""
     try:
-        v = float(os.environ.get("CPHARM_OPEN_URL_FIRST_NAV_SEC", "4") or 4)
+        v = float(os.environ.get("PHARMFLOW_OPEN_URL_FIRST_NAV_SEC", "4") or 4)
     except (TypeError, ValueError):
         return 4.0
-    return min(90.0, max(0.0, v))
+    return max(0.0, v)
 
 
 def _open_url_settle_after_pid(step: dict) -> float:
@@ -1145,7 +1242,7 @@ def _open_url_settle_after_pid(step: dict) -> float:
 
 
 def _device_network_hint_online(serial: str) -> bool | None:
-    """Best-effort guest egress check for ``CPHARM_OPEN_URL_NET_CHECK``. None = inconclusive."""
+    """Best-effort guest egress check for ``PHARMFLOW_OPEN_URL_NET_CHECK``. None = inconclusive."""
     pr = _adb(serial, "shell", "ping", "-c", "1", "-W", "3", "8.8.8.8", timeout=14)
     text = ((pr.stdout or "") + (pr.stderr or "")).lower()
     if pr.returncode == 0 and ("1 received" in text or "bytes from" in text):
@@ -1310,9 +1407,9 @@ _OPEN_URL_BROWSER_NET_RE = re.compile(
 def _open_url_nav_retry_enabled() -> bool:
     """Default **on** — the retry is the primary recovery path when the just-applied
     http_proxy hadn't taken effect at the moment Chromium opened its first connection.
-    Operators can disable via ``CPHARM_OPEN_URL_NAV_RETRY=0`` for the old behaviour.
+    Operators can disable via ``PHARMFLOW_OPEN_URL_NAV_RETRY=0`` for the old behaviour.
     """
-    raw = (os.environ.get("CPHARM_OPEN_URL_NAV_RETRY") or "").strip().lower()
+    raw = (os.environ.get("PHARMFLOW_OPEN_URL_NAV_RETRY") or "").strip().lower()
     if raw in ("0", "false", "no", "off"):
         return False
     return True
@@ -1323,7 +1420,7 @@ def _open_url_browser_net_error(res: AdbResult) -> bool:
 
     ADB can return success while stderr/log text includes a Chromium offline marker from
     the already-open tab. This is distinct from ADB trouble and gets one optional generic
-    ACTION_VIEW retry only when ``CPHARM_OPEN_URL_NAV_RETRY=1``.
+    ACTION_VIEW retry only when ``PHARMFLOW_OPEN_URL_NAV_RETRY=1``.
     """
     hay = (res.stderr or "") or res.text
     return bool(_OPEN_URL_BROWSER_NET_RE.search(hay or ""))
@@ -1334,7 +1431,7 @@ def _retry_open_url_action_view_for_browser_net_error(serial: str, url: str, res
     if not _open_url_nav_retry_enabled() or not _open_url_browser_net_error(res):
         return res
     try:
-        _nb = float(os.environ.get("CPHARM_OPEN_URL_NAV_RETRY_BACKOFF_SEC", "1.5") or 1.5)
+        _nb = float(os.environ.get("PHARMFLOW_OPEN_URL_NAV_RETRY_BACKOFF_SEC", "1.5") or 1.5)
     except (TypeError, ValueError):
         _nb = 1.5
     _nb = min(15.0, max(0.0, _nb))
@@ -1377,7 +1474,7 @@ def _log_inject_events_doc_hint_if_needed(res_fb: AdbResult) -> None:
     log.error(
         "Input injection still blocked after keyevent fallback — enable Developer options → "
         "USB debugging (Security settings) on the emulator if present; disable aggressive overlays. "
-        "See docs/CPharm_emulator_MuMu_and_sequences.md — MuMu / emulator checklist."
+        "See docs/PharmFlow_emulator_MuMu_and_sequences.md — MuMu / emulator checklist."
     )
 
 
@@ -1389,14 +1486,14 @@ def _log_inject_events_actionable_once(serial: str, gesture: str) -> None:
     _inject_actionable_logged.add(key)
     log.error(
         "Cannot tap this phone (%s): turn on Developer options → "
-        "USB debugging (Security settings). See docs/CPharm_emulator_MuMu_and_sequences.md",
+        "USB debugging (Security settings). See docs/PharmFlow_emulator_MuMu_and_sequences.md",
         serial,
         gesture,
     )
 
 
 def _wm_focus_cheat_enabled() -> bool:
-    return _adb_truthy_env("CPHARM_USE_SHELL_WM_FOCUS_CHEAT")
+    return _adb_truthy_env("PHARMFLOW_USE_SHELL_WM_FOCUS_CHEAT")
 
 
 def _inject_retry_after_close_dialogs(serial: str, argv_after_shell: list[str]) -> AdbResult:
@@ -1455,12 +1552,71 @@ def _force_stop_browser_for_dabflow_cdp(serial: str, url: str) -> None:
         log.debug("dabflow CDP force-stop failed serial=%s", serial, exc_info=True)
 
 
+def _dead_tor_http_reason(phone_idx: int, guest_proxy: str, tor_ready: dict) -> str:
+    """Skip the launch only when the guest exit is this phone's Tor HTTP port and Tor is down.
+
+    An inject loopback exit does not need Tor. A dead Tor port is not host-IP
+    egress, but launching into it is not an opened page.
+    """
+    if tor_ready.get("ok"):
+        return ""
+    try:
+        tor_port = int(tor_manager.phone_http_port(phone_idx))
+    except (TypeError, ValueError):
+        return ""
+    if (guest_proxy or "").strip() != f"127.0.0.1:{tor_port}":
+        return ""
+    return str(tor_ready.get("error") or "Tor is not ready")
+
+
+def _open_url_result_log(name: str, url: str, *, opened: bool, note: str = "") -> str:
+    """Log line for /api/open_url. Never says opened when the tap failed."""
+    if opened:
+        return f"Opened {url} on {name}"
+    detail = (note or "phone did not open a browser").strip()
+    return f"{name}: page not opened — {detail}"
+
+
+def _dashboard_open_exit_ready(serial: str) -> tuple[bool, str]:
+    """Refuse to open a page until the guest proxy is 127.0.0.1 with a port.
+
+    Empty, :0, or any other host sends the page out the VM NAT (this PC).
+    One pin attempt, then a re-read. Failure does not launch the browser.
+    """
+    res = _adb(serial, "shell", "settings", "get", "global", "http_proxy", timeout=8)
+    cur = (res.stdout or "").strip()
+    if guest_proxy_healthy(cur):
+        return True, cur
+    try:
+        pinned = pin_guest_proxy(
+            AdbWrapper(),
+            str(serial),
+            _phone_idx_from_serial(serial),
+            attempts=1,
+        )
+    except Exception as exc:
+        log.warning("open_url exit pin failed serial=%s: %s", serial, exc)
+        pinned = ""
+    if guest_proxy_healthy(str(pinned or "")):
+        return True, str(pinned)
+    again = _adb(serial, "shell", "settings", "get", "global", "http_proxy", timeout=8)
+    again_val = (again.stdout or "").strip()
+    if guest_proxy_healthy(again_val):
+        return True, again_val
+    if _adb_indicates_trouble(res) and not cur:
+        return False, (res.text or "could not read this phone's exit")[:200]
+    return False, (
+        "This phone has no exit proxy, so the page was not opened. "
+        "Traffic would leave this PC. Fix phone internet, then try again."
+    )
+
+
 def _open_url_with_fallbacks(serial: str, url: str, step: dict) -> AdbResult:
     last = AdbResult(argv=tuple(), returncode=None, stdout="", stderr="open_url not attempted")
     tout = _open_url_am_start_timeout_sec()
     try:
         inter_attempt_sleep = float(
-            os.environ.get("CPHARM_OPEN_URL_INTER_ATTEMPT_SEC", "0.6") or 0.6
+            os.environ.get("PHARMFLOW_OPEN_URL_INTER_ATTEMPT_SEC", "0.6") or 0.6
         )
     except (TypeError, ValueError):
         inter_attempt_sleep = 0.6
@@ -1477,7 +1633,7 @@ def _open_url_with_fallbacks(serial: str, url: str, step: dict) -> AdbResult:
                 " ".join(str(x) for x in res.argv[2:10]),
                 res.text[:400],
             )
-        if not _adb_indicates_trouble(res):
+        if am_start_reported_landing(res.stdout, res.stderr):
             if why != "step-configured":
                 log.info("open_url fallback success serial=%s reason=%s", serial, why)
             return res
@@ -1547,28 +1703,102 @@ def _mumu_guest_ips_from_arp() -> list[str]:
             ips.append(ip)
     return ips
 
-def auto_connect_emulators():
-    """On startup, try connecting to well-known emulator ADB ports."""
-    for host, port in EMULATOR_PORTS:
+def _published_redroid_serials() -> list[str]:
+    """Host ports Docker published for redroid. Do not invent 5555 + index.
+
+    Do not call docker when the engine is down — that CLI shim opens Docker Desktop.
+    """
+    try:
+        import docker_guard
+    except Exception:
+        return []
+    if not docker_guard.engine_running():
+        return []
+    flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+    try:
+        proc = subprocess.run(
+            [
+                "docker",
+                "ps",
+                "-a",
+                "--filter",
+                "name=redroid-",
+                "--format",
+                "{{.Ports}}",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=8,
+            creationflags=flags,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    if proc.returncode != 0:
+        return []
+    serials: list[str] = []
+    seen: set[str] = set()
+    for match in re.finditer(r"(?:0\.0\.0\.0|127\.0\.0\.1):(\d+)->", proc.stdout or ""):
+        serial = f"127.0.0.1:{match.group(1)}"
+        if serial in seen:
+            continue
+        seen.add(serial)
+        serials.append(serial)
+    return serials
+
+
+def auto_connect_targets() -> list[str]:
+    """Every published guest the service should attach.
+
+    A fixed localhost port list is not the roster. ARM guests publish
+    AdbHost. Redroid publishes a host port. Neither is a count.
+    """
+    serials: list[str] = []
+    try:
+        from automation.farm_phone_discover import _known_candidate_serials
+    except Exception:
         try:
-            s = socket.socket()
-            s.settimeout(0.3)
-            reachable = s.connect_ex((host, port)) == 0
-            s.close()
+            from farm_phone_discover import _known_candidate_serials
         except Exception:
-            reachable = False
-        if reachable:
-            _adb_global("connect", f"{host}:{port}", timeout=5)
+            _known_candidate_serials = None  # type: ignore[assignment]
+    if _known_candidate_serials is not None:
+        try:
+            serials.extend(_known_candidate_serials() or [])
+        except Exception:
+            pass
+    try:
+        serials.extend(_published_redroid_serials())
+    except Exception:
+        pass
     for ip in _mumu_guest_ips_from_arp():
+        serials.append(f"{ip}:5555")
+    out: list[str] = []
+    seen: set[str] = set()
+    for serial in serials:
+        text = str(serial or "").strip()
+        if not text or text in seen or ":" not in text:
+            continue
+        seen.add(text)
+        out.append(text)
+    return out
+
+
+def auto_connect_emulators():
+    """Attach every published guest. Not a fixed localhost port list."""
+    for serial in auto_connect_targets():
+        host, _, port_s = serial.rpartition(":")
         try:
-            s = socket.socket()
-            s.settimeout(0.3)
-            reachable = s.connect_ex((ip, 5555)) == 0
-            s.close()
+            port = int(port_s)
+        except ValueError:
+            continue
+        try:
+            sock = socket.socket()
+            sock.settimeout(0.3)
+            reachable = sock.connect_ex((host, port)) == 0
+            sock.close()
         except Exception:
             reachable = False
         if reachable:
-            _adb_global("connect", f"{ip}:5555", timeout=5)
+            _adb_global("connect", serial, timeout=5)
 
 
 def _running_phones_ordered() -> list[dict]:
@@ -1665,7 +1895,7 @@ def _physical_size_for_serial(serial: str) -> tuple[int, int] | None:
 
 def _scale_xy_for_serial(serial: str, x: int, y: int, base_w: int, base_h: int) -> tuple[int, int]:
     """Scale sequence coordinates to the device's reported size; unchanged if lookup fails."""
-    if _adb_truthy_env("CPHARM_SEQUENCE_NO_SCALE"):
+    if _adb_truthy_env("PHARMFLOW_SEQUENCE_NO_SCALE"):
         return max(0, x), max(0, y)
     phys = _physical_size_for_serial(serial)
     if not phys:
@@ -1930,40 +2160,147 @@ def _remap_group_serials_to_live(raw_groups: list, online_serials: set[str], *, 
             new_map[live_sorted[i]] = pmap[keys[i]] if isinstance(pmap[keys[i]], dict) else {}
         g["phones"] = new_map
         remapped += 1
+    saved = False
+    prefs_saved = False
     if persist and remapped:
-        try:
-            GROUPS_CFG.write_text(json.dumps(raw_groups and {"groups": raw_groups} or {}, indent=2, ensure_ascii=False))
-        except OSError:
-            pass
-        _sync_phone_serials_prefs(list(live_sorted))
-    return {"remapped": remapped, "total_groups": len(raw_groups)}
+        saved = _persist_groups_cfg({"groups": raw_groups})
+        prefs_saved = _sync_phone_serials_prefs(list(live_sorted))
+    return {
+        "remapped": remapped,
+        "total_groups": len(raw_groups),
+        "saved": saved,
+        "prefs_saved": prefs_saved,
+    }
 
 
-def _sync_phone_serials_prefs(live_sorted: list[str]) -> None:
-    """Rewrite ``desktop_prefs.json`` ``phone_serials`` to the live slot order.
+def _sync_phone_serials_prefs(live_sorted: list[str]) -> bool:
+    """Rewrite ``phone_serials`` only if the disk copy matches.
 
-    Tor-slot assignment for MuMu guest-bridge serials falls back to this list order
-    (``tor_manager._phone_idx_from_prefs_serial_list``), so keeping it in sync with
-    the actual connected phones prevents slot drift when emulator IPs change.
+    A corrupt prefs file is not replaced. Replacing it used to wipe
+    ``mumu_setup_complete``.
     """
+    prefs_path = REC_DIR / "desktop_prefs.json"
+    data: dict = {}
+    if prefs_path.is_file():
+        try:
+            loaded = json.loads(prefs_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError, UnicodeError):
+            return False
+        if not isinstance(loaded, dict):
+            return False
+        data = loaded
+    data["phone_serials"] = list(live_sorted)
     try:
-        prefs_path = REC_DIR / "desktop_prefs.json"
-        data = json.loads(prefs_path.read_text(encoding="utf-8")) if prefs_path.is_file() else {}
-        if not isinstance(data, dict):
-            data = {}
-        data["phone_serials"] = list(live_sorted)
+        prefs_path.parent.mkdir(parents=True, exist_ok=True)
         prefs_path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
-    except (OSError, json.JSONDecodeError, TypeError, ValueError):
-        pass
+        stored = json.loads(prefs_path.read_text(encoding="utf-8"))
+    except (OSError, TypeError, json.JSONDecodeError, UnicodeError, ValueError):
+        return False
+    return isinstance(stored, dict) and stored.get("phone_serials") == list(live_sorted)
 
 
-def _stop_device(serial: str):
-    """Stop/disconnect a device. Kills emulators, disconnects WiFi devices."""
+def _redroid_name_from_ps_text(serial: str, text: str) -> str | None:
+    """Container name whose published host port is this serial. Never 5555 + index."""
+    want = str(serial or "").strip()
+    if not want.startswith("127.0.0.1:"):
+        return None
+    for line in (text or "").splitlines():
+        if "\t" not in line:
+            continue
+        name, ports = line.split("\t", 1)
+        name = name.strip().lstrip("/")
+        if not name.startswith("redroid-"):
+            continue
+        for match in re.finditer(r"(?:0\.0\.0\.0|127\.0\.0\.1):(\d+)->", ports):
+            if f"127.0.0.1:{match.group(1)}" == want:
+                return name
+    return None
+
+
+def _redroid_name_for_serial(serial: str) -> str | None:
+    """Published redroid container for a host serial. Do not call docker if the engine is down."""
+    if not str(serial or "").startswith("127.0.0.1:"):
+        return None
+    if not _docker_engine_running():
+        return None
+    code, out = _docker_cmd(
+        ["docker", "ps", "-a", "--filter", "name=redroid-", "--format", "{{.Names}}\t{{.Ports}}"],
+        timeout=15,
+    )
+    if code != 0:
+        return None
+    return _redroid_name_from_ps_text(serial, out)
+
+
+def _stop_device_result(serial: str) -> dict:
+    """Stop a phone without ``adb reboot -p``.
+
+    Studio AVD: ``emu kill``. Redroid: ``docker stop`` on the published container.
+    MuMu and other TCP guests: disconnect ADB only. Powering those off with
+    ``adb reboot -p`` wedges the VM.
+    """
+    serial = str(serial or "").strip()
     if serial.startswith("emulator-"):
-        _adb(serial, "emu", "kill")
-    elif re.match(r"^[\d.]+:\d+$", serial):
+        res = _adb(serial, "emu", "kill")
+        stopped = emu_kill_landed(res.text, res.returncode)
+        return {
+            "serial": serial,
+            "action": "killed" if stopped else "failed",
+            "ok": stopped,
+            "note": "AVD stopped" if stopped else (res.text or "emu kill did not report OK")[:200],
+        }
+    redroid = _redroid_name_for_serial(serial)
+    if redroid:
+        if not _docker_engine_running():
+            return {
+                "serial": serial,
+                "action": "failed",
+                "ok": False,
+                "name": redroid,
+                "note": "Docker is not running — the phone was not stopped.",
+            }
+        code, out = _docker_cmd(["docker", "stop", redroid], timeout=90)
+        icode, iout = _docker_cmd(
+            ["docker", "inspect", "-f", "{{.State.Running}}", redroid],
+            timeout=15,
+        )
         _adb_global("disconnect", serial)
-    # Real USB devices: can't be stopped remotely
+        stopped = docker_stop_landed(code, icode, iout)
+        return {
+            "serial": serial,
+            "action": "docker_stop" if stopped else "failed",
+            "ok": stopped,
+            "name": redroid,
+            "note": (
+                f"Stopped {redroid}"
+                if stopped
+                else (iout or out or "container still running")[:200]
+            ),
+        }
+    if re.match(r"^[\d.]+:\d+$", serial):
+        res = _adb_global("disconnect", serial)
+        disconnected = not _adb_indicates_trouble(res)
+        return {
+            "serial": serial,
+            "action": "disconnected" if disconnected else "failed",
+            "ok": disconnected,
+            "note": (
+                "Disconnected from ADB. The phone was not powered off — "
+                "power MuMu off in the MuMu window, not with adb."
+                if disconnected
+                else (res.text or "disconnect failed")[:200]
+            ),
+        }
+    return {
+        "serial": serial,
+        "action": "skipped",
+        "ok": False,
+        "note": "USB phones cannot be stopped from here.",
+    }
+
+
+def _stop_device(serial: str) -> dict:
+    return _stop_device_result(serial)
 
 
 def get_local_ip() -> str:
@@ -1977,11 +2314,59 @@ def get_local_ip() -> str:
         return "unknown"
 
 
+def dashboard_reach_host() -> str:
+    """Host the operator can actually open.
+
+    A loopback bind does not accept the PC's LAN address. Advertising that
+    LAN address copied a dead link and looked like a phone exit. An all-interfaces
+    bind can be reached on the LAN address. Phone traffic never uses this host.
+    """
+    host = str(LISTEN_HOST or "").strip()
+    if host in ("", "0.0.0.0", "::", "[::]"):
+        return get_local_ip()
+    return host
+
+
 
 
 def _phone_idx_from_serial(serial: str) -> int:
     """Tor slot from ADB serial — delegated to :func:`tor_manager.phone_idx_from_adb_serial`."""
     return tor_manager.phone_idx_from_adb_serial(serial)
+
+
+def _guest_loopback_pinned(applied: dict | None) -> bool:
+    """True only when the guest proxy write landed on 127.0.0.1:<port>."""
+    if not isinstance(applied, dict) or not applied.get("http_proxy_applied"):
+        return False
+    proxy = str(applied.get("http_proxy") or "").strip()
+    if not proxy.startswith("127.0.0.1:") or proxy.endswith(":0"):
+        return False
+    try:
+        return int(proxy.split(":", 1)[1]) > 0
+    except (IndexError, ValueError):
+        return False
+
+
+def _tor_setup_line(
+    name: str,
+    *,
+    ok_socks: bool,
+    ok_http: bool,
+    pinned: bool,
+    w_socks: float,
+    w_http: float,
+) -> str:
+    """SOCKS up is not a pin. Tor ready means the guest has a loopback exit."""
+    if ok_socks and ok_http and pinned:
+        return f"{name}: Tor ready"
+    parts: list[str] = []
+    if not ok_socks:
+        parts.append(f"Tor still starting (waited {w_socks}s)")
+    if not ok_http:
+        parts.append(f"Internet tunnel not open (waited {w_http}s)")
+    if not pinned:
+        parts.append("guest proxy was not set to a loopback exit")
+    return f"{name}: FAILED: " + "; ".join(parts)
 
 
 _SEQUENCE_STEP_TYPES = frozenset({
@@ -1993,8 +2378,10 @@ _PKG_STEP_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9_.]*$")
 _KEY_STEP_RE = re.compile(r"^[A-Z0-9_]+$")
 
 
-def run_sequence_step(serial: str, step: dict, interrupt_check=None, hv_rng=None, adb_issue_cb=None) -> None:
+def run_sequence_step(serial: str, step: dict, interrupt_check=None, hv_rng=None, adb_issue_cb=None) -> bool:
     """Execute one automation step. Used by groups runner and the daily scheduler.
+
+    Returns False when the step did not land. Callers must not mark that phone completed.
 
     ``hv_rng``: per-run :class:`random.Random` from ``human_variation.rng_for_run(serial, cycle)``
     when human-like variance is enabled (see ``config.HUMAN_VARIATION``).
@@ -2007,13 +2394,13 @@ def run_sequence_step(serial: str, step: dict, interrupt_check=None, hv_rng=None
             adb_issue_cb(tag, res)
 
     if interrupt_check is not None and not interrupt_check():
-        return
+        return False
     t = step.get("type", "")
     if t not in _SEQUENCE_STEP_TYPES:
-        return
+        return False
     if not ensure_adb_serial_ready(serial, adb_issue_cb):
         log.warning("Skipping automation step type=%s — device not reachable serial=%s", t, serial)
-        return
+        return False
     if t == "open_url":
         try:
             _idx_rep = _phone_idx_from_serial(serial)
@@ -2031,22 +2418,22 @@ def run_sequence_step(serial: str, step: dict, interrupt_check=None, hv_rng=None
         try:
             _p = urllib.parse.urlparse(url)
             if _p.scheme not in ("http", "https") or not _p.netloc or " " in url:
-                return
+                return False
         except Exception:
-            return
-        if not _cpharm_skip_tor_wait():
-            _idx_ou = _phone_idx_from_serial(serial)
+            return False
+        _idx_ou = _phone_idx_from_serial(serial)
+        _ens_ou = {"ok": True}
+        if not _pharmflow_skip_tor_wait():
             tor_manager.start_tor_warm_background(_idx_ou)
             _ens_ou = tor_manager.ensure_tor_ready(serial, _idx_ou)
-            if not _ens_ou.get("ok"):
+            if _ens_ou.get("ok"):
+                note_adb_serial_tor_settled(serial)
+            else:
                 log.warning(
-                    "open_url: Tor/proxy not ready serial=%s (%s) — browser may show net::ERR_TIMED_OUT; "
-                    "see CPHARM_TOR_WAIT_SOCKS / CPHARM_TOR_WAIT_HTTP, adb reverse, or CPHARM_SKIP_TOR_WAIT=1",
+                    "open_url: Tor/proxy not ready serial=%s (%s)",
                     serial,
                     _ens_ou.get("error", "unknown"),
                 )
-            else:
-                note_adb_serial_tor_settled(serial)
         try:
             _fp = mumu_fingerprint.ensure_fingerprint_before_browse(
                 serial,
@@ -2074,47 +2461,72 @@ def run_sequence_step(serial: str, step: dict, interrupt_check=None, hv_rng=None
                 pass
         except Exception:
             log.debug("fingerprint before open_url failed serial=%s", serial, exc_info=True)
-        if _adb_truthy_env("CPHARM_OPEN_URL_NET_CHECK"):
+        if _adb_truthy_env("PHARMFLOW_OPEN_URL_NET_CHECK"):
             _hint = _device_network_hint_online(serial)
             if _hint is False:
                 try:
-                    _nb = float(os.environ.get("CPHARM_OPEN_URL_NET_BACKOFF_SEC", "3") or 3)
+                    _nb = float(os.environ.get("PHARMFLOW_OPEN_URL_NET_BACKOFF_SEC", "3") or 3)
                 except (TypeError, ValueError):
                     _nb = 3.0
                 _nb = min(20.0, max(0.0, _nb))
                 log.info(
                     "open_url: optional ping check looks offline serial=%s — sleeping %.1fs before launch "
-                    "(emulator bridge/DNS issues: see docs/CPharm_emulator_MuMu_and_sequences.md checklist)",
+                    "(emulator bridge/DNS issues: see docs/PharmFlow_emulator_MuMu_and_sequences.md checklist)",
                     serial,
                     _nb,
                 )
                 time.sleep(_nb)
         try:
-            _rb = float(os.environ.get("CPHARM_OPEN_URL_RETRY_BACKOFF_SEC", "2.5") or 2.5)
+            _rb = float(os.environ.get("PHARMFLOW_OPEN_URL_RETRY_BACKOFF_SEC", "2.5") or 2.5)
         except (TypeError, ValueError):
             _rb = 2.5
         _rb = min(30.0, max(0.5, _rb))
 
+        exit_ok, exit_note = _dashboard_open_exit_ready(serial)
+        if not exit_ok:
+            # Empty, :0, or any host other than 127.0.0.1 sends the page out this PC.
+            log.warning("open_url refused serial=%s — %s", serial, exit_note)
+            if adb_issue_cb is not None:
+                adb_issue_cb(
+                    "open_url",
+                    AdbResult(argv=(), returncode=1, stdout="", stderr=exit_note),
+                )
+            return False
+        _tor_block = _dead_tor_http_reason(_idx_ou, exit_note, _ens_ou)
+        if _tor_block:
+            log.warning(
+                "open_url refused serial=%s — Tor HTTP exit is not ready (%s)",
+                serial,
+                _tor_block,
+            )
+            if adb_issue_cb is not None:
+                adb_issue_cb(
+                    "open_url",
+                    AdbResult(argv=(), returncode=1, stdout="", stderr=_tor_block),
+                )
+            return False
         _force_stop_browser_for_dabflow_cdp(serial, url)
         res = _open_url_with_fallbacks(serial, url, step)
-        if not _adb_indicates_trouble(res) and "getdabflow.app" in (url or "").lower():
-            _bump_farm_visit(serial)
-        if _adb_indicates_trouble(res):
+        landed = am_start_reported_landing(res.stdout, res.stderr)
+        if not landed:
             log.warning(
-                "open_url ADB trouble serial=%s — retry once after %.1fs",
+                "open_url am start did not land serial=%s — retry once after %.1fs",
                 serial,
                 _rb,
             )
             time.sleep(_rb)
             res = _open_url_with_fallbacks(serial, url, step)
         res = _retry_open_url_action_view_for_browser_net_error(serial, url, res)
+        landed = am_start_reported_landing(res.stdout, res.stderr)
         _notify_adb("open_url", res)
-        if not _adb_indicates_trouble(res):
+        if landed and "getdabflow.app" in (url or "").lower():
+            _bump_farm_visit(serial)
+        if landed:
             _wait_for_browser_pid_after_open(serial, step)
         try:
             pws = step.get("post_wait_secs", None)
             if pws is not None and pws != "":
-                base = min(120.0, max(0.0, float(pws)))
+                base = max(0.0, float(pws))
                 if "getdabflow.app" in url.lower():
                     from dabflow_layout import AGE_GATE_OPEN_POST_WAIT_MAX_SEC
 
@@ -2123,13 +2535,13 @@ def run_sequence_step(serial: str, step: dict, interrupt_check=None, hv_rng=None
                     if step_is_fast_phase(step) or phase in ("pre_site_fast", "") or cp in ("loaded", ""):
                         base = min(base, AGE_GATE_OPEN_POST_WAIT_MAX_SEC)
                 try:
-                    extra = float(os.environ.get("CPHARM_OPEN_URL_EXTRA_WAIT", "") or 0)
+                    extra = float(os.environ.get("PHARMFLOW_OPEN_URL_EXTRA_WAIT", "") or 0)
                 except (TypeError, ValueError):
                     extra = 0.0
                 if step_is_fast_phase(step):
                     extra = 0.0
-                extra = min(60.0, max(0.0, extra))
-                time.sleep(min(120.0, base + extra))
+                extra = max(0.0, extra)
+                time.sleep(base + extra)
             elif not step_is_fast_phase(step):
                 _settle = _open_url_settle_after_pid(step)
                 if _settle > 0:
@@ -2147,10 +2559,12 @@ def run_sequence_step(serial: str, step: dict, interrupt_check=None, hv_rng=None
                 )
             except Exception:
                 log.debug("dabflow Mantis patch after open_url failed serial=%s", serial, exc_info=True)
+        if not landed:
+            return False
     elif t == "launch_app":
         pkg = str(step.get("package", "")).strip()
         if not _PKG_STEP_RE.match(pkg):
-            return
+            return False
         res = _adb(
             serial,
             "shell",
@@ -2161,20 +2575,45 @@ def run_sequence_step(serial: str, step: dict, interrupt_check=None, hv_rng=None
             "android.intent.category.LAUNCHER",
             "1",
         )
+        if not monkey_launch_reported(res.stdout, res.stderr):
+            log.warning("launch_app monkey did not land serial=%s pkg=%s — retry once", serial, pkg)
+            time.sleep(0.4)
+            res = _adb(
+                serial,
+                "shell",
+                "monkey",
+                "-p",
+                pkg,
+                "-c",
+                "android.intent.category.LAUNCHER",
+                "1",
+            )
+        if not monkey_launch_reported(res.stdout, res.stderr):
+            _notify_adb(
+                "launch_app",
+                AdbResult(
+                    argv=res.argv,
+                    returncode=1,
+                    stdout=res.stdout,
+                    stderr=res.stderr or "monkey did not report events injected",
+                ),
+            )
+            return False
         _notify_adb("launch_app", res)
         try:
             pws = step.get("post_wait_secs", None)
             if pws is not None and pws != "":
-                base = min(120.0, max(0.0, float(pws)))
+                base = max(0.0, float(pws))
                 try:
-                    extra = float(os.environ.get("CPHARM_OPEN_URL_EXTRA_WAIT", "") or 0)
+                    extra = float(os.environ.get("PHARMFLOW_OPEN_URL_EXTRA_WAIT", "") or 0)
                 except (TypeError, ValueError):
                     extra = 0.0
-                extra = min(60.0, max(0.0, extra))
-                time.sleep(min(120.0, base + extra))
+                extra = max(0.0, extra)
+                time.sleep(base + extra)
         except (TypeError, ValueError):
             pass
     elif t == "tap":
+        tap_landed = False
         pre_ms = float(step.get("pre_wait_ms", 0) or 0)
         is_age_pre = bool(
             step.get("age_verification") is True
@@ -2188,7 +2627,7 @@ def run_sequence_step(serial: str, step: dict, interrupt_check=None, hv_rng=None
 
             pre_ms = min(AGE_GATE_PRE_WAIT_MAX_MS, pre_ms)
         if pre_ms > 0:
-            time.sleep(min(pre_ms / 1000.0, 10.0))
+            time.sleep(pre_ms / 1000.0)
         try:
             retries = int(step.get("retries", 1) or 1)
         except (TypeError, ValueError):
@@ -2200,12 +2639,12 @@ def run_sequence_step(serial: str, step: dict, interrupt_check=None, hv_rng=None
         )
         if is_age:
             retries = max(retries, 5)
-        retries = max(1, min(retries, 8))
+        retries = max(1, retries)
         try:
             jitter = int(step.get("jitter", 0) or 0)
         except (TypeError, ValueError):
             jitter = 0
-        jitter = max(0, min(jitter, 120))
+        jitter = max(0, jitter)
         if is_age:
             jitter = min(jitter, 6)
         _ej_mult = 1.0 if is_age else _emulator_tap_jitter_multiplier(serial)
@@ -2251,31 +2690,35 @@ def run_sequence_step(serial: str, step: dict, interrupt_check=None, hv_rng=None
                 ucx, ucy = uia_center
                 for r in range(retries):
                     if interrupt_check is not None and not interrupt_check():
-                        return
+                        return False
                     jx = ucx + (hv_rng.randint(-ej, ej) if hv_rng else random.randint(-ej, ej))
                     jy = ucy + (hv_rng.randint(-ej, ej) if hv_rng else random.randint(-ej, ej))
                     jx, jy = _clamp_xy_for_serial(serial, jx, jy)
-                    if _adb_truthy_env("CPHARM_LOG_ADB_INPUT"):
+                    if _adb_truthy_env("PHARMFLOW_LOG_ADB_INPUT"):
                         log.info("adb input tap (age uia) serial=%s x=%s y=%s", serial, jx, jy)
                     res = _adb(serial, "shell", "input", "tap", str(jx), str(jy))
                     _notify_adb("tap_age_uia", res)
+                    if _adb_landed(res):
+                        tap_landed = True
                     if r + 1 < retries:
                         time.sleep(hv_rng.uniform(0.12, 0.28) if hv_rng else random.uniform(0.12, 0.28))
                 age_tapped_uia = True
         if not age_tapped_uia:
             for r in range(retries):
                 if interrupt_check is not None and not interrupt_check():
-                    return
+                    return False
                 jx = bx + (hv_rng.randint(-ej, ej) if hv_rng else random.randint(-ej, ej))
                 jy = by + (hv_rng.randint(-ej, ej) if hv_rng else random.randint(-ej, ej))
                 jx, jy = _clamp_xy_for_serial(serial, jx, jy)
                 if is_age and age_x_min is not None and age_x_max is not None:
                     jx = min(age_x_max, max(age_x_min, jx))
                     jy = min(age_y_max, max(age_y_min, jy))
-                if _adb_truthy_env("CPHARM_LOG_ADB_INPUT"):
+                if _adb_truthy_env("PHARMFLOW_LOG_ADB_INPUT"):
                     log.info("adb input tap serial=%s x=%s y=%s", serial, jx, jy)
                 res = _adb(serial, "shell", "input", "tap", str(jx), str(jy))
                 _notify_adb("tap", res)
+                if _adb_landed(res):
+                    tap_landed = True
                 if _looks_like_inject_events_denied(res):
                     _log_inject_events_actionable_once(serial, "tap")
                     if _wm_focus_cheat_enabled():
@@ -2291,6 +2734,8 @@ def run_sequence_step(serial: str, step: dict, interrupt_check=None, hv_rng=None
                         )
                         res_fb = _adb(serial, "shell", "input", "keyevent", "ENTER")
                         _notify_adb("tap_policy_fallback_enter", res_fb)
+                        if _adb_landed(res_fb):
+                            tap_landed = True
                         _log_inject_events_doc_hint_if_needed(res_fb)
                 if r + 1 < retries:
                     if is_age:
@@ -2302,8 +2747,18 @@ def run_sequence_step(serial: str, step: dict, interrupt_check=None, hv_rng=None
                     time.sleep(gap)
         if is_age:
             time.sleep(0.05)
+        if not tap_landed:
+            return False
+        if step_wants_session_notes_dismiss(step) and not dismiss_session_notes_verified(serial):
+            log.warning("popup dismiss did not land serial=%s", serial)
+            return False
     elif t == "wait":
-        secs = min(float(step.get("seconds", 1)), 300)
+        try:
+            secs = float(step.get("seconds", 1))
+        except (TypeError, ValueError):
+            secs = 1.0
+        if secs < 0:
+            secs = 0.0
         cp = str(step.get("checkpoint", "")).strip().lower()
         if (
             _hv.enabled()
@@ -2311,12 +2766,19 @@ def run_sequence_step(serial: str, step: dict, interrupt_check=None, hv_rng=None
             and not step_is_fast_phase(step)
             and not step_is_timer_complete_wait(step)
         ):
-            secs = min(300.0, _hv.scaled_wait_seconds(secs, hv_rng, checkpoint=cp))
+            secs = _hv.scaled_wait_seconds(secs, hv_rng, checkpoint=cp)
+            if secs < 0:
+                secs = 0.0
         deadline = time.time() + secs
         while time.time() < deadline:
             if interrupt_check is not None and not interrupt_check():
-                return
+                return False
             time.sleep(min(0.25, max(0.0, deadline - time.time())))
+        if step_wants_session_notes_gone(step) and not wait_session_notes_gone(
+            serial, timeout_sec=8.0
+        ):
+            log.warning("session notes still up serial=%s", serial)
+            return False
     elif t == "swipe":
         _sw_bw, _sw_bh = baseline_from_step(step)
         x1, y1 = _scale_xy_for_serial(
@@ -2341,12 +2803,12 @@ def run_sequence_step(serial: str, step: dict, interrupt_check=None, hv_rng=None
         x1, y1 = _clamp_xy_for_serial(serial, x1, y1)
         x2, y2 = _clamp_xy_for_serial(serial, x2, y2)
         _maybe_wake_before_touch(serial)
-        if _adb_truthy_env("CPHARM_LOG_ADB_INPUT"):
+        if _adb_truthy_env("PHARMFLOW_LOG_ADB_INPUT"):
             log.info(
                 "adb input swipe serial=%s x1=%s y1=%s x2=%s y2=%s",
                 serial, x1, y1, x2, y2,
             )
-        ms_gesture = str(max(1, min(_coerce_step_int(step.get("ms", 400), 400), 5000)))
+        ms_gesture = str(max(1, _coerce_step_int(step.get("ms", 400), 400)))
         swipe_argv = [
             "input",
             "swipe",
@@ -2374,26 +2836,50 @@ def run_sequence_step(serial: str, step: dict, interrupt_check=None, hv_rng=None
                     )
                     res_fb = _adb(serial, "shell", "input", "keyevent", key)
                     _notify_adb(f"swipe_policy_fallback_{key.lower()}", res_fb)
+                    if _adb_landed(res_fb):
+                        res = res_fb
                     _log_inject_events_doc_hint_if_needed(res_fb)
+        if not _adb_landed(res):
+            return False
     elif t == "keyevent":
         key = str(step.get("key", "BACK"))
         if not _KEY_STEP_RE.match(key):
-            return
+            return False
         res = _adb(serial, "shell", "input", "keyevent", key)
         _notify_adb("keyevent", res)
+        if not _adb_landed(res):
+            return False
     elif t == "close_app":
         preferred = str(step.get("package", "")).strip()
         pkg = preferred if looks_like_package(preferred) else ""
         if not pkg:
             pkg = browser_pkg_for_clear(serial, "") or ""
         if not pkg or not _PKG_STEP_RE.match(pkg):
-            log.info("close_app skipped — no browser package resolved on %s", serial)
-            return
+            log.info("close_app did not land — no browser package resolved on %s", serial)
+            return False
         res = _adb(serial, "shell", "am", "force-stop", pkg)
         _notify_adb("close_app", res)
+        if not _adb_landed(res):
+            return False
     elif t == "rotate_identity":
         idx = _phone_idx_from_serial(serial)
-        tor_manager.rotate_identity_adb(serial, idx)
+        rotated = tor_manager.rotate_identity_adb(serial, idx)
+        if not (bool(isinstance(rotated, dict) and rotated.get("circuit_rotated")) and _guest_loopback_pinned(rotated)):
+            log.warning(
+                "rotate_identity did not land a new loopback exit serial=%s proxy=%s",
+                serial,
+                (rotated or {}).get("http_proxy") if isinstance(rotated, dict) else "",
+            )
+            _notify_adb(
+                "rotate_identity",
+                AdbResult(
+                    argv=(),
+                    returncode=1,
+                    stdout="",
+                    stderr="rotate did not pin a new loopback exit",
+                ),
+            )
+            return False
     elif t == "clear_cookies":
         preferred = str(step.get("package", "")).strip()
         if preferred and not _PKG_STEP_RE.match(preferred):
@@ -2401,30 +2887,57 @@ def run_sequence_step(serial: str, step: dict, interrupt_check=None, hv_rng=None
             preferred = ""
         pkg = browser_pkg_for_clear(serial, preferred)
         if not pkg:
-            log.info("clear_cookies skipped — no browser package found on %s", serial)
-            return
+            log.info("clear_cookies did not land — no browser package found on %s", serial)
+            return False
         res = _adb(serial, "shell", "pm", "clear", pkg)
-        if _adb_indicates_trouble(res):
-            low = res.text.lower()
-            if "securityexception" in low or "not allowed" in low or "unknown package" in low:
-                log.info(
-                    "clear_cookies limited serial=%s pkg=%s — %s; continuing with force-stop",
-                    serial,
-                    pkg,
-                    res.text[:220],
-                )
-            else:
-                _notify_adb("clear_cookies_pm_clear", res)
-        res = _adb(serial, "shell", "am", "force-stop", pkg)
-        _notify_adb("clear_cookies_force_stop", res)
+        if not pm_clear_reported(res.stdout, res.stderr):
+            log.warning("clear_cookies pm clear did not report Success serial=%s pkg=%s — retry once", serial, pkg)
+            time.sleep(0.4)
+            res = _adb(serial, "shell", "pm", "clear", pkg)
+        if not pm_clear_reported(res.stdout, res.stderr):
+            log.warning(
+                "clear_cookies did not clear %s on %s — force-stop is not a cookie clear",
+                pkg,
+                serial,
+            )
+            _notify_adb(
+                "clear_cookies",
+                AdbResult(
+                    argv=res.argv,
+                    returncode=1,
+                    stdout=res.stdout,
+                    stderr=res.stderr or "pm clear did not report Success",
+                ),
+            )
+            return False
+        _adb(serial, "shell", "am", "force-stop", pkg)
     elif t == "type_text":
         raw_text = step.get("text", "")
         text = urllib.parse.quote(raw_text, safe="").replace("%20", "%s")
         res = _adb(serial, "shell", "input", "text", text)
         _notify_adb("type_text", res)
+        if not _adb_landed(res):
+            return False
     elif t == "full_reset":
         idx = _phone_idx_from_serial(serial)
-        tor_manager.full_identity_reset(serial, idx)
+        reset = tor_manager.full_identity_reset(serial, idx)
+        if not _identity_reset_landed(reset if isinstance(reset, dict) else None):
+            log.warning(
+                "full_reset did not land a new circuit on a pinned loopback exit serial=%s proxy=%s",
+                serial,
+                (reset or {}).get("http_proxy") if isinstance(reset, dict) else "",
+            )
+            _notify_adb(
+                "full_reset",
+                AdbResult(
+                    argv=(),
+                    returncode=1,
+                    stdout="",
+                    stderr="identity reset did not land a new circuit on a pinned loopback exit",
+                ),
+            )
+            return False
+    return True
 
 
 def _get_resources() -> dict:
@@ -2443,7 +2956,7 @@ def _get_resources() -> dict:
         return {
             "ram_used_pct": 0, "ram_used_gb": 0,
             "ram_free_gb": 0, "ram_total_gb": 0,
-            "max_phones_recommended": 4,
+            "max_phones_recommended": None,
         }
 
 
@@ -2482,6 +2995,16 @@ def json_ok(data: dict, code: int = 200) -> bytes:
 
 def json_err(msg: str, code: int = 400) -> bytes:
     return _http(code, "application/json", json.dumps({"ok": False, "error": msg}).encode(), "")
+
+
+def _adb_connect_landed(text: str, returncode: int) -> bool:
+    """adb connect succeeded only when it says the device is connected."""
+    if returncode != 0:
+        return False
+    blob = (text or "").lower()
+    if any(word in blob for word in ("cannot", "failed", "unable", "error")):
+        return False
+    return "connected to" in blob or "already connected" in blob
 
 
 def html_resp(html: str) -> bytes:
@@ -2542,48 +3065,49 @@ def _docker_engine_running() -> bool:
         return False
 
 
+def _host_port_from_docker_port_text(text: str) -> int | None:
+    """Host port from ``docker port`` output. None if Docker did not publish one."""
+    ports: list[int] = []
+    for match in re.finditer(r"(?:0\.0\.0\.0|127\.0\.0\.1|\[::\]):(\d+)", text or ""):
+        port = int(match.group(1))
+        if port > 0:
+            ports.append(port)
+    return ports[0] if ports else None
+
+
+def _published_host_port(name: str, guest_port: int = 5555) -> int | None:
+    """Published host port for one redroid container. Never 5555 + index."""
+    code, out = _docker_cmd(["docker", "port", name, str(int(guest_port))], timeout=15)
+    if code != 0:
+        return None
+    return _host_port_from_docker_port_text(out)
+
+
 def _docker_phone_state() -> tuple[list[dict], str]:
-    """Read what Docker is doing: redroid containers + per-phone adb state."""
-    compose = SCRIPT_DIR.parent / "cloud_phones" / "docker-compose.redroid.yml"
-    if not compose.exists():
-        return [], "compose file missing"
+    """Read live redroid containers. Do not stop at the services in a compose file."""
     if not _docker_engine_running():
         # Docker Desktop's CLI shim would launch the GUI from any docker call -
         # report off instead of waking it.
         return [], "Docker off - start Docker Desktop yourself to use redroid phones"
     code, out = _docker_cmd(
-        ["docker", "compose", "-f", str(compose), "ps", "-a", "--format", "json"],
+        ["docker", "ps", "-a", "--filter", "name=redroid-", "--format", "{{.Names}}\t{{.Status}}"],
         timeout=20,
     )
     if code != 0:
         return [], (out[-300:] or "docker unavailable")
 
-    objs: list[dict] = []
-    try:
-        parsed = json.loads(out or "[]")
-        if isinstance(parsed, list):
-            objs = parsed
-        else:
-            objs = [parsed]
-    except Exception:
-        for line in (out or "").splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                objs.append(json.loads(line))
-            except Exception:
-                continue
-
     rows: dict[str, dict] = {}
-    for obj in objs:
-        name = str(obj.get("Name") or obj.get("Service") or "").replace("/", "")
+    for line in (out or "").splitlines():
+        if "\t" not in line:
+            continue
+        name, status = line.split("\t", 1)
+        name = name.strip().lstrip("/")
+        status = status.strip()
         if not name.startswith("redroid-"):
             continue
-        status = str(obj.get("Status") or obj.get("State") or "")
         if status.startswith("Up"):
             state_s = "running"
-        elif ("Exit" in status) or ("Dead" in status) or status == "exited":
+        elif ("Exit" in status) or ("Dead" in status) or status.lower() == "exited":
             state_s = "stopped"
         else:
             state_s = "other"
@@ -2592,11 +3116,7 @@ def _docker_phone_state() -> tuple[list[dict], str]:
     online = {str(p.get("serial")) for p in list_phones()}
     result: list[dict] = []
     for name, base in sorted(rows.items()):
-        try:
-            idx = int(name.rsplit("-", 1)[1])
-        except Exception:
-            idx = -1
-        port = 5555 + idx if idx >= 0 and idx < 100 else None
+        port = _published_host_port(name)
         serial = f"127.0.0.1:{port}" if port else ""
         base["adb_port"] = port
         base["tcp_open"] = bool(port) and _tcp_open("127.0.0.1", port)
@@ -2613,6 +3133,31 @@ def _docker_phone_state() -> tuple[list[dict], str]:
     return result, ""
 
 
+def emu_kill_landed(text: str, returncode: int | None) -> bool:
+    """True only when the emulator console accepted kill.
+
+    ``adb emu kill`` prints OK on success and KO on failure. A silent exit 0
+    does not mean the AVD stopped.
+    """
+    if returncode not in (None, 0):
+        return False
+    low = (text or "").lower()
+    if not low or "ko" in low or "error" in low or "fail" in low:
+        return False
+    return "ok" in low
+
+
+def docker_stop_landed(stop_code: int, inspect_code: int, inspect_text: str) -> bool:
+    """True only when docker stop exited 0 and the container is not still running.
+
+    ``docker stop`` can exit 0 while the container is still running. The operator
+    toast must not say Stopped unless inspect says it is down.
+    """
+    if stop_code != 0 or inspect_code != 0:
+        return False
+    return (inspect_text or "").strip().lower() == "false"
+
+
 async def handle_docker_action(body: bytes) -> bytes:
     try:
         req = json.loads(body or b"{}")
@@ -2627,19 +3172,40 @@ async def handle_docker_action(body: bytes) -> bytes:
         return json_err("Docker off - start Docker Desktop yourself, then retry")
     code, out = _docker_cmd(["docker", action, name], timeout=90)
     detail = (out or "")[-400:]
+    port = None
+    connected = False
+    stopped = False
+    if action == "stop":
+        icode, iout = _docker_cmd(
+            ["docker", "inspect", "-f", "{{.State.Running}}", name],
+            timeout=15,
+        )
+        stopped = docker_stop_landed(code, icode, iout)
+        if not stopped:
+            detail = (detail + " " + (iout or "container still running")).strip()[-400:]
     if code == 0 and action in ("start", "restart"):
-        try:
-            idx = int(name.rsplit("-", 1)[1])
-            exe = adb_executable()
-            subprocess.run(
-                [exe, "connect", f"127.0.0.1:{5555 + idx}"],
-                capture_output=True, text=True, errors="replace", timeout=10,
-                creationflags=_ADB_SUBPROC_FLAGS,
-            )
-        except Exception:
-            pass
+        port = _published_host_port(name)
+        if port:
+            try:
+                proc = subprocess.run(
+                    [adb_executable(), "connect", f"127.0.0.1:{port}"],
+                    capture_output=True, text=True, errors="replace", timeout=10,
+                    creationflags=_ADB_SUBPROC_FLAGS,
+                )
+                text = ((proc.stdout or "") + (proc.stderr or "")).strip()
+                connected = _adb_connect_landed(text, proc.returncode)
+            except (OSError, subprocess.TimeoutExpired):
+                connected = False
     return json_ok(
-        {"ok": code == 0, "action": action, "name": name, "detail": detail},
+        {
+            "ok": stopped if action == "stop" else code == 0,
+            "stopped": stopped,
+            "action": action,
+            "name": name,
+            "detail": detail,
+            "adb_port": port,
+            "connected": connected,
+        },
         200 if code == 0 else 500,
     )
 
@@ -2747,15 +3313,21 @@ async def handle_get(path: str) -> bytes:
             "last": dict(_stealth_verify_last) if _stealth_verify_last else {},
         })
     if path == "/api/ip":
-        ip = get_local_ip()
+        ip = dashboard_reach_host()
         return json_ok(
             {
                 "ip": ip,
                 "url": f"http://{ip}:{LISTEN_HTTP_PORT}",
+                "label": "This PC",
                 "httpPort": LISTEN_HTTP_PORT,
                 "wsPort": LISTEN_WS_PORT,
             }
         )
+    if path == "/api/earn-plan":
+        plan = load_earn_plan()
+        if not plan:
+            return json_ok({"ok": True, "saved": False})
+        return json_ok(plan)
     if path == "/api/config":
         cfg = {
             "httpPort": LISTEN_HTTP_PORT,
@@ -2777,33 +3349,10 @@ async def handle_get(path: str) -> bytes:
         return json_ok(_get_resources())
     # Dashboard dashboard.html loads groups with GET; POST also accepted in handle_post.
     if path == "/api/groups/load":
-        if GROUPS_CFG.exists():
-            try:
-                cfg = json.loads(GROUPS_CFG.read_text())
-            except (json.JSONDecodeError, OSError):
-                # Self-heal: never leave the operator locked out of group editing.
-                # Quarantine the corrupt file, save the good data that came with the
-                # request (or an empty config), and continue instead of erroring.
-                try:
-                    stamp = time.strftime("%Y%m%d_%H%M%S")
-                    (REC_DIR / f"groups_config.corrupt_{stamp}.json").write_text(
-                        GROUPS_CFG.read_text(errors="replace"), encoding="utf-8"
-                    )
-                except OSError:
-                    pass
-                salvage: list = []  # GET has no body; POST /api/groups/load salvages from body
-                try:
-                    REC_DIR.mkdir(parents=True, exist_ok=True)
-                    GROUPS_CFG.write_text(
-                        json.dumps({"groups": _normalize_groups_payload(salvage)}, indent=2),
-                        encoding="utf-8",
-                    )
-                except OSError:
-                    return json_err("groups_config.json corrupt and could not be repaired")
-                log.warning("groups_config.json was corrupt — quarantined and rebuilt")
-                return json_ok({"groups": salvage})
-            return json_ok(cfg)
-        return json_err("no groups_config.json found — create a group below")
+        cfg, err = _load_groups_cfg()
+        if err:
+            return json_err(err)
+        return json_ok(cfg)
     if path == "/api/sequences/list":
         # Sequence library for playlist pickers: every *.json under the sequences
         # tree keyed by profile (base resolution, e.g. 900x1600) and flow folder
@@ -2851,7 +3400,7 @@ async def handle_get(path: str) -> bytes:
         payload = build_scorecard_payload(
             list_phones_fn=list_phones,
             recordings_dir=REC_DIR,
-            listen_host=get_local_ip(),
+            listen_host=dashboard_reach_host(),
             listen_port=LISTEN_HTTP_PORT,
         )
         return json_ok(payload)
@@ -2932,6 +3481,11 @@ async def handle_post(path: str, body: bytes) -> bytes:
         return json_ok({"ok": True, "saved": saved})
 
     # ── Persist stealth settings (survive restarts) ──
+    if path == "/api/earn-plan":
+        body = data if isinstance(data, dict) else {}
+        if body.get("preview") is True:
+            return json_ok(compute_earn_plan(body))
+        return json_ok(save_earn_plan(body))
     if path == "/api/stealth/settings":
         upd = {}
         if isinstance(data.get("rotate_every_sequence"), bool):
@@ -2941,9 +3495,11 @@ async def handle_post(path: str, body: bytes) -> bytes:
         if not upd:
             return json_err("no valid settings provided")
         saved = _write_stealth_prefs(**upd)
+        if not saved:
+            return json_err("Stealth setting was not saved — disk copy does not match.")
         return json_ok({
             "ok": True,
-            "saved": saved,
+            "saved": True,
             "rotate_every_sequence": _rotate_every_sequence_enabled(),
             "unique_exit_ips": _unique_exit_ips_enabled(),
         })
@@ -2959,6 +3515,8 @@ async def handle_post(path: str, body: bytes) -> bytes:
         if not re.match(r"^[a-zA-Z0-9._-]+:\d{2,5}$", addr):
             return json_err("invalid address")
         out = _adb_global("connect", addr, timeout=10)
+        if not _adb_connect_landed(out.text, out.returncode):
+            return json_err((out.text or "").strip() or "could not connect")
         await push_phones()
         return json_ok({"ok": True, "result": out.text, "adb_returncode": out.returncode})
 
@@ -2966,14 +3524,21 @@ async def handle_post(path: str, body: bytes) -> bytes:
         serial = data.get("serial", "").strip()
         if not serial or not re.match(r"^[a-zA-Z0-9._:\-]+$", serial):
             return json_err("invalid serial")
-        _adb_global("disconnect", serial, timeout=5)
+        out = _adb_global("disconnect", serial, timeout=5)
+        blob = (out.text or "").lower()
+        landed = out.returncode == 0 and "disconnected" in blob and "error" not in blob
+        if not landed:
+            return json_err((out.text or "").strip() or "could not disconnect")
         await push_phones()
-        return json_ok({"ok": True})
+        return json_ok({"ok": True, "disconnected": True, "result": out.text})
 
     if path == "/api/devices/refresh":
         auto_connect_emulators()
         await push_phones()
-        return json_ok({"ok": True})
+        answering = [p for p in list_phones() if p.get("running")]
+        if not answering:
+            return json_err("No phones are answering ADB. Start the phones, then find them again.")
+        return json_ok({"ok": True, "n": len(answering)})
 
     # ── APK upload ──
     if path == "/api/upload":
@@ -2989,10 +3554,17 @@ async def handle_post(path: str, body: bytes) -> bytes:
         APK_DIR.mkdir(exist_ok=True)
         dest = APK_DIR / safe_name
         try:
-            dest.write_bytes(base64.b64decode(file_b64))
+            raw = base64.b64decode(file_b64)
         except Exception:
             return json_err("invalid base64 data")
-        return json_ok({"ok": True, "name": safe_name})
+        try:
+            dest.write_bytes(raw)
+            stored = dest.read_bytes()
+        except OSError:
+            return json_err("APK was not saved — disk copy does not match.")
+        if stored != raw:
+            return json_err("APK was not saved — disk copy does not match.")
+        return json_ok({"ok": True, "saved": True, "name": safe_name, "bytes": len(stored)})
 
     # ── APK install ──
     if path == "/api/install":
@@ -3005,6 +3577,8 @@ async def handle_post(path: str, body: bytes) -> bytes:
         if not apk_path.exists():
             return json_err("file not found")
         phones = _running_phones_ordered()
+        if not phones:
+            return json_err("No phones connected — nothing to install. Start the phones, then try again.")
 
         async def install_all():
             loop = asyncio.get_running_loop()
@@ -3012,7 +3586,7 @@ async def handle_post(path: str, body: bytes) -> bytes:
                 serial = p["serial"]
                 await broadcast({"type": "install_progress",
                                  "serial": serial, "status": "installing"})
-                await loop.run_in_executor(
+                proc = await loop.run_in_executor(
                     None,
                     lambda s=serial, ap=str(apk_path): subprocess.run(
                         [adb_executable(), "-s", s, "install", "-r", ap],
@@ -3021,48 +3595,77 @@ async def handle_post(path: str, body: bytes) -> bytes:
                         creationflags=_ADB_SUBPROC_FLAGS,
                     )
                 )
+                text = (
+                    (proc.stdout or b"") + b"\n" + (proc.stderr or b"")
+                ).decode("utf-8", "replace")
+                installed = apk_install_reported(text, "", proc.returncode)
                 invalidate_cache(serial)
-                await broadcast({"type": "install_progress",
-                                 "serial": serial, "status": "done"})
+                if installed:
+                    await broadcast({"type": "install_progress",
+                                     "serial": serial, "status": "done"})
+                else:
+                    await broadcast({
+                        "type": "install_progress",
+                        "serial": serial,
+                        "status": "error",
+                        "error": (text.strip() or "adb install failed")[-240:],
+                    })
             await push_phones()
 
         asyncio.create_task(install_all())
-        return json_ok({"ok": True})
+        return json_ok({"ok": True, "started": True, "n": len(phones)})
 
     # ── Phone stop (universal) ──
     if path == "/api/phone/stop":
         serial = data.get("serial", "").strip()
         if not serial:
             return json_err("no serial")
-        _executor.submit(_stop_device, serial)
-        await asyncio.sleep(1)
+        result = await asyncio.get_running_loop().run_in_executor(None, _stop_device_result, serial)
         await push_phones()
-        return json_ok({"ok": True})
+        if not result.get("ok"):
+            return json_err(str(result.get("note") or "Phone was not stopped"))
+        return json_ok({"ok": True, **result})
 
     # ── Stop all running devices ──
     if path == "/api/stop_all":
         phones = _running_phones_ordered()
-        def stop_all():
-            for p in phones:
-                _stop_device(p["serial"])
-        _executor.submit(stop_all)
-        await asyncio.sleep(1.5)
+        if not phones:
+            return json_err("No phones are answering ADB.")
+
+        def stop_all() -> list[dict]:
+            return [_stop_device_result(p["serial"]) for p in phones]
+
+        results = await asyncio.get_running_loop().run_in_executor(None, stop_all)
         await push_phones()
-        return json_ok({"ok": True})
+        stopped = [r for r in results if r.get("action") in ("killed", "docker_stop")]
+        disconnected = [r for r in results if r.get("action") == "disconnected"]
+        failed = [r for r in results if not r.get("ok")]
+        if not stopped and not disconnected:
+            return json_err("No phone was stopped or disconnected.")
+        return json_ok({
+            "ok": True,
+            "stopped": len(stopped),
+            "disconnected": len(disconnected),
+            "failed": len(failed),
+            "results": results,
+        })
 
     # ── Refresh / re-scan ──
     if path == "/api/start_all":
         auto_connect_emulators()
         await push_phones()
-        return json_ok({"ok": True})
+        answering = [p for p in list_phones() if p.get("running")]
+        if not answering:
+            return json_err("No phones are answering ADB. Start the phones, then find them again.")
+        return json_ok({"ok": True, "n": len(answering)})
 
     # ── URL launcher ──
     if path == "/api/open_url":
         url         = _normalize_url_for_intent(data.get("url", ""))
         auto_rotate = bool(data.get("auto_rotate", False))
         try:
-            stagger    = min(int(data.get("stagger_secs", 0)), 3600)
-            dwell_secs = min(int(data.get("dwell_secs", 30)), 3600)
+            stagger    = max(0, int(data.get("stagger_secs", 0)))
+            dwell_secs = max(0, int(data.get("dwell_secs", 30)))
         except (TypeError, ValueError):
             return json_err("stagger_secs and dwell_secs must be integers")
         try:
@@ -3072,7 +3675,39 @@ async def handle_post(path: str, body: bytes) -> bytes:
         except Exception:
             return json_err("URL must be a valid http:// or https:// URL")
         phones = _running_phones_ordered()
+        target = str(data.get("target") or "all").strip() or "all"
+        if target != "all":
+            phones = [p for p in phones if p.get("serial") == target]
+        if not phones:
+            return json_err(
+                "No phones are answering ADB. Start the phones, then open the page again."
+            )
         loop   = asyncio.get_running_loop()
+
+        def _phones_with_exit() -> list:
+            ready = []
+            for p in phones:
+                ok, note = _dashboard_open_exit_ready(p["serial"])
+                if ok:
+                    ready.append(p)
+                    continue
+                asyncio.run_coroutine_threadsafe(
+                    broadcast(
+                        {
+                            "type": "log",
+                            "msg": f"{p['name']}: page not opened — {note}",
+                        }
+                    ),
+                    loop,
+                )
+            return ready
+
+        phones = await asyncio.get_running_loop().run_in_executor(None, _phones_with_exit)
+        if not phones:
+            return json_err(
+                "No phone has a loopback exit, so the page was not opened. "
+                "Traffic would leave this PC. Fix phone internet, then try again."
+            )
 
         def _rotate_after(p: dict, delay: int):
             time.sleep(delay)
@@ -3083,8 +3718,18 @@ async def handle_post(path: str, body: bytes) -> bytes:
                 _adb(p["serial"], "shell", "am", "force-stop", br)
             tor_manager.register_tor_slot(p["serial"], idx)
             result = tor_manager.rotate_identity_adb(p["serial"], idx)
-            msg = (f"{p['name']}: identity rotated · "
-                   f"new Tor circuit={'yes' if result.get('circuit_rotated') else 'no'}")
+            # A new circuit without a pinned loopback exit is not a rotation.
+            # The page already opened on the old exit; do not claim the identity changed.
+            landed = bool(result.get("circuit_rotated")) and _guest_loopback_pinned(result)
+            proxy = str(result.get("http_proxy") or "not pinned")
+            if landed:
+                msg = f"{p['name']}: identity rotated — new Tor circuit on {proxy}"
+            else:
+                circuit = "yes" if result.get("circuit_rotated") else "no"
+                msg = (
+                    f"{p['name']}: identity was not rotated — "
+                    f"circuit={circuit} · proxy={proxy}"
+                )
             asyncio.run_coroutine_threadsafe(broadcast({"type": "log", "msg": msg}), loop)
 
         async def open_all():
@@ -3099,39 +3744,44 @@ async def handle_post(path: str, body: bytes) -> bytes:
                 # Device-only VIEW intent (never host browser). Generic handler
                 # avoids hard dependency on Google Chrome; optional explicit component via
                 # open_url step field ``browser_component`` in sequences.
-                if not _cpharm_skip_tor_wait():
-                    _idx_ou = _phone_idx_from_serial(p["serial"])
+                exit_ok, exit_note = _dashboard_open_exit_ready(p["serial"])
+                if not exit_ok:
+                    await broadcast(
+                        {
+                            "type": "log",
+                            "msg": (
+                                f"{p['name']}: page not opened — {exit_note}"
+                            ),
+                        }
+                    )
+                    continue
+                _idx_ou = _phone_idx_from_serial(p["serial"])
+                _ens_ou = {"ok": True}
+                if not _pharmflow_skip_tor_wait():
                     tor_manager.start_tor_warm_background(_idx_ou)
                     _ens_ou = tor_manager.ensure_tor_ready(p["serial"], _idx_ou)
                     if not _ens_ou.get("ok"):
                         log.warning(
-                            "open_url API: Tor/proxy not ready serial=%s (%s) — browser may show net::ERR_*; "
-                            "see CPHARM_SKIP_TOR_WAIT or tor bootstrap",
+                            "open_url API: Tor/proxy not ready serial=%s (%s)",
                             p["serial"],
                             _ens_ou.get("error", "unknown"),
                         )
-                        asyncio.run_coroutine_threadsafe(
-                            broadcast(
-                                {
-                                    "type": "log",
-                                    "msg": (
-                                        f"{p['name']}: Tor not ready yet — {_ens_ou.get('error', 'unknown')[:120]} "
-                                        "(wait for Tor, then try again)"
-                                    ),
-                                }
-                            ),
-                            loop,
-                        )
-                res = _open_url_with_fallbacks(p["serial"], url, {})
-                res = _retry_open_url_action_view_for_browser_net_error(p["serial"], url, res)
-                if _adb_indicates_trouble(res):
+                _tor_block = _dead_tor_http_reason(_idx_ou, exit_note, _ens_ou)
+                if _tor_block:
                     await broadcast(
                         {
                             "type": "log",
-                            "msg": f"{p['name']}: could not open link — {res.text[:220]}",
+                            "msg": (
+                                f"{p['name']}: page not opened — Tor HTTP exit is not ready "
+                                f"({_tor_block[:120]})"
+                            ),
                         }
                     )
-                else:
+                    continue
+                res = _open_url_with_fallbacks(p["serial"], url, {})
+                res = _retry_open_url_action_view_for_browser_net_error(p["serial"], url, res)
+                opened = am_start_reported_landing(res.stdout, res.stderr)
+                if opened:
                     # Same follow-through as ``run_sequence_step`` ``open_url`` (PID wait + settle).
                     _wait_for_browser_pid_after_open(p["serial"], {})
                     try:
@@ -3140,14 +3790,31 @@ async def handle_post(path: str, body: bytes) -> bytes:
                             time.sleep(_api_settle)
                     except (TypeError, ValueError):
                         pass
-                await broadcast({"type": "log", "msg": f"Opened {url} on {p['name']}"})
-                if auto_rotate:
+                    await broadcast(
+                        {"type": "log", "msg": _open_url_result_log(p["name"], url, opened=True)}
+                    )
+                else:
+                    await broadcast(
+                        {
+                            "type": "log",
+                            "msg": _open_url_result_log(
+                                p["name"], url, opened=False, note=res.text[:220]
+                            ),
+                        }
+                    )
+                if opened and auto_rotate:
                     threading.Thread(
                         target=_rotate_after, args=(p, dwell_secs), daemon=True
                     ).start()
 
         asyncio.create_task(open_all())
-        return json_ok({"ok": True})
+        return json_ok({
+            "ok": True,
+            "queued": True,
+            "started": False,
+            "n": len(phones),
+            "targeted": len(phones),
+        })
 
     # ── Teach mode ──
     if path == "/api/teach/start":
@@ -3155,27 +3822,41 @@ async def handle_post(path: str, body: bytes) -> bytes:
         if not phones:
             return json_err("no phones running")
         first_serial = phones[0]["serial"]
-        _teach_state["state"]  = "recording"
-        _teach_state["serial"] = first_serial
         rec_file = teach_mod.start_recording(first_serial)
+        if not rec_file:
+            _teach_state["state"] = "idle"
+            _teach_state["file"] = ""
+            await broadcast({"type": "teach_status", **_teach_state})
+            return json_err("Recording did not start — getevent is not running on that phone.")
+        _teach_state["state"] = "recording"
+        _teach_state["serial"] = first_serial
         _teach_state["file"] = rec_file
         await broadcast({"type": "teach_status", **_teach_state})
-        return json_ok({"ok": True})
+        return json_ok({"ok": True, "recording": True, "file": rec_file})
 
     if path == "/api/teach/stop":
-        teach_mod.stop_recording()
+        rec_file = teach_mod.stop_recording()
+        events = teach_mod.recording_event_count(rec_file)
         _teach_state["state"] = "idle"
+        if events < 1:
+            _teach_state["file"] = ""
+            await broadcast({"type": "teach_status", **_teach_state})
+            return json_err("No taps were captured.")
+        _teach_state["file"] = rec_file
         await broadcast({"type": "teach_status", **_teach_state})
-        return json_ok({"ok": True})
+        return json_ok({"ok": True, "file": rec_file, "events": events})
 
     if path == "/api/teach/play":
         rec = data.get("file") or _teach_state.get("file")
         try:
-            delay = min(int(data.get("delay_secs", 60)), 3600)
+            delay = max(0, int(data.get("delay_secs", 60)))
         except (TypeError, ValueError):
             delay = 60
         if not rec:
             return json_err("no recording found")
+        events = teach_mod.recording_event_count(rec)
+        if events < 1:
+            return json_err("No taps were captured in that recording.")
         try:
             rec_resolved = Path(rec).resolve()
             if not str(rec_resolved).startswith(str(REC_DIR.resolve())):
@@ -3184,35 +3865,54 @@ async def handle_post(path: str, body: bytes) -> bytes:
             return json_err("invalid recording path")
         source_serial = _teach_state.get("serial", "")
         phones = [p for p in _running_phones_ordered() if p["serial"] != source_serial]
+        if not phones:
+            return json_err(
+                "No other phone is answering. Boot another phone, then play the recording."
+            )
         _teach_state["state"] = "playing"
         await broadcast({"type": "teach_status", **_teach_state})
         loop = asyncio.get_running_loop()
 
-        def on_done():
+        def on_done(sent: int = 0):
             _teach_state["state"] = "idle"
             asyncio.run_coroutine_threadsafe(broadcast({"type": "teach_status", **_teach_state}), loop)
-            asyncio.run_coroutine_threadsafe(broadcast({"type": "log", "msg": "Teach Mode playback complete"}), loop)
+            if sent < 1:
+                msg = "Teach playback finished — no event landed."
+            else:
+                msg = (
+                    f"Teach playback sent {sent} event(s) — the phone screen was not confirmed."
+                )
+            asyncio.run_coroutine_threadsafe(
+                broadcast({"type": "log", "msg": msg}),
+                loop,
+            )
 
         teach_mod.replay_all(phones, rec, delay_secs=delay, on_complete=on_done)
-        return json_ok({"ok": True})
+        return json_ok({"ok": True, "started": True, "n": len(phones), "events": events})
 
     # ── Tor / identity ──
     if path == "/api/proxy/setup":
         phones = _running_phones_ordered()
         loop   = asyncio.get_running_loop()
 
+        if not phones:
+            return json_err("No phones are answering ADB. Start the phones, then set up Tor.")
+
         pre = tor_manager.tor_proxy_preflight()
         if not pre.get("ok"):
             return json_err(pre.get("error", "Tor unavailable — install Tor or start Tor Browser"))
 
-        def setup():
+        def setup() -> int:
+            pinned = 0
             tor_manager.clear_tor_slots()
             try:
-                for i, p in enumerate(phones):
-                    tor_manager.register_tor_slot(p["serial"], i)
-                    idx = i
+                for p in phones:
+                    # Prefs / guest slot, not "nth phone that answered". A gap
+                    # must not pin a later phone onto someone else's exit.
+                    idx = _phone_idx_from_serial(p["serial"])
+                    tor_manager.register_tor_slot(p["serial"], idx)
                     try:
-                        socks_port = tor_manager.start_tor_for_phone(idx)
+                        tor_manager.start_tor_for_phone(idx)
                     except (FileNotFoundError, RuntimeError) as e:
                         msg = f"{p['name']}: Tor could not start — {e}"
                         asyncio.run_coroutine_threadsafe(
@@ -3223,82 +3923,143 @@ async def handle_post(path: str, body: bytes) -> bytes:
                     w_http = tor_manager.tor_wait_http_seconds()
                     ok_socks = tor_manager.wait_for_tor(idx, timeout=w_socks)
                     ok_http = tor_manager.wait_for_tor_http_tunnel(idx, timeout=w_http)
-                    tor_manager.apply_identity_adb(p["serial"], idx)
-                    ok = ok_socks and ok_http
-                    if ok:
-                        tail = "Tor ready"
-                    else:
-                        parts = []
-                        if not ok_socks:
-                            parts.append(f"Tor still starting (waited {w_socks}s)")
-                        if not ok_http:
-                            parts.append(f"Internet tunnel not open (waited {w_http}s)")
-                        tail = "FAILED: " + "; ".join(parts)
-                    msg = f"{p['name']}: {tail}"
+                    applied = tor_manager.apply_identity_adb(p["serial"], idx)
+                    landed = ok_socks and ok_http and _guest_loopback_pinned(applied)
+                    if landed:
+                        pinned += 1
+                    msg = _tor_setup_line(
+                        str(p.get("name") or p["serial"]),
+                        ok_socks=ok_socks,
+                        ok_http=ok_http,
+                        pinned=_guest_loopback_pinned(applied),
+                        w_socks=w_socks,
+                        w_http=w_http,
+                    )
                     asyncio.run_coroutine_threadsafe(broadcast({"type": "log", "msg": msg}), loop)
+                if pinned == len(phones) and pinned:
+                    done = f"Tor setup finished — {pinned} phone(s) have a loopback exit."
+                elif pinned:
+                    done = (
+                        f"Tor setup incomplete — {pinned} of {len(phones)} phone(s) "
+                        "have a loopback exit. The rest were not pinned."
+                    )
+                else:
+                    done = "Tor setup failed — no phone got a loopback exit."
                 asyncio.run_coroutine_threadsafe(
-                    broadcast({"type": "log", "msg": "Tor setup finished — read each phone line above."}), loop
+                    broadcast({"type": "log", "msg": done}), loop
                 )
             except Exception as e:
                 asyncio.run_coroutine_threadsafe(
                     broadcast({"type": "log", "msg": f"Tor setup error: {e}"}), loop
                 )
+            return pinned
 
-        _executor.submit(setup)
-        return json_ok({"ok": True, "tor_preflight": pre})
+        pinned = await asyncio.get_running_loop().run_in_executor(None, setup)
+        if pinned < 1:
+            return json_err("No phone got a loopback exit. Read the log.")
+        return json_ok({"ok": True, "n": pinned, "targeted": len(phones), "tor_preflight": pre})
 
     if path == "/api/proxy/rotate":
         phones = _running_phones_ordered()
+        if not phones:
+            return json_err("No phones connected — nothing to rotate. Start the phones, then try again.")
         loop   = asyncio.get_running_loop()
 
         def rotate_all():
+            pinned = 0
             for p in phones:
                 idx = _phone_idx_from_serial(p["serial"])
                 tor_manager.register_tor_slot(p["serial"], idx)
-                result = tor_manager.rotate_identity_adb(p["serial"], idx)
-                msg = (f"{p['name']}: rotated · "
-                       f"Tor={'yes' if result.get('circuit_rotated') else 'no'}")
+                try:
+                    result = tor_manager.rotate_identity_adb(p["serial"], idx)
+                except Exception as exc:
+                    msg = f"{p['name']}: rotate failed — {exc}"
+                    asyncio.run_coroutine_threadsafe(broadcast({"type": "log", "msg": msg}), loop)
+                    continue
+                landed = bool(result.get("circuit_rotated")) and _guest_loopback_pinned(result)
+                if landed:
+                    pinned += 1
+                    msg = f"{p['name']}: rotated · exit={result.get('http_proxy')}"
+                else:
+                    msg = (
+                        f"{p['name']}: rotate failed · "
+                        f"circuit={'yes' if result.get('circuit_rotated') else 'no'} · "
+                        f"proxy={result.get('http_proxy') or 'not pinned'}"
+                    )
                 asyncio.run_coroutine_threadsafe(broadcast({"type": "log", "msg": msg}), loop)
-            asyncio.run_coroutine_threadsafe(
-                broadcast({"type": "log", "msg": "All phones have new identities!"}), loop
-            )
+            if pinned == len(phones):
+                done = f"Rotated {pinned} phone(s) onto a new exit."
+            elif pinned:
+                done = (
+                    f"Rotated {pinned} of {len(phones)} phone(s). "
+                    "The rest did not get a new loopback exit."
+                )
+            else:
+                done = "No phone got a new identity. Exits were not changed."
+            asyncio.run_coroutine_threadsafe(broadcast({"type": "log", "msg": done}), loop)
+            return pinned
 
-        _executor.submit(rotate_all)
-        return json_ok({"ok": True})
+        pinned = await asyncio.get_running_loop().run_in_executor(None, rotate_all)
+        if pinned < 1:
+            return json_err("No phone got a new exit.")
+        return json_ok({"ok": True, "n": pinned, "targeted": len(phones)})
 
     if path == "/api/proxy/teardown":
         # Run ADB + Tor cleanup off the asyncio loop so WS / other POST handlers stay responsive.
         loop = asyncio.get_running_loop()
 
-        def _proxy_teardown_sync() -> tuple[list[str], str, int]:
-            seen: set[str] = set()
-            phones: list[str] = []
-            for p in list_phones():
-                s = (p.get("serial") or "").strip()
-                if not s or s in seen:
-                    continue
-                seen.add(s)
-                phones.append(s)
-            tor_manager.clear_all_proxies_on_devices(phones)
-            tor_manager.kick_default_browser_after_proxy_teardown(phones)
-            tor_manager.clear_tor_slots()
-            tor_manager.stop_all()
-            n = len(phones)
-            if phones:
-                msg = (
-                    f"Tor stopped — cleared phone internet settings on {n} phone(s). "
-                    "Close and reopen the browser if a tab still looks broken."
-                )
-            else:
-                msg = (
-                    "Tor stopped on this PC, but no phones were connected. "
-                    "Start MuMu phones, then click Turn off Tor again if browsers still fail."
-                )
-            return phones, msg, n
+        def _proxy_teardown_sync() -> tuple[list[str], str, int, bool]:
+            # This route used to delete guest http_proxy and stop Tor. That
+            # sends farm traffic out the VM/host path. Re-pin the live exits.
+            from automation.farm_exe_self_heal import (
+                adb_live_serials,
+                connect_live_fleet,
+                heal_inject_and_tor,
+            )
 
-        phones, msg, n = await loop.run_in_executor(_executor, _proxy_teardown_sync)
+            notes: list[str] = []
+            try:
+                notes.extend(connect_live_fleet() or [])
+            except Exception as exc:
+                notes.append(f"connect_failed:{exc}")
+            phones = [str(s) for s in (adb_live_serials() or []) if str(s).strip()]
+            try:
+                notes.extend(heal_inject_and_tor(live=phones) or [])
+            except Exception as exc:
+                return phones, f"Re-pin failed: {exc}", 0, False
+            failed = [
+                n
+                for n in notes
+                if "repin_fail" in n or n.startswith("inject_start_err") or n.startswith("connect_failed")
+            ]
+            pinned = [n for n in notes if n.startswith("repin ") and "repin_fail" not in n]
+            if not phones:
+                return (
+                    phones,
+                    "No phones connected — nothing to re-pin. Start the phones, then try again.",
+                    0,
+                    False,
+                )
+            if failed or len(pinned) < len(phones):
+                detail = "; ".join(failed or ["no loopback pin landed"])[:400]
+                return phones, f"Re-pin failed: {detail}", len(pinned), False
+            msg = (
+                f"Re-pinned {len(pinned)} phone(s) onto their own exits. "
+                "Proxies were not cleared."
+            )
+            return phones, msg, len(pinned), True
+
+        phones, msg, n, pinned_ok = await loop.run_in_executor(_executor, _proxy_teardown_sync)
         await broadcast({"type": "log", "msg": msg})
-        return json_ok({"ok": True, "cleared_serials": phones, "n": n})
+        if not pinned_ok:
+            return json_err(msg)
+        return json_ok({
+            "ok": True,
+            "message": msg,
+            "cleared_serials": phones,
+            "n": n,
+            "repinned": True,
+        })
 
     # ── Groups: run different sequences on different phone sets in parallel ──
 
@@ -3309,25 +4070,51 @@ async def handle_post(path: str, body: bytes) -> bytes:
             return json_err("no serial")
         idx = _phone_idx_from_serial(serial)
         loop = asyncio.get_running_loop()
+
         def do_reset():
-            result = tor_manager.full_identity_reset(serial, idx)
-            asyncio.run_coroutine_threadsafe(
-                broadcast({"type": "log", "msg": f"{serial}: reset — tor={result['tor_circuit_rotated']} android_id={result['new_android_id'][:8]}… mac={result['new_mac']}"}), loop)
-        _executor.submit(do_reset)
-        return json_ok({"ok": True})
+            try:
+                return tor_manager.full_identity_reset(serial, idx)
+            except Exception as exc:
+                return {"tor_circuit_rotated": False, "error": str(exc)}
+
+        result = await loop.run_in_executor(None, do_reset)
+        msg = _identity_reset_log(serial, result)
+        await broadcast({"type": "log", "msg": msg})
+        if not _identity_reset_landed(result):
+            return json_err(msg)
+        return json_ok({"ok": True, "rotated": True, "message": msg})
 
     # ── Reset all running phones ──
     if path == "/api/identity/reset_all":
         phones = _running_phones_ordered()
         loop = asyncio.get_running_loop()
-        def do_reset_all():
+        if not phones:
+            return json_err("No phones connected — nothing to reset. Start the phones, then try again.")
+
+        def do_reset_all() -> int:
+            rotated = 0
             for p in phones:
                 idx = _phone_idx_from_serial(p["serial"])
-                result = tor_manager.full_identity_reset(p["serial"], idx)
+                try:
+                    result = tor_manager.full_identity_reset(p["serial"], idx)
+                except Exception as exc:
+                    asyncio.run_coroutine_threadsafe(
+                        broadcast({"type": "log", "msg": f"{p['name']}: identity reset failed — {exc}"}),
+                        loop,
+                    )
+                    continue
+                if _identity_reset_landed(result):
+                    rotated += 1
                 asyncio.run_coroutine_threadsafe(
-                    broadcast({"type": "log", "msg": f"{p['name']}: reset ✓ tor={result['tor_circuit_rotated']} android_id={result['new_android_id'][:8]}…"}), loop)
-        _executor.submit(do_reset_all)
-        return json_ok({"ok": True})
+                    broadcast({"type": "log", "msg": _identity_reset_log(p["name"], result)}),
+                    loop,
+                )
+            return rotated
+
+        rotated = await loop.run_in_executor(None, do_reset_all)
+        if rotated < 1:
+            return json_err("No phone got a new Tor circuit on a pinned loopback exit.")
+        return json_ok({"ok": True, "n": rotated, "targeted": len(phones)})
 
     if path == "/api/groups/run":
         raw_groups = data.get("groups")
@@ -3350,11 +4137,19 @@ async def handle_post(path: str, body: bytes) -> bytes:
         # live phones (by farm slot) instead of refusing to run.
         remap = _remap_group_serials_to_live(raw_groups, online_serials)
         if remap.get("remapped"):
-            log.info("Auto-remapped %s group(s) to live ADB serials (%s phones online)",
-                     remap.get("remapped"), len(online_serials))
+            if remap.get("saved"):
+                remap_msg = (
+                    f"[PharmFlow] Auto-remapped groups to live phones ({len(online_serials)} online)"
+                )
+            else:
+                remap_msg = (
+                    "[PharmFlow] Remapped groups in memory only — disk copy does not match "
+                    f"({len(online_serials)} online)"
+                )
+            log.info(remap_msg)
             asyncio.get_running_loop().call_soon_threadsafe(
-                lambda: asyncio.ensure_future(
-                    broadcast({"type": "log", "msg": f"[PharmFlow] Auto-remapped groups to live phones ({len(online_serials)} online)"}),
+                lambda msg=remap_msg: asyncio.ensure_future(
+                    broadcast({"type": "log", "msg": msg}),
                 )
             )
         configured_serials: set[str] = set()
@@ -3390,7 +4185,7 @@ async def handle_post(path: str, body: bytes) -> bytes:
 
         # Tor bootstrap + http_proxy can take minutes per phone; run off the HTTP handler
         # so wizard/dashboard clients get an immediate JSON response (see _start_groups_pipeline).
-        if not _cpharm_skip_tor_wait():
+        if not _pharmflow_skip_tor_wait():
             tor_pf = tor_manager.tor_proxy_preflight()
             if not tor_pf.get("ok"):
                 _running_groups.clear()
@@ -3398,11 +4193,11 @@ async def handle_post(path: str, body: bytes) -> bytes:
                     tor_pf.get(
                         "error",
                         "Tor unavailable on this PC — install tor.exe / Tor Browser, or set "
-                        "CPHARM_SKIP_TOR_WAIT=1 to run groups without Tor.",
+                        "PHARMFLOW_SKIP_TOR_WAIT=1 to run groups without Tor.",
                     )
                 )
 
-        def _run_steps_adb(steps: list, serial: str, group_name: str, iteration: int):
+        def _run_steps_adb(steps: list, serial: str, group_name: str, iteration: int) -> str:
             ic = lambda: _running_groups.get(group_name, True)
             cycle = iteration * 1_000_003 + (_hv.stable_seed(serial, 0) & 0xFFFFF)
             rng = _hv.rng_for_run(serial, cycle) if _hv.enabled() else None
@@ -3417,14 +4212,26 @@ async def handle_post(path: str, body: bytes) -> bytes:
 
             for step in steps:
                 if not ic():
-                    break
-                run_sequence_step(
+                    return "stopped"
+                landed = run_sequence_step(
                     serial,
                     step,
                     interrupt_check=ic,
                     hv_rng=rng,
                     adb_issue_cb=_adb_issue_cb,
                 )
+                if not ic():
+                    return "stopped"
+                if landed is False:
+                    kind = str(step.get("type") or "step")
+                    asyncio.run_coroutine_threadsafe(
+                        broadcast({
+                            "type": "log",
+                            "msg": f"[{group_name}] {kind} did not land on {serial} — sequence stopped",
+                        }),
+                        loop,
+                    )
+                    return f"{kind} did not land"
                 if step_is_fast_phase(step):
                     time.sleep(0.05)
                 elif step.get("phase") == "on_site_human":
@@ -3433,6 +4240,7 @@ async def handle_post(path: str, body: bytes) -> bytes:
                     time.sleep(_hv.step_gap_seconds(rng))
                 else:
                     time.sleep(0.3)
+            return ""
 
         def _effective_group_repeat(group: dict, repeat: int, forever: bool) -> int:
             """Ensure ordered/random playlists run every file at least once per group run."""
@@ -3534,9 +4342,11 @@ async def handle_post(path: str, body: bytes) -> bytes:
                         cycle = iteration * 1_000_003 + (_hv.stable_seed(serial, 0) & 0xFFFFF)
                         gap_rng = _hv.rng_for_run(serial, cycle + 77)
                         ran_any = False
+                        step_fail = ""
                         rotate_every = _rotate_every_sequence_enabled()
                         for ci, (phone_steps, pl_from) in enumerate(chunks):
                             if not _running_groups.get(name):
+                                step_fail = step_fail or "stopped"
                                 break
                             if ci > 0:
                                 gap = _hv.sequence_start_gap_seconds(gap_rng)
@@ -3546,35 +4356,44 @@ async def handle_post(path: str, body: bytes) -> bytes:
                                 broadcast({"type": "log",
                                                "msg": f"[{name}] Run {iteration+1} on {phone_name} "
                                                f"({len(phone_steps)} steps){pl_note}"}), loop)
-                            _run_steps_adb(phone_steps, serial, name, iteration)
+                            step_fail = _run_steps_adb(phone_steps, serial, name, iteration)
+                            if step_fail:
+                                break
                             ran_any = ran_any or bool(phone_steps)
                             # Rotate fingerprint/proxy/Tor/IMEI after EVERY sequence so a
                             # fresh identity drives each run (not just playlist-cycle end).
-                            if ran_any and rotate_every:
+                            if ran_any and rotate_every and not step_fail:
                                 idx = _phone_idx_from_serial(serial)
                                 asyncio.run_coroutine_threadsafe(
                                     broadcast({"type": "log",
                                                "msg": f"[{name}] New identity on {phone_name}…"}), loop)
-                                tor_manager.full_identity_reset(serial, idx)
-                                _bump_phone_rotation(serial)
+                                result = tor_manager.full_identity_reset(serial, idx)
+                                if _identity_reset_landed(result):
+                                    _bump_phone_rotation(serial)
                                 asyncio.run_coroutine_threadsafe(
                                     broadcast({"type": "log",
-                                               "msg": f"[{name}] {phone_name} identity reset ✓"}), loop)
+                                               "msg": _identity_reset_log(f"[{name}] {phone_name}", result)}), loop)
                         at_cycle_end = (
                             not isinstance(ent, dict)
                             or is_playlist_cycle_end(ent, iteration)
                         )
-                        if ran_any and at_cycle_end and not rotate_every:
+                        if ran_any and at_cycle_end and not rotate_every and not step_fail:
                             idx = _phone_idx_from_serial(serial)
                             asyncio.run_coroutine_threadsafe(
                                 broadcast({"type": "log",
                                            "msg": f"[{name}] New identity on {phone_name}…"}), loop)
-                            tor_manager.full_identity_reset(serial, idx)
-                            _bump_phone_rotation(serial)
+                            result = tor_manager.full_identity_reset(serial, idx)
+                            if _identity_reset_landed(result):
+                                _bump_phone_rotation(serial)
                             asyncio.run_coroutine_threadsafe(
                                 broadcast({"type": "log",
-                                           "msg": f"[{name}] {phone_name} identity reset ✓"}), loop)
-                        _set_phone_run(name, serial, state="done", iteration=iteration, result="completed")
+                                           "msg": _identity_reset_log(f"[{name}] {phone_name}", result)}), loop)
+                        if step_fail == "stopped":
+                            _set_phone_run(name, serial, state="stopped", iteration=iteration, result="stopped")
+                        elif step_fail:
+                            _set_phone_run(name, serial, state="error", iteration=iteration, result=step_fail)
+                        else:
+                            _set_phone_run(name, serial, state="done", iteration=iteration, result="completed")
                     except Exception as e:
                         log.exception("group run failed serial=%s", serial)
                         _set_phone_run(name, serial, state="error", iteration=iteration, result=str(e))
@@ -3637,10 +4456,16 @@ async def handle_post(path: str, body: bytes) -> bytes:
                         t.start()
                         threads.append(t)
                     for t in threads:
-                        t.join(timeout=300)
+                        # A 300s cutoff started the next pass while a long wait
+                        # was still running. Wait until the phone finishes, or
+                        # until the operator stops the group.
+                        while t.is_alive() and _running_groups.get(name):
+                            t.join(timeout=0.5)
+                    if not _running_groups.get(name):
+                        break
                     # Every-sequence rotation churns exit IPs — re-verify uniqueness
                     # after each iteration so two phones can never share an IP for long.
-                    if not _cpharm_skip_tor_wait() and len(serials) > 1 and _unique_exit_ips_enabled():
+                    if not _pharmflow_skip_tor_wait() and len(serials) > 1 and _unique_exit_ips_enabled():
                         uniq = tor_manager.ensure_unique_exit_ips(
                             serials, max_attempts=3, timeout=10.0
                         )
@@ -3664,9 +4489,7 @@ async def handle_post(path: str, body: bytes) -> bytes:
                     iteration += 1
 
                 asyncio.run_coroutine_threadsafe(
-                    broadcast({"type": "log",
-                               "msg": f"[{name}] Done ✓" if _running_groups.get(name)
-                                      else f"[{name}] Stopped"}), loop)
+                    broadcast({"type": "log", "msg": _group_finish_log(name)}), loop)
             finally:
                 # Always clear running flag — uncaught errors previously left the
                 # group stuck as "running" forever in status / WebSocket panels.
@@ -3676,7 +4499,7 @@ async def handle_post(path: str, body: bytes) -> bytes:
 
         def _start_groups_pipeline() -> None:
             try:
-                if not _cpharm_skip_tor_wait():
+                if not _pharmflow_skip_tor_wait():
                     asyncio.run_coroutine_threadsafe(
                         broadcast(
                             {
@@ -3688,8 +4511,8 @@ async def handle_post(path: str, body: bytes) -> bytes:
                     )
                     tor_manager.clear_tor_slots()
                     _group_serials = tor_manager.order_adb_serials_by_desktop_prefs(configured_serials & online_serials)
-                    for _slot_i, _ser in enumerate(_group_serials):
-                        tor_manager.register_tor_slot(_ser, _slot_i)
+                    for _ser in _group_serials:
+                        tor_manager.register_tor_slot(_ser, _phone_idx_from_serial(_ser))
                     for serial in _group_serials:
                         if not any(_running_groups.values()):
                             return
@@ -3716,7 +4539,7 @@ async def handle_post(path: str, body: bytes) -> bytes:
                         else:
                             log.warning(
                                 "group start: adb shell preflight failed after Tor serial=%s — "
-                                "steps may skip until bridge recovers (see CPHARM_ADB_DEBUG=1)",
+                                "steps may skip until bridge recovers (see PHARMFLOW_ADB_DEBUG=1)",
                                 serial,
                             )
                     asyncio.run_coroutine_threadsafe(
@@ -3728,7 +4551,7 @@ async def handle_post(path: str, body: bytes) -> bytes:
                         ),
                         loop,
                     )
-                    if not _cpharm_skip_tor_wait():
+                    if not _pharmflow_skip_tor_wait():
                         _group_serials_all = tor_manager.order_adb_serials_by_desktop_prefs(
                             configured_serials & online_serials
                         )
@@ -3825,24 +4648,31 @@ async def handle_post(path: str, body: bytes) -> bytes:
                     "GET /api/groups/adb_errors returns the rolling buffer."
                 ),
                 "accepted": True,
-                "tor_preflight_async": not _cpharm_skip_tor_wait(),
+                "tor_preflight_async": not _pharmflow_skip_tor_wait(),
                 "start_note": (
-                    "Groups started — watch Activity Log for Tor and run progress."
+                    "Starting groups — watch the Activity Log. This does not mean they finished."
                 ),
             }
         )
 
     if path == "/api/groups/stop":
-        name = data.get("name", "")
+        name = str(data.get("name") or "").strip()
         if name:
+            if not _running_groups.get(name):
+                return json_err(f"Group {name} is not running.")
             _running_groups[name] = False
             await broadcast({"type": "log", "msg": f"Stopping group: {name}"})
+            stopping = 1
         else:
-            for k in list(_running_groups.keys()):
+            running = [k for k, v in _running_groups.items() if v]
+            if not running:
+                return json_err("No groups are running.")
+            for k in running:
                 _running_groups[k] = False
-            await broadcast({"type": "log", "msg": "Stopping all groups…"})
+            await broadcast({"type": "log", "msg": f"Stopping {len(running)} group(s)."})
+            stopping = len(running)
         await broadcast({"type": "groups_status", "running": _groups_status_running_names()})
-        return json_ok({"ok": True})
+        return json_ok({"ok": True, "stopping": stopping})
 
 
     # ── Clone master steps to all phones in a group ──
@@ -3879,8 +4709,7 @@ async def handle_post(path: str, body: bytes) -> bytes:
                 phone_map[serial]["steps"] = list(source_steps)
                 if prev_hits is not None:
                     try:
-                        phone_map[serial]["hits_per_day"] = max(
-                            0, min(int(prev_hits), 1440))
+                        phone_map[serial]["hits_per_day"] = max(0, int(prev_hits))
                     except (TypeError, ValueError):
                         phone_map[serial]["hits_per_day"] = DEFAULT_HITS_PER_DAY
                 else:
@@ -3890,8 +4719,14 @@ async def handle_post(path: str, body: bytes) -> bytes:
                     "steps": list(source_steps),
                     "hits_per_day": DEFAULT_HITS_PER_DAY,
                 }
-        GROUPS_CFG.write_text(json.dumps(cfg, indent=2))
-        return json_ok({"ok": True, "cloned": len(phone_map), "steps_count": len(source_steps)})
+        if not _persist_groups_cfg(cfg):
+            return json_err("Cloned steps were not saved — disk copy does not match.")
+        return json_ok({
+            "ok": True,
+            "saved": True,
+            "cloned": len(phone_map),
+            "steps_count": len(source_steps),
+        })
 
     # ── Get/Update per-phone steps ──
     if path == "/api/groups/phone_steps":
@@ -3920,8 +4755,14 @@ async def handle_post(path: str, body: bytes) -> bytes:
                         phone_map[serial]["steps"] = steps_to_save
                     else:
                         phone_map[serial] = {"steps": steps_to_save}
-                    GROUPS_CFG.write_text(json.dumps(cfg, indent=2))
-                    return json_ok({"ok": True, "serial": serial, "steps": steps_to_save})
+                    if not _persist_groups_cfg(cfg):
+                        return json_err("Phone steps were not saved — disk copy does not match.")
+                    return json_ok({
+                        "ok": True,
+                        "saved": True,
+                        "serial": serial,
+                        "steps": steps_to_save,
+                    })
                 else:
                     # Return current steps for this phone
                     steps = (phone_map.get(serial) or {}).get("steps", []) if isinstance(phone_map.get(serial), dict) else []
@@ -3946,10 +4787,8 @@ async def handle_post(path: str, body: bytes) -> bytes:
         groups = [g for g in groups if not (isinstance(g, dict) and str(g.get("name") or "").strip() == name)]
         if len(groups) == before:
             return json_err(f"group not found: {name}")
-        try:
-            GROUPS_CFG.write_text(json.dumps({"groups": groups}, indent=2), encoding="utf-8")
-        except OSError:
-            return json_err("could not write groups_config.json")
+        if not _persist_groups_cfg({"groups": groups}):
+            return json_err("Group was not deleted — disk copy does not match.")
         return json_ok({"ok": True, "deleted": name, "groups": len(groups)})
 
     # ── Save full groups config (dashboard / wizard parity with recordings/groups_config.json) ──
@@ -3962,30 +4801,24 @@ async def handle_post(path: str, body: bytes) -> bytes:
             return json_err("missing groups")
         if not isinstance(raw, list):
             return json_err("groups must be a JSON array")
-        try:
-            REC_DIR.mkdir(parents=True, exist_ok=True)
-            cfg = {"groups": _normalize_groups_payload(raw)}
-            GROUPS_CFG.write_text(json.dumps(cfg, indent=2))
-        except (OSError, TypeError) as e:
-            log.warning("groups save failed: %s", e)
-            return json_err("could not write groups_config.json")
-        return json_ok({"ok": True, "groups": len(raw)})
+        cfg = {"groups": _normalize_groups_payload(raw)}
+        if not _persist_groups_cfg(cfg):
+            log.warning("groups save failed: disk copy does not match")
+            return json_err("Group was not saved — disk copy does not match.")
+        return json_ok({"ok": True, "saved": True, "groups": len(cfg["groups"])})
 
     if path == "/api/groups/load":
-        if GROUPS_CFG.exists():
-            try:
-                cfg = json.loads(GROUPS_CFG.read_text())
-            except (json.JSONDecodeError, OSError):
-                return json_err("corrupt groups_config.json")
-            return json_ok(cfg)
-        return json_err("no groups_config.json found — run PharmFlow first")
+        cfg, err = _load_groups_cfg()
+        if err:
+            return json_err(err)
+        return json_ok(cfg)
 
     # ── App tester: launch app ──
     if path == "/api/launch_app":
         package = data.get("package", "").strip()
         target  = data.get("target", "all")
         try:
-            stagger = min(int(data.get("stagger_secs", 0)), 3600)
+            stagger = max(0, int(data.get("stagger_secs", 0)))
         except (TypeError, ValueError):
             stagger = 0
         if not package:
@@ -3994,9 +4827,12 @@ async def handle_post(path: str, body: bytes) -> bytes:
             return json_err("invalid package name")
         phones  = list_phones()
         targets = [p for p in phones if p["running"] and (target == "all" or p["serial"] == target)]
+        if not targets:
+            return json_err("No phones are answering ADB.")
         loop    = asyncio.get_running_loop()
 
-        def do_launch():
+        def do_launch() -> int:
+            launched = 0
             for i, p in enumerate(targets):
                 if i > 0 and stagger > 0:
                     d = (
@@ -4005,33 +4841,56 @@ async def handle_post(path: str, body: bytes) -> bytes:
                         else float(stagger)
                     )
                     time.sleep(d)
-                _adb(p["serial"], "shell", "monkey", "-p", package,
-                     "-c", "android.intent.category.LAUNCHER", "1")
+                res = _adb(p["serial"], "shell", "monkey", "-p", package,
+                           "-c", "android.intent.category.LAUNCHER", "1")
+                if monkey_launch_reported(res.stdout, res.stderr):
+                    launched += 1
+                    msg = f"{p['name']}: launched {package}"
+                else:
+                    msg = f"{p['name']}: did not launch {package}"
                 asyncio.run_coroutine_threadsafe(
-                    broadcast({"type": "log", "msg": f"{p['name']}: launched {package}"}), loop
+                    broadcast({"type": "log", "msg": msg}), loop
                 )
+            return launched
 
-        _executor.submit(do_launch)
-        return json_ok({"ok": True})
+        launched = await asyncio.get_running_loop().run_in_executor(None, do_launch)
+        if launched < 1:
+            return json_err("No phone launched the app.")
+        return json_ok({"ok": True, "n": launched, "targeted": len(targets)})
 
     # ── App tester: type text ──
     if path == "/api/input_text":
         text   = data.get("text", "")
         target = data.get("target", "all")
+        if not str(text):
+            return json_err("no text")
         safe   = urllib.parse.quote(text, safe="").replace("%20", "%s")
         phones  = list_phones()
         targets = [p for p in phones if p["running"] and (target == "all" or p["serial"] == target)]
+        if not targets:
+            return json_err("No phones are answering ADB.")
         loop    = asyncio.get_running_loop()
 
-        def do_type():
+        def do_type() -> int:
+            typed = 0
             for p in targets:
-                _adb(p["serial"], "shell", "input", "text", safe)
-            asyncio.run_coroutine_threadsafe(
-                broadcast({"type": "log", "msg": f"Typed on {len(targets)} phone(s)"}), loop
+                res = _adb(p["serial"], "shell", "input", "text", safe)
+                if _adb_landed(res):
+                    typed += 1
+            msg = (
+                f"Typed on {typed} of {len(targets)} phone(s)"
+                if typed
+                else "Typed on 0 phones — input did not land"
             )
+            asyncio.run_coroutine_threadsafe(
+                broadcast({"type": "log", "msg": msg}), loop
+            )
+            return typed
 
-        _executor.submit(do_type)
-        return json_ok({"ok": True})
+        typed = await asyncio.get_running_loop().run_in_executor(None, do_type)
+        if typed < 1:
+            return json_err("Text was not typed on any phone.")
+        return json_ok({"ok": True, "n": typed, "targeted": len(targets)})
 
     # ── App tester: key event ──
     if path == "/api/input_key":
@@ -4039,14 +4898,26 @@ async def handle_post(path: str, body: bytes) -> bytes:
             keycode = int(data.get("keycode", 66))
         except (TypeError, ValueError):
             return json_err("invalid keycode")
-        if not (0 <= keycode <= 300):
-            return json_err("keycode out of range")
+        if keycode < 0:
+            return json_err("keycode must be zero or greater")
         target  = data.get("target", "all")
         phones  = list_phones()
         targets = [p for p in phones if p["running"] and (target == "all" or p["serial"] == target)]
-        for p in targets:
-            _adb(p["serial"], "shell", "input", "keyevent", str(keycode))
-        return json_ok({"ok": True})
+        if not targets:
+            return json_err("No phones are answering ADB.")
+
+        def do_keys() -> int:
+            sent = 0
+            for p in targets:
+                res = _adb(p["serial"], "shell", "input", "keyevent", str(keycode))
+                if _adb_landed(res):
+                    sent += 1
+            return sent
+
+        sent = await asyncio.get_running_loop().run_in_executor(None, do_keys)
+        if sent < 1:
+            return json_err("Key was not sent to any phone.")
+        return json_ok({"ok": True, "n": sent, "targeted": len(targets)})
 
     # ── App tester: quick action ──
     if path == "/api/quick_action":
@@ -4056,24 +4927,37 @@ async def handle_post(path: str, body: bytes) -> bytes:
             return json_err("unknown action")
         phones  = list_phones()
         targets = [p for p in phones if p["running"] and (target == "all" or p["serial"] == target)]
+        if not targets:
+            return json_err("No phones are answering ADB.")
         loop    = asyncio.get_running_loop()
 
-        def do_action():
+        def do_action() -> int:
+            landed = 0
             cmd = _QUICK_ACTIONS.get(action)
             if action == "screenshot":
                 for p in targets:
                     ts  = int(time.time())
-                    out = f"/sdcard/cpharm_{ts}.png"
-                    _adb(p["serial"], "shell", "screencap", "-p", out)
+                    out = f"/sdcard/pharmflow_{ts}.png"
+                    res = _adb(p["serial"], "shell", "screencap", "-p", out)
+                    if _adb_landed(res):
+                        landed += 1
+                        msg = f"{p['name']}: screenshot → {out}"
+                    else:
+                        msg = f"{p['name']}: screenshot failed"
                     asyncio.run_coroutine_threadsafe(
-                        broadcast({"type": "log", "msg": f"{p['name']}: screenshot → {out}"}), loop
+                        broadcast({"type": "log", "msg": msg}), loop
                     )
             elif cmd:
                 for p in targets:
-                    _adb(p["serial"], *cmd)
+                    res = _adb(p["serial"], *cmd)
+                    if _adb_landed(res):
+                        landed += 1
+            return landed
 
-        _executor.submit(do_action)
-        return json_ok({"ok": True})
+        landed = await asyncio.get_running_loop().run_in_executor(None, do_action)
+        if landed < 1:
+            return json_err("Action did not land on any phone.")
+        return json_ok({"ok": True, "n": landed, "targeted": len(targets)})
 
     # ── Legacy Play Store API (not in operator dashboard UI; browser-only DabFlow) ──
     if path == "/api/playstore/run":
@@ -4082,43 +4966,80 @@ async def handle_post(path: str, body: bytes) -> bytes:
         review  = data.get("review", "").strip()
         try:
             stars = int(data.get("stars", 0))
-            delay = min(int(data.get("delay_secs", 60)), 3600)
+            delay = max(0, int(data.get("delay_secs", 60)))
         except (TypeError, ValueError):
             return json_err("stars and delay_secs must be integers")
         if stars and not (1 <= stars <= 5):
             return json_err("stars must be between 1 and 5")
         if package and not re.match(r'^[a-zA-Z][a-zA-Z0-9_.]*$', package):
             return json_err("invalid package name")
-        phones = list_phones()
+        phones = [p for p in list_phones() if p.get("running")]
+        if not phones:
+            return json_err("No phones are answering ADB.")
         loop   = asyncio.get_running_loop()
 
         def on_log(msg):
             asyncio.run_coroutine_threadsafe(broadcast({"type": "log", "msg": msg}), loop)
 
-        def on_done():
-            asyncio.run_coroutine_threadsafe(broadcast({"type": "log", "msg": "Play Store run complete"}), loop)
-            asyncio.run_coroutine_threadsafe(broadcast({"type": "playstore_done"}), loop)
+        def on_done(result=None):
+            landed = 0
+            failed = 0
+            if isinstance(result, dict):
+                landed = int(result.get("landed") or 0)
+                failed = int(result.get("failed") or 0)
+            if landed < 1:
+                msg = "Play Store run did not land on any phone."
+            else:
+                msg = (
+                    f"Play Store commands landed on {landed} phone(s). "
+                    "The store screen was not confirmed."
+                )
+                if failed:
+                    msg += f" Failed on {failed}."
+            asyncio.run_coroutine_threadsafe(
+                broadcast({"type": "log", "msg": msg}),
+                loop,
+            )
+            asyncio.run_coroutine_threadsafe(
+                broadcast({
+                    "type": "playstore_done",
+                    "landed": landed,
+                    "failed": failed,
+                }),
+                loop,
+            )
 
         ps_mod.run_full_sequence(phones, package, query, stars, review,
                                  delay_secs=delay, on_log=on_log, on_complete=on_done)
-        return json_ok({"ok": True})
+        return json_ok({"ok": True, "started": True, "n": len(phones)})
 
     if path == "/api/playstore/open":
         package = data.get("package", "").strip()
         if not package or not re.match(r'^[a-zA-Z][a-zA-Z0-9_.]*$', package):
             return json_err("invalid package name")
         phones = _running_phones_ordered()
+        if not phones:
+            return json_err("No phones are answering ADB.")
         loop   = asyncio.get_running_loop()
 
-        def _open():
+        def _open() -> int:
+            opened = 0
             for p in phones:
-                ps_mod.open_store_page_serial(p["serial"], package)
+                ok = bool(ps_mod.open_store_page_serial(p["serial"], package))
+                if ok:
+                    opened += 1
+                    msg = f"{p['name']}: opened {package}"
+                else:
+                    msg = f"{p['name']}: did not open {package}"
                 asyncio.run_coroutine_threadsafe(
-                    broadcast({"type": "log", "msg": f"{p['name']}: opened {package}"}), loop
+                    broadcast({"type": "log", "msg": msg}), loop
                 )
+            return opened
 
-        _executor.submit(_open)
-        return json_ok({"ok": True})
+        opened = await asyncio.get_running_loop().run_in_executor(None, _open)
+        if opened < 1:
+            return json_err("No phone opened the store page.")
+        return json_ok({"ok": True, "n": opened, "targeted": len(phones)})
 
     return _http(404, "text/plain", b"Not Found")
 
@@ -4155,7 +5076,7 @@ async def auto_refresh():
 
 def _port_try_count() -> int:
     try:
-        v = int(os.environ.get("CPHARM_PORT_TRY_COUNT", "20"))
+        v = int(os.environ.get("PHARMFLOW_PORT_TRY_COUNT", "20"))
         return max(1, min(256, v))
     except (TypeError, ValueError):
         return 20
@@ -4225,7 +5146,7 @@ async def main():
     global LISTEN_HTTP_PORT, LISTEN_WS_PORT
 
     APK_DIR.mkdir(exist_ok=True)
-    ip = get_local_ip()
+    ip = dashboard_reach_host()
 
     # Try to connect to any emulators already running
     log.info("Scanning for connected devices…")
@@ -4236,7 +5157,7 @@ async def main():
     except Exception:
         pass
 
-    if not _cpharm_skip_tor_wait():
+    if not _pharmflow_skip_tor_wait():
         tor_manager.start_tor_host_bootstrap_background()
 
     max_tries = _port_try_count()
@@ -4260,12 +5181,12 @@ async def main():
     print("\n  ╔══════════════════════════════════════════╗")
     print("  ║   PharmFlow  •  ready                       ║")
     print("  ║                                          ║")
-    print(f"  ║   On this PC:  http://localhost:{LISTEN_HTTP_PORT}    ║")
+    print(f"  ║   On this PC:  http://{ip}:{LISTEN_HTTP_PORT}    ║")
     print(
         f"  ║   Bind:        {LISTEN_HOST}:{LISTEN_HTTP_PORT} (HTTP)  "
         f"{LISTEN_HOST}:{LISTEN_WS_PORT} (WS)   ║"
     )
-    print(f"  ║   On phone:    http://{ip}:{LISTEN_HTTP_PORT}   ║")
+    print("  ║   Phone traffic does not use this address.    ║")
     print("  ║                                          ║")
     print("  ║   Press Ctrl+C to stop                   ║")
     print(f"  ╚══════════════════════════════════════════╝\n")

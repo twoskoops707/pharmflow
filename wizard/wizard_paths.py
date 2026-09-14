@@ -1,4 +1,4 @@
-"""Path management for CPharm wizard — bundled resources, sys.path, and MuMu detection."""
+"""Path management for PharmFlow wizard — bundled resources, sys.path, and MuMu detection."""
 
 from __future__ import annotations
 
@@ -18,12 +18,12 @@ if str(_REPO_ROOT) not in sys.path:
 from automation.config import REQUIRED_SEQUENCE_VERSION  # noqa: E402
 
 # Windows install root
-CPHARM_WINDOWS_ROOT = Path(r"C:\CPharm")
+PHARMFLOW_WINDOWS_ROOT = Path(r"C:\PharmFlow")
 
 MUMU_SEARCH_PATHS: list[Path] = [
     Path(p)
     for p in (
-        os.environ.get("CPHARM_MUMU_ROOT", "").strip(),
+        os.environ.get("PHARMFLOW_MUMU_ROOT", "").strip(),
         r"C:\Program Files\Netease\MuMuPlayer",
         r"C:\Program Files\Netease\MuMuPlayerGlobal",
         r"C:\Program Files (x86)\Netease\MuMuPlayer",
@@ -57,11 +57,11 @@ def ensure_sys_path() -> None:
 
 
 def app_data_root() -> Path:
-    """Writable data dir — C:\\CPharm on Windows, else project data/."""
+    """Writable data dir — C:\\PharmFlow on Windows, else project data/."""
     if os.name == "nt":
-        root = Path(os.environ.get("CPHARM_ROOT", str(CPHARM_WINDOWS_ROOT)))
+        root = Path(os.environ.get("PHARMFLOW_ROOT", str(PHARMFLOW_WINDOWS_ROOT)))
     elif is_frozen():
-        root = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "CPharm"
+        root = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "PharmFlow"
     else:
         root = bundle_root() / "data"
     root.mkdir(parents=True, exist_ok=True)
@@ -69,7 +69,7 @@ def app_data_root() -> Path:
 
 
 def bundled_dir() -> Path:
-    """C:\\CPharm\\bundled — ADB, ChromePublic.apk, etc."""
+    """C:\\PharmFlow\\bundled — ADB, ChromePublic.apk, etc."""
     d = app_data_root() / "bundled"
     d.mkdir(parents=True, exist_ok=True)
     return d
@@ -83,7 +83,7 @@ def automation_dir() -> Path:
 
 
 def config_file() -> Path:
-    return app_data_root() / "cpharm_config.json"
+    return app_data_root() / "pharmflow_config.json"
 
 
 def desktop_prefs_file() -> Path:
@@ -124,7 +124,7 @@ def tor_binary_path() -> Path:
         bundled_dir() / "tor.exe",
         bundle_root() / "tor" / "tor.exe",
         app_data_root() / "tor" / "tor.exe",
-        Path(os.environ.get("CPHARM_TOR_PATH", "")),
+        Path(os.environ.get("PHARMFLOW_TOR_PATH", "")),
     ]
     for p in candidates:
         if p and p.is_file():
@@ -308,7 +308,7 @@ def logs_dir() -> Path:
 ensure_sys_path()
 
 
-# ==== merged from cpharm wizard_paths.py (frozen EXE install-root/asset helpers) ====
+# ==== merged from pharmflow wizard_paths.py (frozen EXE install-root/asset helpers) ====
 
 def has_automation_dashboard(root: Path) -> bool:
     try:
@@ -349,7 +349,7 @@ def first_existing_subdir(roots: list[Path], *parts: str) -> Path | None:
     return None
 
 
-def frozen_cpharm_tree_candidate_dirs() -> list[Path]:
+def frozen_pharmflow_tree_candidate_dirs() -> list[Path]:
     """Dirs to probe for ``automation/dashboard.py`` when running a PyInstaller one-file exe."""
     exe_dir = Path(sys.executable).resolve().parent
     out: list[Path] = [exe_dir]
@@ -359,10 +359,10 @@ def frozen_cpharm_tree_candidate_dirs() -> list[Path]:
     home = Path.home()
     out.extend(
         [
-            home / "CPharm",
-            home / "CPharm" / "cpharm-clone",
-            home / "source" / "repos" / "cpharm-clone",
-            home / "source" / "repos" / "cpharm",
+            home / "PharmFlow",
+            home / "PharmFlow" / "pharmflow-clone",
+            home / "source" / "repos" / "pharmflow-clone",
+            home / "source" / "repos" / "pharmflow",
         ]
     )
     seen: set[str] = set()
@@ -379,12 +379,12 @@ def frozen_cpharm_tree_candidate_dirs() -> list[Path]:
     return uniq
 
 
-def cpharm_search_roots_ordered(preferred: Path | str | None = None) -> list[Path]:
+def pharmflow_search_roots_ordered(preferred: Path | str | None = None) -> list[Path]:
     """Distinct roots to probe for ``automation/`` (dialogs, sequence-path fallbacks).
 
-    Order: optional ``preferred`` (e.g. ``state['cpharm_dir']``), then
-    :func:`cpharm_install_root`, then (PyInstaller one-file only) other entries from
-    :func:`frozen_cpharm_tree_candidate_dirs` that contain ``automation/dashboard.py``.
+    Order: optional ``preferred`` (e.g. ``state['pharmflow_dir']``), then
+    :func:`pharmflow_install_root`, then (PyInstaller one-file only) other entries from
+    :func:`frozen_pharmflow_tree_candidate_dirs` that contain ``automation/dashboard.py``.
     This mirrors install-root resolution for the primary tree while still listing other
     valid clone locations for ``File`` dialogs.
     """
@@ -402,15 +402,15 @@ def cpharm_search_roots_ordered(preferred: Path | str | None = None) -> list[Pat
             except Exception:
                 pass
     try:
-        p2 = cpharm_install_root().resolve()
+        p2 = pharmflow_install_root().resolve()
     except Exception:
-        p2 = cpharm_install_root()
+        p2 = pharmflow_install_root()
     k2 = str(p2).lower()
     if k2 not in seen:
         seen.add(k2)
         roots.append(p2)
     if getattr(sys, "frozen", False):
-        for cand in frozen_cpharm_tree_candidate_dirs():
+        for cand in frozen_pharmflow_tree_candidate_dirs():
             try:
                 r = cand.expanduser().resolve()
             except Exception:
@@ -427,15 +427,15 @@ def cpharm_search_roots_ordered(preferred: Path | str | None = None) -> list[Pat
     return roots
 
 
-def cpharm_install_root() -> Path:
+def pharmflow_install_root() -> Path:
     """
     Root directory that contains ``automation/dashboard.py`` (checkout or install tree).
 
-    Order: ``CPHARM_HOME`` if valid, then (when frozen) exe dir, bundle dir, and common
-    Windows clone paths such as ``%USERPROFILE%\\CPharm`` and nested ``cpharm-clone``,
-    then :func:`cpharm_default_install_root` (folder next to the exe, or repo root in dev).
+    Order: ``PHARMFLOW_HOME`` if valid, then (when frozen) exe dir, bundle dir, and common
+    Windows clone paths such as ``%USERPROFILE%\\PharmFlow`` and nested ``pharmflow-clone``,
+    then :func:`pharmflow_default_install_root` (folder next to the exe, or repo root in dev).
     """
-    env = (os.environ.get("CPHARM_HOME") or "").strip()
+    env = (os.environ.get("PHARMFLOW_HOME") or "").strip()
     if env:
         try:
             p = Path(env).expanduser().resolve()
@@ -445,7 +445,7 @@ def cpharm_install_root() -> Path:
             return p
 
     if getattr(sys, "frozen", False):
-        for cand in frozen_cpharm_tree_candidate_dirs():
+        for cand in frozen_pharmflow_tree_candidate_dirs():
             try:
                 r = cand.expanduser().resolve()
             except OSError:
@@ -456,7 +456,7 @@ def cpharm_install_root() -> Path:
             if has_automation_dashboard(r):
                 return r
 
-    return cpharm_default_install_root()
+    return pharmflow_default_install_root()
 
 
 def wizard_module_dir() -> Path:
@@ -485,7 +485,7 @@ def wizard_assets_dir() -> Path:
     return wizard_module_dir() / "assets"
 
 
-def cpharm_default_install_root() -> Path:
+def pharmflow_default_install_root() -> Path:
     """
     When frozen, the folder containing the ``.exe`` (portable / “next to the binary” tree).
 
@@ -503,11 +503,11 @@ def automation_on_sys_path() -> Path:
     if m is not None:
         candidates.append(m / "automation")
     try:
-        candidates.append(cpharm_install_root() / "automation")
+        candidates.append(pharmflow_install_root() / "automation")
     except Exception:
         pass
-    candidates.append(cpharm_default_install_root() / "automation")
-    candidates.append(Path.home() / "CPharm" / "automation")
+    candidates.append(pharmflow_default_install_root() / "automation")
+    candidates.append(Path.home() / "PharmFlow" / "automation")
     if not getattr(sys, "frozen", False):
         candidates.append(wizard_module_dir().parent / "automation")
 
@@ -525,7 +525,7 @@ def automation_on_sys_path() -> Path:
             chosen = auto
             break
     if chosen is None:
-        chosen = cpharm_default_install_root() / "automation"
+        chosen = pharmflow_default_install_root() / "automation"
     ap = str(chosen)
     if ap not in sys.path:
         sys.path.insert(0, ap)
@@ -537,15 +537,25 @@ def is_nested_recordings_path(path: Path) -> bool:
     return "recordings/automation/recordings" in str(path).replace("\\", "/").lower()
 
 
+def default_sequence_path() -> Path:
+    """Operator default sequence, beside the live groups file.
+
+    Must not live inside ``groups_config.json``. Dashboard and phone-setup
+    writers replace that file with a groups-only payload, which drops any
+    extra key. The Sequence page then reloads the first phone's steps.
+    """
+    return groups_config_path().parent / "default_sequence.json"
+
+
 def groups_config_path() -> Path:
     """Live groups file the frozen EXE must read.
 
-    Prefer ``C:\\CPharm\\automation\\recordings\\groups_config.json``.
+    Prefer ``C:\\PharmFlow\\automation\\recordings\\groups_config.json``.
     Never a nested ``recordings/automation/recordings`` copy, and never a
     path built by appending ``automation/recordings`` onto a recordings dir.
     """
     preferred = app_data_root() / "automation" / "recordings" / "groups_config.json"
-    windows = Path(r"C:\CPharm\automation\recordings\groups_config.json")
+    windows = Path(r"C:\PharmFlow\automation\recordings\groups_config.json")
     for cand in (preferred, windows):
         if cand.is_file() and not is_nested_recordings_path(cand):
             return cand
@@ -562,15 +572,15 @@ def groups_config_path() -> Path:
 
 def _groups_search_roots() -> list[Path]:
     roots: list[Path] = []
-    env = (os.environ.get("CPHARM_HOME") or os.environ.get("CPHARM_ROOT") or "").strip()
+    env = (os.environ.get("PHARMFLOW_HOME") or os.environ.get("PHARMFLOW_ROOT") or "").strip()
     if env:
         roots.append(Path(env).expanduser())
     try:
-        roots.append(cpharm_install_root())
+        roots.append(pharmflow_install_root())
     except Exception:
         pass
-    roots.append(cpharm_default_install_root())
-    roots.append(Path.home() / "CPharm")
+    roots.append(pharmflow_default_install_root())
+    roots.append(Path.home() / "PharmFlow")
     return roots
 
 
@@ -592,7 +602,7 @@ def playlist_sequence_roots() -> list[Path]:
     """Dirs that hold playlist JSON referenced from groups_config.
 
     Playlist refs like ``900x1600/no-ad/...json`` live under
-    ``C:\\CPharm\\sequences``, not only under the v3 recordings tree.
+    ``C:\\PharmFlow\\sequences``, not only under the v3 recordings tree.
     """
     roots: list[Path] = []
     seen: set[str] = set()
@@ -610,11 +620,11 @@ def playlist_sequence_roots() -> list[Path]:
         roots.append(path)
 
     add(app_data_root() / "sequences")
-    add(Path(r"C:\CPharm\sequences"))
-    raw = (os.environ.get("CPHARM_SEQUENCES_DIR") or "").strip()
+    add(Path(r"C:\PharmFlow\sequences"))
+    raw = (os.environ.get("PHARMFLOW_SEQUENCES_DIR") or "").strip()
     if raw:
         add(Path(raw).expanduser())
-    add(Path.home() / "CPharm" / "sequences")
+    add(Path.home() / "PharmFlow" / "sequences")
     try:
         add(sequences_dir())
     except Exception:
@@ -657,7 +667,7 @@ def v3_pool_root() -> Path:
     runtime = sequences_dir()
     if (runtime / "base").is_dir() and not is_nested_recordings_path(runtime):
         return runtime
-    live = Path(r"C:\CPharm\automation\recordings\sequences")
+    live = Path(r"C:\PharmFlow\automation\recordings\sequences")
     if (live / "base").is_dir():
         return live
     return runtime
@@ -886,22 +896,22 @@ def load_groups_list(path: Path | None = None) -> tuple[Path, list[Any]]:
 def automation_data_dir() -> Path:
     """Writable ``automation/`` tree (``recordings/``, ``tor/``) — prefer install over bundle."""
     candidates: list[Path] = []
-    env = (os.environ.get("CPHARM_HOME") or "").strip()
+    env = (os.environ.get("PHARMFLOW_HOME") or "").strip()
     if env:
         candidates.append(Path(env).expanduser() / "automation")
     try:
-        candidates.append(cpharm_install_root() / "automation")
+        candidates.append(pharmflow_install_root() / "automation")
     except Exception:
         pass
-    candidates.append(cpharm_default_install_root() / "automation")
-    candidates.append(Path.home() / "CPharm" / "automation")
+    candidates.append(pharmflow_default_install_root() / "automation")
+    candidates.append(Path.home() / "PharmFlow" / "automation")
     for auto in candidates:
         try:
             if (auto / "dashboard.py").is_file() or (auto / "recordings").is_dir():
                 return auto
         except OSError:
             continue
-    auto = cpharm_default_install_root() / "automation"
+    auto = pharmflow_default_install_root() / "automation"
     try:
         (auto / "recordings").mkdir(parents=True, exist_ok=True)
     except OSError:

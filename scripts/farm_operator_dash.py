@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""FamFlow Farm Operator — adjustable dash for 5 phones + knobs I monitor.
+"""PharmFlow Farm Operator — adjustable dash for 5 phones + knobs I monitor.
 
   py -u scripts/farm_operator_dash.py
   → http://127.0.0.1:8091
 
 Writes:
-  C:\\CPharm\\logs\\farm_operator_panel.json   (full panel state)
-  C:\\CPharm\\logs\\farm_panel_state.json      (synced twin for farm worker)
-  C:\\CPharm\\logs\\farm_runtime_overrides.json (CPHARM_* — source of truth for caps)
+  C:\\PharmFlow\\logs\\farm_operator_panel.json   (full panel state)
+  C:\\PharmFlow\\logs\\farm_panel_state.json      (synced twin for farm worker)
+  C:\\PharmFlow\\logs\\farm_runtime_overrides.json (PHARMFLOW_* — source of truth for caps)
 
 Pull from Mantis → gauges, then closed-loop autopilot (browse-only at ≥40 clicks,
 kill evening flood, dwell/throttle) via automation/mantis_autopilot_*.py.
@@ -45,6 +45,11 @@ from automation.farm_visit_caps import (  # noqa: E402
     set_loansflow_operator_hold,
     write_runtime_overrides,
 )
+from automation.earn_plan import (  # noqa: E402
+    compute_earn_plan,
+    load_earn_plan,
+    save_earn_plan,
+)
 from automation.farm_sites import (  # noqa: E402
     apply_site_to_panel,
     list_farm_sites,
@@ -59,7 +64,7 @@ from automation.mantis_farm_math import (  # noqa: E402
 
 from wizard.wizard_paths import sequences_dir as wizard_sequences_dir  # noqa: E402
 
-LOG_DIR = Path(r"C:\CPharm\logs")
+LOG_DIR = Path(r"C:\PharmFlow\logs")
 PANEL = LOG_DIR / "farm_operator_panel.json"
 # Sticky phone list + stop flag + live caps truth. Cap *writes* still go through
 # write_runtime_overrides (SSOT); pointing this at NUL broke sticky phones and
@@ -77,8 +82,8 @@ EXIT_IPS = LOG_DIR / "farm_exit_ips.json"
 SERIAL_MAP = LOG_DIR / "ADB_SERIAL_MAP.lock.json"
 SERIAL_BROWSER = LOG_DIR / "serial_browser_pkg.json"
 
-HOST = os.environ.get("CPHARM_OPERATOR_HOST", "127.0.0.1")
-PORT = int(os.environ.get("CPHARM_OPERATOR_PORT", "8091") or "8091")
+HOST = os.environ.get("PHARMFLOW_OPERATOR_HOST", "127.0.0.1")
+PORT = int(os.environ.get("PHARMFLOW_OPERATOR_PORT", "8091") or "8091")
 
 _PS_FARM_CACHE: dict[str, Any] | None = None
 _PS_FARM_CACHE_TS = 0.0
@@ -119,7 +124,7 @@ def _phones_from_sticky() -> list[str]:
         data = {}
     if not isinstance(data, dict):
         data = {}
-    raw = str(data.get("CPHARM_FARM_PHONES") or "")
+    raw = str(data.get("PHARMFLOW_FARM_PHONES") or "")
     phones = [
         p.strip() if "." in p.strip() else f"{p.strip()}.gmadoa"
         for p in raw.split(",")
@@ -135,27 +140,27 @@ def _phones_from_sticky() -> list[str]:
     return out or list(DEFAULT_PHONES)
 
 # Knobs the farm actually honors (plus a few ad-fill critical ones).
-# CPHARM_FARM_HOURS is locked to 0 (24h day mode) in save_panel — not a user knob.
+# PHARMFLOW_FARM_HOURS is locked to 0 (24h day mode) in save_panel — not a user knob.
 # Seqs/hour and Path3/hour are NOT knobs — day mode paces from per-phone daily visits/ads.
 KNOBS: list[dict[str, Any]] = [
-    {"key": "CPHARM_FARM_PATHS", "label": "Paths enabled", "type": "text", "default": "1,2,3", "group": "cadence"},
-    {"key": "CPHARM_FARM_ALLOW_ADS", "label": "Allow ads (Path3)", "type": "toggle", "default": "1", "group": "ads"},
+    {"key": "PHARMFLOW_FARM_PATHS", "label": "Paths enabled", "type": "text", "default": "1,2,3", "group": "cadence"},
+    {"key": "PHARMFLOW_FARM_ALLOW_ADS", "label": "Allow ads (Path3)", "type": "toggle", "default": "1", "group": "ads"},
     # Ad inject/patch/CDP settings are HARDCODED in save_panel + apply_money_rails.
     # Removed from dash UI to prevent accidental toggle (they kill revenue when off).
-    {"key": "CPHARM_EMULATOR_AD_FILL_WAIT", "label": "Ad fill wait (sec)", "type": "number", "default": "4", "group": "ads"},
-    {"key": "CPHARM_BROWSE_PROXY_MODE", "label": "Browse proxy", "type": "select", "default": "scramble", "options": ["scramble", "tor", "direct"], "group": "identity"},
-    {"key": "CPHARM_REQUIRE_UNIQUE_EXIT_IP", "label": "Unique Tor exit IP", "type": "toggle", "default": "1", "group": "identity"},
-    {"key": "CPHARM_GEO_TIME_WINDOW", "label": "Geo awake window", "type": "toggle", "default": "1", "group": "identity"},
-    {"key": "CPHARM_GEO_WINDOW_START", "label": "Geo window start", "type": "text", "default": "09:30", "group": "identity"},
-    {"key": "CPHARM_GEO_WINDOW_END", "label": "Geo window end", "type": "text", "default": "00:00", "group": "identity"},
-    {"key": "CPHARM_AGE_GATE_WAIT", "label": "Age gate wait (sec, no ads)", "type": "number", "default": "0.8", "group": "timing"},
-    {"key": "CPHARM_DABFLOW_LOAD_WAIT", "label": "DabFlow load wait (sec)", "type": "number", "default": "2.0", "group": "timing"},
-    {"key": "CPHARM_START_DAB_VERIFY_WAIT", "label": "Start Dab verify wait", "type": "number", "default": "2.5", "group": "timing"},
-    {"key": "CPHARM_FARM_START_STAGGER_WINDOW", "label": "Start stagger window (sec)", "type": "number", "default": "120", "group": "timing"},
-    {"key": "CPHARM_FARM_START_STAGGER_MIN_GAP", "label": "Start stagger min gap (sec)", "type": "number", "default": "15", "group": "timing"},
-    {"key": "CPHARM_FARM_START_STAGGER_BAND", "label": "Start stagger band/window alias (sec)", "type": "number", "default": "120", "group": "timing"},
-    {"key": "CPHARM_FARM_SLOT_JITTER", "label": "Seq slot jitter (±sec)", "type": "number", "default": "55", "group": "timing"},
-    {"key": "CPHARM_FARM_START_STAGGER_JITTER", "label": "Legacy start jitter (sec)", "type": "number", "default": "40", "group": "timing"},
+    {"key": "PHARMFLOW_EMULATOR_AD_FILL_WAIT", "label": "Ad fill wait (sec)", "type": "number", "default": "4", "group": "ads"},
+    {"key": "PHARMFLOW_BROWSE_PROXY_MODE", "label": "Browse proxy", "type": "select", "default": "scramble", "options": ["scramble", "tor", "direct"], "group": "identity"},
+    {"key": "PHARMFLOW_REQUIRE_UNIQUE_EXIT_IP", "label": "Unique Tor exit IP", "type": "toggle", "default": "1", "group": "identity"},
+    {"key": "PHARMFLOW_GEO_TIME_WINDOW", "label": "Geo awake window", "type": "toggle", "default": "1", "group": "identity"},
+    {"key": "PHARMFLOW_GEO_WINDOW_START", "label": "Geo window start", "type": "text", "default": "09:30", "group": "identity"},
+    {"key": "PHARMFLOW_GEO_WINDOW_END", "label": "Geo window end", "type": "text", "default": "00:00", "group": "identity"},
+    {"key": "PHARMFLOW_AGE_GATE_WAIT", "label": "Age gate wait (sec, no ads)", "type": "number", "default": "0.8", "group": "timing"},
+    {"key": "PHARMFLOW_DABFLOW_LOAD_WAIT", "label": "DabFlow load wait (sec)", "type": "number", "default": "2.0", "group": "timing"},
+    {"key": "PHARMFLOW_START_DAB_VERIFY_WAIT", "label": "Start Dab verify wait", "type": "number", "default": "2.5", "group": "timing"},
+    {"key": "PHARMFLOW_FARM_START_STAGGER_WINDOW", "label": "Start stagger window (sec)", "type": "number", "default": "120", "group": "timing"},
+    {"key": "PHARMFLOW_FARM_START_STAGGER_MIN_GAP", "label": "Start stagger min gap (sec)", "type": "number", "default": "15", "group": "timing"},
+    {"key": "PHARMFLOW_FARM_START_STAGGER_BAND", "label": "Start stagger band/window alias (sec)", "type": "number", "default": "120", "group": "timing"},
+    {"key": "PHARMFLOW_FARM_SLOT_JITTER", "label": "Seq slot jitter (±sec)", "type": "number", "default": "55", "group": "timing"},
+    {"key": "PHARMFLOW_FARM_START_STAGGER_JITTER", "label": "Legacy start jitter (sec)", "type": "number", "default": "40", "group": "timing"},
 ]
 
 LOG_DIR.mkdir(parents=True, exist_ok=True)
@@ -167,10 +172,10 @@ _MONEY_STAGGER_WINDOW = "120"
 _MONEY_STAGGER_MIN_GAP = "15"
 _MONEY_STAGGER_JITTER = "40"
 _STAGGER_KEYS = (
-    "CPHARM_FARM_START_STAGGER_WINDOW",
-    "CPHARM_FARM_START_STAGGER_MIN_GAP",
-    "CPHARM_FARM_START_STAGGER_BAND",
-    "CPHARM_FARM_START_STAGGER_JITTER",
+    "PHARMFLOW_FARM_START_STAGGER_WINDOW",
+    "PHARMFLOW_FARM_START_STAGGER_MIN_GAP",
+    "PHARMFLOW_FARM_START_STAGGER_BAND",
+    "PHARMFLOW_FARM_START_STAGGER_JITTER",
 )
 
 
@@ -188,16 +193,16 @@ def _money_day_stagger_env(
     """Sticky short stagger wins; anything >300s snaps to money-day 120/15."""
     env = env or {}
     disk_ov = disk_ov or {}
-    sticky_w = _as_stagger_float(disk_ov.get("CPHARM_FARM_START_STAGGER_WINDOW"), 0.0)
-    sticky_g = _as_stagger_float(disk_ov.get("CPHARM_FARM_START_STAGGER_MIN_GAP"), 0.0)
-    cur_w = _as_stagger_float(env.get("CPHARM_FARM_START_STAGGER_WINDOW"), 0.0)
+    sticky_w = _as_stagger_float(disk_ov.get("PHARMFLOW_FARM_START_STAGGER_WINDOW"), 0.0)
+    sticky_g = _as_stagger_float(disk_ov.get("PHARMFLOW_FARM_START_STAGGER_MIN_GAP"), 0.0)
+    cur_w = _as_stagger_float(env.get("PHARMFLOW_FARM_START_STAGGER_WINDOW"), 0.0)
     if 0.0 < sticky_w <= 300.0:
         want_w = sticky_w
         want_g = sticky_g if 0.0 < sticky_g <= 120.0 else float(_MONEY_STAGGER_MIN_GAP)
     elif 0.0 < cur_w <= 300.0:
         want_w = cur_w
         want_g = _as_stagger_float(
-            env.get("CPHARM_FARM_START_STAGGER_MIN_GAP"), float(_MONEY_STAGGER_MIN_GAP)
+            env.get("PHARMFLOW_FARM_START_STAGGER_MIN_GAP"), float(_MONEY_STAGGER_MIN_GAP)
         )
         if want_g <= 0.0 or want_g > 120.0:
             want_g = float(_MONEY_STAGGER_MIN_GAP)
@@ -205,17 +210,17 @@ def _money_day_stagger_env(
         want_w = float(_MONEY_STAGGER_WINDOW)
         want_g = float(_MONEY_STAGGER_MIN_GAP)
     want_j = _as_stagger_float(
-        disk_ov.get("CPHARM_FARM_START_STAGGER_JITTER")
-        or env.get("CPHARM_FARM_START_STAGGER_JITTER"),
+        disk_ov.get("PHARMFLOW_FARM_START_STAGGER_JITTER")
+        or env.get("PHARMFLOW_FARM_START_STAGGER_JITTER"),
         float(_MONEY_STAGGER_JITTER),
     )
     if want_j <= 0.0 or want_j > 90.0:
         want_j = float(_MONEY_STAGGER_JITTER)
     return {
-        "CPHARM_FARM_START_STAGGER_WINDOW": str(int(want_w)),
-        "CPHARM_FARM_START_STAGGER_BAND": str(int(want_w)),
-        "CPHARM_FARM_START_STAGGER_MIN_GAP": str(int(want_g)),
-        "CPHARM_FARM_START_STAGGER_JITTER": str(int(want_j)),
+        "PHARMFLOW_FARM_START_STAGGER_WINDOW": str(int(want_w)),
+        "PHARMFLOW_FARM_START_STAGGER_BAND": str(int(want_w)),
+        "PHARMFLOW_FARM_START_STAGGER_MIN_GAP": str(int(want_g)),
+        "PHARMFLOW_FARM_START_STAGGER_JITTER": str(int(want_j)),
     }
 
 
@@ -274,8 +279,8 @@ DEFAULT_BUDGETS: dict[str, dict[str, int]] = {
 def _default_panel() -> dict[str, Any]:
     env = {k["key"]: str(k["default"]) for k in KNOBS}
     # Unique-seq is a hard farm invariant — always on for every site.
-    env["CPHARM_FARM_UNIQUE_SEQ"] = "1"
-    env["CPHARM_SITE_SLUG"] = "dabflow"
+    env["PHARMFLOW_FARM_UNIQUE_SEQ"] = "1"
+    env["PHARMFLOW_SITE_SLUG"] = "dabflow"
     return {
         "updated": _utc(),
         "phones": list(DEFAULT_PHONES),
@@ -358,13 +363,13 @@ def save_panel(panel: dict[str, Any]) -> dict[str, Any]:
     prev_env = prev_panel.get("env") if isinstance(prev_panel.get("env"), dict) else {}
     # Also keep extras already on disk overrides (gap, humanize, chromium lock, …)
     disk_ov = _read_json_file(OVERRIDES)
-    # Start from prior CPHARM_* so Save no longer wipes non-knob params back to defaults.
+    # Start from prior PHARMFLOW_* so Save no longer wipes non-knob params back to defaults.
     env: dict[str, str] = {}
     for src in (disk_ov, prev_env, form_env):
         if not isinstance(src, dict):
             continue
         for k, v in src.items():
-            if str(k).startswith("CPHARM_") and v not in (None, ""):
+            if str(k).startswith("PHARMFLOW_") and v not in (None, ""):
                 env[str(k)] = str(v)
     for knob in KNOBS:
         key = str(knob["key"])
@@ -378,20 +383,20 @@ def save_panel(panel: dict[str, Any]) -> dict[str, Any]:
     # operator/desktop_prefs choose scramble|tor|direct; scramble is recommended).
     # CDP always fails on MuMu (/json closed) — inject proxy handles MITM paint.
     # SKIP_MANTIS_PATCH=0 so Mantis creative paint + billing pixels fire on Path3.
-    env["CPHARM_SKIP_MANTIS_PATCH"] = "0"
-    env["CPHARM_DABFLOW_MANTIS_PATCH"] = "1"
-    env["CPHARM_ALLOW_SEQUENCE_RUNS"] = "1"
+    env["PHARMFLOW_SKIP_MANTIS_PATCH"] = "0"
+    env["PHARMFLOW_DABFLOW_MANTIS_PATCH"] = "1"
+    env["PHARMFLOW_ALLOW_SEQUENCE_RUNS"] = "1"
     # billing_direct MUST stay OFF — routes all clicks from HOST IP.
     # Each phone needs its own Tor exit IP for Mantis to count clicks.
-    env["CPHARM_MANTIS_BILLING_DIRECT"] = "0"
+    env["PHARMFLOW_MANTIS_BILLING_DIRECT"] = "0"
     # CRITICAL: inject proxy must NEVER be disabled by stale panel env.
     # Without inject, CDP probes run (30-60s waste) and no creative paint.
-    env["CPHARM_MANTIS_INJECT_PROXY"] = "1"
-    env["CPHARM_MANTIS_INJECT_MITM"] = "1"
-    env["CPHARM_EMULATOR_AD_MODE"] = "1"
+    env["PHARMFLOW_MANTIS_INJECT_PROXY"] = "1"
+    env["PHARMFLOW_MANTIS_INJECT_MITM"] = "1"
+    env["PHARMFLOW_EMULATOR_AD_MODE"] = "1"
     # Never disable concurrent unique-sequence lock from the operator panel.
-    env["CPHARM_FARM_UNIQUE_SEQ"] = "1"
-    slug = str(panel.get("active_site_slug") or env.get("CPHARM_SITE_SLUG") or "dabflow").strip()
+    env["PHARMFLOW_FARM_UNIQUE_SEQ"] = "1"
+    slug = str(panel.get("active_site_slug") or env.get("PHARMFLOW_SITE_SLUG") or "dabflow").strip()
     # DabFlow sticky / watchdog-disabled beats LoansFlow hold this session.
     try:
         if (LOG_DIR / "DABFLOW_SITE_STICKY.flag").is_file() or (
@@ -417,53 +422,53 @@ def save_panel(panel: dict[str, Any]) -> dict[str, Any]:
                 slug = "dabflow"
             else:
                 caps = _read_json_file(LOG_DIR / "farm_visit_caps_lock.json")
-                if str(caps.get("CPHARM_SITE_SLUG") or "").strip().lower() == "dabflow":
+                if str(caps.get("PHARMFLOW_SITE_SLUG") or "").strip().lower() == "dabflow":
                     slug = "dabflow"
     except Exception:
         pass
     panel["active_site_slug"] = slug or "dabflow"
-    env["CPHARM_SITE_SLUG"] = panel["active_site_slug"]
+    env["PHARMFLOW_SITE_SLUG"] = panel["active_site_slug"]
     if panel["active_site_slug"] == "loansflow":
         # Non-DabFlow farms must point at sequences/<slug>/ (see run_farm_354).
-        env["CPHARM_FARM_SEQUENCE_ROOT"] = str(wizard_sequences_dir() / "loansflow")
-        env.setdefault("CPHARM_NTFY_TOPIC", "twskoops")
+        env["PHARMFLOW_FARM_SEQUENCE_ROOT"] = str(wizard_sequences_dir() / "loansflow")
+        env.setdefault("PHARMFLOW_NTFY_TOPIC", "twskoops")
         # DabFlow Mantis catch-up must not bleed onto LoansFlow AdSense warming.
-        env.pop("CPHARM_SWEET_SPOT_LOCK", None)
-        env.pop("CPHARM_SWEET_SPOT_LOCK_UNTIL", None)
+        env.pop("PHARMFLOW_SWEET_SPOT_LOCK", None)
+        env.pop("PHARMFLOW_SWEET_SPOT_LOCK_UNTIL", None)
     elif panel["active_site_slug"] == "dabflow":
-        env.pop("CPHARM_FARM_SEQUENCE_ROOT", None)
-    env["CPHARM_FARM_STOP"] = "0"
-    env["CPHARM_FARM_HOURS"] = "0"
-    mode = str(env.get("CPHARM_BROWSE_PROXY_MODE") or "scramble").strip().lower()
+        env.pop("PHARMFLOW_FARM_SEQUENCE_ROOT", None)
+    env["PHARMFLOW_FARM_STOP"] = "0"
+    env["PHARMFLOW_FARM_HOURS"] = "0"
+    mode = str(env.get("PHARMFLOW_BROWSE_PROXY_MODE") or "scramble").strip().lower()
     if mode not in ("scramble", "tor", "direct", "upstream"):
         mode = "scramble"
-    env["CPHARM_BROWSE_PROXY_MODE"] = mode
+    env["PHARMFLOW_BROWSE_PROXY_MODE"] = mode
     try:
         save_browse_prefs(browse_proxy_mode=mode)
     except Exception:
         pass
     # Path1/2/3 — keep Path3 when ads are allowed; do NOT re-arm Path3 during
     # browse-only catch-up (ALLOW_ADS=0 / sweet-spot impr_catchup).
-    ads_on = str(env.get("CPHARM_FARM_ALLOW_ADS") or "1").strip().lower() not in (
+    ads_on = str(env.get("PHARMFLOW_FARM_ALLOW_ADS") or "1").strip().lower() not in (
         "0",
         "false",
         "no",
         "off",
     )
-    lock = str(env.get("CPHARM_SWEET_SPOT_LOCK") or "").strip().lower()
+    lock = str(env.get("PHARMFLOW_SWEET_SPOT_LOCK") or "").strip().lower()
     catchup_lock = lock in ("impr_catchup", "1", "true", "yes", "on")
     # LoansFlow never uses DabFlow Mantis catch-up browse-only mode.
     if panel["active_site_slug"] == "loansflow":
         catchup_lock = False
-        if str(form_env.get("CPHARM_FARM_ALLOW_ADS") or env.get("CPHARM_FARM_ALLOW_ADS") or "1").strip().lower() not in (
+        if str(form_env.get("PHARMFLOW_FARM_ALLOW_ADS") or env.get("PHARMFLOW_FARM_ALLOW_ADS") or "1").strip().lower() not in (
             "0",
             "false",
             "no",
             "off",
         ):
             ads_on = True
-            env["CPHARM_FARM_ALLOW_ADS"] = "1"
-    paths = str(env.get("CPHARM_FARM_PATHS") or ("1,2,3" if ads_on else "1,2"))
+            env["PHARMFLOW_FARM_ALLOW_ADS"] = "1"
+    paths = str(env.get("PHARMFLOW_FARM_PATHS") or ("1,2,3" if ads_on else "1,2"))
     parts = [p.strip() for p in paths.split(",") if p.strip()]
     if ads_on and not catchup_lock:
         for need in ("1", "2", "3"):
@@ -472,9 +477,9 @@ def save_panel(panel: dict[str, Any]) -> dict[str, Any]:
     else:
         # Browse-only: Path1/2 only.
         parts = [p for p in parts if p in ("1", "2")] or ["1", "2"]
-    env["CPHARM_FARM_PATHS"] = ",".join(parts)
+    env["PHARMFLOW_FARM_PATHS"] = ",".join(parts)
 
-    # Per-phone daily budgets → CPHARM_FARM_DAILY_VISITS / _ADS ordered by phone list.
+    # Per-phone daily budgets → PHARMFLOW_FARM_DAILY_VISITS / _ADS ordered by phone list.
     raw_budgets = panel.get("budgets") if isinstance(panel.get("budgets"), dict) else {}
     prev_budgets = (
         prev_panel.get("budgets") if isinstance(prev_panel.get("budgets"), dict) else {}
@@ -483,25 +488,25 @@ def save_panel(panel: dict[str, Any]) -> dict[str, Any]:
     caps_lock = _read_json_file(LOG_DIR / "farm_visit_caps_lock.json")
     try:
         target_usd = float(
-            env.get("CPHARM_TARGET_PROFIT_STRONG_USD")
-            or env.get("CPHARM_TARGET_PROFIT_USD")
+            env.get("PHARMFLOW_TARGET_PROFIT_STRONG_USD")
+            or env.get("PHARMFLOW_TARGET_PROFIT_USD")
             or 0
         )
     except (TypeError, ValueError):
         target_usd = 0.0
     high_caps = target_usd >= 90.0 or catchup_lock or bool(
-        str(caps_lock.get("CPHARM_FARM_DAILY_VISITS") or "").strip()
+        str(caps_lock.get("PHARMFLOW_FARM_DAILY_VISITS") or "").strip()
     )
     if panel["active_site_slug"] == "loansflow":
         high_caps = False
     lock_vparts = [
         p.strip()
-        for p in str(caps_lock.get("CPHARM_FARM_DAILY_VISITS") or "").split(",")
+        for p in str(caps_lock.get("PHARMFLOW_FARM_DAILY_VISITS") or "").split(",")
         if p.strip()
     ]
     disk_vparts = [
         p.strip()
-        for p in str(disk_ov.get("CPHARM_FARM_DAILY_VISITS") or "").split(",")
+        for p in str(disk_ov.get("PHARMFLOW_FARM_DAILY_VISITS") or "").split(",")
         if p.strip()
     ]
     budgets: dict[str, dict[str, int]] = {}
@@ -543,29 +548,29 @@ def save_panel(panel: dict[str, Any]) -> dict[str, Any]:
             for phone in phones:
                 budgets[phone]["visits"] = max(400, int(budgets[phone]["visits"] or 0))
     panel["budgets"] = budgets
-    env["CPHARM_FARM_DAILY_VISITS"] = ",".join(str(budgets[p]["visits"]) for p in phones)
-    env["CPHARM_FARM_DAILY_ADS"] = ",".join(str(budgets[p]["ads"]) for p in phones)
+    env["PHARMFLOW_FARM_DAILY_VISITS"] = ",".join(str(budgets[p]["visits"]) for p in phones)
+    env["PHARMFLOW_FARM_DAILY_ADS"] = ",".join(str(budgets[p]["ads"]) for p in phones)
     # Farm-wide Path3 ceiling = sum of per-phone ad budgets (0 while browse-only).
     total_ads = sum(budgets[p]["ads"] for p in phones)
     total_visits = sum(budgets[p]["visits"] for p in phones)
     if ads_on and not catchup_lock:
-        env["CPHARM_FARM_PATH3_DAILY_CAP"] = str(max(1, total_ads))
+        env["PHARMFLOW_FARM_PATH3_DAILY_CAP"] = str(max(1, total_ads))
     else:
-        env["CPHARM_FARM_PATH3_DAILY_CAP"] = "0"
-        env["CPHARM_FARM_PATH3_PER_HOUR"] = "0"
-        env["CPHARM_FARM_ALLOW_ADS"] = "0"
+        env["PHARMFLOW_FARM_PATH3_DAILY_CAP"] = "0"
+        env["PHARMFLOW_FARM_PATH3_PER_HOUR"] = "0"
+        env["PHARMFLOW_FARM_ALLOW_ADS"] = "0"
     try:
         ipv = float(
-            env.get("CPHARM_FARM_IMPRESSIONS_PER_VISIT")
-            or prev_env.get("CPHARM_FARM_IMPRESSIONS_PER_VISIT")
+            env.get("PHARMFLOW_FARM_IMPRESSIONS_PER_VISIT")
+            or prev_env.get("PHARMFLOW_FARM_IMPRESSIONS_PER_VISIT")
             or 22
         )
     except (TypeError, ValueError):
         ipv = 22.0
     if ipv <= 0:
         ipv = 22.0
-    env["CPHARM_FARM_IMPRESSIONS_PER_VISIT"] = str(ipv)
-    env["CPHARM_FARM_EST_IMPRESSIONS"] = str(int(round(total_visits * ipv)))
+    env["PHARMFLOW_FARM_IMPRESSIONS_PER_VISIT"] = str(ipv)
+    env["PHARMFLOW_FARM_EST_IMPRESSIONS"] = str(int(round(total_visits * ipv)))
     # Day mode: pacing is remaining visits÷hours left. Keep SEQS floor during
     # $100 catch-up so autopilot/ensure do not fall back to 15–22.
     if high_caps:
@@ -573,9 +578,9 @@ def save_panel(panel: dict[str, Any]) -> dict[str, Any]:
             seqs_now = int(
                 float(
                     str(
-                        form_env.get("CPHARM_FARM_SEQS_PER_HOUR")
-                        or disk_ov.get("CPHARM_FARM_SEQS_PER_HOUR")
-                        or caps_lock.get("CPHARM_FARM_SEQS_PER_HOUR")
+                        form_env.get("PHARMFLOW_FARM_SEQS_PER_HOUR")
+                        or disk_ov.get("PHARMFLOW_FARM_SEQS_PER_HOUR")
+                        or caps_lock.get("PHARMFLOW_FARM_SEQS_PER_HOUR")
                         or 28
                     )
                 )
@@ -584,30 +589,30 @@ def save_panel(panel: dict[str, Any]) -> dict[str, Any]:
             seqs_now = 28
         # GO_BIG money day: honor the operator's SEQS_PER_HOUR (sticky/caps-lock),
         # never clamp to 22 — the old ceiling capped impressions and starved revenue.
-        env["CPHARM_FARM_SEQS_PER_HOUR"] = str(max(18, seqs_now))
+        env["PHARMFLOW_FARM_SEQS_PER_HOUR"] = str(max(18, seqs_now))
     else:
-        env.pop("CPHARM_FARM_SEQS_PER_HOUR", None)
+        env.pop("PHARMFLOW_FARM_SEQS_PER_HOUR", None)
     # Keep PATH3_PER_HOUR / GLOBAL_GAP if operator or autopilot set them.
     panel["env"] = env
 
     PANEL.write_text(json.dumps(panel, indent=2), encoding="utf-8")
 
-    overrides = {**env, "updated": panel["updated"], "CPHARM_FARM_PHONES": ",".join(panel["phones"])}
+    overrides = {**env, "updated": panel["updated"], "PHARMFLOW_FARM_PHONES": ",".join(panel["phones"])}
     # Preserve ADB serials / non-env operator notes already on disk.
     for keep in (
-        "CPHARM_ADB_SERIALS",
-        "CPHARM_FARM_PHONES",
+        "PHARMFLOW_ADB_SERIALS",
+        "PHARMFLOW_FARM_PHONES",
         "gauge_push_note",
         "autopilot_last_reason",
-        "CPHARM_FARM_CHROMIUM_ONLY",
-        "CPHARM_FARM_BROWSERS",
-        "CPHARM_DISPLAY_LOCK",
-        "CPHARM_MANTIS_INJECT_PROXY",
-        "CPHARM_MANTIS_INJECT_MITM",
+        "PHARMFLOW_FARM_CHROMIUM_ONLY",
+        "PHARMFLOW_FARM_BROWSERS",
+        "PHARMFLOW_DISPLAY_LOCK",
+        "PHARMFLOW_MANTIS_INJECT_PROXY",
+        "PHARMFLOW_MANTIS_INJECT_MITM",
         "tick_verify_note",
-        "CPHARM_FARM_PHONE_COUNT",
-        "CPHARM_FARM_EXPECT_PHONES",
-        "CPHARM_AUTOPILOT_PAUSE",
+        "PHARMFLOW_FARM_PHONE_COUNT",
+        "PHARMFLOW_FARM_EXPECT_PHONES",
+        "PHARMFLOW_AUTOPILOT_PAUSE",
     ):
         if keep in disk_ov and keep not in overrides:
             overrides[keep] = disk_ov[keep]
@@ -736,8 +741,8 @@ def _start_farm(panel: dict[str, Any]) -> int:
     env["PYTHONPATH"] = str(ROOT) + os.pathsep + env.get("PYTHONPATH", "")
     for k, v in (panel.get("env") or {}).items():
         env[str(k)] = str(v)
-    env["CPHARM_ALLOW_SEQUENCE_RUNS"] = "1"
-    env["CPHARM_FARM_STOP"] = "0"
+    env["PHARMFLOW_ALLOW_SEQUENCE_RUNS"] = "1"
+    env["PHARMFLOW_FARM_STOP"] = "0"
     # Do not pass hardcoded --phones — run_farm_354 / cycles adapt to live ADB.
     args = [_farm_python(), "-u", str(ROOT / "scripts" / "run_farm_cycles.py")]
     # Daily budgets → always day mode (hours=0), forever — no 6h cycle restarts.
@@ -802,7 +807,7 @@ def _local_time_for_geo(geo: str) -> str:
         return ""
 
 
-# Money-day MuMu index → inject port via CPharm discover (vmN → 8218+N).
+# Money-day MuMu index → inject port via PharmFlow discover (vmN → 8218+N).
 
 
 def _inject_port_for(short: str) -> str:
@@ -1199,7 +1204,7 @@ def save_mantis_today(data: dict[str, Any]) -> dict[str, Any]:
             live_ipv = round(impr / visits, 2)
             ov = _read_json_file(OVERRIDES)
             try:
-                old = float(ov.get("CPHARM_FARM_IMPRESSIONS_PER_VISIT") or 22)
+                old = float(ov.get("PHARMFLOW_FARM_IMPRESSIONS_PER_VISIT") or 22)
             except (TypeError, ValueError):
                 old = 22.0
             # House-fill dilution days show live_ipv 80–120+. Never write that into
@@ -1220,9 +1225,9 @@ def save_mantis_today(data: dict[str, Any]) -> dict[str, Any]:
                     )
                     # Keep / restore sweet-spot ipv + modest EST target.
                     hold = old if SWEET_MIN <= old <= SWEET_MAX else 21.64
-                    ov["CPHARM_FARM_IMPRESSIONS_PER_VISIT"] = str(hold)
-                    ov["CPHARM_IPV_STICKY"] = str(hold)
-                    ov["CPHARM_FARM_EST_IMPRESSIONS"] = "16000"
+                    ov["PHARMFLOW_FARM_IMPRESSIONS_PER_VISIT"] = str(hold)
+                    ov["PHARMFLOW_IPV_STICKY"] = str(hold)
+                    ov["PHARMFLOW_FARM_EST_IMPRESSIONS"] = "16000"
                     ov["updated"] = _utc()
                     OVERRIDES.write_text(
                         json.dumps(ov, indent=2) + "\n", encoding="utf-8"
@@ -1233,8 +1238,8 @@ def save_mantis_today(data: dict[str, Any]) -> dict[str, Any]:
                 if (
                     not isinstance(ov, dict)
                     or len(ov) < 20
-                    or "CPHARM_FARM_PATH3" not in ov
-                    or "CPHARM_FARM_UNIQUE_SEQ" not in ov
+                    or "PHARMFLOW_FARM_PATH3" not in ov
+                    or "PHARMFLOW_FARM_UNIQUE_SEQ" not in ov
                 ):
                     log.warning(
                         "ipv true-up skipped: sticky incomplete keys=%s",
@@ -1242,10 +1247,10 @@ def save_mantis_today(data: dict[str, Any]) -> dict[str, Any]:
                     )
                 else:
                     capped = max(SWEET_MIN, min(SWEET_MAX, live_ipv))
-                    ov["CPHARM_FARM_IMPRESSIONS_PER_VISIT"] = str(capped)
+                    ov["PHARMFLOW_FARM_IMPRESSIONS_PER_VISIT"] = str(capped)
                     try:
                         # EST = plan target, not today's diluted volume.
-                        ov["CPHARM_FARM_EST_IMPRESSIONS"] = str(
+                        ov["PHARMFLOW_FARM_EST_IMPRESSIONS"] = str(
                             min(int(impr), 18000) if impr > 0 else 16000
                         )
                     except Exception:
@@ -1271,8 +1276,8 @@ def save_mantis_today(data: dict[str, Any]) -> dict[str, Any]:
                         if live_ipv <= SWEET_MAX
                         else (old if SWEET_MIN <= old <= SWEET_MAX else 21.64)
                     )
-                    env["CPHARM_FARM_IMPRESSIONS_PER_VISIT"] = str(hold_ipv)
-                    env["CPHARM_FARM_EST_IMPRESSIONS"] = "16000"
+                    env["PHARMFLOW_FARM_IMPRESSIONS_PER_VISIT"] = str(hold_ipv)
+                    env["PHARMFLOW_FARM_EST_IMPRESSIONS"] = "16000"
                     panel["env"] = env
                     panel_path.write_text(json.dumps(panel, indent=2), encoding="utf-8")
     except Exception as exc:
@@ -1315,7 +1320,7 @@ def _day_totals(
     try:
         ipv = float(
             ((panel.get("env") or {}) if isinstance(panel.get("env"), dict) else {}).get(
-                "CPHARM_FARM_IMPRESSIONS_PER_VISIT"
+                "PHARMFLOW_FARM_IMPRESSIONS_PER_VISIT"
             )
             or 22
         )
@@ -1421,12 +1426,12 @@ def _inject_proxy_alive() -> bool:
     )
 
 
-def _cpharm_exe_running() -> bool:
-    """True when PharmFlow.exe (or a leftover CPharm.exe) is running."""
+def _pharmflow_exe_running() -> bool:
+    """True when PharmFlow.exe (or a leftover PharmFlow.exe) is running."""
     try:
         import psutil
 
-        names = {"pharmflow.exe", "cpharm.exe"}
+        names = {"pharmflow.exe", "pharmflow.exe"}
         for proc in psutil.process_iter(["name"]):
             if str(proc.info.get("name") or "").lower() in names:
                 return True
@@ -1464,7 +1469,7 @@ def _farm_worker_alive(procs: list[dict[str, Any]] | None = None) -> bool:
     if any("run_farm_cycles" in str(p.get("cmd", "")) for p in rows):
         return True
     # EXE-owned farm: PharmFlow.exe + fresh progress / actives (no python worker).
-    if not _cpharm_exe_running():
+    if not _pharmflow_exe_running():
         return False
     if _farm_progress_fresh():
         return True
@@ -1482,7 +1487,7 @@ def _farm_worker_alive(procs: list[dict[str, Any]] | None = None) -> bool:
 def _farm_owner_label(procs: list[dict[str, Any]] | None = None) -> str:
     rows = procs if procs is not None else (_ps_farm().get("processes") or [])
     py = any("run_farm_354" in str(p.get("cmd", "")) for p in rows)
-    exe = _cpharm_exe_running()
+    exe = _pharmflow_exe_running()
     if exe and not py:
         return "PharmFlow.exe"
     if py and exe:
@@ -1533,7 +1538,7 @@ def _checkin_fallback_from_procs() -> dict[str, Any]:
     farm_up = _farm_worker_alive(procs)
     cycles_up = any("run_farm_cycles" in str(p.get("cmd", "")) for p in procs)
     inject_up = any("run_mantis_inject_proxies" in str(p.get("cmd", "")) for p in procs)
-    exe_up = _cpharm_exe_running()
+    exe_up = _pharmflow_exe_running()
     adb_online = None
     adb_expect = None
     honest_line = ""
@@ -1671,16 +1676,16 @@ def _overlay_live_gameplay(site: dict[str, Any], panel: dict[str, Any]) -> dict[
         return default
 
     visits = _pick(
-        "CPHARM_FARM_DAILY_VISITS",
+        "PHARMFLOW_FARM_DAILY_VISITS",
         "daily_visits_csv",
         default=str(out.get("daily_visits_csv") or ""),
     )
     ads = _pick(
-        "CPHARM_FARM_DAILY_ADS",
+        "PHARMFLOW_FARM_DAILY_ADS",
         "daily_ads_csv",
         default=str(out.get("daily_ads_csv") or ""),
     )
-    phones_csv = _pick("CPHARM_FARM_PHONES")
+    phones_csv = _pick("PHARMFLOW_FARM_PHONES")
     phones = [str(p) for p in (panel.get("phones") or []) if p]
     if not phones:
         phones = [p.strip() for p in phones_csv.split(",") if p.strip()]
@@ -1693,12 +1698,12 @@ def _overlay_live_gameplay(site: dict[str, Any], panel: dict[str, Any]) -> dict[
             visits = ",".join(v_list[:n])
         if len(a_list) >= n:
             ads = ",".join(a_list[:n])
-    ipv = _pick("CPHARM_IPV_STICKY", "CPHARM_FARM_IMPRESSIONS_PER_VISIT", default="22")
-    seqs = _pick("CPHARM_FARM_SEQS_PER_HOUR", default="?")
-    browsers = _pick("CPHARM_FARM_BROWSERS", default="chromium,firefox,brave")
-    chrom_only = _pick("CPHARM_FARM_CHROMIUM_ONLY", default="0") != "0"
-    unique = _pick("CPHARM_FARM_UNIQUE_SEQ", default="1") != "0"
-    ntfy = _pick("CPHARM_NTFY_TOPIC", default=str(out.get("ntfy_topic") or "twskoops"))
+    ipv = _pick("PHARMFLOW_IPV_STICKY", "PHARMFLOW_FARM_IMPRESSIONS_PER_VISIT", default="22")
+    seqs = _pick("PHARMFLOW_FARM_SEQS_PER_HOUR", default="?")
+    browsers = _pick("PHARMFLOW_FARM_BROWSERS", default="chromium,firefox,brave")
+    chrom_only = _pick("PHARMFLOW_FARM_CHROMIUM_ONLY", default="0") != "0"
+    unique = _pick("PHARMFLOW_FARM_UNIQUE_SEQ", default="1") != "0"
+    ntfy = _pick("PHARMFLOW_NTFY_TOPIC", default=str(out.get("ntfy_topic") or "twskoops"))
     heat = (LOG_DIR / "FARM_HEAT_DOWN.flag").is_file()
     visit_sum = 0
     ad_sum = 0
@@ -1743,26 +1748,26 @@ def status_payload() -> dict[str, Any]:
             if isinstance(ov, dict):
                 env = panel.get("env") if isinstance(panel.get("env"), dict) else {}
                 for key in (
-                    "CPHARM_FARM_DAILY_VISITS",
-                    "CPHARM_FARM_DAILY_ADS",
-                    "CPHARM_FARM_ALLOW_ADS",
-                    "CPHARM_FARM_PATHS",
-                    "CPHARM_FARM_PATH3_DAILY_CAP",
-                    "CPHARM_FARM_PATH3_GLOBAL_GAP_MIN",
-                    "CPHARM_FARM_PATH3_PER_HOUR",
-                    "CPHARM_BROWSE_PROXY_MODE",
-                    "CPHARM_REQUIRE_UNIQUE_EXIT_IP",
-                    "CPHARM_HUMAN_VARIATION",
-                    "CPHARM_FARM_BROWSERS",
-                    "CPHARM_DABFLOW_LOAD_WAIT",
-                    "CPHARM_FARM_EVENING_SEQS_PER_HOUR",
-                    "CPHARM_FARM_SEQS_PER_HOUR",
-                    "CPHARM_FARM_IMPRESSIONS_PER_VISIT",
-                    "CPHARM_IPV_STICKY",
-                    "CPHARM_FARM_CHROMIUM_ONLY",
-                    "CPHARM_FARM_PHONES",
-                    "CPHARM_FARM_UNIQUE_SEQ",
-                    "CPHARM_NTFY_TOPIC",
+                    "PHARMFLOW_FARM_DAILY_VISITS",
+                    "PHARMFLOW_FARM_DAILY_ADS",
+                    "PHARMFLOW_FARM_ALLOW_ADS",
+                    "PHARMFLOW_FARM_PATHS",
+                    "PHARMFLOW_FARM_PATH3_DAILY_CAP",
+                    "PHARMFLOW_FARM_PATH3_GLOBAL_GAP_MIN",
+                    "PHARMFLOW_FARM_PATH3_PER_HOUR",
+                    "PHARMFLOW_BROWSE_PROXY_MODE",
+                    "PHARMFLOW_REQUIRE_UNIQUE_EXIT_IP",
+                    "PHARMFLOW_HUMAN_VARIATION",
+                    "PHARMFLOW_FARM_BROWSERS",
+                    "PHARMFLOW_DABFLOW_LOAD_WAIT",
+                    "PHARMFLOW_FARM_EVENING_SEQS_PER_HOUR",
+                    "PHARMFLOW_FARM_SEQS_PER_HOUR",
+                    "PHARMFLOW_FARM_IMPRESSIONS_PER_VISIT",
+                    "PHARMFLOW_IPV_STICKY",
+                    "PHARMFLOW_FARM_CHROMIUM_ONLY",
+                    "PHARMFLOW_FARM_PHONES",
+                    "PHARMFLOW_FARM_UNIQUE_SEQ",
+                    "PHARMFLOW_NTFY_TOPIC",
                 ):
                     if key in ov and ov[key] not in (None, ""):
                         env[str(key)] = str(ov[key])
@@ -1770,12 +1775,12 @@ def status_payload() -> dict[str, Any]:
                 phones = list(panel.get("phones") or DEFAULT_PHONES)
                 vparts = [
                     p.strip()
-                    for p in str(env.get("CPHARM_FARM_DAILY_VISITS") or "").split(",")
+                    for p in str(env.get("PHARMFLOW_FARM_DAILY_VISITS") or "").split(",")
                     if p.strip()
                 ]
                 aparts = [
                     p.strip()
-                    for p in str(env.get("CPHARM_FARM_DAILY_ADS") or "").split(",")
+                    for p in str(env.get("PHARMFLOW_FARM_DAILY_ADS") or "").split(",")
                     if p.strip()
                 ]
                 if vparts:
@@ -1818,7 +1823,7 @@ def status_payload() -> dict[str, Any]:
         "run_mantis_inject_proxies" in str(p.get("cmd", "")) for p in proc_rows
     )
     checkin = _checkin_payload()
-    # EXE-owned farm: never leave check-in stuck on DOWN when CPharm is alive.
+    # EXE-owned farm: never leave check-in stuck on DOWN when PharmFlow is alive.
     if farm_alive and isinstance(checkin, dict) and not checkin.get("farm_up"):
         checkin = dict(checkin)
         checkin["farm_up"] = True
@@ -1961,10 +1966,10 @@ def status_payload() -> dict[str, Any]:
     try:
         live_mode = browse_proxy_mode()
     except Exception:
-        live_mode = str((panel.get("env") or {}).get("CPHARM_BROWSE_PROXY_MODE") or "scramble")
+        live_mode = str((panel.get("env") or {}).get("PHARMFLOW_BROWSE_PROXY_MODE") or "scramble")
     slug = str(
         panel.get("active_site_slug")
-        or (panel.get("env") or {}).get("CPHARM_SITE_SLUG")
+        or (panel.get("env") or {}).get("PHARMFLOW_SITE_SLUG")
         or "dabflow"
     ).strip() or "dabflow"
     try:
@@ -1977,7 +1982,7 @@ def status_payload() -> dict[str, Any]:
         sites = []
     # Gameplay rundown = sticky truth (caps/pace/phones), not profile defaults.
     site = _overlay_live_gameplay(site, panel)
-    unique_on = str((panel.get("env") or {}).get("CPHARM_FARM_UNIQUE_SEQ") or "1") != "0"
+    unique_on = str((panel.get("env") or {}).get("PHARMFLOW_FARM_UNIQUE_SEQ") or "1") != "0"
     money_mon: dict[str, Any] = {}
     try:
         from automation.farm_money_monitor import load_state as _money_mon_state
@@ -2045,7 +2050,7 @@ HTML = r"""<!DOCTYPE html>
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>FamFlow Farm</title>
+<title>PharmFlow Farm</title>
 <style>
 :root{
   --bg:#12151a; --panel:#1a1f27; --panel2:#222833; --line:#2e3642;
@@ -2389,6 +2394,23 @@ details.more{border-radius:10px}
       </div>
       <div id="tab-full">
         <div class="grid3" id="phoneBox"></div>
+        <div class="group-title">Daily sequence mix</div>
+        <p class="note">Path 1 full browse, Path 2 halfway browse, Path 3 one paid action. Phones get different random daily counts so the farm does not look cloned. The fleet total still matches your target. Same formula for any site: impressions times eCPM / 1000. Save writes the mix the running farm reads. It does not rewrite the visit CSV. While a mix is saved, those counts win over the CSV. A blank phone count is not a guess.</p>
+        <div class="grid2" id="earnBox">
+          <div class="field"><label>Phones</label><input id="earnPhones" type="number" min="1" step="1" placeholder="required"></div>
+          <div class="field"><label>Visits / phone</label><input id="earnVisits" type="number" min="1" step="1" placeholder="or payout"></div>
+          <div class="field"><label>Target $ / day</label><input id="earnUsd" type="number" min="0" step="0.01"></div>
+          <div class="field"><label>eCPM</label><input id="earnEcpm" type="number" min="0" step="0.01"></div>
+          <div class="field"><label>Impr / visit</label><input id="earnIpv" type="number" min="0" step="1" placeholder="blank = 22"></div>
+          <div class="field"><label>Path 2 share</label><input id="earnPath2" type="number" min="0" max="1" step="0.01" placeholder="blank = 0.20"></div>
+          <div class="field"><label>Visits / paid action</label><input id="earnRatio" type="number" min="1" step="1" placeholder="required if on"></div>
+          <label class="note" style="display:flex;align-items:center;gap:6px"><input id="earnAds" type="checkbox" style="width:auto"> Path 3 on</label>
+        </div>
+        <div class="row" style="margin:4px 0 8px">
+          <button class="btn ghost" id="btnEarnPreview" type="button">Preview mix</button>
+          <button class="btn primary" id="btnEarnSave" type="button">Save mix</button>
+          <span class="note" id="earnStatus">No mix saved yet.</span>
+        </div>
         <div class="group-title">Daily budget / phone (visits · ad clicks)</div>
         <div id="budgetBox"></div>
         <p class="note" id="budgetMath" style="margin:4px 0 8px">Est. impressions = visits × ~22 · target ~12–20 ad clicks/day · ~30–45 visits/click</p>
@@ -2507,7 +2529,7 @@ function renderBudgets(panel){
   });
   const math=document.getElementById('budgetMath');
   if(math){
-    const ipv=Number((panel.env&&panel.env.CPHARM_FARM_IMPRESSIONS_PER_VISIT)||22)||22;
+    const ipv=Number((panel.env&&panel.env.PHARMFLOW_FARM_IMPRESSIONS_PER_VISIT)||22)||22;
     const impr=Math.round(totV*ipv);
     const vpc=totA>0?Math.round(totV/totA):'—';
     const ctr=impr>0&&totA>0?((totA/impr)*100).toFixed(2)+'%':'—';
@@ -2569,7 +2591,7 @@ function applyPanel(panel){
   document.getElementById('notes').value=panel.notes||'';
   document.getElementById('panelPath').textContent=STATE.panel_path;
   document.getElementById('overridesPath').textContent=STATE.overrides_path;
-  const slug=panel.active_site_slug||(panel.env||{}).CPHARM_SITE_SLUG||'dabflow';
+  const slug=panel.active_site_slug||(panel.env||{}).PHARMFLOW_SITE_SLUG||'dabflow';
   const pick=document.getElementById('sitePick');
   if(pick && [...pick.options].some(o=>o.value===slug)) pick.value=slug;
   // Re-bind dirty tracking after knobs/phones are rebuilt.
@@ -2988,7 +3010,7 @@ function renderStatus(s){
   mk('unique-seq', !!(s.unique_seq&&s.unique_seq.enabled!==false));
   mk('farm', s.farm_alive);
   mk('inj', s.inject_alive);
-  const mode = String(s.browse_proxy_mode || ((s.panel||{}).env||{}).CPHARM_BROWSE_PROXY_MODE || '?');
+  const mode = String(s.browse_proxy_mode || ((s.panel||{}).env||{}).PHARMFLOW_BROWSE_PROXY_MODE || '?');
   mk('proxy:'+mode, true, mode==='tor');
   const c=s.checkin||{};
   if(c.proxy_bad && c.proxy_bad.length) mk('guest', false, true);
@@ -3089,6 +3111,66 @@ document.querySelectorAll('.tab').forEach(btn=>{
     document.getElementById('tab-wizard').style.display = tab==='wizard'?'block':'none';
   });
 });
+
+function earnBody(){
+  const v=id=>{ const el=document.getElementById(id); return el&&el.value?String(el.value).trim():''; };
+  return {
+    phones:v('earnPhones'),
+    visits_per_phone:v('earnVisits'),
+    target_usd:v('earnUsd'),
+    ecpm:v('earnEcpm'),
+    impressions_per_visit:v('earnIpv'),
+    path2_share:v('earnPath2'),
+    ads_allowed:!!(document.getElementById('earnAds')&&document.getElementById('earnAds').checked),
+    visits_per_paid_action:v('earnRatio')
+  };
+}
+function earnText(plan){
+  if(!plan || plan.ok===false) return (plan&&plan.error)||'Mix was not computed.';
+  const visits=Array.isArray(plan.visits_by_phone)?plan.visits_by_phone.join(','):String(plan.visits_per_phone);
+  const ads=Array.isArray(plan.path3_by_phone)?plan.path3_by_phone.join(','):String(plan.path3_per_phone);
+  return 'Per phone visits: '+visits+'. Path 3: '+ads+'. Means ~'+plan.path1_per_phone+' Path 1, '+plan.path2_per_phone+' Path 2, '+plan.path3_per_phone+' Path 3. '+(plan.note||'');
+}
+function fillEarn(plan){
+  if(!plan || plan.saved!==true) return;
+  const set=(id,value)=>{ const el=document.getElementById(id); if(el && value!=null && value!=='') el.value=String(value); };
+  set('earnPhones', plan.phones);
+  set('earnVisits', plan.visits_per_phone);
+  set('earnUsd', plan.target_usd);
+  set('earnEcpm', plan.ecpm);
+  set('earnIpv', plan.impressions_per_visit);
+  set('earnPath2', plan.path2_share);
+  set('earnRatio', plan.visits_per_paid_action);
+  const ads=document.getElementById('earnAds');
+  if(ads) ads.checked=!!plan.ads_allowed;
+}
+async function loadEarn(){
+  try{
+    const r=await fetch('/api/earn-plan');
+    const plan=await r.json();
+    fillEarn(plan);
+    if(plan && plan.saved===true) document.getElementById('earnStatus').textContent=earnText(plan);
+  }catch(e){
+    document.getElementById('earnStatus').textContent='Could not read the saved mix.';
+  }
+}
+document.getElementById('btnEarnPreview').onclick=async()=>{
+  try{
+    const plan=await post('/api/earn-plan', Object.assign({preview:true}, earnBody()));
+    document.getElementById('earnStatus').textContent=earnText(plan);
+    toast('Preview only');
+  }catch(e){ toast(String(e)); }
+};
+document.getElementById('btnEarnSave').onclick=async()=>{
+  try{
+    const plan=await post('/api/earn-plan', earnBody());
+    if(!plan || plan.saved!==true) throw new Error((plan&&plan.error)||'Mix was not saved');
+    fillEarn(plan);
+    document.getElementById('earnStatus').textContent=earnText(plan);
+    toast('Saved mix');
+  }catch(e){ toast(String(e)); }
+};
+loadEarn();
 
 document.getElementById('btnSave').onclick=async()=>{
   try{ await post('/api/save', collectPanel()); clearDirty(); toast('Saved'); await refresh({forcePanel:true}); }
@@ -3211,11 +3293,11 @@ document.getElementById('wizAllPhones').onclick=()=>{
 document.getElementById('wizAdsSafe').onclick=()=>{
   // Ad inject/patch/CDP settings are HARDCODED in save_panel — not knobs.
   const set=(k,v)=>{ const el=document.querySelector('.knob[data-key="'+k+'"]'); if(el) el.value=v; };
-  set('CPHARM_FARM_ALLOW_ADS','1');
-  set('CPHARM_FARM_PATHS','1,2,3');
-  set('CPHARM_EMULATOR_AD_FILL_WAIT','2.0');
-  set('CPHARM_BROWSE_PROXY_MODE','scramble');
-  set('CPHARM_REQUIRE_UNIQUE_EXIT_IP','1');
+  set('PHARMFLOW_FARM_ALLOW_ADS','1');
+  set('PHARMFLOW_FARM_PATHS','1,2,3');
+  set('PHARMFLOW_EMULATOR_AD_FILL_WAIT','2.0');
+  set('PHARMFLOW_BROWSE_PROXY_MODE','scramble');
+  set('PHARMFLOW_REQUIRE_UNIQUE_EXIT_IP','1');
   markDirty();
   toast('Ads-safe + scramble preset (Save)');
 };
@@ -3579,6 +3661,23 @@ def api_publisher_pull(slug: str):
     ), 200
 
 
+@app.get("/api/earn-plan")
+def api_earn_plan_get():
+    plan = load_earn_plan()
+    if not plan:
+        return jsonify({"ok": True, "saved": False})
+    return jsonify(plan)
+
+
+@app.post("/api/earn-plan")
+def api_earn_plan_post():
+    body = request.get_json(force=True, silent=True) or {}
+    if body.get("preview") is True:
+        return jsonify(compute_earn_plan(body))
+    saved = save_earn_plan(body)
+    return jsonify(saved)
+
+
 @app.post("/api/save")
 def api_save():
     body = request.get_json(force=True, silent=True) or {}
@@ -3640,7 +3739,7 @@ def api_stop():
         panel["last_action"] = "stop"
         panel["last_action_at"] = _utc()
         env = panel.get("env") if isinstance(panel.get("env"), dict) else {}
-        env["CPHARM_FARM_STOP"] = "1"
+        env["PHARMFLOW_FARM_STOP"] = "1"
         panel["env"] = env
         save_panel(panel)
         # keep stop sticky in overrides until restart clears it
@@ -3648,7 +3747,7 @@ def api_stop():
             data = json.loads(OVERRIDES.read_text(encoding="utf-8-sig")) if OVERRIDES.is_file() else {}
             if not isinstance(data, dict):
                 data = {}
-            data["CPHARM_FARM_STOP"] = "1"
+            data["PHARMFLOW_FARM_STOP"] = "1"
             data["updated"] = _utc()
             OVERRIDES.write_text(json.dumps(data, indent=2), encoding="utf-8")
         except OSError:
@@ -3666,14 +3765,14 @@ def api_kill_switch():
         panel["last_action"] = "kill-switch"
         panel["last_action_at"] = _utc()
         env = panel.get("env") if isinstance(panel.get("env"), dict) else {}
-        env["CPHARM_FARM_STOP"] = "1"
+        env["PHARMFLOW_FARM_STOP"] = "1"
         panel["env"] = env
         save_panel(panel)
         try:
             data = json.loads(OVERRIDES.read_text(encoding="utf-8-sig")) if OVERRIDES.is_file() else {}
             if not isinstance(data, dict):
                 data = {}
-            data["CPHARM_FARM_STOP"] = "1"
+            data["PHARMFLOW_FARM_STOP"] = "1"
             data["updated"] = _utc()
             OVERRIDES.write_text(json.dumps(data, indent=2), encoding="utf-8")
         except OSError:
@@ -3694,7 +3793,7 @@ def api_restart():
             }
         )
         env = panel.get("env") if isinstance(panel.get("env"), dict) else {}
-        env["CPHARM_FARM_STOP"] = "0"
+        env["PHARMFLOW_FARM_STOP"] = "0"
         panel["env"] = env
         panel["last_action"] = "restart"
         panel["last_action_at"] = _utc()
@@ -3705,7 +3804,7 @@ def api_restart():
             data = json.loads(OVERRIDES.read_text(encoding="utf-8-sig")) if OVERRIDES.is_file() else {}
             if not isinstance(data, dict):
                 data = {}
-            data["CPHARM_FARM_STOP"] = "0"
+            data["PHARMFLOW_FARM_STOP"] = "0"
             data["updated"] = _utc()
             OVERRIDES.write_text(json.dumps(data, indent=2), encoding="utf-8")
         except OSError:
@@ -3759,12 +3858,12 @@ def api_mantis_today():
 # Single-flight + freshness for /api/mantis_pull. Helpers (remediator /
 # watch_bottom_ads / money_monitor) call this endpoint every cycle; each
 # GraphQL pull takes 10-40s and stacked pulls froze the dash. A pull completed
-# within CPHARM_MANTIS_PULL_FRESH_S returns the saved state instantly, and a
+# within PHARMFLOW_MANTIS_PULL_FRESH_S returns the saved state instantly, and a
 # concurrent pull never starts a second GraphQL fetch.
 _MANTIS_PULL_LOCK = threading.Lock()
 _MANTIS_PULL_LAST_OK = {"t": 0.0}
 _MANTIS_PULL_FRESH_S = float(
-    os.environ.get("CPHARM_MANTIS_PULL_FRESH_S", "90").strip() or 90
+    os.environ.get("PHARMFLOW_MANTIS_PULL_FRESH_S", "90").strip() or 90
 )
 
 
@@ -3823,7 +3922,7 @@ def api_mantis_pull():
 
                     _ov = _read_json_file(OVERRIDES) if OVERRIDES.is_file() else {}
 
-                    _cur = {k: str(v) for k, v in _ov.items() if str(k).startswith("CPHARM_")}
+                    _cur = {k: str(v) for k, v in _ov.items() if str(k).startswith("PHARMFLOW_")}
 
                     _blk, _why = path3_day_reset_blocked(_cur, log_dir=LOG_DIR)
 
@@ -3876,7 +3975,7 @@ def api_mantis_pull():
                     "totals": totals,
                     "cached": True,
                     "note": "pull_failed_using_cache — re-auth Mantis manually "
-                    "(CPHARM_MANTIS_ALLOW_HEADED=1) when ready",
+                    "(PHARMFLOW_MANTIS_ALLOW_HEADED=1) when ready",
                 }
             ), 200
         _MANTIS_PULL_LAST_OK["t"] = time.monotonic()

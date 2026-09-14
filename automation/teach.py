@@ -86,27 +86,56 @@ def _hex_to_sendevent_arg(raw: str) -> str | None:
         return None
 
 
-def start_recording(serial: str) -> str:
+def recording_event_count(path: str | Path | None) -> int:
+    """How many captured events are in a recording file. Missing or empty is 0."""
+    if not path:
+        return 0
+    try:
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return 0
+    return len(data) if isinstance(data, list) else 0
+
+
+def start_recording(serial: str) -> str | None:
+    """Start getevent. Returns the file path only if the process is still running."""
     global _recording_active, _recording_thread, _current_file
 
     ts = int(time.time())
-    _current_file     = REC_DIR / f"session_{ts}.rec"
+    _current_file = REC_DIR / f"session_{ts}.rec"
     _recording_active = True
     events: list[dict] = []
     start_time = time.time()
+    started = threading.Event()
+    failed: list[str] = []
 
     def record():
         exe = adb_executable()
         # ``-t`` keeps timestamps + numeric hex codes. ``-l`` (labels) breaks
         # sendevent replay because type/code become EV_ABS / ABS_* strings.
-        proc = subprocess.Popen(
-            [exe, "-s", serial, "shell", "getevent", "-t"],
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
-            text=True,
-            creationflags=_SUBPROC_FLAGS,
-        )
+        try:
+            proc = subprocess.Popen(
+                [exe, "-s", serial, "shell", "getevent", "-t"],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                text=True,
+                creationflags=_SUBPROC_FLAGS,
+            )
+        except Exception as exc:
+            failed.append(str(exc))
+            started.set()
+            return
+        time.sleep(0.4)
+        if proc.poll() is not None:
+            failed.append("getevent exited")
+            started.set()
+            try:
+                proc.stdout.close()
+            except Exception:
+                pass
+            return
+        started.set()
         try:
             for line in proc.stdout:
                 if not _recording_active:
@@ -131,33 +160,45 @@ def start_recording(serial: str) -> str:
                 proc.stdout.close()
             except Exception:
                 pass
-            _current_file.write_text(json.dumps(events))
+            if _current_file is not None:
+                _current_file.write_text(json.dumps(events), encoding="utf-8")
 
     _recording_thread = threading.Thread(target=record, daemon=True)
     _recording_thread.start()
+    if not started.wait(8) or failed:
+        _recording_active = False
+        _current_file = None
+        return None
     return str(_current_file)
 
 
 def stop_recording() -> str | None:
+    """Stop getevent. Returns the file only if at least one tap was captured."""
     global _recording_active, _recording_thread, _current_file
     _recording_active = False
     if _recording_thread:
         _recording_thread.join(timeout=3)
-    return str(_current_file) if _current_file else None
+    path = _current_file
+    if path is None or recording_event_count(path) < 1:
+        return None
+    return str(path)
 
 
-def replay_on_phone(serial: str, recording_path: str):
+def replay_on_phone(serial: str, recording_path: str) -> int:
     """Replay a recording on a specific phone using sendevent.
 
     Works without root on AVD emulators. Each event is sent with a 3-second
     timeout so a dead device never hangs the replay.
     """
     try:
-        data = json.loads(Path(recording_path).read_text())
-    except (ValueError, OSError):
-        return
+        data = json.loads(Path(recording_path).read_text(encoding="utf-8"))
+    except (ValueError, OSError, TypeError):
+        return 0
+    if not isinstance(data, list) or not data:
+        return 0
 
     last_t = 0.0
+    sent = 0
     for entry in data:
         try:
             t = float(entry.get("t", last_t) or 0.0)
@@ -165,7 +206,7 @@ def replay_on_phone(serial: str, recording_path: str):
             t = last_t
         delay = t - last_t
         if delay > 0:
-            time.sleep(min(delay, 5.0))
+            time.sleep(delay)
         last_t = t
 
         d     = entry.get("d", "")
@@ -178,7 +219,7 @@ def replay_on_phone(serial: str, recording_path: str):
                 or value is None):
             continue
         try:
-            subprocess.run(
+            result = subprocess.run(
                 [
                     adb_executable(),
                     "-s",
@@ -194,10 +235,13 @@ def replay_on_phone(serial: str, recording_path: str):
                 timeout=3,
                 creationflags=_SUBPROC_FLAGS,
             )
+            if result.returncode == 0:
+                sent += 1
         except subprocess.TimeoutExpired:
             break  # Device went offline - stop replaying
         except Exception:
             pass
+    return sent
 
 
 def replay_all(
@@ -207,13 +251,14 @@ def replay_all(
     on_complete: Callable | None = None,
 ):
     def run():
+        sent = 0
         for i, phone in enumerate(phones):
             if i > 0:
                 actual = max(0.1, delay_secs + random.uniform(-delay_secs * 0.3, delay_secs * 0.3))
                 time.sleep(actual)
-            replay_on_phone(phone["serial"], recording_path)
+            sent += replay_on_phone(phone["serial"], recording_path)
         if on_complete:
-            on_complete()
+            on_complete(sent)
     t = threading.Thread(target=run, daemon=True)
     t.start()
     return t

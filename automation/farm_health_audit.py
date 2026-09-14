@@ -1,6 +1,6 @@
 """Operator health audit — detect AND fix (not spectate).
 
-Writes C:\\CPharm\\logs\\FARM_MONITOR_ALERTS.jsonl + FARM_MONITOR_NOW.txt
+Writes C:\\PharmFlow\\logs\\FARM_MONITOR_ALERTS.jsonl + FARM_MONITOR_NOW.txt
 and ntfy on critical alerts (rate-limited). Critical findings trigger
 apply_money_rails / prefer-paying / dash respawn — turn the heat down,
 don't just announce dinner is burnt.
@@ -20,15 +20,15 @@ from pathlib import Path
 import automation.no_window  # noqa: F401  — hide helper consoles
 from automation.farm_visit_caps import enforce_multi_browser
 
-LOG = Path(os.environ.get("CPHARM_LOGS") or r"C:\CPharm\logs")
+LOG = Path(os.environ.get("PHARMFLOW_LOGS") or r"C:\PharmFlow\logs")
 ROOT = Path(__file__).resolve().parents[1]
 ALERTS = LOG / "FARM_MONITOR_ALERTS.jsonl"
 NOW = LOG / "FARM_MONITOR_NOW.txt"
 HEAT_FLAG_NAME = "FARM_HEAT_DOWN.flag"
 HEAT_FLAG = LOG / HEAT_FLAG_NAME
 NTFY_STAMP = LOG / "_last_monitor_ntfy_ts.txt"
-NTFY_TOPIC = os.environ.get("CPHARM_NTFY_TOPIC", "twskoops").strip() or "twskoops"
-NTFY_MIN_GAP_S = float(os.environ.get("CPHARM_MONITOR_NTFY_GAP_S", "900"))  # 15m
+NTFY_TOPIC = os.environ.get("PHARMFLOW_NTFY_TOPIC", "twskoops").strip() or "twskoops"
+NTFY_MIN_GAP_S = float(os.environ.get("PHARMFLOW_MONITOR_NTFY_GAP_S", "900"))  # 15m
 
 try:
     from automation.dabflow_mantis_client_patch import (
@@ -132,10 +132,10 @@ def scale_uneven_ads(template: str, n: int, *, min_val: int = 36) -> str:
 def _phone_n_from_ov(ov: dict) -> int:
     sticky_names = [
         p.strip()
-        for p in str(ov.get("CPHARM_FARM_PHONES") or "").split(",")
+        for p in str(ov.get("PHARMFLOW_FARM_PHONES") or "").split(",")
         if p.strip()
     ]
-    raw = str(ov.get("CPHARM_FARM_PHONE_COUNT") or ov.get("CPHARM_FARM_EXPECT_PHONES") or "9")
+    raw = str(ov.get("PHARMFLOW_FARM_PHONE_COUNT") or ov.get("PHARMFLOW_FARM_EXPECT_PHONES") or "9")
     try:
         sticky_n = int(float(raw))
     except ValueError:
@@ -178,7 +178,7 @@ def _ntfy(msg: str) -> str:
             data=msg.encode("utf-8"),
             method="POST",
             headers={
-                "Title": "FamFlow MONITOR",
+                "Title": "PharmFlow MONITOR",
                 "Priority": "high",
                 "Tags": "warning,rotating_light",
             },
@@ -261,7 +261,7 @@ def apply_money_rails(
     if mode == "heat_down" and behind:
         tag = f"rails_hold:zero_click_override:{reason or 'heat_down'}"
 
-    from automation.cpharm_farm_config import get_runtime, merge_runtime, write_adb_serial_lock
+    from automation.pharmflow_farm_config import get_runtime, merge_runtime, write_adb_serial_lock
 
     ov = get_runtime()
     n = _phone_n_from_ov(ov)
@@ -368,71 +368,71 @@ def apply_money_rails(
             max(int(path3_daily or 0), ads_sum, BEHIND_PATH3_CAP_FLOOR)
         )
     want_ov = {
-        "CPHARM_IPV_STICKY": rails["ipv"],
-        "CPHARM_FARM_IMPRESSIONS_PER_VISIT": rails["ipv"],
-        "CPHARM_FARM_EST_IMPRESSIONS": rails["est_impr"],
-        "CPHARM_FARM_SEQS_PER_HOUR": seqs,
-        "CPHARM_FARM_DAILY_VISITS": visits,
-        "CPHARM_FARM_DAILY_ADS": ads,
-        "CPHARM_FARM_PHONE_COUNT": str(n),
-        "CPHARM_FARM_EXPECT_PHONES": str(n),
-        "CPHARM_FARM_PATH3_DAILY_CAP": path3_daily,
-        "CPHARM_PATH3_DAILY_CAP": path3_daily,
-        "CPHARM_FARM_PATH3_PER_HOUR": path3_hr,
-        "CPHARM_PATH3_PER_HOUR": path3_hr,
-        "CPHARM_PATH3_CAP": path3_daily,
-        "CPHARM_FARM_PATH3_PREEMPT_MIN": "2",
+        "PHARMFLOW_IPV_STICKY": rails["ipv"],
+        "PHARMFLOW_FARM_IMPRESSIONS_PER_VISIT": rails["ipv"],
+        "PHARMFLOW_FARM_EST_IMPRESSIONS": rails["est_impr"],
+        "PHARMFLOW_FARM_SEQS_PER_HOUR": seqs,
+        "PHARMFLOW_FARM_DAILY_VISITS": visits,
+        "PHARMFLOW_FARM_DAILY_ADS": ads,
+        "PHARMFLOW_FARM_PHONE_COUNT": str(n),
+        "PHARMFLOW_FARM_EXPECT_PHONES": str(n),
+        "PHARMFLOW_FARM_PATH3_DAILY_CAP": path3_daily,
+        "PHARMFLOW_PATH3_DAILY_CAP": path3_daily,
+        "PHARMFLOW_FARM_PATH3_PER_HOUR": path3_hr,
+        "PHARMFLOW_PATH3_PER_HOUR": path3_hr,
+        "PHARMFLOW_PATH3_CAP": path3_daily,
+        "PHARMFLOW_FARM_PATH3_PREEMPT_MIN": "2",
         # 0 = phones run Path3 in parallel. Unique-seq still blocks the same ad.
-        "CPHARM_FARM_PATH3_GLOBAL_GAP_MIN": "0",
-        "CPHARM_PATH3_GAP_MIN": "0",
-        "CPHARM_FARM_PATH3_SPACING": "1" if behind else "2",
-        "CPHARM_FARM_PATH3_PHONE_OFFSET": "1",
-        "CPHARM_FARM_PATH3_LEAD_MIN": "0",
-        "CPHARM_PREFER_PAYING": "1",
-        "CPHARM_SSP_PREFER_PAYING": "1",
-        "CPHARM_PATH3_REQUIRE_PAYING": "0",
-        "CPHARM_FARM_ALLOW_ADS": "1",
-        "CPHARM_FARM_PATHS": "1,2,3",
-        "CPHARM_FARM_PATH3": "1",
-        "CPHARM_PATH3": "1",
-        "CPHARM_FARM_UNIQUE_SEQ": "1",
-        "CPHARM_FARM_IMMEDIATE_START": "1",
+        "PHARMFLOW_FARM_PATH3_GLOBAL_GAP_MIN": "0",
+        "PHARMFLOW_PATH3_GAP_MIN": "0",
+        "PHARMFLOW_FARM_PATH3_SPACING": "1" if behind else "2",
+        "PHARMFLOW_FARM_PATH3_PHONE_OFFSET": "1",
+        "PHARMFLOW_FARM_PATH3_LEAD_MIN": "0",
+        "PHARMFLOW_PREFER_PAYING": "1",
+        "PHARMFLOW_SSP_PREFER_PAYING": "1",
+        "PHARMFLOW_PATH3_REQUIRE_PAYING": "0",
+        "PHARMFLOW_FARM_ALLOW_ADS": "1",
+        "PHARMFLOW_FARM_PATHS": "1,2,3",
+        "PHARMFLOW_FARM_PATH3": "1",
+        "PHARMFLOW_PATH3": "1",
+        "PHARMFLOW_FARM_UNIQUE_SEQ": "1",
+        "PHARMFLOW_FARM_IMMEDIATE_START": "1",
         # Keep autopilot PAUSED — its click caps (40 hard / 35 soft) killed Path3
         # revenue. The money monitor owns pacing now; never re-enable the LLM AP.
-        "CPHARM_AUTOPILOT_PAUSE": "1",
-        "CPHARM_FARM_STOP": "0",
-        "CPHARM_EMULATOR_AD_FALLBACK": "1",
-        "CPHARM_EMULATOR_AD_FORCE_DIRECT": "1",
-        "CPHARM_SKIP_SEQUENCE_ISOLATION": "0",
-        "CPHARM_FARM_START_STAGGER_WINDOW": "45",
-        "CPHARM_FARM_START_STAGGER_BAND": "45",
-        "CPHARM_FARM_START_STAGGER_MIN_GAP": "5",
-        "CPHARM_FARM_SLOT_MIN_LEAD": "0" if behind else "30",
-        "CPHARM_EMULATOR_AD_FILL_WAIT": "2.8",
-        "CPHARM_DABFLOW_LOAD_WAIT": "3.8",
-        "CPHARM_AGE_GATE_WAIT": "0.55",
-        "CPHARM_START_DAB_VERIFY_WAIT": "1.7",
-        "CPHARM_AD_DWELL_MIN": dwell_min,
-        "CPHARM_AD_DWELL_MAX": dwell_max,
+        "PHARMFLOW_AUTOPILOT_PAUSE": "1",
+        "PHARMFLOW_FARM_STOP": "0",
+        "PHARMFLOW_EMULATOR_AD_FALLBACK": "1",
+        "PHARMFLOW_EMULATOR_AD_FORCE_DIRECT": "1",
+        "PHARMFLOW_SKIP_SEQUENCE_ISOLATION": "0",
+        "PHARMFLOW_FARM_START_STAGGER_WINDOW": "45",
+        "PHARMFLOW_FARM_START_STAGGER_BAND": "45",
+        "PHARMFLOW_FARM_START_STAGGER_MIN_GAP": "5",
+        "PHARMFLOW_FARM_SLOT_MIN_LEAD": "0" if behind else "30",
+        "PHARMFLOW_EMULATOR_AD_FILL_WAIT": "2.8",
+        "PHARMFLOW_DABFLOW_LOAD_WAIT": "3.8",
+        "PHARMFLOW_AGE_GATE_WAIT": "0.55",
+        "PHARMFLOW_START_DAB_VERIFY_WAIT": "1.7",
+        "PHARMFLOW_AD_DWELL_MIN": dwell_min,
+        "PHARMFLOW_AD_DWELL_MAX": dwell_max,
         # CRITICAL: inject/proxy/patch settings MUST be enforced every tick.
         # These were repeatedly clobbered to 0 by stale panel env merge in save_panel,
         # killing creative paint and routing all traffic from the host IP.
-        "CPHARM_MANTIS_INJECT_PROXY": "1",
-        "CPHARM_MANTIS_INJECT_MITM": "1",
-        "CPHARM_MANTIS_BILLING_DIRECT": "0",
-        "CPHARM_SKIP_MANTIS_PATCH": "0",
-        "CPHARM_DABFLOW_MANTIS_PATCH": "1",
-        "CPHARM_EMULATOR_AD_MODE": "1",
+        "PHARMFLOW_MANTIS_INJECT_PROXY": "1",
+        "PHARMFLOW_MANTIS_INJECT_MITM": "1",
+        "PHARMFLOW_MANTIS_BILLING_DIRECT": "0",
+        "PHARMFLOW_SKIP_MANTIS_PATCH": "0",
+        "PHARMFLOW_DABFLOW_MANTIS_PATCH": "1",
+        "PHARMFLOW_EMULATOR_AD_MODE": "1",
     }
     for pk, pv in pace_overrides.items():
         want_ov[pk] = pv
     if mode == "heat_down" and not behind:
         # House-only with existing clicks: cut Path1/2 volume only.
-        want_ov["CPHARM_PATH3_REQUIRE_PAYING"] = "0"
-        want_ov["CPHARM_FARM_PATH3_PER_HOUR"] = "8"
-        want_ov["CPHARM_PATH3_PER_HOUR"] = "8"
-        want_ov["CPHARM_EMULATOR_AD_FALLBACK"] = "1"
-        want_ov["CPHARM_EMULATOR_AD_FORCE_DIRECT"] = "1"
+        want_ov["PHARMFLOW_PATH3_REQUIRE_PAYING"] = "0"
+        want_ov["PHARMFLOW_FARM_PATH3_PER_HOUR"] = "8"
+        want_ov["PHARMFLOW_PATH3_PER_HOUR"] = "8"
+        want_ov["PHARMFLOW_EMULATOR_AD_FALLBACK"] = "1"
+        want_ov["PHARMFLOW_EMULATOR_AD_FORCE_DIRECT"] = "1"
         try:
             _heat_flag().write_text(
                 json.dumps({"ts": _utc(), "reason": reason or "heat_down", "rails": rails}, indent=2)
@@ -448,7 +448,7 @@ def apply_money_rails(
         except OSError:
             pass
 
-    from automation.cpharm_farm_config import merge_runtime
+    from automation.pharmflow_farm_config import merge_runtime
 
     changed = merge_runtime(want_ov, note=tag)
     if changed:
@@ -509,8 +509,8 @@ def _ensure_dash_process() -> list[str]:
 
 def _sync_panel_phones_from_sticky() -> list[str]:
     ov = _load_json(LOG / "farm_runtime_overrides.json")
-    phones_csv = str(ov.get("CPHARM_FARM_PHONES") or "")
-    serials_csv = str(ov.get("CPHARM_ADB_SERIALS") or "")
+    phones_csv = str(ov.get("PHARMFLOW_FARM_PHONES") or "")
+    serials_csv = str(ov.get("PHARMFLOW_ADB_SERIALS") or "")
     if not phones_csv or not serials_csv:
         return []
     names = [p.strip() for p in phones_csv.split(",") if p.strip()]
@@ -617,10 +617,10 @@ def remediate(
     if "DASH_PHONE_TABLE_SHORT" in blob or "DASH_PANEL_PHONES_SHORT" in blob:
         fixes.extend(_sync_panel_phones_from_sticky())
 
-    # Cursor agent shell cleanup — prefer CPharm live script; re-run if flag or no report.
+    # Cursor agent shell cleanup — prefer PharmFlow live script; re-run if flag or no report.
     shell_flag = LOG / "FARM_FIX_SHELL.flag"
     shell_report = LOG / "_shell_fix_report.json"
-    shell_script = Path(r"C:\CPharm\logs\fix_cursor_shell.py")
+    shell_script = Path(r"C:\PharmFlow\logs\fix_cursor_shell.py")
     if not shell_script.is_file():
         shell_script = ROOT / "_tmp_fix_cursor_shell.py"
     need_shell = shell_flag.is_file() or (not shell_report.is_file())
@@ -698,7 +698,7 @@ def audit(*, profit: dict | None = None, ssp: dict | None = None, state: dict | 
 
         env = ((dash.get("panel") or {}).get("env") or {})
         try:
-            ipv = float(env.get("CPHARM_FARM_IMPRESSIONS_PER_VISIT") or 0)
+            ipv = float(env.get("PHARMFLOW_FARM_IMPRESSIONS_PER_VISIT") or 0)
         except (TypeError, ValueError):
             ipv = 0.0
         if ipv > 40:
@@ -706,13 +706,13 @@ def audit(*, profit: dict | None = None, ssp: dict | None = None, state: dict | 
 
     ov = _load_json(LOG / "farm_runtime_overrides.json")
     try:
-        sticky_ipv = float(ov.get("CPHARM_IPV_STICKY") or ov.get("CPHARM_FARM_IMPRESSIONS_PER_VISIT") or 0)
+        sticky_ipv = float(ov.get("PHARMFLOW_IPV_STICKY") or ov.get("PHARMFLOW_FARM_IMPRESSIONS_PER_VISIT") or 0)
     except (TypeError, ValueError):
         sticky_ipv = 0.0
     if sticky_ipv > 40:
         critical.append(f"STICKY_IPV_DILUTION ipv={sticky_ipv:.1f}")
     try:
-        seqs = int(float(ov.get("CPHARM_FARM_SEQS_PER_HOUR") or 0))
+        seqs = int(float(ov.get("PHARMFLOW_FARM_SEQS_PER_HOUR") or 0))
     except (TypeError, ValueError):
         seqs = 0
     if seqs > 36:

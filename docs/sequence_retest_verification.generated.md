@@ -1,7 +1,7 @@
 # Sequence Retest Verification Dossier (Generated)
 
 - Timestamp: `Wednesday, May 6, 2026 0:16:55` (local shell)
-- Repo: `c:\Users\jsmil\source\repos\cpharm`
+- Repo: `c:\Users\jsmil\source\repos\pharmflow`
 - Host OS: `Windows 10.0.26200`
 - Shell: `powershell`
 - Python: `3.14.4`
@@ -72,7 +72,7 @@ Observed notable log evidence:
 Commands:
 
 - `py -3 automation/runtime_probe_retest.py` (targeted third online device)
-- `$env:CPHARM_RETEST_SERIAL='10.0.2.171:5555'; py -3 automation/runtime_probe_retest.py` (retest on previously flaky device)
+- `$env:PHARMFLOW_RETEST_SERIAL='10.0.2.171:5555'; py -3 automation/runtime_probe_retest.py` (retest on previously flaky device)
 
 Result artifact:
 

@@ -69,7 +69,7 @@ class PathApplyTests(unittest.TestCase):
             shell.mkdir(parents=True)
             (shell / "MuMuManager.exe").write_text("", encoding="utf-8")
             (root / "vms").mkdir()
-            cfg = Path(tmp) / "cpharm_config.json"
+            cfg = Path(tmp) / "pharmflow_config.json"
             with (
                 patch("wizard.path_utils.save_config") as mock_save,
                 patch("wizard.path_utils.remember_path"),

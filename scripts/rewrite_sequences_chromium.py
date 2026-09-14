@@ -38,8 +38,8 @@ def main() -> None:
     args = [a for a in sys.argv[1:] if a != "--dry-run"]
     roots = [Path(a) for a in args] if args else [
         Path("automation/recordings"),
-        Path(r"C:\CPharm\automation\recordings"),
-        Path(r"C:\CPharm\sequences"),
+        Path(r"C:\PharmFlow\automation\recordings"),
+        Path(r"C:\PharmFlow\sequences"),
     ]
     total = 0
     for root in roots:

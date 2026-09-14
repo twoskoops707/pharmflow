@@ -67,7 +67,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # Shared with scripts/farm_fail_review.py — wait bumps applied without farm restart.
-_RUNTIME_OVERRIDES = Path(r"C:\CPharm\logs\farm_runtime_overrides.json")
+_RUNTIME_OVERRIDES = Path(r"C:\PharmFlow\logs\farm_runtime_overrides.json")
 _overrides_cache_mtime: float = -1.0
 _overrides_cache: dict[str, str] = {}
 
@@ -172,7 +172,7 @@ def _runtime_overrides() -> dict[str, str]:
         _overrides_cache = {
             str(k): str(v)
             for k, v in (data or {}).items()
-            if str(k).startswith("CPHARM_")
+            if str(k).startswith("PHARMFLOW_")
         }
         _overrides_cache_mtime = mtime
     except (OSError, json.JSONDecodeError, TypeError):
@@ -193,25 +193,25 @@ def _env_float(name: str, default: float) -> float:
 
 
 def fre_paint_wait_s() -> float:
-    return _env_float("CPHARM_FRE_PAINT_WAIT", _FRE_PAINT_WAIT_S)
+    return _env_float("PHARMFLOW_FRE_PAINT_WAIT", _FRE_PAINT_WAIT_S)
 
 
 def firefox_onboarding_wait_s() -> float:
-    return _env_float("CPHARM_FIREFOX_ONBOARDING_WAIT", _FIREFOX_ONBOARDING_WAIT_S)
+    return _env_float("PHARMFLOW_FIREFOX_ONBOARDING_WAIT", _FIREFOX_ONBOARDING_WAIT_S)
 
 
 def duckduckgo_onboarding_wait_s() -> float:
-    return _env_float("CPHARM_DUCKDUCKGO_ONBOARDING_WAIT", _DUCKDUCKGO_ONBOARDING_WAIT_S)
+    return _env_float("PHARMFLOW_DUCKDUCKGO_ONBOARDING_WAIT", _DUCKDUCKGO_ONBOARDING_WAIT_S)
 
 
 def dabflow_age_gate_load_wait_s() -> float:
     """Seconds to wait for the age-gate Yes button to paint — not for ads.
 
-    Age gate has no Mantis creatives. Do **not** inherit CPHARM_DABFLOW_LOAD_WAIT
+    Age gate has no Mantis creatives. Do **not** inherit PHARMFLOW_DABFLOW_LOAD_WAIT
     (that wait is for home/tab ad paint / evCPM dwell). Keep this short.
     """
     # Hard ceiling so a mistaken long override cannot stall every open_url.
-    return min(2.0, max(0.2, _env_float("CPHARM_AGE_GATE_WAIT", _DABFLOW_AGE_GATE_LOAD_WAIT_S)))
+    return min(2.0, max(0.2, _env_float("PHARMFLOW_AGE_GATE_WAIT", _DABFLOW_AGE_GATE_LOAD_WAIT_S)))
 
 _prepared_serials: set[str] = set()
 
@@ -285,7 +285,7 @@ def _write_prefs_xml_to_device(
     Large Chromium prefs (100KB+) cannot be ``echo $b64 | base64 -d`` via adb.exe
     (WinError 206). Prefer ``adb push`` then on-device ``cp``.
     """
-    remote = f"/data/local/tmp/cpharm_fre_prefs_{abs(hash(serial)) % 10_000_000}.xml"
+    remote = f"/data/local/tmp/pharmflow_fre_prefs_{abs(hash(serial)) % 10_000_000}.xml"
     local_path = ""
     try:
         with tempfile.NamedTemporaryFile(
@@ -369,6 +369,34 @@ def _seed_fre_complete(adb: AdbWrapper, serial: str, pkg: str) -> bool:
     return ok
 
 
+def apk_install_reported(stdout: str, stderr: str = "", returncode: int | None = 0) -> bool:
+    """True only when ``adb install`` printed Success and did not print Failure.
+
+    A zero exit code with empty output is not an install. Android prints
+    ``Success`` when the package landed.
+    """
+    if returncode != 0:
+        return False
+    text = f"{stdout or ''}\n{stderr or ''}"
+    if "Success" not in text or "Failure" in text:
+        return False
+    return True
+
+
+def pm_clear_reported(stdout: str, stderr: str = "") -> bool:
+    """True only when ``pm clear`` printed Success.
+
+    A zero exit code with empty output is not a clear. Android prints
+    ``Success`` when the package data was wiped.
+    """
+    low = f"{stdout or ''}\n{stderr or ''}".strip().lower()
+    if not low:
+        return False
+    if "failed" in low or "exception" in low or "error:" in low or "not allowed" in low:
+        return False
+    return "success" in low
+
+
 def clear_chromium_all_data(adb: AdbWrapper, serial: str, *, package: str = BROWSER_CHROMIUM) -> bool:
     """Wipe Chromium history, cookies, cache, and all site storage before a sequence."""
     packages = set(adb.pm_list_packages(serial=serial))
@@ -381,12 +409,12 @@ def clear_chromium_all_data(adb: AdbWrapper, serial: str, *, package: str = BROW
 
     adb.shell(f"am force-stop {pkg}", serial=serial)
     result = adb.shell(f"pm clear {pkg}", serial=serial)
-    ok = result.ok or "Success" in (result.stdout or "")
+    ok = pm_clear_reported(result.stdout, result.stderr)
     if not ok:
         for path in _CHROMIUM_DATA_DIRS:
             adb.shell(f"rm -rf {path}/*", serial=serial)
         verify = adb.shell(f"pm clear {pkg}", serial=serial)
-        ok = verify.ok or "Success" in (verify.stdout or "")
+        ok = pm_clear_reported(verify.stdout, verify.stderr)
 
     _prepared_serials.discard(serial)
     if ok:
@@ -547,7 +575,7 @@ def clear_browser_package(adb: AdbWrapper, serial: str, package: str) -> bool:
 
     adb.shell(f"am force-stop {pkg}", serial=serial)
     result = adb.shell(f"pm clear {pkg}", serial=serial)
-    ok = result.ok or "Success" in (result.stdout or "")
+    ok = pm_clear_reported(result.stdout, result.stderr)
     _prepared_serials.discard(serial)
     clear_viewport(serial)
     if ok and pkg == BROWSER_FIREFOX:
@@ -652,7 +680,7 @@ def _kick_unwedge(serial: str) -> None:
         try:
             adb.shell("pkill -f uiautomator", serial=serial, timeout=6)
             adb.shell(
-                "rm -f /sdcard/cpharm_ui.xml /sdcard/cpharm_overlay.xml /sdcard/cpharm_ad_pick.xml",
+                "rm -f /sdcard/pharmflow_ui.xml /sdcard/pharmflow_overlay.xml /sdcard/pharmflow_ad_pick.xml",
                 serial=serial,
                 timeout=6,
             )
@@ -683,7 +711,7 @@ def _dump_ui(adb: AdbWrapper, serial: str, *, timeout: float = DUMP_TIMEOUT_S) -
         return ""
     with _UI_DUMP_SEM:
         dump = adb.shell(
-            "uiautomator dump /sdcard/cpharm_ui.xml",
+            "uiautomator dump /sdcard/pharmflow_ui.xml",
             serial=serial,
             timeout=timeout,
         )
@@ -699,7 +727,7 @@ def _dump_ui(adb: AdbWrapper, serial: str, *, timeout: float = DUMP_TIMEOUT_S) -
                 _kick_unwedge(serial)
                 return ""
             dump = adb.shell(
-                "uiautomator dump /sdcard/cpharm_ui.xml",
+                "uiautomator dump /sdcard/pharmflow_ui.xml",
                 serial=serial,
                 timeout=DUMP_RETRY_TIMEOUT_S,
             )
@@ -721,7 +749,7 @@ def _dump_ui(adb: AdbWrapper, serial: str, *, timeout: float = DUMP_TIMEOUT_S) -
             if dump_breaker_skip(serial):
                 _kick_unwedge(serial)
             return ""
-        cat = adb.shell("cat /sdcard/cpharm_ui.xml", serial=serial, timeout=DUMP_CAT_TIMEOUT_S)
+        cat = adb.shell("cat /sdcard/pharmflow_ui.xml", serial=serial, timeout=DUMP_CAT_TIMEOUT_S)
         body = cat.stdout or ""
         dump_breaker_note(serial, len(body) >= 500)
         return body
@@ -1003,8 +1031,8 @@ def prepare_chromium(
 
 
 # MuMu often mounts /data/local/tmp RO — keep URL on /data/local when possible.
-_VIEW_URL_DEVICE_PATH = "/data/local/cpharm_view_url.txt"
-_VIEW_URL_DEVICE_PATH_TMP = "/data/local/tmp/cpharm_view_url.txt"
+_VIEW_URL_DEVICE_PATH = "/data/local/pharmflow_view_url.txt"
+_VIEW_URL_DEVICE_PATH_TMP = "/data/local/tmp/pharmflow_view_url.txt"
 # Windows adb.exe CreateProcess limit — long Mantis URLs in `am start -d "..."` → WinError 206.
 _MAX_DIRECT_VIEW_URL_LEN = 900
 
@@ -1058,6 +1086,40 @@ def _view_url_data_ref(adb: AdbWrapper, serial: str, url: str) -> str:
     return f'"{escaped}"'
 
 
+def monkey_launch_reported(stdout: str, stderr: str = "") -> bool:
+    """True only when ``monkey`` reported at least one injected launcher event.
+
+    A zero exit code with empty output is not a launch. ``Events injected: 0``
+    and ``No activities`` are not a launch.
+    """
+    low = f"{stdout or ''}\n{stderr or ''}".strip().lower()
+    if not low:
+        return False
+    if "no activities" in low or "aborted" in low or "exception" in low or "error:" in low:
+        return False
+    match = re.search(r"events injected:\s*(\d+)", low)
+    return bool(match and int(match.group(1)) > 0)
+
+
+def am_start_reported_landing(stdout: str, stderr: str = "") -> bool:
+    """True only when ``am start`` reported a start or a delivery to a running app.
+
+    A zero exit code with empty output is not an open. Android prints
+    ``Starting:``, ``intent has been delivered``, or ``brought to the front``
+    when the intent actually landed.
+    """
+    low = f"{stdout or ''}\n{stderr or ''}".strip().lower()
+    if not low:
+        return False
+    if "error:" in low or "exception" in low or "unable to resolve intent" in low:
+        return False
+    return (
+        "starting:" in low
+        or "intent has been delivered" in low
+        or "brought to the front" in low
+    )
+
+
 def _am_start_view(
     adb: AdbWrapper,
     serial: str,
@@ -1074,7 +1136,7 @@ def _am_start_view(
     if extra_flags:
         cmd = f"{cmd} {extra_flags}"
     result = adb.shell(cmd, serial=serial)
-    if result.ok:
+    if am_start_reported_landing(result.stdout, result.stderr):
         return True
     if not target.package:
         return False
@@ -1082,7 +1144,7 @@ def _am_start_view(
         f"am start -a android.intent.action.VIEW -d {data_ref} -p {target.package}",
         serial=serial,
     )
-    return fallback.ok
+    return am_start_reported_landing(fallback.stdout, fallback.stderr)
 
 
 def open_url(
@@ -1334,18 +1396,18 @@ def launch_app(adb: AdbWrapper, serial: str, package: str) -> bool:
         f"monkey -p {pkg} -c android.intent.category.LAUNCHER 1",
         serial=serial,
     )
-    if result.ok and "No activities" not in result.stdout and "Error" not in result.stdout:
+    if monkey_launch_reported(result.stdout, result.stderr):
         return True
     resolve = adb.shell(f"cmd package resolve-activity --brief {pkg}", serial=serial)
     line = (resolve.stdout or "").strip().splitlines()
     activity = line[-1].strip() if line else ""
-    if "/" in activity:
+    if "/" in activity and "error" not in activity.lower():
         started = adb.shell(f"am start -n {activity}", serial=serial)
-        return started.ok
+        return am_start_reported_landing(started.stdout, started.stderr)
     return False
 
 
-# ==== merged from cpharm automation/browser_adb.py (farmbrowser/package helpers) ====
+# ==== merged from pharmflow automation/browser_adb.py (farmbrowser/package helpers) ====
 
 def _pkg_is_chrome_family(pkg: str) -> bool:
     p = (pkg or "").strip().lower()
@@ -1357,7 +1419,7 @@ def _pkg_is_chrome_family(pkg: str) -> bool:
 # then OEM / Samsung Internet / stock browser, with Chrome strictly last.
 # Chromium honors the system proxy inconsistently and triggers ERR_TIMED_OUT.
 _BROWSER_CLEAR_FALLBACKS = (
-    # ★ FarmBrowser — CPharm stealth browser (top priority)
+    # ★ FarmBrowser — PharmFlow stealth browser (top priority)
     "com.farmbrowser.stealth.debug",
     "com.farmbrowser.stealth",
     # Tor-aware / proxy-faithful Android browsers
@@ -1656,7 +1718,7 @@ def browser_pkg_for_clear(serial: str, preferred: str) -> str | None:
 
 _WEBVIEW_TOP_CACHE: dict[str, tuple[float, int]] = {}
 _WEBVIEW_TOP_CACHE_TTL = 45.0
-_WEBVIEW_UI_DUMP = "/sdcard/cpharm_webview_ui.xml"
+_WEBVIEW_UI_DUMP = "/sdcard/pharmflow_webview_ui.xml"
 _WEBVIEW_BOUNDS_RE = re.compile(
     r'class="android\.webkit\.WebView"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"'
 )
@@ -1690,13 +1752,13 @@ def webview_content_top_inset(serial: str, *, force_refresh: bool = False) -> in
     Uses the shared dump semaphore/breaker/timeouts — a raw 25s uiautomator
     dump here previously bypassed them and stacked with sequence dumps on ARM.
     """
-    raw = (os.environ.get("CPHARM_WEBVIEW_TOP_INSET") or "").strip()
+    raw = (os.environ.get("PHARMFLOW_WEBVIEW_TOP_INSET") or "").strip()
     if raw:
         try:
             return max(0, int(raw))
         except ValueError:
             pass
-    if (os.environ.get("CPHARM_WEBVIEW_NO_INSET") or "").strip().lower() in (
+    if (os.environ.get("PHARMFLOW_WEBVIEW_NO_INSET") or "").strip().lower() in (
         "1",
         "true",
         "yes",

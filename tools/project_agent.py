@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Unified CPharm project/agent/cloud-emulator tool.
+"""Unified PharmFlow project/agent/cloud-emulator tool.
 
 Safe by default: emulator lifecycle commands require --apply; agent mode only
 plans work and never executes arbitrary model-generated commands.
@@ -74,6 +74,19 @@ def emulator(args: argparse.Namespace) -> int:
         print("Docker guard unavailable - Docker left off.", file=sys.stderr)
         return 1
     base = ["docker", "compose", "-f", str(COMPOSE)]
+    if args.action == "up":
+        count = getattr(args, "count", None)
+        if not isinstance(count, int) or count < 1:
+            print(
+                "emulator up needs --count N. This command does not invent a phone count.",
+                file=sys.stderr,
+            )
+            return 1
+        if str(ROOT) not in sys.path:
+            sys.path.insert(0, str(ROOT))
+        from cloud_phones.redroid_local import write_compose
+
+        write_compose(count, COMPOSE)
     if args.action == "config":
         return run_checked(base + ["config"])
     if not args.apply:
@@ -84,7 +97,7 @@ def emulator(args: argparse.Namespace) -> int:
 
 
 def watchdog(args: argparse.Namespace) -> int:
-    script = ROOT / "tools" / "cpharm_watchdog.py"
+    script = ROOT / "tools" / "pharmflow_watchdog.py"
     argv = [sys.executable, str(script), *args.watchdog_args]
     return run_checked(argv)
 
@@ -96,12 +109,12 @@ def cloud(args: argparse.Namespace) -> int:
     base = args.base or None
     model = args.model or None
     apply = args.apply or False
-    steps = args.max_steps or 12
+    steps = args.max_steps
     return cloud_agent.main([
         *(["--base", base] if base else []),
         *(["--model", model] if model else []),
         *(["--apply"] if apply else []),
-        "--max-steps", str(steps),
+        *(["--max-steps", str(steps)] if steps is not None else []),
         *args.goal,
     ])
 
@@ -120,10 +133,11 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("--base", help="API base URL override")
     c.add_argument("--model", help="model id override")
     c.add_argument("--apply", action="store_true", help="allow local shell actions")
-    c.add_argument("--max-steps", type=int, default=12, help="max model/tool turns")
+    c.add_argument("--max-steps", type=int, default=None, help="optional turn limit; omitted means no limit")
     c.set_defaults(func=cloud)
     e = sub.add_parser("emulator", help="Manage the local Redroid compose stack")
     e.add_argument("action", choices=["config", "up", "down", "ps", "logs"])
+    e.add_argument("--count", type=int, default=None, help="Phones to create for up. Required for up. No default.")
     e.add_argument("--services", nargs="*", help="Optional compose services to target")
     e.add_argument("--apply", action="store_true", help="Actually invoke Docker Compose")
     e.set_defaults(func=emulator)

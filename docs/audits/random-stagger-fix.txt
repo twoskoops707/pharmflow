@@ -7,7 +7,7 @@ Group runs used fixed delays:
 - ``stagger_secs`` (often 30s) applied identically between phones when human variation was off
 - ``series`` playlists chained all JSON files with zero gap between sequence starts
 - Repeat iterations started immediately after the previous pass (no breathing room)
-- Only ±15% stagger jitter when ``CPHARM_HUMAN_VARIATION=1``
+- Only ±15% stagger jitter when ``PHARMFLOW_HUMAN_VARIATION=1``
 
 Timer waits **inside** a sequence are unchanged.
 

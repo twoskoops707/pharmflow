@@ -7,7 +7,7 @@ idles while a live phone waits. The fleet is therefore read from disk each time:
 
   * names    = vm*.gmadoa folders under the MuMu install (current reality)
   * serials  = each VM's misc/state.json AdbHost:AdbPort (published by the guest)
-  * fallback = CPHARM_FARM_PHONES env (operator's explicit override, no MuMu box)
+  * fallback = PHARMFLOW_FARM_PHONES env (operator's explicit override, no MuMu box)
 
 Nothing here decides which phones the FARM runs; the farm runs whatever is live
 on ADB. This module only answers "what fleet exists on this box right now" for
@@ -30,13 +30,13 @@ _VM_DIR_RE = re.compile(r"^vm(\d+)\.gmadoa$", re.IGNORECASE)
 
 # Localhost proxy ports are never farmed as devices; everything else that is
 # LIVE on ADB is farmable. IPs recycle across reboots, so no 10.0.2.x / emulator
-# serial is banned by default — the operator can still ban via CPHARM_FARM_BAN_SERIALS.
+# serial is banned by default — the operator can still ban via PHARMFLOW_FARM_BAN_SERIALS.
 BANNED_SERIALS: Final[frozenset[str]] = frozenset()
 BANNED_PHONE_NAMES: Final[frozenset[str]] = frozenset({"base", "base.gmadoa"})
 
 
 def _mumu_root() -> Path | None:
-    env = (os.environ.get("CPHARM_MUMU_ROOT") or "").strip()
+    env = (os.environ.get("PHARMFLOW_MUMU_ROOT") or "").strip()
     if env:
         p = Path(env)
         if p.is_dir():
@@ -48,9 +48,9 @@ def _mumu_root() -> Path | None:
 
 
 def _fleet_from_env() -> dict[str, str]:
-    """Operator override (CPHARM_FARM_PHONES=vm0,vm1,...) — serials empty; live
+    """Operator override (PHARMFLOW_FARM_PHONES=vm0,vm1,...) — serials empty; live
     ADB or the caller resolves them. Used only when no MuMu vms dir exists."""
-    raw = os.environ.get("CPHARM_FARM_PHONES") or ""
+    raw = os.environ.get("PHARMFLOW_FARM_PHONES") or ""
     out: dict[str, str] = {}
     for part in str(raw).split(","):
         name = str(part).strip().lstrip("\ufeff")
@@ -107,10 +107,37 @@ def _sorted_names(fleet: dict[str, str]) -> list[str]:
     return sorted(fleet.keys(), key=key)
 
 
+def _running_vm_indices() -> set[int]:
+    """VmIndex set of MuMu shells actually running right now (live authority)."""
+    import psutil
+    idxs: set[int] = set()
+    for proc in psutil.process_iter(["name", "cmdline"]):
+        try:
+            if "nemux-shell" not in (proc.info["name"] or "").lower():
+                continue
+            cmd = " ".join(proc.info["cmdline"] or [])
+            m = re.search(r"--VmIndex\s+(\d+)", cmd)
+            if m:
+                idxs.add(int(m.group(1)))
+        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+            continue
+    return idxs
+
+
 def _fleet() -> dict[str, str]:
     fleet = _fleet_from_disk()
-    # A name with no serial yet (VM exists but never booted) keeps its entry so
-    # tools can still reference it; the runner only ever uses LIVE adb serials.
+    running = _running_vm_indices()
+    if running:
+        # LIVE-ONLY fleet: running shells are the authority. Stale disk folders
+        # are NOT phones — a 49-folder disk snapshot poisoned the roster, Tor
+        # lane sizing and inject port mapping on 2026-09-13 (OPS_NOTES).
+        keep = {
+            name: serial
+            for name, serial in fleet.items()
+            if (m := _VM_DIR_RE.match(name)) and int(m.group(1)) in running
+        }
+        if keep:
+            return keep
     return fleet
 
 
@@ -120,6 +147,10 @@ CANONICAL_FARM_PHONES: Final[dict[str, str]] = _fleet()
 
 
 def canonical_expect_phones() -> int:
+    # Operator override wins, else live shells, else disk fleet (cold start).
+    env = (os.environ.get("PHARMFLOW_FARM_EXPECT_PHONES") or "").strip()
+    if env.isdigit() and int(env) > 0:
+        return int(env)
     return len(_fleet())
 
 
@@ -144,7 +175,7 @@ def is_banned_phone(name: str) -> bool:
 
 
 def ban_serials_csv() -> str:
-    operator = os.environ.get("CPHARM_FARM_BAN_SERIALS") or ""
+    operator = os.environ.get("PHARMFLOW_FARM_BAN_SERIALS") or ""
     parts = [s.strip() for s in str(operator).split(",") if s.strip()]
     return ",".join(sorted(set(parts)))
 
@@ -177,8 +208,12 @@ def canonical_workset(
         idx = int(m.group(1)) if m else 0
         proxy = f"127.0.0.1:{8218 + idx}"
         serial = (fleet.get(fname) or "").strip()
-        if serial in online:
+        # Always list every fleet row (operator visibility). When the caller
+        # passes online_serials, still include offline rows — never collapse to
+        # empty-serial placeholders only (that made am start hit
+        # "more than one device/emulator" with adb -s "").
+        if online and serial and serial not in online:
             rows.append((short, serial, proxy))
-        elif not serial:
-            rows.append((short, "", proxy))
+            continue
+        rows.append((short, serial, proxy))
     return rows

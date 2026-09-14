@@ -1,4 +1,4 @@
-"""Tests for live money-phone discovery (CPharm ADB set, skip tablet/ghost)."""
+"""Tests for live money-phone discovery (PharmFlow ADB set, skip tablet/ghost)."""
 from __future__ import annotations
 
 from unittest.mock import patch
@@ -35,7 +35,7 @@ def test_skip_tablet_and_ghost() -> None:
     assert not is_overflow_phone("vm8")
 
 
-def test_all_cpharm_online_phones_farm() -> None:
+def test_all_pharmflow_online_phones_farm() -> None:
     import automation.farm_phone_discover as fpd
 
     core = [

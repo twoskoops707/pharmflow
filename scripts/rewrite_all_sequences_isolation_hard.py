@@ -2,7 +2,7 @@
 """Regenerate + patch EVERY sequence for hardcoded isolation + ad-tap live-pick labels.
 
 Does not stop until all JSON under the live sequences dir are updated and verified.
-Target: C:\\CPharm\\automation\\recordings\\sequences (farm runtime) + repo mirror.
+Target: C:\\PharmFlow\\automation\\recordings\\sequences (farm runtime) + repo mirror.
 """
 
 from __future__ import annotations
@@ -166,7 +166,7 @@ def main() -> int:
     repo_live = ROOT / "automation" / "recordings" / "sequences"
 
     print(f"LIVE sequences_dir={live}", flush=True)
-    print("=== REGENERATE 5220 base sequences (CPharm) ===", flush=True)
+    print("=== REGENERATE 5220 base sequences (PharmFlow) ===", flush=True)
     t0 = time.time()
     write_presets(presets)
     n = write_sequences(base, preset="moderate", base_only=True, clean=True)

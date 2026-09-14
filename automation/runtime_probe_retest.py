@@ -29,7 +29,7 @@ def _pick_device(phones: list[dict]) -> str | None:
     online = [p for p in phones if p.get("running")]
     if not online:
         return None
-    preferred = os.environ.get("CPHARM_RETEST_SERIAL", "").strip()
+    preferred = os.environ.get("PHARMFLOW_RETEST_SERIAL", "").strip()
     if preferred:
         for p in online:
             if p.get("serial") == preferred:
@@ -45,8 +45,8 @@ def _write(lines: list[str]) -> None:
 
 async def _main() -> int:
     env = os.environ.copy()
-    env["CPHARM_HUMAN_VARIATION"] = "0"
-    env.setdefault("CPHARM_BIND", "127.0.0.1")
+    env["PHARMFLOW_HUMAN_VARIATION"] = "0"
+    env.setdefault("PHARMFLOW_BIND", "127.0.0.1")
     dash = subprocess.Popen(
         [sys.executable, "dashboard.py"],
         cwd=str(AUTOMATION),

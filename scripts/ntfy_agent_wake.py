@@ -19,26 +19,26 @@ from pathlib import Path
 
 TOPIC = "twskoops"
 BASE = f"https://ntfy.sh/{TOPIC}"
-LOG_DIR = Path(r"C:\CPharm\logs")
+LOG_DIR = Path(r"C:\PharmFlow\logs")
 STATE = LOG_DIR / "ntfy_agent_wake_state.json"
 WAKE_LOG = LOG_DIR / "ntfy_agent_wake.log"
 POLL_S = 15.0
 
 _OWN_TITLE_PREFIXES = (
-    "FamFlow",
+    "PharmFlow",
     "Farm check-in",
     "Farm FIX",
     "Farm:",
-    "[FamFlow]",
+    "[PharmFlow]",
     "Agent reply",
     "StockFlow",
 )
 _OWN_BODY_PREFIXES = (
-    "[FamFlow]",
+    "[PharmFlow]",
     "Farm:",
     "Farm check-in",
     "Farm FIX",
-    "FamFlow farm",
+    "PharmFlow farm",
     "window: ",
     "run_farm_354",
     "debug + release OK",
@@ -99,10 +99,10 @@ def _is_own(title: str, text: str, tags) -> bool:
     }
     if tag_list and own_tags.intersection(tag_list):
         if (
-            t.startswith("FamFlow")
+            t.startswith("PharmFlow")
             or t.startswith("Farm check-in")
             or t.startswith("Farm FIX")
-            or b.startswith("[FamFlow]")
+            or b.startswith("[PharmFlow]")
             or b.startswith("Farm check-in")
             or b.startswith("Farm FIX")
             or b.startswith("window:")

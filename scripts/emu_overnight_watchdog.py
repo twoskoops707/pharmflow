@@ -19,10 +19,10 @@ if str(ROOT) not in sys.path:
 import automation.no_window  # noqa: E402,F401  — hide adb/emulator consoles
 from automation.win_subprocess import hidden_run_kwargs  # noqa: E402
 
-ADB = r"C:\CPharm\bundled\adb.exe"
+ADB = r"C:\PharmFlow\bundled\adb.exe"
 EMU = os.path.join(os.environ.get("LOCALAPPDATA", ""), r"Android\Sdk\emulator\emulator.exe")
 AVD = "farmphone0"
-LOG = Path(r"C:\CPharm\logs")
+LOG = Path(r"C:\PharmFlow\logs")
 HB = LOG / "emu_overnight_watchdog_heartbeat.txt"
 
 

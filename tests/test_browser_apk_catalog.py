@@ -75,14 +75,14 @@ class BrowserApkCatalogTests(unittest.TestCase):
         self.assertEqual(p.parent, Path(r"C:\tmp\apks"))
 
     def test_default_cache_respects_env(self) -> None:
-        with patch.dict("os.environ", {"CPHARM_APK_CACHE": r"D:\farm\apks"}):
+        with patch.dict("os.environ", {"PHARMFLOW_APK_CACHE": r"D:\farm\apks"}):
             self.assertEqual(default_apk_cache_dir(), Path(r"D:\farm\apks"))
 
     def test_ensure_summary_flags(self) -> None:
         from automation.browser_apk_catalog import ensure_farm_browsers_on_serials
 
         adb = MagicMock()
-        fake_apk = Path(r"C:\CPharm\apks\ChromePublic-arm64.apk")
+        fake_apk = Path(r"C:\PharmFlow\apks\ChromePublic-arm64.apk")
         with (
             patch(
                 "automation.browser_apk_catalog.download_all_path12_apks",

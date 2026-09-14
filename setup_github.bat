@@ -1,11 +1,11 @@
 @echo off
 setlocal EnableDelayedExpansion
-title CPharm - GitHub Setup
+title PharmFlow - GitHub Setup
 color 0A
 
 echo.
 echo  ==========================================
-echo   CPharm - Push to GitHub
+echo   PharmFlow - Push to GitHub
 echo  ==========================================
 echo.
 
@@ -64,14 +64,14 @@ if not errorlevel 1 (
     "%GH%" auth setup-git
     git push -u origin master
 ) else (
-    "%GH%" repo create cpharm --public ^
+    "%GH%" repo create pharmflow --public ^
         --description "Virtual Android phone farm — MuMu / Android Studio AVD on Windows" ^
         --source=. --remote=origin --push
 )
 
 echo.
 echo  ==========================================
-echo   Done! CPharm is live on GitHub.
+echo   Done! PharmFlow is live on GitHub.
 echo   Run: gh repo view --web
 echo  ==========================================
 echo.

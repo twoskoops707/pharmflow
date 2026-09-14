@@ -10,7 +10,7 @@ In the current wizard, **Step 7** is the **Generator** page (sidebar: **Generato
 
 **URL vs native app:** Opening links uses **`open_url`** (or dashboard **`POST /api/open_url`**). Installing or launching an installed app uses **`POST /api/install`** / **`POST /api/launch_app`** — not sequence JSON.
 
-**Human-like behavior:** The automation server defaults to natural timing (`CPHARM_HUMAN_VARIATION`; see `automation/config.py`). The **Launch** page explains that this stays **on** unless you disable it for debugging.
+**Human-like behavior:** The automation server defaults to natural timing (`PHARMFLOW_HUMAN_VARIATION`; see `automation/config.py`). The **Launch** page explains that this stays **on** unless you disable it for debugging.
 
 **More options** on Setup is collapsed by default — expand for preset layouts, optional desktop-browser helper (pywebview), touch calibration, and the small preview.
 

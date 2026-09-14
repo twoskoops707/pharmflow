@@ -8,8 +8,8 @@ supported for fixed windows.
   py -u scripts/run_farm_cycles.py --cycles 4 --hours 6   # legacy
 
 Starts the hourly ntfy digest (farm_hourly_ntfy.py) if it is not already running;
-set CPHARM_NTFY_DIGEST_INTERVAL=0 to disable it or to another seconds value.
-START/DONE notifications are disabled unless CPHARM_NTFY_CYCLE_EVENTS=1.
+set PHARMFLOW_NTFY_DIGEST_INTERVAL=0 to disable it or to another seconds value.
+START/DONE notifications are disabled unless PHARMFLOW_NTFY_CYCLE_EVENTS=1.
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ sys.path.insert(0, str(ROOT))
 import automation.no_window  # noqa: E402,F401  (kill child console-window flashes)
 from automation.farm_visit_caps import apply_runtime_overrides_to_env  # noqa: E402
 
-LOG_DIR = Path(r"C:\CPharm\logs")
+LOG_DIR = Path(r"C:\PharmFlow\logs")
 FARM_SCRIPT = ROOT / "scripts" / "run_farm_354.py"
 CYCLE_LOG = LOG_DIR / "farm_cycles.log"
 OVERRIDES = LOG_DIR / "farm_runtime_overrides.json"
@@ -39,7 +39,7 @@ TOPIC = "twskoops"
 
 
 def cycle_ntfy_enabled() -> bool:
-    return os.environ.get("CPHARM_NTFY_CYCLE_EVENTS", "0").strip().lower() in {"1", "true", "yes", "on"}
+    return os.environ.get("PHARMFLOW_NTFY_CYCLE_EVENTS", "0").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _merge_runtime_overrides(env: dict[str, str]) -> None:
@@ -48,7 +48,7 @@ def _merge_runtime_overrides(env: dict[str, str]) -> None:
 
 
 def _phones_from_overrides() -> list[str] | None:
-    """Operator dash writes CPHARM_FARM_PHONES=vm0.gmadoa,vm1..."""
+    """Operator dash writes PHARMFLOW_FARM_PHONES=vm0.gmadoa,vm1..."""
     if not OVERRIDES.exists():
         return None
     try:
@@ -57,7 +57,7 @@ def _phones_from_overrides() -> list[str] | None:
         return None
     if not isinstance(data, dict):
         return None
-    raw = str(data.get("CPHARM_FARM_PHONES") or "").strip()
+    raw = str(data.get("PHARMFLOW_FARM_PHONES") or "").strip()
     if not raw:
         return None
     phones = [p.strip().lstrip("\ufeff") for p in raw.split(",") if p.strip().lstrip("\ufeff").startswith("vm")]
@@ -124,9 +124,9 @@ def _ensure_proxy_watch(env: dict[str, str]) -> None:
         except (psutil.Error, TypeError):
             continue
     watch_env = dict(env)
-    watch_env.setdefault("CPHARM_MANTIS_INJECT_PROXY", "1")
-    watch_env.setdefault("CPHARM_MANTIS_INJECT_MITM", "1")
-    watch_env.setdefault("CPHARM_PROXY_WATCH_INTERVAL", "3")
+    watch_env.setdefault("PHARMFLOW_MANTIS_INJECT_PROXY", "1")
+    watch_env.setdefault("PHARMFLOW_MANTIS_INJECT_MITM", "1")
+    watch_env.setdefault("PHARMFLOW_PROXY_WATCH_INTERVAL", "3")
     from automation.win_subprocess import hidden_run_kwargs
 
     py = sys.executable
@@ -144,16 +144,16 @@ def _ensure_proxy_watch(env: dict[str, str]) -> None:
     )
     log.info(
         "started watch_proxy_inject (interval=%ss)",
-        watch_env.get("CPHARM_PROXY_WATCH_INTERVAL", "3"),
+        watch_env.get("PHARMFLOW_PROXY_WATCH_INTERVAL", "3"),
     )
 
 
 def _ensure_digest_reporter(env: dict[str, str]) -> None:
     """Keep the hourly ntfy digest alive so the operator gets a per-browser check-in."""
-    log_dir = Path(os.environ.get("CPHARM_LOG_DIR") or os.environ.get("CPHARM_LOGS") or r"C:\CPharm\logs")
+    log_dir = Path(os.environ.get("PHARMFLOW_LOG_DIR") or os.environ.get("PHARMFLOW_LOGS") or r"C:\PharmFlow\logs")
     if (log_dir / "NTFY_OFF.flag").is_file() or (log_dir / "NTFY_NO_AUTO_REPLY.flag").is_file():
         return
-    interval = env.get("CPHARM_NTFY_DIGEST_INTERVAL", "3600").strip() or "3600"
+    interval = env.get("PHARMFLOW_NTFY_DIGEST_INTERVAL", "3600").strip() or "3600"
     if interval in {"0", "off", "false", "no"}:
         return
     try:
@@ -194,7 +194,7 @@ def _ensure_digest_reporter(env: dict[str, str]) -> None:
 
 def _ensure_fail_review(env: dict[str, str]) -> None:
     """Keep local fail-review alive — classifies FAILs and applies known fixes."""
-    if env.get("CPHARM_FAIL_REVIEW", "1").strip().lower() in {"0", "off", "false", "no"}:
+    if env.get("PHARMFLOW_FAIL_REVIEW", "1").strip().lower() in {"0", "off", "false", "no"}:
         return
     try:
         import psutil
@@ -236,16 +236,16 @@ def run_one_cycle(
     day_mode = float(hours) <= 0
     if day_mode:
         ntfy(
-            f"FamFlow 24h day {label} START",
-            f"[FamFlow] Starting 24h day mode {label} at {_utc()}\n"
+            f"PharmFlow 24h day {label} START",
+            f"[PharmFlow] Starting 24h day mode {label} at {_utc()}\n"
             f"Daily visit/ad caps · midnight reset · 2h ntfy digests · fail review local-only",
             tags="rocket,phone",
         )
         log.info("day %s START (24h / daily caps, no hour cycle)", label)
     else:
         ntfy(
-            f"FamFlow window {label} START",
-            f"[FamFlow] Starting {hours:g}h farm window {label} at {_utc()}\n"
+            f"PharmFlow window {label} START",
+            f"[PharmFlow] Starting {hours:g}h farm window {label} at {_utc()}\n"
             f"Geo awake-window 09:30-00:00 · 2h ntfy digests only · fail review local-only",
             tags="rocket,phone",
         )
@@ -254,12 +254,12 @@ def run_one_cycle(
     _merge_runtime_overrides(cycle_env)
     # Honor operator browse mode (scramble|tor|direct). Isolation still wipes
     # cookies + new fingerprint/IMEI + unique exit when REQUIRE_UNIQUE_EXIT_IP=1.
-    mode = str(cycle_env.get("CPHARM_BROWSE_PROXY_MODE") or "").strip().lower()
+    mode = str(cycle_env.get("PHARMFLOW_BROWSE_PROXY_MODE") or "").strip().lower()
     if mode not in ("scramble", "tor", "direct", "upstream"):
         mode = "scramble"
-    cycle_env["CPHARM_BROWSE_PROXY_MODE"] = mode
-    cycle_env.setdefault("CPHARM_REQUIRE_UNIQUE_EXIT_IP", "1")
-    cycle_env["CPHARM_FARM_STOP"] = "0"
+    cycle_env["PHARMFLOW_BROWSE_PROXY_MODE"] = mode
+    cycle_env.setdefault("PHARMFLOW_REQUIRE_UNIQUE_EXIT_IP", "1")
+    cycle_env["PHARMFLOW_FARM_STOP"] = "0"
     _ensure_proxy_watch(cycle_env)
     _ensure_digest_reporter(cycle_env)
     _ensure_fail_review(cycle_env)
@@ -336,19 +336,60 @@ def run_one_cycle(
         next_msg = f"All {total} windows complete."
     if day_mode:
         ntfy(
-            f"FamFlow 24h day {label} DONE",
-            f"[FamFlow] Farm process ended {label} rc={rc} at {_utc()}\n{next_msg}",
+            f"PharmFlow 24h day {label} DONE",
+            f"[PharmFlow] Farm process ended {label} rc={rc} at {_utc()}\n{next_msg}",
             tags="white_check_mark,phone" if rc == 0 else "warning,phone",
             priority="default" if rc == 0 else "high",
         )
     else:
         ntfy(
-            f"FamFlow window {label} DONE",
-            f"[FamFlow] Finished {hours:g}h window {label} rc={rc} at {_utc()}\n{next_msg}",
+            f"PharmFlow window {label} DONE",
+            f"[PharmFlow] Finished {hours:g}h window {label} rc={rc} at {_utc()}\n{next_msg}",
             tags="white_check_mark,phone" if rc == 0 else "warning,phone",
             priority="default" if rc == 0 else "high",
         )
     return int(rc or 0)
+
+
+def _acquire_single_instance_lock() -> bool:
+    """Refuse to start when another cycles supervisor is already alive.
+
+    The 2026-09-13 incident: multiple supervisors (manual + ensure respawn)
+    each ran the no-kill adopt loop, but with --no-kill omitted each new
+    supervisor killed the previous supervisor's worker (rc=15 boot loop).
+    Lock = pid + create_time, verified with psutil so stale pid reuse cannot
+    pass. Returns True when THIS process is the sole supervisor.
+    """
+    import psutil
+
+    lock = LOG_DIR / "run_farm_cycles.singleton.lock"
+    me = os.getpid()
+    try:
+        if lock.is_file():
+            raw = json.loads(lock.read_text(encoding="utf-8-sig"))
+            other_pid = int(raw.get("pid") or 0)
+            other_ctime = float(raw.get("create_time") or 0.0)
+            if other_pid > 0 and psutil.pid_exists(other_pid):
+                try:
+                    proc = psutil.Process(other_pid)
+                    if (
+                        proc.is_running()
+                        and abs(proc.create_time() - other_ctime) < 1.0
+                        and "run_farm_cycles" in " ".join(proc.cmdline() or []).lower()
+                    ):
+                        log.info("single-instance: cycles already running pid=%s — exiting", other_pid)
+                        return False
+                except (psutil.Error, OSError):
+                    pass
+    except (json.JSONDecodeError, OSError, ValueError):
+        pass
+    me_ctime = psutil.Process(me).create_time()
+    lock.write_text(
+        json.dumps({"pid": me, "create_time": me_ctime}, separators=(",", ":")),
+        encoding="utf-8",
+    )
+    log.info("single-instance lock acquired pid=%s", me)
+    return True
 
 
 def main() -> int:
@@ -374,33 +415,35 @@ def main() -> int:
     ap.add_argument("--no-kill", action="store_true", help="Do not kill existing farm first")
     args = ap.parse_args()
 
+    if not _acquire_single_instance_lock():
+        return 0
     env = os.environ.copy()
     env["PYTHONPATH"] = str(ROOT) + os.pathsep + env.get("PYTHONPATH", "")
-    env["CPHARM_ALLOW_SEQUENCE_RUNS"] = "1"
-    env["CPHARM_FARM_STOP"] = "0"
-    env.setdefault("CPHARM_FARM_PATHS", "1,2,3")
-    env.setdefault("CPHARM_FARM_ALLOW_ADS", "1")
-    env["CPHARM_SKIP_MANTIS_PATCH"] = "0"
-    env.setdefault("CPHARM_DABFLOW_MANTIS_PATCH", "1")
-    env.setdefault("CPHARM_EMULATOR_AD_FILL_WAIT", "4")
-    env.setdefault("CPHARM_EMULATOR_AD_MODE", "1")
-    env.setdefault("CPHARM_EMULATOR_AD_FORCE_DIRECT", "1")
-    env.setdefault("CPHARM_EMULATOR_AD_FALLBACK", "1")
-    env.setdefault("CPHARM_MANTIS_INJECT_PROXY", "1")
-    env.setdefault("CPHARM_MANTIS_INJECT_MITM", "1")
-    env.setdefault("CPHARM_FARM_SEQS_PER_HOUR", "15")
-    env.setdefault("CPHARM_FARM_PATH3_PER_HOUR", "1")
+    env["PHARMFLOW_ALLOW_SEQUENCE_RUNS"] = "1"
+    env["PHARMFLOW_FARM_STOP"] = "0"
+    env.setdefault("PHARMFLOW_FARM_PATHS", "1,2,3")
+    env.setdefault("PHARMFLOW_FARM_ALLOW_ADS", "1")
+    env["PHARMFLOW_SKIP_MANTIS_PATCH"] = "0"
+    env.setdefault("PHARMFLOW_DABFLOW_MANTIS_PATCH", "1")
+    env.setdefault("PHARMFLOW_EMULATOR_AD_FILL_WAIT", "4")
+    env.setdefault("PHARMFLOW_EMULATOR_AD_MODE", "1")
+    env.setdefault("PHARMFLOW_EMULATOR_AD_FORCE_DIRECT", "1")
+    env.setdefault("PHARMFLOW_EMULATOR_AD_FALLBACK", "1")
+    env.setdefault("PHARMFLOW_MANTIS_INJECT_PROXY", "1")
+    env.setdefault("PHARMFLOW_MANTIS_INJECT_MITM", "1")
+    env.setdefault("PHARMFLOW_FARM_SEQS_PER_HOUR", "15")
+    env.setdefault("PHARMFLOW_FARM_PATH3_PER_HOUR", "1")
     _merge_runtime_overrides(env)
-    mode = str(env.get("CPHARM_BROWSE_PROXY_MODE") or "").strip().lower()
+    mode = str(env.get("PHARMFLOW_BROWSE_PROXY_MODE") or "").strip().lower()
     if mode not in ("scramble", "tor", "direct", "upstream"):
         mode = "scramble"
-    env["CPHARM_BROWSE_PROXY_MODE"] = mode
-    env.setdefault("CPHARM_REQUIRE_UNIQUE_EXIT_IP", "1")
-    env.setdefault("CPHARM_GEO_TIME_WINDOW", "1")
-    env.setdefault("CPHARM_GEO_WINDOW_START", "09:30")
-    env.setdefault("CPHARM_GEO_WINDOW_END", "00:00")
-    env.setdefault("CPHARM_AGE_GATE_WAIT", "0.8")
-    env.setdefault("CPHARM_DABFLOW_LOAD_WAIT", "2.0")
+    env["PHARMFLOW_BROWSE_PROXY_MODE"] = mode
+    env.setdefault("PHARMFLOW_REQUIRE_UNIQUE_EXIT_IP", "1")
+    env.setdefault("PHARMFLOW_GEO_TIME_WINDOW", "1")
+    env.setdefault("PHARMFLOW_GEO_WINDOW_START", "09:30")
+    env.setdefault("PHARMFLOW_GEO_WINDOW_END", "00:00")
+    env.setdefault("PHARMFLOW_AGE_GATE_WAIT", "0.8")
+    env.setdefault("PHARMFLOW_DABFLOW_LOAD_WAIT", "2.0")
 
     if not args.no_kill:
         _kill_existing_farm()
@@ -416,10 +459,10 @@ def main() -> int:
     else:
         plan = f"{total} windows × {args.hours:g}h (~{(total or 0) * args.hours:g}h total)"
     ntfy(
-        "FamFlow 24h day plan armed" if day_mode else (
-            "FamFlow forever plan armed" if forever else f"FamFlow {total}×{args.hours:g}h plan armed"
+        "PharmFlow 24h day plan armed" if day_mode else (
+            "PharmFlow forever plan armed" if forever else f"PharmFlow {total}×{args.hours:g}h plan armed"
         ),
-        f"[FamFlow] Running {plan}. Routine ntfy is 2h digest only. "
+        f"[PharmFlow] Running {plan}. Routine ntfy is 2h digest only. "
         f"Failed sequences will be reviewed/fixed locally.",
         tags="calendar,phone",
     )

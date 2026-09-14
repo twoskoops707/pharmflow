@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Fix Tor stealing inject ports (8218+) — restore HTTPTunnel 8118+ + inject + repin.
 
-Root cause: CPharm tor_manager auto-shifted HTTPTunnelPort onto 8218+,
+Root cause: PharmFlow tor_manager auto-shifted HTTPTunnelPort onto 8218+,
 so inject could not bind and phones hit raw Tor (no Mantis MITM).
 """
 from __future__ import annotations
@@ -15,30 +15,32 @@ import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-LOG = Path(r"C:\CPharm\logs")
+LOG = Path(r"C:\PharmFlow\logs")
 sys.path.insert(0, str(ROOT))
 
-# Force correct bases BEFORE importing tor_manager / config
-os.environ["CPHARM_TOR_HTTP_BASE"] = "8118"
-os.environ["CPHARM_TOR_SOCKS_BASE"] = "9050"
-os.environ["CPHARM_TOR_CONTROL_BASE"] = "9151"
-os.environ["CPHARM_TOR_PATH"] = r"C:\CPharm\bundled\tor.exe"
-if not Path(os.environ["CPHARM_TOR_PATH"]).is_file():
-    os.environ["CPHARM_TOR_PATH"] = r"C:\CPharm\automation\tor\tor.exe"
+import automation.no_window  # noqa: E402,F401  — CREATE_NO_WINDOW for taskkill/tor children
+from automation.win_subprocess import hidden_run_kwargs  # noqa: E402
 
-from automation.adb_wrapper import AdbWrapper
-from automation.browse_proxy import pin_guest_proxy
-from automation.config import TOR_HTTP_TUNNEL_BASE
-from automation.farm_visit_caps import write_runtime_overrides
-from automation.mantis_inject_proxy import (
+# Force correct bases BEFORE importing tor_manager / config
+os.environ["PHARMFLOW_TOR_HTTP_BASE"] = "8118"
+os.environ["PHARMFLOW_TOR_SOCKS_BASE"] = "9050"
+os.environ["PHARMFLOW_TOR_CONTROL_BASE"] = "9151"
+os.environ["PHARMFLOW_TOR_PATH"] = r"C:\PharmFlow\bundled\tor.exe"
+if not Path(os.environ["PHARMFLOW_TOR_PATH"]).is_file():
+    os.environ["PHARMFLOW_TOR_PATH"] = r"C:\PharmFlow\automation\tor\tor.exe"
+
+from automation.adb_wrapper import AdbWrapper  # noqa: E402
+from automation.browse_proxy import pin_guest_proxy  # noqa: E402
+from automation.config import TOR_HTTP_TUNNEL_BASE  # noqa: E402
+from automation.farm_visit_caps import write_runtime_overrides  # noqa: E402
+from automation.mantis_inject_proxy import (  # noqa: E402
     ensure_inject_for_phone,
     start_inject_proxies,
     verify_reverse_tunnel,
 )
-from automation.tor_manager import TorManager, phone_http_port
+from automation.tor_manager import TorManager, phone_http_port  # noqa: E402
 
-ADB = Path(r"C:\CPharm\bundled\adb.exe")
-FLAGS = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+ADB = Path(r"C:\PharmFlow\bundled\adb.exe")
 PYW = Path(r"C:\Users\jsmil\AppData\Local\Python\pythoncore-3.14-64\pythonw.exe")
 
 
@@ -47,7 +49,11 @@ def _kill_all_tor() -> int:
     try:
         import psutil
     except ImportError:
-        subprocess.run(["taskkill", "/F", "/IM", "tor.exe"], capture_output=True)
+        subprocess.run(
+            ["taskkill", "/F", "/IM", "tor.exe"],
+            capture_output=True,
+            **hidden_run_kwargs(),
+        )
         return -1
     for proc in psutil.process_iter(["pid", "name"]):
         try:
@@ -93,12 +99,12 @@ def main() -> int:
 
     write_runtime_overrides(
         {
-            "CPHARM_TOR_HTTP_BASE": "8118",
-            "CPHARM_TOR_SOCKS_BASE": "9050",
-            "CPHARM_TOR_CONTROL_BASE": "9151",
-            "CPHARM_TOR_PATH": os.environ["CPHARM_TOR_PATH"],
-            "CPHARM_MANTIS_INJECT_PROXY": "1",
-            "CPHARM_NEVER_SHARE_EXIT_IP": "1",
+            "PHARMFLOW_TOR_HTTP_BASE": "8118",
+            "PHARMFLOW_TOR_SOCKS_BASE": "9050",
+            "PHARMFLOW_TOR_CONTROL_BASE": "9151",
+            "PHARMFLOW_TOR_PATH": os.environ["PHARMFLOW_TOR_PATH"],
+            "PHARMFLOW_MANTIS_INJECT_PROXY": "1",
+            "PHARMFLOW_NEVER_SHARE_EXIT_IP": "1",
         }
     )
 
@@ -146,7 +152,7 @@ def main() -> int:
 
     subprocess.Popen(
         [str(PYW), "-u", str(ROOT / "scripts" / "run_mantis_inject_proxies.py"), "--phones", "14", "--no-install-ca"],
-        creationflags=FLAGS,
+        **hidden_run_kwargs(),
     )
 
     for name, ser in sorted(phones.items(), key=lambda x: int(x[0].split(".")[0][2:])):

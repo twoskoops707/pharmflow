@@ -66,7 +66,7 @@ def _worker(
     skip_fingerprint: bool,
 ) -> None:
     if skip_fingerprint:
-        os.environ["CPHARM_SKIP_FINGERPRINT"] = "1"
+        os.environ["PHARMFLOW_SKIP_FINGERPRINT"] = "1"
     while True:
         try:
             rel = work.get_nowait()
@@ -138,14 +138,14 @@ def main() -> int:
     parser.add_argument("--root", type=Path, default=sequences_dir(), help="Sequences root directory")
     parser.add_argument("--workers", type=int, default=0, help="Phone workers (0 = all connected)")
     parser.add_argument("--limit", type=int, default=0, help="Max sequences to run (0 = all)")
-    parser.add_argument("--skip-fingerprint", action="store_true", help="Set CPHARM_SKIP_FINGERPRINT=1")
+    parser.add_argument("--skip-fingerprint", action="store_true", help="Set PHARMFLOW_SKIP_FINGERPRINT=1")
     parser.add_argument("--setup-tor", action="store_true", help="Start Tor on each phone before run")
     parser.add_argument("--resume", action="store_true", help="Skip sequences in checkpoint file")
     args = parser.parse_args()
 
     if not sequences_run_allowed():
         print(
-            "BLOCKED: Sequence farm test will not run until CPHARM_ALLOW_SEQUENCE_RUNS=1",
+            "BLOCKED: Sequence farm test will not run until PHARMFLOW_ALLOW_SEQUENCE_RUNS=1",
             file=sys.stderr,
         )
         return 2

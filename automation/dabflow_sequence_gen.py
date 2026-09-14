@@ -1,6 +1,6 @@
 """Generate all DabFlow blueprint sequences (Path1 A-D, Path2, Path3 A-D × ad slots).
 
-Importable from the CPharm EXE (bundled under automation/). CLI entry:
+Importable from the PharmFlow EXE (bundled under automation/). CLI entry:
   py scripts/generate_dabflow_sequences.py
 """
 

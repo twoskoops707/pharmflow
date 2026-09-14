@@ -36,7 +36,7 @@ def main() -> int:
     args = ap.parse_args()
     serial = args.serial.strip()
 
-    print(f"CPharm live fingerprint — {serial}")
+    print(f"PharmFlow live fingerprint — {serial}")
     print("Operators: PharmFlow → Phones → Set up my phones")
     print("=" * 55)
 

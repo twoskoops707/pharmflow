@@ -1,4 +1,4 @@
-"""Browse proxy modes — scramble (default) clears Tor so Mantis ads can fill."""
+"""Browse proxy modes — every mode pins the phone exit. Never clear http_proxy to :0."""
 
 from __future__ import annotations
 
@@ -36,17 +36,41 @@ def load_browse_prefs() -> dict:
     return {}
 
 
-def save_browse_prefs(**updates: object) -> dict:
-    data = load_browse_prefs()
-    data.update(updates)
+def save_browse_prefs(**updates: object) -> dict | None:
+    """Merge browse prefs and keep them only if the disk copy matches.
+
+    A corrupt prefs file is not replaced. Replacing it used to wipe
+    ``mumu_setup_complete``.
+    """
+    if not updates:
+        return None
     p = _prefs_path()
-    p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-    return data
+    data: dict = {}
+    if p.is_file():
+        try:
+            loaded = json.loads(p.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError, UnicodeError):
+            return None
+        if not isinstance(loaded, dict):
+            return None
+        data = loaded
+    data.update(updates)
+    try:
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+        stored = json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, TypeError, json.JSONDecodeError, UnicodeError, ValueError):
+        return None
+    if not isinstance(stored, dict):
+        return None
+    for key, value in updates.items():
+        if stored.get(key) != value:
+            return None
+    return stored
 
 
 def browse_proxy_mode() -> str:
-    raw = os.environ.get("CPHARM_BROWSE_PROXY_MODE", "").strip().lower()
+    raw = os.environ.get("PHARMFLOW_BROWSE_PROXY_MODE", "").strip().lower()
     if raw in _VALID_MODES:
         return raw
     pref = str(load_browse_prefs().get("browse_proxy_mode") or "").strip().lower()
@@ -60,7 +84,7 @@ def browse_proxy_mode_label(mode: str | None = None) -> str:
     return {
         "tor": "Tor (privacy — ads may not fill on MuMu)",
         "scramble": "Scramble (recommended — direct + new device each visit)",
-        "direct": "Direct (home IP, same device look)",
+        "direct": "Direct (phone exit, same device look)",
         "upstream": "Upstream (per-phone residential proxy)",
     }.get(m, m)
 
@@ -96,10 +120,10 @@ def _parse_upstream_url(url: str) -> tuple[str, int, str | None]:
 
 
 def sync_browse_proxy_env_from_prefs() -> str:
-    if os.environ.get("CPHARM_BROWSE_PROXY_MODE", "").strip():
+    if os.environ.get("PHARMFLOW_BROWSE_PROXY_MODE", "").strip():
         return browse_proxy_mode()
     mode = browse_proxy_mode()
-    os.environ["CPHARM_BROWSE_PROXY_MODE"] = mode
+    os.environ["PHARMFLOW_BROWSE_PROXY_MODE"] = mode
     return mode
 
 
@@ -131,8 +155,8 @@ def prepare_browse_session(
     _ = (force_clear_tor, kick_browser)
     pinned = pin_guest_proxy(adb, ser, idx)
     out["http_proxy"] = pinned
-    out["pinned"] = True
-    if not guest_proxy_healthy(pinned, idx):
+    out["pinned"] = guest_proxy_healthy(pinned, idx)
+    if not out["pinned"]:
         out["ok"] = False
         log(f"Browse proxy: pin failed serial={ser} proxy={pinned!r}")
         return out
@@ -204,7 +228,7 @@ def expected_guest_proxy_ports(phone_idx: int) -> set[int]:
 # Persisted to disk: the proxy watcher is a *separate process* and used to always
 # re-pin inject (8218+), wiping Tor pins and freezing Firefox/DDG on HSTS cert errors.
 _serial_browser_pkg: dict[str, str] = {}
-_BROWSER_PKG_PATH = Path(r"C:\CPharm\logs\serial_browser_pkg.json")
+_BROWSER_PKG_PATH = Path(r"C:\PharmFlow\logs\serial_browser_pkg.json")
 # Browsers that must NOT use guest MITM inject (8218+). Firefox/DDG reject our
 # CA; Brave often shows "not safe website" even after system CA install (own
 # trust / HTTPS upgrades). Brave still gets ads via Chromium CDP paint.
@@ -668,4 +692,6 @@ def pin_guest_proxy(
         want,
         browser_package,
     )
-    return last if last else ":0"
+    # Do not invent :0. That string is host-IP egress, and callers treat a
+    # non-empty return as a landed pin.
+    return last if guest_proxy_healthy(last, idx) else ""

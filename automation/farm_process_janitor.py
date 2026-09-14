@@ -1,6 +1,6 @@
-"""CPharm janitor — reap hung ADB consoles, orphan conhost, leaked bash/wsl, dup helpers.
+"""PharmFlow janitor — reap hung ADB consoles, orphan conhost, leaked bash/wsl, dup helpers.
 
-Called every remediator tick. Does not kill CPharm.exe, the farm worker, dash,
+Called every remediator tick. Does not kill PharmFlow.exe, the farm worker, dash,
 MuMu phone shells, or Tor.
 """
 from __future__ import annotations
@@ -13,14 +13,14 @@ from typing import Any
 
 from automation.process_scan import SINGLETON_HELPERS, cull_duplicates_keep_newest
 
-LOG = Path(os.environ.get("CPHARM_LOGS") or r"C:\CPharm\logs")
+LOG = Path(os.environ.get("PHARMFLOW_LOGS") or r"C:\PharmFlow\logs")
 HB = LOG / "farm_process_janitor_heartbeat.txt"
 
 _KEEP_CONHOST_PARENTS = {
     "tor.exe",
     "nemux-shell-winui.exe",
     "nemux-shell-winui.manager.exe",
-    "cpharm.exe",
+    "pharmflow.exe",
     "cursor.exe",
     "node.exe",
 }
@@ -35,7 +35,7 @@ _FLASH_CMD_MARKERS = (
     "nemux-shell-winui",
     "watch_adb_devices",
     "platform-tools",
-    r"c:\cpharm\bundled\adb",
+    r"c:\pharmflow\bundled\adb",
 )
 
 _HUNG_ONESHOT = (

@@ -2,7 +2,7 @@
 
 Audited: 2026-07-04 via `automation/audit_dabflow_live.py` against public assets.
 
-**Source repo (not in CPharm):** `C:\Users\jsmil\StudioProjects\DabFlow`, branch **`web`** / **`www`**, deployed to **Cloudflare Pages** at `https://getdabflow.app`.
+**Source repo (not in PharmFlow):** `C:\Users\jsmil\StudioProjects\DabFlow`, branch **`web`** / **`www`**, deployed to **Cloudflare Pages** at `https://getdabflow.app`.
 
 ## What is deployed correctly
 
@@ -75,7 +75,7 @@ if (state.timer.mode === 'cool' && !state.settings.isPremium) {
 
 Automated `curl`/headless gets **403** + `cf-mitigated: challenge` on `/` and `/index.html`. Real browsers and MuMu WebView pass after challenge. Tor exits may see low Mantis fill — expected. **Default MuMu ad runs use Scramble mode** (direct internet + rotated device fingerprint per session; set in Go → section F or ``desktop_prefs.json`` ``browse_proxy_mode``).
 
-### Browse proxy modes (CPharm)
+### Browse proxy modes (PharmFlow)
 
 | Mode | Use when |
 |------|----------|
@@ -84,16 +84,16 @@ Automated `curl`/headless gets **403** + `cf-mitigated: challenge` on `/` and `/
 | **upstream** | Per-phone residential proxy in ``phone_upstream_proxies`` |
 | **tor** | Privacy / geo diversity — ads often empty on emulator |
 
-## CPharm runtime compensation (until deploy)
+## PharmFlow runtime compensation (until deploy)
 
-CPharm injects ``automation/dabflow_mantis_client_patch.py`` via Chrome DevTools after each
+PharmFlow injects ``automation/dabflow_mantis_client_patch.py`` via Chrome DevTools after each
 ``open_url`` to getdabflow.app (default **ON**; ``desktop_prefs.json`` → ``dabflow_mantis_patch``).
 
 This fixes zone refresh + cooldown video **in the browser** without waiting for Cloudflare deploy.
 
 Generate a deploy-ready ``app.js``: ``python3 tools/patch_dabflow_appjs_for_deploy.py`` → ``dabflow-fix/``.
 
-## CPharm automation alignment
+## PharmFlow automation alignment
 
 Ad-path sequences tap:
 

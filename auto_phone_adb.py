@@ -21,20 +21,20 @@ from pathlib import Path
 
 IS_WIN = sys.platform == "win32"
 
-# Mirror diagnostics to logs/cpharm.log (same location the wizard monitors),
-# honoring the CPHARM_LOGS override used by the watchdog.
+# Mirror diagnostics to logs/pharmflow.log (same location the wizard monitors),
+# honoring the PHARMFLOW_LOGS override used by the watchdog.
 _ROOT = Path(__file__).resolve().parent
-_LOG_DIR = Path(os.environ.get("CPHARM_LOGS") or (_ROOT / "logs"))
+_LOG_DIR = Path(os.environ.get("PHARMFLOW_LOGS") or (_ROOT / "logs"))
 
 
 def _logger() -> logging.Logger:
-    """Return a module logger appending to logs/cpharm.log (never raises)."""
+    """Return a module logger appending to logs/pharmflow.log (never raises)."""
     lg = logging.getLogger("auto_phone_adb")
     if not lg.handlers:
         lg.setLevel(logging.INFO)
         try:
             _LOG_DIR.mkdir(parents=True, exist_ok=True)
-            h = logging.FileHandler(_LOG_DIR / "cpharm.log", encoding="utf-8")
+            h = logging.FileHandler(_LOG_DIR / "pharmflow.log", encoding="utf-8")
             h.setFormatter(logging.Formatter(
                 "%(asctime)s %(levelname)s [auto_phone_adb] %(message)s"))
             lg.addHandler(h)
@@ -45,7 +45,7 @@ def _logger() -> logging.Logger:
 
 
 def _log(msg: str) -> None:
-    """Print to console and mirror the line to logs/cpharm.log."""
+    """Print to console and mirror the line to logs/pharmflow.log."""
     print(msg)
     try:
         _logger().info(msg)
@@ -56,13 +56,13 @@ def _log(msg: str) -> None:
 def find_adb() -> Path:
     """Find adb executable."""
     candidates = [
-        Path("C:/CPharm/bundled/adb.exe") if IS_WIN else Path("/usr/bin/adb"),
+        Path("C:/PharmFlow/bundled/adb.exe") if IS_WIN else Path("/usr/bin/adb"),
         Path(f"{Path.home()}/.android/platform-tools/adb"),
     ]
     for adb in candidates:
         if adb.is_file():
             return adb
-    raise RuntimeError("ADB not found. Install Android SDK or CPharm.")
+    raise RuntimeError("ADB not found. Install Android SDK or PharmFlow.")
 
 
 def adb_cmd(adb: Path, args: list, timeout: int = 10) -> tuple[int, str]:

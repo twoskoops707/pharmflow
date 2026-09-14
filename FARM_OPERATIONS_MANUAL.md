@@ -47,7 +47,7 @@ for frag, cfg in required.items():
 
 ### 2. Check Devices
 ```bash
-/c/CPharm/bundled/adb.exe devices
+/c/PharmFlow/bundled/adb.exe devices
 # All 10 phones should show "device" (not "offline")
 # If phone offline: adb connect 10.0.2.X:5555
 # If MuMu not running: run _launch_farm_phones_now.py
@@ -65,7 +65,7 @@ netstat -ano | grep "LISTEN" | grep ":822"
 
 ### 4. Check Revenue
 ```bash
-cat /c/CPharm/logs/mantis_today_state.json
+cat /c/PharmFlow/logs/mantis_today_state.json
 # Impressions should be climbing
 # Clicks should be climbing (this is the revenue driver)
 # If flat: something is broken, investigate immediately
@@ -87,12 +87,12 @@ done
 ## OVERRIDE/CAPS FILE MANAGEMENT
 
 ### FILES THAT MUST NEVER EXIST
-- `C:\CPharm\logs\farm_runtime_overrides.json`
-- `C:\CPharm\logs\farm_visit_caps_lock.json`
-- `C:\CPharm\logs\dabflow_sticky.json`
-- `C:\CPharm\logs\site_lock.json`
-- `C:\CPharm\logs\find_caps.json`
-- `C:\CPharm\logs\_money_day_path3_aggressive.json`
+- `C:\PharmFlow\logs\farm_runtime_overrides.json`
+- `C:\PharmFlow\logs\farm_visit_caps_lock.json`
+- `C:\PharmFlow\logs\dabflow_sticky.json`
+- `C:\PharmFlow\logs\site_lock.json`
+- `C:\PharmFlow\logs\find_caps.json`
+- `C:\PharmFlow\logs\_money_day_path3_aggressive.json`
 
 ### CODE THAT WRITES OVERRIDES (ALL MUST BE NO-OP)
 - `automation/farm_visit_caps.py`: `write_visit_caps_lock()` → pass
@@ -103,16 +103,16 @@ done
 ### OVERRIDE FILE PATHS ARE DIRECTORIES
 ```bash
 # These paths should be directories, not files
-ls -la /c/CPharm/logs/farm_runtime_overrides.json  # should show "total 1024"
-ls -la /c/CPharm/logs/farm_visit_caps_lock.json  # should show "total 1024"
+ls -la /c/PharmFlow/logs/farm_runtime_overrides.json  # should show "total 1024"
+ls -la /c/PharmFlow/logs/farm_visit_caps_lock.json  # should show "total 1024"
 # If they're files: rm -rf them, then mkdir them as directories
 ```
 
 ### IF OVERRIDES COME BACK
 1. Kill ALL python processes
 2. Delete override files
-3. Make override paths directories: `mkdir -p /c/CPharm/logs/farm_runtime_overrides.json`
-4. Clear .pyc: `find /c/Users/jsmil/FamFlow -name "*.pyc" -delete`
+3. Make override paths directories: `mkdir -p /c/PharmFlow/logs/farm_runtime_overrides.json`
+4. Clear .pyc: `find /c/Users/jsmil/PharmFlow -name "*.pyc" -delete`
 5. Restart everything fresh
 
 ---
@@ -197,11 +197,11 @@ taskkill //IM pythonw.exe //F
 taskkill //IM adb.exe //F
 
 # Start fresh
-powershell -NoProfile -Command "Start-Process -WindowStyle Hidden -FilePath 'C:\Users\jsmil\AppData\Local\Python\pythoncore-3.14-64\pythonw.exe' -ArgumentList '-u scripts\run_mantis_inject_proxies.py --phones 10' -WorkingDirectory 'C:\Users\jsmil\FamFlow'"
+powershell -NoProfile -Command "Start-Process -WindowStyle Hidden -FilePath 'C:\Users\jsmil\AppData\Local\Python\pythoncore-3.14-64\pythonw.exe' -ArgumentList '-u scripts\run_mantis_inject_proxies.py --phones 10' -WorkingDirectory 'C:\Users\jsmil\PharmFlow'"
 # Wait 60s for Tor circuits
 
 # Start worker
-powershell -NoProfile -Command "Start-Process -WindowStyle Hidden -FilePath 'C:\Users\jsmil\FamFlow\scripts\start_worker_fast.bat' -WorkingDirectory 'C:\Users\jsmil\FamFlow'"
+powershell -NoProfile -Command "Start-Process -WindowStyle Hidden -FilePath 'C:\Users\jsmil\PharmFlow\scripts\start_worker_fast.bat' -WorkingDirectory 'C:\Users\jsmil\PharmFlow'"
 
 # Start watchdog, hunter, bottom-ads, dash
 ```
@@ -218,7 +218,7 @@ powershell -NoProfile -Command "Start-Process -WindowStyle Hidden -FilePath 'C:\
 
 ### IF MUMU VMs ARE DOWN
 ```bash
-cd /c/Users/jsmil/FamFlow
+cd /c/Users/jsmil/PharmFlow
 python scripts/_launch_farm_phones_now.py
 # This starts all VMs, connects ADB, pins WiFi
 ```
@@ -240,7 +240,7 @@ adb connect IP:5555
 3. Commit: `git add . && git commit -m "message"`
 4. Push: `git push origin main`
 5. Wait for GitHub Actions build
-6. Download: `gh release download wizard-N --pattern "PharmFlow.exe" --dir /c/CPharm/ --clobber`
+6. Download: `gh release download wizard-N --pattern "PharmFlow.exe" --dir /c/PharmFlow/ --clobber`
 
 ### IF BUILD FAILS
 - Check test failures: `gh run view RUN_ID --log-failed`

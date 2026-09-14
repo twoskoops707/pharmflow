@@ -4,11 +4,11 @@
 }
 
 android {
-    namespace = "com.cpharm.scorecard"
+    namespace = "com.pharmflow.scorecard"
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.cpharm.scorecard"
+        applicationId = "com.pharmflow.scorecard"
         minSdk = 24
         targetSdk = 34
         versionCode = 4

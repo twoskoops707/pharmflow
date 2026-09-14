@@ -33,13 +33,13 @@ def _existing_data_pairs() -> list[tuple[str, str]]:
         (ROOT / "automation" / "dabflow_mapping.json", "automation"),
         (ROOT / "scripts" / "run_farm_354.py", "scripts"),
         (ROOT / "scripts" / "run_farm_cycles.py", "scripts"),
-        (ROOT / "scripts" / "cpharm_unison_supervisor.py", "scripts"),
-        (ROOT / "scripts" / "cpharm_stealth_guard.py", "scripts"),
+        (ROOT / "scripts" / "pharmflow_unison_supervisor.py", "scripts"),
+        (ROOT / "scripts" / "pharmflow_stealth_guard.py", "scripts"),
         (ROOT / "scripts" / "purge_farm_overrides.py", "scripts"),
         (ROOT / "scripts" / "farm_watchdog.py", "scripts"),
-        (ROOT / "automation" / "cpharm_farm_config.py", "automation"),
-        (ROOT / "automation" / "cpharm_farmbrowser_guard.py", "automation"),
-        (ROOT / "automation" / "cpharm_unison_dedupe.py", "automation"),
+        (ROOT / "automation" / "pharmflow_farm_config.py", "automation"),
+        (ROOT / "automation" / "pharmflow_farmbrowser_guard.py", "automation"),
+        (ROOT / "automation" / "pharmflow_unison_dedupe.py", "automation"),
         (ROOT / "scripts" / "farm_operator_dash.py", "scripts"),
         (ROOT / "scripts" / "farm_remediate_loop.py", "scripts"),
         (ROOT / "scripts" / "keep_farm_alive.py", "scripts"),
@@ -111,8 +111,8 @@ def base_hiddenimports() -> list[str]:
         "wizard.gui.styles",
         "wizard.gui.widgets",
         "wizard.gui.windows",
-        "wizard.cpharm_desktop",
-        "wizard.cpharm_merged",
+        "wizard.pharmflow_desktop",
+        "wizard.pharmflow_merged",
         "wizard.setup_desktop",
         "wizard.ui_helpers",
         "wizard.ui_theme",
@@ -275,7 +275,7 @@ def version_info_path(setup: bool = False) -> str | None:
 
 
 def build_analysis(entry_script: str | Path, *, extra_hidden: list[str] | None = None):
-    """Create a PyInstaller Analysis object with shared CPharm settings."""
+    """Create a PyInstaller Analysis object with shared PharmFlow settings."""
     entry = Path(entry_script)
     pkg_datas, pkg_binaries, pkg_hidden = collect_package_assets()
     hidden = base_hiddenimports() + (extra_hidden or []) + pkg_hidden

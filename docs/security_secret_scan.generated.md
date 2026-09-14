@@ -1,7 +1,7 @@
 # Secret Exposure Scan (generated)
 
 Date: 2026-05-06
-Repository: `cpharm`
+Repository: `pharmflow`
 
 ## Scope and evidence
 - Scanned working tree for high-confidence secret signatures (API keys, tokens, private key headers, credential-style assignments).

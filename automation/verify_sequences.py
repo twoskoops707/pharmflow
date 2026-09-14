@@ -9,7 +9,7 @@ _AUTOMATION_DIR = Path(__file__).resolve().parent
 if str(_AUTOMATION_DIR) not in sys.path:
     sys.path.insert(0, str(_AUTOMATION_DIR))
 
-from cpharm_defaults import combo_sequence_basenames_from_rename_map
+from pharmflow_defaults import combo_sequence_basenames_from_rename_map
 from sequence_normalize import load_sequence_steps_ui
 from sequence_geometry import parse_wm_size_output, scale_point
 from sequences_paths import fixtures_sequences_dir, resolve_sequences_dir

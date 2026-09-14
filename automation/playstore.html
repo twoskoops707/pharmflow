@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
-<title>App Tester — CPharm</title>
+<title>App Tester — PharmFlow</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=IBM+Plex+Mono:wght@400;600&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet">
@@ -313,7 +313,7 @@ body:hover *::-webkit-scrollbar-thumb{background:var(--scroll-thumb)}
   </div>
   <div class="stagger-custom" id="launch-stagger-custom">
     <span>Every</span>
-    <input type="number" id="launch-delay" value="10" min="1" max="3600" style="width:70px">
+    <input type="number" id="launch-delay" value="10" min="1" style="width:70px">
     <span>seconds</span>
   </div>
 </div>
@@ -375,9 +375,9 @@ body:hover *::-webkit-scrollbar-thumb{background:var(--scroll-thumb)}
       </div>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
         <div style="font-family:var(--font-mono);font-size:.68rem;color:var(--t2)">Time on each (seconds):</div>
-        <input type="number" id="loop-time" value="30" min="5" max="600" style="width:80px">
+        <input type="number" id="loop-time" value="30" min="5" style="width:80px">
         <div style="font-family:var(--font-mono);font-size:.68rem;color:var(--t2)">Cycles:</div>
-        <input type="number" id="loop-cycles" value="3" min="1" max="50" style="width:70px">
+        <input type="number" id="loop-cycles" value="3" min="1" style="width:70px">
       </div>
       <label style="display:flex;align-items:center;gap:.4rem;font-size:.75rem;color:var(--t2);cursor:pointer;margin-top:6px">
         <input type="checkbox" id="loop-auto-rotate" style="width:1rem;height:1rem">
@@ -462,7 +462,13 @@ function connectWS() {
     const msg = JSON.parse(data);
     if (msg.type === 'phones_update') { phones = msg.phones; renderPhones(); }
     if (msg.type === 'log')           addLog(msg.msg);
-    if (msg.type === 'playstore_done') toast('All done!', 'ok');
+    if (msg.type === 'playstore_done') {
+      if (Number(msg.landed) > 0) {
+        toast('Commands landed on ' + msg.landed + ' phone(s). The store screen was not confirmed.');
+      } else {
+        toast('Play Store run did not land on any phone', 'err');
+      }
+    }
     if (msg.type === 'resources')     updateResources(msg);
   };
   ws.onclose = () => {
@@ -518,19 +524,22 @@ function updateResources(r) {
     free.className = 'res-val ok';
   }
 
-  const maxPhones = r.max_phones_recommended || 0;
-  note.textContent = totalGB + ' GB total · ~' + maxPhones + ' phones max at once';
+  const maxPhones = Number(r.max_phones_recommended);
+  const hasHint = Number.isFinite(maxPhones) && maxPhones > 0;
+  note.textContent = hasHint
+    ? (totalGB + ' GB total · free RAM suggests about ' + maxPhones + ' phones')
+    : (totalGB + ' GB total');
 
-  if (maxPhones > 0 && phones.filter(p => p.running).length > maxPhones) {
+  if (hasHint && phones.filter(p => p.running).length > maxPhones) {
     limitNote.style.display = 'block';
-    limitNote.textContent = '⚠ Running more than the recommended ' + maxPhones + ' phones may slow your computer. Consider stopping some.';
+    limitNote.textContent = 'Free RAM is tight for ' + phones.filter(p => p.running).length + ' phones. This is not a phone limit.';
   } else {
     limitNote.style.display = 'none';
   }
 
   // Phones on bar
   const phonesOn = phones.filter(p => p.running).length;
-  const phonesPct = maxPhones ? Math.min(100, Math.round(phonesOn / maxPhones * 100)) : 0;
+  const phonesPct = hasHint ? Math.min(100, Math.round(phonesOn / maxPhones * 100)) : 0;
   document.getElementById('phones-on-count').textContent = phonesOn;
   document.getElementById('phones-fill').style.width = phonesPct + '%';
 }
@@ -599,12 +608,16 @@ async function launchApp() {
   let secs = launchStagger;
   if (secs === -1) secs = +document.getElementById('launch-delay').value || 10;
   try {
-    await api('/api/launch_app', 'POST', {
+    const res = await api('/api/launch_app', 'POST', {
       package: pkg,
       stagger_secs: secs,
       target: targetPhone,
     });
-    toast('Launching ' + pkg, 'ok');
+    if (!res || !res.ok || !(Number(res.n) > 0)) {
+      toast('No phone launched the app', 'err');
+      return;
+    }
+    toast('Launched on ' + res.n + ' phone(s)', 'ok');
   } catch(e) { toast('Could not launch app', 'err'); }
 }
 
@@ -613,22 +626,28 @@ async function sendText() {
   const text = document.getElementById('type-input').value;
   if (!text) return;
   try {
-    await api('/api/input_text', 'POST', { text, target: targetPhone });
-    toast('Sent to ' + (targetPhone === 'all' ? 'all phones' : 'Phone ' + targetPhone), 'ok');
+    const res = await api('/api/input_text', 'POST', { text, target: targetPhone });
+    if (!res || !res.ok || !(Number(res.n) > 0)) {
+      toast('Text was not typed', 'err');
+      return;
+    }
+    toast('Typed on ' + res.n + ' phone(s)', 'ok');
   } catch(e) { toast('Could not send text', 'err'); }
 }
 
 async function sendKey(code) {
   try {
-    await api('/api/input_key', 'POST', { keycode: code, target: targetPhone });
+    const res = await api('/api/input_key', 'POST', { keycode: code, target: targetPhone });
+    if (!res || !res.ok || !(Number(res.n) > 0)) throw new Error('key did not land');
   } catch(e) { toast('Error', 'err'); }
 }
 
 // ── Quick Actions ──────────────────────────────────────────────────────
 async function quickAction(action) {
   try {
-    await api('/api/quick_action', 'POST', { action, target: targetPhone });
-    addLog(action + ' → ' + (targetPhone === 'all' ? 'all phones' : 'Phone ' + targetPhone));
+    const res = await api('/api/quick_action', 'POST', { action, target: targetPhone });
+    if (!res || !res.ok || !(Number(res.n) > 0)) throw new Error('action did not land');
+    addLog(action + ' landed on ' + res.n + ' phone(s)');
   } catch(e) { toast('Error', 'err'); }
 }
 
@@ -694,35 +713,56 @@ async function startLoop() {
   document.getElementById('btn-loop-stop').disabled  = false;
   const statusEl = document.getElementById('loop-status');
 
+  let launched = 0;
+  let started = 0;
   for (let c = 1; c <= cycles && loopRunning; c++) {
     statusEl.textContent = `Cycle ${c}/${cycles}: opening website…`;
     if (url) {
-      await api('/api/open_url', 'POST', { url, stagger_secs: 0, target: targetPhone }).catch(() => {});
+      try {
+        const opened = await api('/api/open_url', 'POST', { url, stagger_secs: 0, target: targetPhone });
+        if (opened && opened.ok && Number(opened.n) > 0) started += 1;
+      } catch (e) { /* counted as not started */ }
     }
     for (let t = 0; t < timeSec && loopRunning; t++) await sleep(1000);
     if (!loopRunning) break;
 
     if (pkg) {
       statusEl.textContent = `Cycle ${c}/${cycles}: launching app…`;
-      await api('/api/launch_app', 'POST', { package: pkg, stagger_secs: 0, target: targetPhone }).catch(() => {});
+      try {
+        const launchedRes = await api('/api/launch_app', 'POST', { package: pkg, stagger_secs: 0, target: targetPhone });
+        if (launchedRes && launchedRes.ok && Number(launchedRes.n) > 0) launched += 1;
+      } catch (e) { /* counted as not landed */ }
     }
     for (let t = 0; t < timeSec && loopRunning; t++) await sleep(1000);
     if (!loopRunning) break;
 
     if (autoRotate && c < cycles) {
       statusEl.textContent = `Cycle ${c}/${cycles}: rotating identity…`;
-      await api('/api/proxy/rotate', 'POST', {}).catch(() => {});
+      try {
+        const rotated = await api('/api/proxy/rotate', 'POST', {});
+        if (rotated && rotated.ok && Number(rotated.n) > 0) started += 1;
+      } catch (e) { /* counted as not started */ }
       await sleep(1500);
     }
   }
 
+  const stopped = document.getElementById('loop-status').textContent === 'Stopped.';
   loopRunning = false;
   document.getElementById('btn-loop-start').disabled = false;
   document.getElementById('btn-loop-stop').disabled  = true;
-  statusEl.textContent = cycles > 0 ? 'Loop complete.' : '';
-  if (loopRunning === false && document.getElementById('loop-status').textContent !== 'Stopped.') {
-    toast('Test loop done!', 'ok');
+  if (stopped) return;
+  if (launched < 1 && started < 1) {
+    statusEl.textContent = 'Loop finished — nothing landed.';
+    toast('Loop finished — nothing landed', 'err');
+    return;
   }
+  if (launched < 1) {
+    statusEl.textContent = 'Loop finished — pages were started, results are in the log.';
+    toast('Loop finished — pages were started, results are in the log', 'ok');
+    return;
+  }
+  statusEl.textContent = 'Loop finished — ' + launched + ' launch(es) landed.';
+  toast('Loop finished — ' + launched + ' launch(es) landed', 'ok');
 }
 
 function stopLoop() {

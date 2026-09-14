@@ -4,14 +4,14 @@
   const logEl = document.getElementById("log");
   const btnGo = document.getElementById("btn-go");
   const btnChrome = document.getElementById("btn-chrome");
-  const btnCpharm = document.getElementById("btn-cpharm");
+  const btnPharmFlow = document.getElementById("btn-pharmflow");
   const btnRefresh = document.getElementById("btn-refresh");
   const checklistEl = document.getElementById("checklist");
   const statusLed = document.getElementById("status-led");
   const statusText = document.getElementById("status-text");
   const phonesEmpty = document.getElementById("phones-empty");
   const phoneChips = document.getElementById("phone-chips");
-  const alertCpharm = document.getElementById("alert-cpharm");
+  const alertPharmFlow = document.getElementById("alert-pharmflow");
   const stepEls = Array.from(document.querySelectorAll(".step"));
 
   let busy = false;
@@ -54,7 +54,7 @@
     busy = on;
     btnGo.disabled = on;
     btnChrome.disabled = on;
-    btnCpharm.disabled = on;
+    btnPharmFlow.disabled = on;
     btnRefresh.disabled = on;
     statusLed.classList.toggle("live", on);
     statusText.textContent = on ? "Working…" : "Ready";
@@ -147,7 +147,7 @@
 
   function actionLabel(action) {
     if (action === "download_mumu") return "Get MuMu";
-    if (action === "download_cpharm") return "Get PharmFlow";
+    if (action === "download_pharmflow") return "Get PharmFlow";
     if (action === "install_adb") return "Fix";
     if (action === "refresh") return "Refresh";
     if (action === "fix_tablet") return "Fix Pad→Phone";
@@ -221,7 +221,7 @@
         applyGoLabel(state.go_label);
       }
       if (state && state.awaiting_cold_boot) {
-        showCpharmAlert(
+        showPharmFlowAlert(
           "MuMu settings changed — STOP each phone, START again, then click GO."
         );
       }
@@ -256,7 +256,7 @@
 
   function onComplete(payload) {
     setBusy(false);
-    const ready = payload && (payload.ready === true || payload.ok === true);
+    const ready = payload && payload.ready === true;
     const msg = (payload && payload.message) || "";
     if (msg) appendLog("\n" + msg);
     if (payload && payload.go_label) {
@@ -264,26 +264,24 @@
     }
     if (ready) {
       setStep(2, "done");
-      statusText.textContent = "Complete";
+      statusText.textContent = "Setup finished";
       refreshChecklist();
     } else {
       setStep(1, "error");
-      statusText.textContent = "Cold boot phones, then GO again";
-      showCpharmAlert(
-        "Stop each MuMu phone, start it again, then click GO. PharmFlow continues only when every phone passes the check."
-      );
+      statusText.textContent = "Not done";
+      showPharmFlowAlert(msg || "Setup did not finish. Read the log.");
       refreshChecklist();
     }
   }
 
-  function showCpharmAlert(text) {
+  function showPharmFlowAlert(text) {
     if (!text) {
-      alertCpharm.classList.remove("show");
-      alertCpharm.textContent = "";
+      alertPharmFlow.classList.remove("show");
+      alertPharmFlow.textContent = "";
       return;
     }
-    alertCpharm.textContent = text;
-    alertCpharm.classList.add("show");
+    alertPharmFlow.textContent = text;
+    alertPharmFlow.classList.add("show");
   }
 
   async function init() {
@@ -322,7 +320,7 @@
       logEl.textContent = "";
       setStep(0, "active");
       setBusy(true);
-      showCpharmAlert("");
+      showPharmFlowAlert("");
       try {
         const res = await pyApi.run_setup();
         if (res && res.error === "busy") setBusy(false);
@@ -346,15 +344,15 @@
       }
     });
 
-    btnCpharm.addEventListener("click", async function () {
+    btnPharmFlow.addEventListener("click", async function () {
       if (busy) return;
       try {
-        const res = await pyApi.launch_cpharm_only();
+        const res = await pyApi.launch_pharmflow_only();
         if (res && !res.ok) {
           appendLog("\n" + (res.message || "Could not open PharmFlow."));
-          showCpharmAlert(res.message || "PharmFlow.exe missing.");
+          showPharmFlowAlert(res.message || "PharmFlow.exe missing.");
         } else if (res && res.ok) {
-          appendLog("\nOpened: " + res.message);
+          appendLog("\n" + (res.message || "A second PharmFlow copy was not opened."));
         }
       } catch (e) {
         appendLog("Launch error: " + e);
@@ -362,7 +360,7 @@
     });
   }
 
-  window.CPharmSetup = {
+  window.PharmFlowSetup = {
     appendLog: appendLog,
     setPhones: setPhones,
     setStep: setStep,

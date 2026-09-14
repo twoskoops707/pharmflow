@@ -6,7 +6,9 @@ import asyncio
 import io
 import json
 import sys
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import automation.dashboard as dashboard
@@ -117,6 +119,66 @@ class DashboardApiTests(unittest.TestCase):
             except Exception:
                 pass
             sys.stdout = orig
+
+
+class RosterCountHonestyTests(unittest.TestCase):
+    def test_projection_uses_live_phones_and_does_not_stop_at_24(self) -> None:
+        from automation.scorecard_api import build_money_kpis, scaling_targets
+
+        zero = scaling_targets(0)
+        self.assertEqual(zero["phone_count"], 0)
+        self.assertEqual(zero["ad_clicks_hard_cap"], 0)
+        wide = scaling_targets(40)
+        self.assertEqual(wide["phone_count"], 40)
+        self.assertGreater(wide["ad_clicks_hard_cap"], scaling_targets(24)["ad_clicks_hard_cap"])
+        with tempfile.TemporaryDirectory() as tmp:
+            payload = build_money_kpis(
+                list_phones_fn=lambda: [
+                    {"serial": "10.0.2.15:5555", "running": False},
+                    {"serial": "10.0.2.16:5555", "running": True},
+                ],
+                recordings_dir=Path(tmp),
+            )
+            self.assertEqual(payload["phone_count"], 1)
+            stale = Path(tmp) / "scorecard_state.json"
+            stale.write_text(
+                '{"date": "2000-01-01", "payout_usd": 88.0, "clicks": 9, "impressions": 100}',
+                encoding="utf-8",
+            )
+            with patch("automation.scorecard_api._live_farm_facts", return_value={}):
+                stale_payload = build_money_kpis(
+                    list_phones_fn=lambda: [],
+                    recordings_dir=Path(tmp),
+                )
+            self.assertEqual(stale_payload["revenue_today_usd"], 0.0)
+            self.assertEqual(stale_payload["clicks"], 0)
+            self.assertEqual(stale_payload["impressions"], 0)
+
+    def test_watchdog_fact_from_another_day_is_not_revenue_today(self) -> None:
+        from datetime import datetime, timezone
+
+        from automation import scorecard_api
+
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "cursor_monitor_loop.log"
+            now = datetime.now(timezone.utc).isoformat()
+            log.write_text(
+                "2000-01-01T00:00:00+00:00 FACT $=99.00 clk=9 impr=900\n"
+                + now
+                + " FACT $=4.50 clk=2 impr=80\n"
+                + "FACT $=12.00 clk=3 impr=100\n",
+                encoding="utf-8",
+            )
+            with patch.object(scorecard_api, "_fact_log_paths", return_value=[log]):
+                facts = scorecard_api._live_farm_facts()
+        self.assertEqual(facts.get("payout_usd"), 4.50)
+        self.assertEqual(facts.get("clicks"), 2)
+        html = Path(dashboard.__file__).resolve().parent.joinpath("dashboard.html").read_text(encoding="utf-8")
+        self.assertIn("p && p.running", html)
+        self.assertNotIn("max=\"3600\"", html)
+        src = Path(__file__).resolve().parents[1].joinpath("automation", "scorecard_api.py").read_text(encoding="utf-8")
+        self.assertNotIn("min(int(phone_count), 24)", src)
+        self.assertNotIn("phones_default\", 4)", src)
 
 
 if __name__ == "__main__":

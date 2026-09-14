@@ -153,7 +153,7 @@ At **$0.05/click**, even 117 clicks (Jul 25) only added ~$6 total payout — **d
 
 A blank row template lives at `docs/MANTIS_FARM_DAILY_SCORECARD.csv` for spreadsheet import.
 
-**Android:** Install **CPharmScorecard.apk** from GitHub Releases (`scorecard-*` tag). Live fetch: `GET /api/scorecard` on farm dashboard.
+**Android:** Install **PharmFlowScorecard.apk** from GitHub Releases (`scorecard-*` tag). Live fetch: `GET /api/scorecard` on farm dashboard.
 
 ---
 

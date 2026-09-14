@@ -239,7 +239,7 @@ def build_site_interview_card(app: Any, parent: tk.Misc) -> None:
         wraplength=820,
         justify="left",
     ).pack(fill="x", pady=(0, 4))
-    _labeled(card, "API key (stored in C:\\CPharm config)")
+    _labeled(card, "API key (stored in C:\\PharmFlow config)")
     key_entry = tk.Entry(
         card,
         textvariable=app._si_llm_key,
@@ -347,7 +347,7 @@ def _profile_from_form(app: Any) -> SiteProfile:
     except ValueError:
         seqs, phones, hours, ads_hr, start_spread = 15, 6, 6.0, 1, 30
     p.farm = FarmPrefs(
-        phone_count=max(1, min(10, phones)),
+        phone_count=max(1, phones),
         seqs_per_hour=seqs,
         hours=hours,
         allow_ads=bool(app._si_ads.get()),
@@ -383,7 +383,7 @@ def _interview_suggest_ai(app: Any) -> None:
     if not llm_configured():
         messagebox.showwarning(
             "AI assist",
-            "Paste an OpenAI-compatible API key first (or set CPHARM_LLM_API_KEY).\n"
+            "Paste an OpenAI-compatible API key first (or set PHARMFLOW_LLM_API_KEY).\n"
             "Interview still works fully offline without AI.",
             parent=app,
         )

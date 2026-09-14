@@ -37,7 +37,7 @@ def _dump_xml(adb: Any, serial: str) -> str:
         return ""
     with _UI_DUMP_SEM:
         dump = adb.shell(
-            "uiautomator dump /sdcard/cpharm_ad_pick.xml",
+            "uiautomator dump /sdcard/pharmflow_ad_pick.xml",
             serial=serial,
             timeout=DUMP_TIMEOUT_S,
         )
@@ -46,7 +46,7 @@ def _dump_xml(adb: Any, serial: str) -> str:
             return ""
         body = (
             adb.shell(
-                "cat /sdcard/cpharm_ad_pick.xml", serial=serial, timeout=DUMP_CAT_TIMEOUT_S
+                "cat /sdcard/pharmflow_ad_pick.xml", serial=serial, timeout=DUMP_CAT_TIMEOUT_S
             ).stdout
             or ""
         )

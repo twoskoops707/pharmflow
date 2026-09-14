@@ -10,15 +10,15 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-os.environ["CPHARM_ALLOW_SEQUENCE_RUNS"] = "1"
-os.environ.setdefault("CPHARM_EMULATOR_AD_FILL_WAIT", "5")
+os.environ["PHARMFLOW_ALLOW_SEQUENCE_RUNS"] = "1"
+os.environ.setdefault("PHARMFLOW_EMULATOR_AD_FILL_WAIT", "5")
 
 from automation.browser_identity import apply_browser_session, build_chromium_command_line, profile_from_device
 from automation.emulator_ad_mode import chromium_url_bar_text
 from automation.sequence_runner import Sequence, SequenceRunner, SequenceStep, StepAction
 from wizard.mumu_farm_ops import MuMuFarmOps
 
-OUT = Path(r"C:\CPharm\logs\ad_proof")
+OUT = Path(r"C:\PharmFlow\logs\ad_proof")
 OUT.mkdir(parents=True, exist_ok=True)
 
 

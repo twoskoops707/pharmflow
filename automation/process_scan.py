@@ -70,11 +70,11 @@ def pids_matching(needles: tuple[str, ...] | str) -> list[int]:
 
 
 # Current Control Panel plus the previous filename so a leftover process still counts.
-GUI_EXE_NAMES = frozenset({"pharmflow.exe", "cpharm.exe"})
+GUI_EXE_NAMES = frozenset({"pharmflow.exe", "pharmflow.exe"})
 
 
-def cpharm_exe_pids() -> list[int]:
-    """PIDs for PharmFlow.exe (and a leftover CPharm.exe)."""
+def pharmflow_exe_pids() -> list[int]:
+    """PIDs for PharmFlow.exe (and a leftover PharmFlow.exe)."""
     try:
         import psutil
     except ImportError:

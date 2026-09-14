@@ -184,7 +184,7 @@ def sequence_roots() -> list[Path]:
     candidates = [
         ROOT / "sequences",
         ROOT.parent / "sequences",
-        Path.home() / "CPharm" / "sequences",
+        Path.home() / "PharmFlow" / "sequences",
         ROOT / "automation" / "recordings" / "sequences",
     ]
     for p in candidates:

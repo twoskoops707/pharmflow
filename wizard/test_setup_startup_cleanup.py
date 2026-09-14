@@ -54,7 +54,7 @@ class FakeProc:
 
 class SetupStartupCleanupTests(unittest.TestCase):
     def test_skip_env(self) -> None:
-        with mock.patch.dict("os.environ", {"CPHARM_SKIP_STARTUP_CLEANUP": "1"}):
+        with mock.patch.dict("os.environ", {"PHARMFLOW_SKIP_STARTUP_CLEANUP": "1"}):
             summary = cleanup.run_startup_cleanup()
         self.assertIn("env", summary["skipped"])
 
@@ -66,10 +66,10 @@ class SetupStartupCleanupTests(unittest.TestCase):
     def test_first_time_kills_mumu_not_protected(self) -> None:
         my_pid = 1000
         procs = [
-            FakeProc(1000, "CPharmMuMuSetup.exe"),
+            FakeProc(1000, "PharmFlow.exe"),
             FakeProc(2001, "MuMuPlayer.exe", exe=r"C:\Program Files\Netease\MuMuPlayerARM\MuMuPlayer.exe"),
             FakeProc(2002, "adb.exe"),
-            FakeProc(2003, "CPharm.exe"),
+            FakeProc(2003, "PharmFlow.exe"),
         ]
 
         import types
@@ -87,12 +87,12 @@ class SetupStartupCleanupTests(unittest.TestCase):
         killed = " ".join(summary["killed"])
         self.assertIn("mumu", killed)
         self.assertIn("adb", killed)
-        self.assertIn("cpharm", killed)
+        self.assertIn("pharmflow", killed)
 
     def test_not_first_time_skips_mumu(self) -> None:
         procs = [
             FakeProc(3001, "MuMuPlayer.exe"),
-            FakeProc(3002, "CPharm.exe"),
+            FakeProc(3002, "PharmFlow.exe"),
         ]
 
         import types
@@ -108,7 +108,7 @@ class SetupStartupCleanupTests(unittest.TestCase):
                     with mock.patch.dict(sys.modules, {"psutil": fake_psutil}):
                         summary = cleanup.run_startup_cleanup(first_time=False, my_pid=9999)
         killed = " ".join(summary["killed"])
-        self.assertIn("cpharm", killed)
+        self.assertIn("pharmflow", killed)
         self.assertNotIn("mumu", killed)
 
     def test_repeat_open_does_not_kill_adb_or_farm(self) -> None:
@@ -139,6 +139,39 @@ class SetupStartupCleanupTests(unittest.TestCase):
         self.assertNotIn("4003", killed)
         self.assertIn("farm:4002", skipped)
         self.assertIn("farm:4003", skipped)
+
+    def test_kill_server_skips_when_a_phone_is_answering(self) -> None:
+        logs: list[str] = []
+        fake_adb = mock.Mock(adb_executable=lambda: r"C:\adb.exe")
+
+        def fake_run(cmd, **_kwargs):
+            self.assertEqual(cmd[-1], "devices")
+            return mock.Mock(returncode=0, stdout="List of devices attached\n10.0.2.16:5555\tdevice\n", stderr="")
+
+        with mock.patch.dict(sys.modules, {"adb_paths": fake_adb}):
+            with mock.patch.object(cleanup.subprocess, "run", side_effect=fake_run) as run:
+                with mock.patch.object(cleanup.Path, "is_file", return_value=True):
+                    cleanup._adb_kill_server(logs.append)
+        self.assertEqual(run.call_count, 1)
+        self.assertTrue(any("skipped adb kill-server" in line for line in logs))
+
+    def test_kill_server_runs_only_when_no_phone_is_listed(self) -> None:
+        logs: list[str] = []
+        calls: list[list[str]] = []
+        fake_adb = mock.Mock(adb_executable=lambda: r"C:\adb.exe")
+
+        def fake_run(cmd, **_kwargs):
+            calls.append(list(cmd))
+            if cmd[-1] == "devices":
+                return mock.Mock(returncode=0, stdout="List of devices attached\n", stderr="")
+            return mock.Mock(returncode=0, stdout="", stderr="")
+
+        with mock.patch.dict(sys.modules, {"adb_paths": fake_adb}):
+            with mock.patch.object(cleanup.subprocess, "run", side_effect=fake_run):
+                with mock.patch.object(cleanup.Path, "is_file", return_value=True):
+                    cleanup._adb_kill_server(logs.append)
+        self.assertEqual(calls[-1][-1], "kill-server")
+        self.assertTrue(any(line.strip() == "adb kill-server" for line in logs))
 
 
 if __name__ == "__main__":

@@ -17,22 +17,22 @@ from sequences_paths import default_sequences_dir, resolve_sequences_dir  # noqa
 
 
 class SequencePlaylistPathTests(unittest.TestCase):
-    def test_default_sequences_dir_under_user_cpharm(self) -> None:
-        self.assertEqual(default_sequences_dir(), Path.home() / "CPharm" / "sequences")
+    def test_default_sequences_dir_under_user_pharmflow(self) -> None:
+        self.assertEqual(default_sequences_dir(), Path.home() / "PharmFlow" / "sequences")
 
     def test_resolve_sequences_dir_honors_env(self) -> None:
         import os
 
         with tempfile.TemporaryDirectory() as tmp:
-            old = os.environ.get("CPHARM_SEQUENCES_DIR")
+            old = os.environ.get("PHARMFLOW_SEQUENCES_DIR")
             try:
-                os.environ["CPHARM_SEQUENCES_DIR"] = tmp
+                os.environ["PHARMFLOW_SEQUENCES_DIR"] = tmp
                 self.assertEqual(resolve_sequences_dir(), Path(tmp).resolve())
             finally:
                 if old is None:
-                    os.environ.pop("CPHARM_SEQUENCES_DIR", None)
+                    os.environ.pop("PHARMFLOW_SEQUENCES_DIR", None)
                 else:
-                    os.environ["CPHARM_SEQUENCES_DIR"] = old
+                    os.environ["PHARMFLOW_SEQUENCES_DIR"] = old
 
     def test_normalize_playlist_ref_keeps_subpath(self) -> None:
         self.assertEqual(

@@ -1,11 +1,11 @@
 """Probe farm Chromium UIs for bottom-ad presence — and AUTO-FIX when broken.
 
 Writes:
-  C:\\CPharm\\logs\\ads_watch_state.json
-  C:\\CPharm\\logs\\bottom_ads_alert.flag  (when ads missing / too few Chromium FG)
-  C:\\CPharm\\logs\\FARM_BOTTOM_ADS_NOW.txt  (NOT FARM_HONEST_NOW — remediator owns that)
+  C:\\PharmFlow\\logs\\ads_watch_state.json
+  C:\\PharmFlow\\logs\\bottom_ads_alert.flag  (when ads missing / too few Chromium FG)
+  C:\\PharmFlow\\logs\\FARM_BOTTOM_ADS_NOW.txt  (NOT FARM_HONEST_NOW — remediator owns that)
 
-Safe: no MuMu restart / adb kill-server. Does NOT Start CPharm EXE farm.
+Safe: no MuMu restart / adb kill-server. Does NOT Start PharmFlow EXE farm.
 
   py -u scripts/watch_bottom_ads.py once
   py -u scripts/watch_bottom_ads.py loop --loop 75
@@ -27,7 +27,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 import automation.no_window  # noqa: E402,F401  — CREATE_NO_WINDOW for every adb child
 
-LOG = Path(r"C:\CPharm\logs")
+LOG = Path(r"C:\PharmFlow\logs")
 OUT = LOG / "ads_watch_state.json"
 ALERT = LOG / "bottom_ads_alert.flag"
 # Own file — do NOT overwrite FARM_HONEST_NOW.txt (remediator + money_monitor own that).
@@ -39,7 +39,7 @@ DABFLOW = "https://getdabflow.app/"
 CHROME = "org.chromium.chrome"
 
 # Prefer bundled adb (same as farm) — platform-tools adb often pops a Terminal window.
-_ADB = str(Path(r"C:\CPharm\bundled\adb.exe"))
+_ADB = str(Path(r"C:\PharmFlow\bundled\adb.exe"))
 if not Path(_ADB).is_file():
     _ADB = "adb"
 
@@ -196,9 +196,9 @@ def _stagger_ok() -> tuple[bool, str]:
         sticky = json.loads(STICKY.read_text(encoding="utf-8"))
     except (OSError, ValueError, TypeError):
         return False, "sticky_missing"
-    win = str(sticky.get("CPHARM_FARM_START_STAGGER_WINDOW") or "")
-    gap = str(sticky.get("CPHARM_FARM_START_STAGGER_MIN_GAP") or "")
-    uniq = str(sticky.get("CPHARM_FARM_UNIQUE_SEQ") or "")
+    win = str(sticky.get("PHARMFLOW_FARM_START_STAGGER_WINDOW") or "")
+    gap = str(sticky.get("PHARMFLOW_FARM_START_STAGGER_MIN_GAP") or "")
+    uniq = str(sticky.get("PHARMFLOW_FARM_UNIQUE_SEQ") or "")
     # Operator 150/18 plus squeezed money-day windows. Unique-seq must stay on.
     ok = uniq == "1" and win in {"60", "75", "120", "150"} and gap in {"8", "10", "15", "18"}
     return ok, f"window={win} gap={gap} unique={uniq}"
@@ -402,7 +402,7 @@ def probe_phone(serial: str, port: int, name: str, *, farm_active: bool = False)
         "fg": fg,
         "chromium_fg": _chromium_fg,
         "adsbymantis": 0,
-        "cpharm": 0,
+        "pharmflow": 0,
         "fat_bounds": None,
         "ok": False,
         "note": "",
@@ -434,7 +434,7 @@ def probe_phone(serial: str, port: int, name: str, *, farm_active: bool = False)
         row["note"] = "dump_empty" if got_lock else "dump_lock_busy"
         return row
     row["adsbymantis"] = text.count("adsbymantis")
-    row["cpharm"] = text.lower().count("cpharm")
+    row["pharmflow"] = text.lower().count("pharmflow")
     fat = None
     for m in re.finditer(r"<node[^>]*adsbymantis[^>]*>", text):
         b = re.search(r'bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"', m.group(0))
@@ -716,7 +716,7 @@ def main() -> None:
         )
         if args.mode != "loop":
             break
-        # Floor 90s — tighter loops were fighting CPharm uiautomator + timing out ADB.
+        # Floor 90s — tighter loops were fighting PharmFlow uiautomator + timing out ADB.
         time.sleep(max(90.0, float(args.loop)))
 
 

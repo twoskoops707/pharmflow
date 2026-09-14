@@ -36,7 +36,7 @@ _ENGINE_PROC_NAMES = (
     "com.docker.service.exe",
 )
 
-_OVERRIDE_ENV = "CPHARM_DOCKER_ENGINE_UP"
+_OVERRIDE_ENV = "PHARMFLOW_DOCKER_ENGINE_UP"
 
 
 def _no_window_flags() -> int:

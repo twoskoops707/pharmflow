@@ -1,7 +1,7 @@
 """
 Detect MuMu Player installs on Windows (ARM64, Global 12, legacy).
 
-Used by CPharmMuMuSetup checklist and farm VM profile scanning.
+Used by PharmFlowMuMuSetup checklist and farm VM profile scanning.
 """
 
 from __future__ import annotations
@@ -48,7 +48,7 @@ _SUBPROC_FLAGS = getattr(subprocess, "CREATE_NO_WINDOW", 0) if IS_WIN else 0
 
 
 def _env_mumu_root() -> Path | None:
-    raw = os.environ.get("CPHARM_MUMU_ROOT", "").strip()
+    raw = os.environ.get("PHARMFLOW_MUMU_ROOT", "").strip()
     if not raw:
         return None
     p = Path(raw).expanduser()

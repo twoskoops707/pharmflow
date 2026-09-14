@@ -1,4 +1,4 @@
 @echo off
-title CPharm GUI
+title PharmFlow GUI
 cd /d "%~dp0.."
-python gui\cpharm_gui.py
+python gui\pharmflow_gui.py

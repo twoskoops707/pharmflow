@@ -10,7 +10,7 @@ Phone setup, the project agent, and the watchdog are the same binary. There is n
 | `PharmFlow.exe --watchdog` | ADB / connection check (same file) |
 | `PharmFlow.exe --agent` | Project diagnostics (same file) |
 
-Settings and logs stay under `C:\CPharm\` (not the EXE folder).
+Settings and logs stay under `C:\PharmFlow\` (not the EXE folder).
 
 ## Mantis money farm (most operators)
 
@@ -22,7 +22,7 @@ Settings and logs stay under `C:\CPharm\` (not the EXE folder).
 
 Do **not** start `ensure_farm_24x7.py` or `run_farm_354.py` from a terminal — **Start farm** in PharmFlow.exe owns the unison stack.
 
-Coordination with FreeBuff agent: `C:\CPharm\logs\AGENT_UNISON.json`
+Coordination with FreeBuff agent: `C:\PharmFlow\logs\AGENT_UNISON.json`
 
 ---
 

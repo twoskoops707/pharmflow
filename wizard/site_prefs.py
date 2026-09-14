@@ -8,16 +8,16 @@ from urllib.parse import urlparse
 
 # Dual import path: package (`wizard.*`) vs frozen EXE (wizard dir on sys.path).
 try:
-    from wizard.wizard_paths import cpharm_default_install_root
+    from wizard.wizard_paths import pharmflow_default_install_root
 except ImportError:  # pragma: no cover — flat layout inside frozen wizard bundle
-    from wizard_paths import cpharm_default_install_root  # type: ignore
+    from wizard_paths import pharmflow_default_install_root  # type: ignore
 
 DEFAULT_TARGET_SITE_URL = ""
 _PREFS_NAME = "wizard_site.json"
 
 
 def _prefs_path() -> Path:
-    rec = cpharm_default_install_root() / "automation" / "recordings"
+    rec = pharmflow_default_install_root() / "automation" / "recordings"
     rec.mkdir(parents=True, exist_ok=True)
     return rec / _PREFS_NAME
 
@@ -70,7 +70,7 @@ def site_display_host(url: str | None = None) -> str:
 
 
 def load_target_site_url() -> str:
-    env = os.environ.get("CPHARM_TARGET_SITE_URL", "").strip()
+    env = os.environ.get("PHARMFLOW_TARGET_SITE_URL", "").strip()
     if env:
         return normalize_site_url(env)
     try:

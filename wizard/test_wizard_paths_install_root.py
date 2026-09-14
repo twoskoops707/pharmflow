@@ -1,4 +1,4 @@
-"""Tests for PyInstaller vs dev CPharm tree resolution (wizard_paths)."""
+"""Tests for PyInstaller vs dev PharmFlow tree resolution (wizard_paths)."""
 from __future__ import annotations
 
 import os
@@ -20,24 +20,24 @@ def _temp_home_dir():
 
 class TestWizardPathsInstallRoot(unittest.TestCase):
     def test_repo_root_has_dashboard_in_dev(self) -> None:
-        root = wp.cpharm_install_root()
+        root = wp.pharmflow_install_root()
         self.assertTrue(
             (root / "automation" / "dashboard.py").is_file(),
             msg=f"expected automation/dashboard.py under {root}",
         )
 
-    def test_frozen_prefers_userprofile_cpharm(self) -> None:
+    def test_frozen_prefers_userprofile_pharmflow(self) -> None:
         with _temp_home_dir() as fake_home:
-            dashboard = fake_home / "CPharm" / "automation" / "dashboard.py"
+            dashboard = fake_home / "PharmFlow" / "automation" / "dashboard.py"
             dashboard.parent.mkdir(parents=True, exist_ok=True)
             dashboard.write_text("# stub", encoding="utf-8")
 
             with patch.object(sys, "frozen", True, create=True):
-                with patch.object(sys, "executable", str(fake_home / "Downloads" / "CPharm.exe")):
+                with patch.object(sys, "executable", str(fake_home / "Downloads" / "PharmFlow.exe")):
                     with patch.object(Path, "home", return_value=fake_home):
                         with patch.dict(os.environ, {}, clear=True):
-                            root = wp.cpharm_install_root()
-            self.assertEqual(root.resolve(), (fake_home / "CPharm").resolve())
+                            root = wp.pharmflow_install_root()
+            self.assertEqual(root.resolve(), (fake_home / "PharmFlow").resolve())
 
     def test_frozen_skips_meipass_even_with_dashboard(self) -> None:
         """Bundle extract may carry automation/; it must not win over a real user tree."""
@@ -48,17 +48,17 @@ class TestWizardPathsInstallRoot(unittest.TestCase):
             meipass = base / "meipass"
             (meipass / "automation").mkdir(parents=True)
             (meipass / "automation" / "dashboard.py").write_text("# m", encoding="utf-8")
-            user_cpharm = fake_home / "CPharm"
-            (user_cpharm / "automation").mkdir(parents=True)
-            (user_cpharm / "automation" / "dashboard.py").write_text("# u", encoding="utf-8")
+            user_pharmflow = fake_home / "PharmFlow"
+            (user_pharmflow / "automation").mkdir(parents=True)
+            (user_pharmflow / "automation" / "dashboard.py").write_text("# u", encoding="utf-8")
 
             with patch.object(sys, "frozen", True, create=True):
-                with patch.object(sys, "executable", str(fake_home / "Downloads" / "CPharm.exe")):
+                with patch.object(sys, "executable", str(fake_home / "Downloads" / "PharmFlow.exe")):
                     with patch.object(sys, "_MEIPASS", str(meipass), create=True):
                         with patch.object(Path, "home", return_value=fake_home):
                             with patch.dict(os.environ, {}, clear=True):
-                                root = wp.cpharm_install_root()
-            self.assertEqual(root.resolve(), user_cpharm.resolve())
+                                root = wp.pharmflow_install_root()
+            self.assertEqual(root.resolve(), user_pharmflow.resolve())
 
     def test_first_existing_subdir_prefers_first_hit(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -82,11 +82,11 @@ class TestWizardPathsInstallRoot(unittest.TestCase):
         """Exe beside no checkout: no dashboard under exe_dir, MEIPASS skipped, no %USERPROFILE% tree."""
         with _temp_home_dir() as fake_home:
             with patch.object(sys, "frozen", True, create=True):
-                with patch.object(sys, "executable", str(fake_home / "Downloads" / "CPharm.exe")):
+                with patch.object(sys, "executable", str(fake_home / "Downloads" / "PharmFlow.exe")):
                     with patch.object(Path, "home", return_value=fake_home):
                         with patch.dict(os.environ, {}, clear=True):
                             with patch.object(sys, "_MEIPASS", None, create=True):
-                                root = wp.cpharm_install_root()
+                                root = wp.pharmflow_install_root()
             self.assertEqual(root.resolve(), (fake_home / "Downloads").resolve())
 
 

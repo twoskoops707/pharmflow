@@ -17,7 +17,7 @@ from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 
 logger = logging.getLogger(__name__)
 
-CA_DIR = Path(os.environ.get("CPHARM_MANTIS_CA_DIR") or r"C:\CPharm\certs\mantis_inject")
+CA_DIR = Path(os.environ.get("PHARMFLOW_MANTIS_CA_DIR") or r"C:\PharmFlow\certs\mantis_inject")
 CA_KEY = CA_DIR / "ca.key.pem"
 CA_CERT = CA_DIR / "ca.cert.pem"
 _HOST_CACHE: dict[str, tuple[Path, Path]] = {}
@@ -31,8 +31,8 @@ def ensure_ca_files() -> tuple[Path, Path]:
     subject = issuer = x509.Name(
         [
             x509.NameAttribute(NameOID.COUNTRY_NAME, "US"),
-            x509.NameAttribute(NameOID.ORGANIZATION_NAME, "CPharm Mantis Inject"),
-            x509.NameAttribute(NameOID.COMMON_NAME, "CPharm Mantis Inject CA"),
+            x509.NameAttribute(NameOID.ORGANIZATION_NAME, "PharmFlow Mantis Inject"),
+            x509.NameAttribute(NameOID.COMMON_NAME, "PharmFlow Mantis Inject CA"),
         ]
     )
     now = datetime.now(timezone.utc)

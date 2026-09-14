@@ -59,13 +59,13 @@ _SSP_FETCH_UA = (
 )
 # Cross-process handoff: hunter runs out-of-process; in-memory _store_ssp_ads
 # never reaches farm workers. Persist paying creatives here for farm load.
-_SSP_PAYING_FILL_PATH = Path(r"C:\CPharm\logs\ssp_paying_fill.json")
+_SSP_PAYING_FILL_PATH = Path(r"C:\PharmFlow\logs\ssp_paying_fill.json")
 # Inject proxy publishes each phone's real browser fingerprint here; the host
 # SSP fetches below adopt it so Mantis serves the paying tier. Measured
 # 2026-09-11: bare urllib UA → paying=0 (bot tier) on every round, while the
 # same probe with phone client hints → paying=4. Without this the hunter's
 # bare probes saw only mantis-bot fill (utm_source=mantis-bot) for hours.
-_CLIENT_HINTS_PUBLISH_PATH = Path(r"C:\CPharm\logs\client_hints_by_phone.json")
+_CLIENT_HINTS_PUBLISH_PATH = Path(r"C:\PharmFlow\logs\client_hints_by_phone.json")
 _CLIENT_HINTS_CACHE: tuple[float, dict[str, dict[str, str]]] = (0.0, {})
 _CLIENT_HINTS_LOCK = threading.Lock()
 
@@ -141,13 +141,13 @@ def _ssp_browser_headers() -> dict[str, str]:
 _SSP_PAYING_FILL_MAX_AGE_S = 120.0
 
 
-_STICKY_OVERRIDES = Path(r"C:\CPharm\logs\farm_runtime_overrides.json")
+_STICKY_OVERRIDES = Path(r"C:\PharmFlow\logs\farm_runtime_overrides.json")
 _sticky_mtime: float = -1.0
 _sticky_cache: dict[str, str] = {}
 
 
 def _sticky_overrides() -> dict[str, str]:
-    """Mtime-cached sticky CPHARM_* so money knobs apply without Farm Start bounce."""
+    """Mtime-cached sticky PHARMFLOW_* so money knobs apply without Farm Start bounce."""
     global _sticky_mtime, _sticky_cache
     try:
         mtime = _STICKY_OVERRIDES.stat().st_mtime
@@ -162,7 +162,7 @@ def _sticky_overrides() -> dict[str, str]:
         _sticky_cache = {
             str(k): str(v)
             for k, v in (data or {}).items()
-            if str(k).startswith("CPHARM_")
+            if str(k).startswith("PHARMFLOW_")
         }
         _sticky_mtime = mtime
     except (OSError, json.JSONDecodeError, TypeError, ValueError):
@@ -184,16 +184,16 @@ def _env_or_sticky_float(name: str, default: float) -> float:
 
 def _ssp_ttl() -> float:
     # Re-read sticky/env each call so money-day TTL knobs apply without process recycle.
-    return max(15.0, min(600.0, _env_or_sticky_float("CPHARM_SSP_CACHE_TTL", 90.0)))
+    return max(15.0, min(600.0, _env_or_sticky_float("PHARMFLOW_SSP_CACHE_TTL", 90.0)))
 
 
 def _ssp_refresh_s() -> float:
-    return max(8.0, min(300.0, _env_or_sticky_float("CPHARM_SSP_CACHE_REFRESH", 45.0)))
+    return max(8.0, min(300.0, _env_or_sticky_float("PHARMFLOW_SSP_CACHE_REFRESH", 45.0)))
 
 
 def _ssp_house_only_ttl() -> float:
     # Floor 1s — money-day sticky may set 4s so house TTL does not block paying return.
-    return max(1.0, min(300.0, _env_or_sticky_float("CPHARM_SSP_HOUSE_ONLY_TTL", 45.0)))
+    return max(1.0, min(300.0, _env_or_sticky_float("PHARMFLOW_SSP_HOUSE_ONLY_TTL", 45.0)))
 
 
 def ssp_cache_age_s() -> float:
@@ -504,7 +504,7 @@ def _consume_ssp_force_refresh_flag() -> bool:
     hunter just locked. Now: ingest shared paying file first; only clear memory
     when there is no paying creative to keep.
     """
-    flag = Path(r"C:\CPharm\logs\SSP_FORCE_REFRESH.flag")
+    flag = Path(r"C:\PharmFlow\logs\SSP_FORCE_REFRESH.flag")
     try:
         if not flag.is_file():
             return False
@@ -592,54 +592,74 @@ def prefetch_ssp_ads_prefer_paying(
         except Exception as exc:
             logger.debug("SSP prefer-paying host fetch soft-fail: %s", exc)
             ads = prefetch_ssp_ads(force=True) or []
-        # After a few house-only host hits, probe Tor exits (phone path).
-        # Ports MUST come from the live Tor generation (bases auto-shift per
-        # boot; lanes are keyed by absolute phone index). Hardcoding
-        # ``8118 + (i % 6)`` dialed ports nobody listens on, so the Tor probe
-        # leg of the burst silently never worked.
+        # Probe live fleet Tor HTTP tunnels — never hardcoded dead VM indexes.
+        # upstream_tor_port(22) with vm38-47 live returns base+22 (nobody
+        # listening), so the Tor leg never ran and host-IP paying fills were
+        # locked. Opening those after a phone house impression pays $0.
         tor_ports: list[int] = []
         try:
             from automation.mantis_inject_proxy import upstream_tor_port
 
-            tor_ports = [upstream_tor_port(idx) for idx in (22, 23, 24, 25, 26, 27, 29)]
+            lock = Path(
+                os.environ.get("PHARMFLOW_LOGS")
+                or os.environ.get("PHARMFLOW_LOG_DIR")
+                or r"C:\PharmFlow\logs"
+            ) / "ADB_SERIAL_MAP.lock.json"
+            live_idxs: list[int] = []
+            try:
+                phones = json.loads(lock.read_text(encoding="utf-8")).get("phones") or {}
+                for name in phones:
+                    m = re.match(r"^vm(\d+)\.", str(name))
+                    if m:
+                        live_idxs.append(int(m.group(1)))
+            except Exception:
+                live_idxs = []
+            if not live_idxs:
+                live_idxs = list(range(8))
+            seen_ports: set[int] = set()
+            for idx in sorted(set(live_idxs)):
+                port = int(upstream_tor_port(idx))
+                if port in seen_ports:
+                    continue
+                seen_ports.add(port)
+                tor_ports.append(port)
         except Exception:
             tor_ports = []
-        # Probe through a real phone Tor lane every round: browser-shaped
-        # headers now travel on the Tor leg too (``fetch_ssp_display_ads_via_tor``
-        # adopts ``_ssp_browser_headers()``), and the phone exits are the tier
-        # Mantis actually serves paying fill to. Host-direct stays in the loop
-        # for redundancy — measured 2026-09-11: host-direct bare probes returned
-        # mantis-bot fill for hours while phone-exit probes got paying tier.
-        if ssp_ads_paying_count(ads) == 0 and tor_ports:
+        # Prefer phone-exit inventory. Host-direct paying tokens must not win —
+        # Path3 opening them after a Tor impression is a silent $0 click.
+        host_ads = list(ads)
+        via_tor: list[dict[str, Any]] = []
+        if tor_ports:
             tor_port = tor_ports[i % len(tor_ports)]
             try:
                 via_tor = fetch_ssp_display_ads_via_tor(
                     tor_http_port=tor_port, timezone=tz, timeout=10.0
-                )
-                if via_tor:
-                    ads = via_tor
+                ) or []
             except Exception as exc:
                 logger.debug(
                     "SSP prefer-paying tor:%s soft-fail: %s", tor_port, exc
                 )
-            except Exception as exc:
-                logger.debug(
-                    "SSP prefer-paying tor:%s soft-fail: %s", tor_port, exc
-                )
-        if ssp_ads_paying_count(ads) > ssp_ads_paying_count(best):
-            best = ads
-        if ssp_ads_paying_count(ads) > 0:
-            if ads:
-                _store_ssp_ads(ads)
-                _clear_ssp_house_only()
+                via_tor = []
+        tor_paying = ssp_ads_paying_count(via_tor)
+        if tor_paying > 0:
+            _store_ssp_ads(via_tor)
+            _clear_ssp_house_only()
             return filter_ssp_ads_prefer_paying(
-                ads, allow_house_fallback=allow_house_fallback
+                via_tor, allow_house_fallback=allow_house_fallback
             )
+        # Tor house-only this round — keep best empty of host tokens.
+        if allow_house_fallback and via_tor:
+            if ssp_ads_paying_count(via_tor) >= ssp_ads_paying_count(best):
+                best = via_tor
+        elif allow_house_fallback and host_ads and not best:
+            best = host_ads
         if i + 1 < n_attempts:
             time.sleep(max(0.05, float(delay_s)))
+    if not allow_house_fallback:
+        return []
     return filter_ssp_ads_prefer_paying(
-        best or get_cached_ssp_ads(allow_stale=True),
-        allow_house_fallback=allow_house_fallback,
+        best or get_cached_ssp_ads(allow_stale=True) or [],
+        allow_house_fallback=True,
     )
 
 
@@ -667,9 +687,9 @@ def ensure_ssp_cache_warm() -> None:
 
 
 PATCH_JS = r"""
-(function cpharmDabflowMantisPatch() {
+(function pharmflowDabflowMantisPatch() {
   // Re-runnable: farm may re-inject after navigation / age-gate.
-  window.__cpharmMantisPatchV1 = true;
+  window.__pharmflowMantisPatchV1 = true;
   var PROPERTY_ID = '6950d5527c56c6494f189e46';
   var SSP = 'https://ssp.mantis.marketing/display';
   var fixedZones = {
@@ -682,7 +702,7 @@ PATCH_JS = r"""
   function ensureBottomTesterZone() {
     // Home lists 'tester' but dabflow HTML has no data-mantis-zone=tester.
     // Mount BELOW #recommended (not inside) — recommend.min.js wipes children.
-    var wrap = document.getElementById('cpharm-bottom-ad');
+    var wrap = document.getElementById('pharmflow-bottom-ad');
     var z = wrap && wrap.querySelector('[data-mantis-zone="tester"]');
     if (wrap && z) {
       wrap.style.cssText = 'display:block!important;visibility:visible!important;opacity:1!important;'
@@ -691,15 +711,15 @@ PATCH_JS = r"""
       return z;
     }
     wrap = document.createElement('div');
-    wrap.id = 'cpharm-bottom-ad';
-    wrap.className = 'ad-container cpharm-bottom-ad';
-    wrap.setAttribute('data-cpharm-bottom-host', '1');
+    wrap.id = 'pharmflow-bottom-ad';
+    wrap.className = 'ad-container pharmflow-bottom-ad';
+    wrap.setAttribute('data-pharmflow-bottom-host', '1');
     wrap.style.cssText = 'display:block!important;visibility:visible!important;opacity:1!important;'
       + 'min-height:250px;width:100%;max-width:320px;margin:0.75rem auto 5.5rem;text-align:center;'
       + 'overflow:visible!important;position:relative;z-index:20;';
     z = document.createElement('div');
     z.setAttribute('data-mantis-zone', 'tester');
-    z.setAttribute('data-cpharm-bottom', '1');
+    z.setAttribute('data-pharmflow-bottom', '1');
     wrap.appendChild(z);
     var rec = document.getElementById('recommended');
     var anchor = rec && (rec.parentElement || rec);
@@ -739,8 +759,8 @@ PATCH_JS = r"""
       });
       // Path1/2 may display creatives, but normal functional taps must pass
       // through no ad link. Path3 explicitly sets cssOnly=false before paint.
-      var interactive = window.__cpharmCssOnly === false;
-      document.querySelectorAll('.cpharm-mantis-creative').forEach(function(el) {
+      var interactive = window.__pharmflowCssOnly === false;
+      document.querySelectorAll('.pharmflow-mantis-creative').forEach(function(el) {
         el.style.pointerEvents = interactive ? 'auto' : 'none';
         el.style.cursor = interactive ? 'pointer' : 'default';
         if (interactive) {
@@ -780,10 +800,10 @@ PATCH_JS = r"""
     // Path1/2 must not wipe a native iframe. Path3 (cssOnly false) replaces
     // it so the visible creative and the click token are the same fill.
     try {
-      var interactive = window.__cpharmCssOnly === false;
+      var interactive = window.__pharmflowCssOnly === false;
       if (!interactive && z.querySelector('iframe')) return false;
       if (!interactive && z.querySelector('img[src*="mantis"], img[src*="static.mantis"]')
-          && !z.querySelector('.cpharm-mantis-creative')) return false;
+          && !z.querySelector('.pharmflow-mantis-creative')) return false;
     } catch (eSkip) {}
     fixSlotCss();
     z.style.minWidth = '300px';
@@ -793,7 +813,7 @@ PATCH_JS = r"""
     var h = ad.creative_height || 250;
     var href = ad.click_url || '#';
     // aria-label/content markers so UIAutomator live-pick finds CDP creatives.
-    z.innerHTML = '<a class="cpharm-mantis-creative" href="' + href
+    z.innerHTML = '<a class="pharmflow-mantis-creative" href="' + href
       + '" target="_blank" rel="noopener noreferrer" aria-label="adsbymantis"'
       + ' data-mantis-zone="' + ad.zone_id + '"'
       + ' style="display:block;width:100%;text-align:center;">'
@@ -814,7 +834,7 @@ PATCH_JS = r"""
         slim.push({zone_id: ad.zone_id, click_url: ad.click_url});
       });
       if (!slim.length) return;
-      fetch('https://getdabflow.app/__cpharm_viewed', {
+      fetch('https://getdabflow.app/__pharmflow_viewed', {
         method: 'POST',
         headers: {'Content-Type': 'text/plain'},
         body: JSON.stringify({ads: slim}),
@@ -824,12 +844,78 @@ PATCH_JS = r"""
       }).catch(function() {});
     } catch (e) {}
   }
+  // Host-prefetched bi/bt do not match the impression this phone's exit
+  // fetched. Capture the SSP JSON the page itself received and store that.
+  if (!window.__pharmflowSspHooked) {
+    window.__pharmflowSspHooked = true;
+    function paintPhoneBottom(ads) {
+      var ad = null;
+      (ads || []).forEach(function(item) {
+        if (ad || !item || !item.creative_url) return;
+        var h = item.creative_height || 0;
+        if (h >= 200 || !ad) ad = item;
+      });
+      if (!ad || !ad.creative_url) return;
+      var wrap = document.getElementById('pharmflow-bottom-ad');
+      if (!wrap) {
+        wrap = document.createElement('div');
+        wrap.id = 'pharmflow-bottom-ad';
+        wrap.setAttribute('data-pharmflow-bottom-host', '1');
+        var rec = document.getElementById('recommended');
+        var main = document.querySelector('main') || document.body;
+        if (rec && rec.parentElement) rec.parentElement.insertBefore(wrap, rec.nextSibling);
+        else if (main) main.appendChild(wrap);
+        else document.body.appendChild(wrap);
+      }
+      wrap.style.cssText = 'display:block!important;visibility:visible!important;opacity:1!important;'
+        + 'min-height:250px;width:100%;max-width:320px;margin:0.75rem auto 5.5rem;text-align:center;'
+        + 'overflow:visible!important;position:relative;z-index:20;';
+      var href = ad.click_url || '#';
+      wrap.innerHTML = '<a class="pharmflow-mantis-creative" href="' + href
+        + '" data-mantis-zone="tester" style="display:block;width:100%;text-align:center;">'
+        + '<img src="' + ad.creative_url + '" width="300" height="250" alt="sponsored"'
+        + ' style="max-width:100%;height:auto;display:inline-block;"></a>';
+    }
+    function captureSspPayload(data) {
+      var ads = (data && data.ads) || [];
+      try { paintPhoneBottom(ads); } catch (ePaint) {}
+      try { reportViewed(ads); } catch (eCap) {}
+    }
+    if (window.fetch) {
+      var origFetch = window.fetch;
+      window.fetch = function(input, init) {
+        var url = '';
+        try { url = (typeof input === 'string') ? input : ((input && input.url) || ''); } catch (eUrl) {}
+        var pending = origFetch.apply(this, arguments);
+        if (String(url).indexOf('ssp.mantis.marketing') !== -1 && pending && pending.then) {
+          pending.then(function(resp) {
+            try {
+              resp.clone().json().then(captureSspPayload).catch(function() {});
+            } catch (eClone) {}
+          }).catch(function() {});
+        }
+        return pending;
+      };
+    }
+    if (window.XMLHttpRequest) {
+      var origSend = XMLHttpRequest.prototype.send;
+      XMLHttpRequest.prototype.send = function(body) {
+        this.addEventListener('load', function() {
+          try {
+            var u = this.responseURL || '';
+            if (u.indexOf('ssp.mantis.marketing') === -1) return;
+            captureSspPayload(JSON.parse(this.responseText || '{}'));
+          } catch (eXhr) {}
+        });
+        return origSend.apply(this, arguments);
+      };
+    }
+  }
   function paintFromSsp(zoneList) {
     // cssOnly blocks interactive Path1/2 taps. AllowSspPaint (MITM inject) still
     // fetches SSP + fires served/viewed pixels so Mantis impressions can bill
     // when CDP /json is dead. Path3 sets cssOnly=false for clickable ads.
-    if (window.__cpharmCssOnly && !window.__cpharmAllowSspPaint) return;
-    if (window.__cpharmMantisPainted && window.__cpharmMantisPainted > 0) return;
+    if (window.__pharmflowCssOnly && !window.__pharmflowAllowSspPaint) return;
     var zones = zoneList && zoneList.length ? zoneList : ['zone-one','zone-two','zone-five','zone-nine','zone-twelve'];
     var widths = {};
     zones.forEach(function(z) { widths[z] = 300; });
@@ -851,8 +937,7 @@ PATCH_JS = r"""
         credentials: 'omit',
         mode: 'cors'
       }).then(function(r) { return r.json(); }).then(function(data) {
-        if (window.__cpharmCssOnly && !window.__cpharmAllowSspPaint) return;
-        if (window.__cpharmMantisPainted && window.__cpharmMantisPainted > 0) return;
+        if (window.__pharmflowCssOnly && !window.__pharmflowAllowSspPaint) return;
         var ads = (data && data.ads) || [];
         var painted = 0;
         ads.forEach(function(ad) {
@@ -863,17 +948,17 @@ PATCH_JS = r"""
           }
         });
         reportViewed(ads);
-        window.__cpharmMantisPainted = painted;
+        window.__pharmflowMantisPainted = painted;
         fixSlotCss();
       }).catch(function() {});
     } catch (e) {}
   }
   function refreshZones(zones) {
-    if (window.__cpharmCssOnly && !window.__cpharmAllowSspPaint) {
+    if (window.__pharmflowCssOnly && !window.__pharmflowAllowSspPaint) {
       fixSlotCss();
       return;
     }
-    if (window.__cpharmCssOnly && window.__cpharmAllowSspPaint) {
+    if (window.__pharmflowCssOnly && window.__pharmflowAllowSspPaint) {
       fixSlotCss();
       // Give native mantis.js first crack (billable); host/SSP paint is fallback.
       if (typeof mantis !== 'undefined' && zones) {
@@ -902,8 +987,8 @@ PATCH_JS = r"""
       setTimeout(function() { paintFromSsp(zones); }, 2200);
     }, 40);
   }
-  if (typeof switchScreen === 'function' && !window.__cpharmSwitchWrapped) {
-    window.__cpharmSwitchWrapped = true;
+  if (typeof switchScreen === 'function' && !window.__pharmflowSwitchWrapped) {
+    window.__pharmflowSwitchWrapped = true;
     var prevSwitch = switchScreen;
     switchScreen = function(screenName) {
       prevSwitch.apply(this, arguments);
@@ -915,22 +1000,22 @@ PATCH_JS = r"""
     };
   }
   // Default: CSS-only makes a painted Path1/2 creative non-interactive.
-  // Path3 / ad-fill sets window.__cpharmCssOnly=false before enabling ad clicks.
-  // MITM sets __cpharmAllowSspPaint so impression pixels still fire without clicks.
-  if (typeof window.__cpharmCssOnly === 'undefined') {
-    window.__cpharmCssOnly = true;
+  // Path3 / ad-fill sets window.__pharmflowCssOnly=false before enabling ad clicks.
+  // MITM sets __pharmflowAllowSspPaint so impression pixels still fire without clicks.
+  if (typeof window.__pharmflowCssOnly === 'undefined') {
+    window.__pharmflowCssOnly = true;
   }
   fixSlotCss();
-  if (!window.__cpharmCssOnly || window.__cpharmAllowSspPaint) {
+  if (!window.__pharmflowCssOnly || window.__pharmflowAllowSspPaint) {
     refreshZones(fixedZones.home);
     paintFromSsp(fixedZones.home.concat(fixedZones.timer, fixedZones.stats, fixedZones.glass, fixedZones.settings));
   }
-  if (!window.__cpharmCoolAdTimer) {
-    window.__cpharmCoolAdTimer = setInterval(function() {
+  if (!window.__pharmflowCoolAdTimer) {
+    window.__pharmflowCoolAdTimer = setInterval(function() {
       try {
         // Path1/2 (cssOnly): keep re-arming pointer-events:none — native Mantis
         // iframes/SDK nodes spawn after first paint and otherwise steal taps → clicks.
-        if (window.__cpharmCssOnly) {
+        if (window.__pharmflowCssOnly) {
           fixSlotCss();
           return;
         }
@@ -955,7 +1040,7 @@ PATCH_JS = r"""
 
 
 def patch_enabled_from_env() -> bool:
-    raw = os.environ.get("CPHARM_DABFLOW_MANTIS_PATCH", "").strip().lower()
+    raw = os.environ.get("PHARMFLOW_DABFLOW_MANTIS_PATCH", "").strip().lower()
     if raw in ("0", "false", "no", "off"):
         return False
     if raw in ("1", "true", "yes", "on"):
@@ -1029,7 +1114,7 @@ def _list_unix_devtools_sockets(adb: AdbWrapper, serial: str) -> list[str]:
 def _probe_cdp_json(host_port: int, *, timeout: float = 3.0) -> list[dict[str, Any]] | None:
     """Return target list if /json responds; None on connection/parse failure."""
     url = f"http://127.0.0.1:{host_port}/json"
-    req = urllib.request.Request(url, headers={"User-Agent": "CPharm-cdp/1"})
+    req = urllib.request.Request(url, headers={"User-Agent": "PharmFlow-cdp/1"})
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             data = json.loads(resp.read().decode("utf-8"))
@@ -1367,22 +1452,22 @@ def inject_patch(
             ws_url = str(target["webSocketDebuggerUrl"])
             if paint_creatives and ads:
                 expression = (
-                    f"window.__cpharmCssOnly={css_flag};\n"
-                    "window.__cpharmAllowSspPaint=true;\n"
-                    "window.__cpharmMantisPainted=0;\n"
+                    f"window.__pharmflowCssOnly={css_flag};\n"
+                    "window.__pharmflowAllowSspPaint=true;\n"
+                    "window.__pharmflowMantisPainted=0;\n"
                     + PATCH_JS
                     + "\n"
                     + _ssp_paint_expression(ads, empty_only=True)
                 )
             elif paint_creatives:
                 expression = (
-                    f"window.__cpharmCssOnly={css_flag};\n"
-                    "window.__cpharmAllowSspPaint=true;\n"
-                    "window.__cpharmMantisPainted=0;\n"
+                    f"window.__pharmflowCssOnly={css_flag};\n"
+                    "window.__pharmflowAllowSspPaint=true;\n"
+                    "window.__pharmflowMantisPainted=0;\n"
                     + PATCH_JS
                 )
             else:
-                expression = "window.__cpharmCssOnly=true;\n" + PATCH_JS
+                expression = "window.__pharmflowCssOnly=true;\n" + PATCH_JS
             result = asyncio.run(_cdp_evaluate(ws_url, expression))
             err = (result.get("result") or {}).get("exceptionDetails")
             if err:
@@ -1464,7 +1549,7 @@ def _ssp_paint_expression(
     try {{ var pre = new Image(); pre.decoding = 'async'; pre.src = ad.creative_url; }} catch (e) {{}}
   }});
   function ensureBottomTesterZone() {{
-    var wrap = document.getElementById('cpharm-bottom-ad');
+    var wrap = document.getElementById('pharmflow-bottom-ad');
     var zEl = wrap && wrap.querySelector('[data-mantis-zone=\"tester\"]');
     if (wrap && zEl) {{
       wrap.style.cssText = 'display:block!important;visibility:visible!important;opacity:1!important;'
@@ -1473,15 +1558,15 @@ def _ssp_paint_expression(
       return zEl;
     }}
     wrap = document.createElement('div');
-    wrap.id = 'cpharm-bottom-ad';
-    wrap.className = 'ad-container cpharm-bottom-ad';
-    wrap.setAttribute('data-cpharm-bottom-host', '1');
+    wrap.id = 'pharmflow-bottom-ad';
+    wrap.className = 'ad-container pharmflow-bottom-ad';
+    wrap.setAttribute('data-pharmflow-bottom-host', '1');
     wrap.style.cssText = 'display:block!important;visibility:visible!important;opacity:1!important;'
       + 'min-height:250px;width:100%;max-width:320px;margin:0.75rem auto 5.5rem;text-align:center;'
       + 'overflow:visible!important;position:relative;z-index:20;';
     zEl = document.createElement('div');
     zEl.setAttribute('data-mantis-zone', 'tester');
-    zEl.setAttribute('data-cpharm-bottom', '1');
+    zEl.setAttribute('data-pharmflow-bottom', '1');
     wrap.appendChild(zEl);
     var rec = document.getElementById('recommended');
     var anchor = rec && (rec.parentElement || rec);
@@ -1510,7 +1595,7 @@ def _ssp_paint_expression(
     try {{
       if (z.querySelector('iframe')) return true;
       if (z.querySelector('img[src*=\"mantis\"], img[src*=\"static.mantis\"]')) return true;
-      if (z.querySelector('.cpharm-mantis-creative')) return true;
+      if (z.querySelector('.pharmflow-mantis-creative')) return true;
       var html = (z.innerHTML || '').trim();
       if (html.length > 40) return true;
     }} catch (e) {{}}
@@ -1560,16 +1645,16 @@ def _ssp_paint_expression(
     var w = paintAd.creative_width || 300;
     var h = paintAd.creative_height || 250;
     var href = paintAd.click_url || '#';
-    z.innerHTML = '<a class=\"cpharm-mantis-creative\" href=\"' + href
+    z.innerHTML = '<a class=\"pharmflow-mantis-creative\" href=\"' + href
       + '\" target=\"_blank\" rel=\"noopener noreferrer\" aria-label=\"adsbymantis\"'
       + ' data-mantis-zone=\"' + paintAd.zone_id + '\"'
       + ' style=\"display:block;width:100%;text-align:center;\">'
       + '<img src=\"' + paintAd.creative_url + '\" width=\"' + w + '\" height=\"' + h
       + '\" alt=\"sponsored\" loading=\"eager\" decoding=\"async\" style=\"max-width:100%;height:auto;display:inline-block;margin:0 auto;\">'
       + '</a>';
-    var link = z.querySelector('.cpharm-mantis-creative');
+    var link = z.querySelector('.pharmflow-mantis-creative');
     if (link) {{
-      var interactive = window.__cpharmCssOnly === false;
+      var interactive = window.__pharmflowCssOnly === false;
       link.style.pointerEvents = interactive ? 'auto' : 'none';
       link.style.cursor = interactive ? 'pointer' : 'default';
       if (!interactive) {{
@@ -1583,7 +1668,7 @@ def _ssp_paint_expression(
     painted += 1;
   }});
   if (painted > 0) {{
-    window.__cpharmMantisPainted = (window.__cpharmMantisPainted || 0) + painted;
+    window.__pharmflowMantisPainted = (window.__pharmflowMantisPainted || 0) + painted;
   }}
   return painted;
 }})();
@@ -1749,7 +1834,7 @@ def paint_ssp_creatives_via_cdp(ws_url: str) -> dict[str, Any]:
     if not ads:
         return {"ok": False, "error": "no ssp ads", "painted": 0}
     try:
-        enable = "window.__cpharmCssOnly=false;\nwindow.__cpharmMantisPainted=0;\n"
+        enable = "window.__pharmflowCssOnly=false;\nwindow.__pharmflowMantisPainted=0;\n"
         result = asyncio.run(_cdp_evaluate(ws_url, enable + _ssp_paint_expression(ads)))
         painted = (result.get("result") or {}).get("result", {}).get("value")
         ok = bool(painted)
@@ -1799,7 +1884,7 @@ def click_url_for_zone(
 
     When ``prefer_paying`` is set, skip house/bot creatives and any clicked URL
     without a live bi+bt token. A stale host cache or a synthetic wrap
-    (``bi=cpharm-fallback`` / no ``bt``) returns HTTP 200 and pays $0.
+    (``bi=pharmflow-fallback`` / no ``bt``) returns HTTP 200 and pays $0.
     """
     want = (zone or "").strip()
     ads: list[dict[str, Any]] = []
@@ -1884,11 +1969,11 @@ _CREATIVE_BOUNDS_JS = """
 (function() {
   var dpr = window.devicePixelRatio || 1;
   var out = [];
-  document.querySelectorAll('a.cpharm-mantis-creative').forEach(function(a) {
+  document.querySelectorAll('a.pharmflow-mantis-creative').forEach(function(a) {
     var href = a.href || '';
     if (!href || href === '#' || href.indexOf('javascript:') === 0) return;
     var pe = (a.style && a.style.pointerEvents) || '';
-    if (window.__cpharmCssOnly === true || pe === 'none') return;
+    if (window.__pharmflowCssOnly === true || pe === 'none') return;
     var r = a.getBoundingClientRect();
     if (r.width < 40 || r.height < 40) return;
     if (r.bottom < 80 || r.top > (window.innerHeight || 1600) - 40) return;

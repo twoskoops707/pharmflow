@@ -81,7 +81,7 @@ def active_geo_catalog() -> tuple[GeoLocale, ...]:
 
 
 def _window_enabled() -> bool:
-    return os.environ.get("CPHARM_GEO_TIME_WINDOW", "1").strip().lower() not in (
+    return os.environ.get("PHARMFLOW_GEO_TIME_WINDOW", "1").strip().lower() not in (
         "0",
         "false",
         "no",
@@ -93,11 +93,11 @@ def parse_window(
     start: time | None = None,
     end: time | None = None,
 ) -> tuple[time, time]:
-    """Parse CPHARM_GEO_WINDOW_START / END as HH:MM (default 09:30–00:00)."""
+    """Parse PHARMFLOW_GEO_WINDOW_START / END as HH:MM (default 09:30–00:00)."""
     s = start or DEFAULT_WINDOW_START
     e = end or DEFAULT_WINDOW_END
-    raw_s = os.environ.get("CPHARM_GEO_WINDOW_START", "").strip()
-    raw_e = os.environ.get("CPHARM_GEO_WINDOW_END", "").strip()
+    raw_s = os.environ.get("PHARMFLOW_GEO_WINDOW_START", "").strip()
+    raw_e = os.environ.get("PHARMFLOW_GEO_WINDOW_END", "").strip()
     if raw_s:
         hh, mm = raw_s.split(":", 1)
         s = time(int(hh), int(mm))
@@ -247,7 +247,7 @@ def apply_geo_window_to_serials(
 ) -> list[tuple[str, GeoLocale]]:
     """Assign and apply one in-window locale per serial. Returns assignments."""
     if not _window_enabled():
-        logger.info("CPHARM_GEO_TIME_WINDOW disabled — skipping geo apply")
+        logger.info("PHARMFLOW_GEO_TIME_WINDOW disabled — skipping geo apply")
         return []
     locales = pick_locales_for_phones(len(serials), now_utc=now_utc)
     assigned: list[tuple[str, GeoLocale]] = []

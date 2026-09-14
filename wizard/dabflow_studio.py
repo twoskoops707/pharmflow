@@ -56,7 +56,7 @@ RATIONALE_LINES = (
     "Humanization: per-sequence wait ranges, scroll start/stop variance (scroll_swipe_params / seeds), "
     "coordinate jitter. Regenerate stamps sequence_version={version}.",
     "Farm cadence (scripts/run_farm_354.py): Path1/2 gap {gap_min}–{gap_max}s; "
-    "Path3 ≤{p3}/hour/phone; default --hours {hours}. Prefs set CPHARM_FARM_* env vars only — "
+    "Path3 ≤{p3}/hour/phone; default --hours {hours}. Prefs set PHARMFLOW_FARM_* env vars only — "
     "this card does not start the farm.",
 )
 
@@ -166,13 +166,13 @@ def save_farm_prefs(prefs: dict[str, Any]) -> None:
 def apply_farm_prefs_to_environ(prefs: dict[str, Any] | None = None) -> None:
     """Set env vars for farm runners — does not start the farm."""
     p = prefs or load_farm_prefs()
-    os.environ["CPHARM_FARM_PATHS"] = str(p.get("paths") or DEFAULT_FARM_PATHS)
+    os.environ["PHARMFLOW_FARM_PATHS"] = str(p.get("paths") or DEFAULT_FARM_PATHS)
     allow = p.get("allow_ads", DEFAULT_FARM_ALLOW_ADS)
-    os.environ["CPHARM_FARM_ALLOW_ADS"] = "1" if allow else "0"
-    os.environ["CPHARM_FARM_GAP_MIN"] = str(p.get("gap_min_s", DEFAULT_FARM_GAP_MIN_S))
-    os.environ["CPHARM_FARM_GAP_MAX"] = str(p.get("gap_max_s", DEFAULT_FARM_GAP_MAX_S))
-    os.environ["CPHARM_FARM_PATH3_PER_HOUR"] = str(p.get("path3_per_hour", DEFAULT_PATH3_PER_HOUR))
-    os.environ["CPHARM_FARM_HOURS"] = str(p.get("hours", DEFAULT_FARM_HOURS))
+    os.environ["PHARMFLOW_FARM_ALLOW_ADS"] = "1" if allow else "0"
+    os.environ["PHARMFLOW_FARM_GAP_MIN"] = str(p.get("gap_min_s", DEFAULT_FARM_GAP_MIN_S))
+    os.environ["PHARMFLOW_FARM_GAP_MAX"] = str(p.get("gap_max_s", DEFAULT_FARM_GAP_MAX_S))
+    os.environ["PHARMFLOW_FARM_PATH3_PER_HOUR"] = str(p.get("path3_per_hour", DEFAULT_PATH3_PER_HOUR))
+    os.environ["PHARMFLOW_FARM_HOURS"] = str(p.get("hours", DEFAULT_FARM_HOURS))
 
 
 def regenerate_base_sequences(*, preset: str = "moderate") -> tuple[int, Path]:
@@ -337,7 +337,7 @@ def build_farm_cadence_card(app: Any, parent: tk.Misc) -> None:
         text=(
             f"Path1/2 gap {int(DEFAULT_FARM_GAP_MIN_S)}–{int(DEFAULT_FARM_GAP_MAX_S)}s; "
             f"Path3 ≤{DEFAULT_PATH3_PER_HOUR}/hour/phone; default duration "
-            f"{int(DEFAULT_FARM_HOURS)}h (CPHARM_FARM_HOURS / --hours). "
+            f"{int(DEFAULT_FARM_HOURS)}h (PHARMFLOW_FARM_HOURS / --hours). "
             "Saved to desktop_prefs and env for scripts/run_farm_354.py — does not start farm."
         ),
         font=FONT_CAPTION,
@@ -359,14 +359,14 @@ def build_farm_cadence_card(app: Any, parent: tk.Misc) -> None:
             side="left", ipady=3
         )
 
-    _row("Paths (CPHARM_FARM_PATHS)", app._farm_paths_var, 16)
+    _row("Paths (PHARMFLOW_FARM_PATHS)", app._farm_paths_var, 16)
     _row("Gap min seconds", app._farm_gap_min_var)
     _row("Gap max seconds", app._farm_gap_max_var)
     _row("Path3 per hour / phone", app._farm_path3_var)
     _row("Duration hours (--hours)", app._farm_hours_var)
     tk.Checkbutton(
         grid,
-        text="Allow Path3 ads (CPHARM_FARM_ALLOW_ADS)",
+        text="Allow Path3 ads (PHARMFLOW_FARM_ALLOW_ADS)",
         variable=app._farm_allow_ads_var,
         bg=BG2,
         fg=T1,

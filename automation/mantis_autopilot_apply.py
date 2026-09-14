@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-DEFAULT_LOG_DIR = Path(os.environ.get("CPHARM_LOG_DIR", r"C:\CPharm\logs"))
+DEFAULT_LOG_DIR = Path(os.environ.get("PHARMFLOW_LOG_DIR", r"C:\PharmFlow\logs"))
 _RESTART_MIN_GAP_S = 600.0
 
 
@@ -41,7 +41,7 @@ def _append_jsonl(path: Path, row: dict[str, Any]) -> None:
 def _dry_run_flag(explicit: bool | None) -> bool:
     if explicit is not None:
         return bool(explicit)
-    return os.environ.get("CPHARM_AUTOPILOT_DRY_RUN", "").strip().lower() in (
+    return os.environ.get("PHARMFLOW_AUTOPILOT_DRY_RUN", "").strip().lower() in (
         "1",
         "true",
         "yes",
@@ -92,7 +92,7 @@ def apply_steering_plan(
     state_path = log / "autopilot_state.json"
 
     patch = plan.get("overrides_patch") if isinstance(plan.get("overrides_patch"), dict) else {}
-    patch = {str(k): str(v) for k, v in patch.items() if str(k).startswith("CPHARM_")}
+    patch = {str(k): str(v) for k, v in patch.items() if str(k).startswith("PHARMFLOW_")}
     actions = plan.get("actions") if isinstance(plan.get("actions"), list) else []
     reason = str(plan.get("reason") or "")
 
@@ -143,12 +143,12 @@ def apply_steering_plan(
             phones = panel.get("phones") if isinstance(panel.get("phones"), list) else []
             vparts = [
                 p.strip()
-                for p in str(env.get("CPHARM_FARM_DAILY_VISITS") or "").split(",")
+                for p in str(env.get("PHARMFLOW_FARM_DAILY_VISITS") or "").split(",")
                 if p.strip()
             ]
             aparts = [
                 p.strip()
-                for p in str(env.get("CPHARM_FARM_DAILY_ADS") or "").split(",")
+                for p in str(env.get("PHARMFLOW_FARM_DAILY_ADS") or "").split(",")
                 if p.strip()
             ]
             if phones and vparts:

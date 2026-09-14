@@ -1,5 +1,5 @@
-// CPharm Service Worker — enables PWA install on Android
-const CACHE = 'cpharm-v1';
+// PharmFlow Service Worker — enables PWA install on Android
+const CACHE = 'pharmflow-v1';
 
 self.addEventListener('install', e => {
   self.skipWaiting();

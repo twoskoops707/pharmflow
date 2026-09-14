@@ -11,13 +11,14 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
+import automation.no_window  # noqa: E402,F401  — hide tick consoles under pythonw
 TICK = ROOT / "scripts" / "agent_unison_freebuff_tick.py"
 
 
 def _python() -> str:
     pyw = sys.executable.replace("python.exe", "pythonw.exe")
     return pyw if Path(pyw).is_file() else sys.executable
-LOG = Path(r"C:\CPharm\logs\freebuff_loop.log")
+LOG = Path(r"C:\PharmFlow\logs\freebuff_loop.log")
 INTERVAL = 45
 FLAGS = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 

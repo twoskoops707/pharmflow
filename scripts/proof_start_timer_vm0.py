@@ -24,8 +24,8 @@ from automation.browse_proxy import prepare_browse_session
 from automation.dabflow_overlays import ensure_start_perfect_dab
 from wizard.mumu_farm_ops import MuMuFarmOps
 
-OUT = Path(r"C:\CPharm\logs\proof_fix")
-ADB_BIN = os.environ.get("CPHARM_ADB") or r"C:\CPharm\bundled\adb.exe"
+OUT = Path(r"C:\PharmFlow\logs\proof_fix")
+ADB_BIN = os.environ.get("PHARMFLOW_ADB") or r"C:\PharmFlow\bundled\adb.exe"
 
 
 def main() -> int:
@@ -49,8 +49,8 @@ def main() -> int:
         return local
 
     def dump(tag: str) -> str:
-        farm.adb.shell("uiautomator dump /sdcard/cpharm_ui.xml", serial=ser)
-        xml = farm.adb.shell("cat /sdcard/cpharm_ui.xml", serial=ser).stdout or ""
+        farm.adb.shell("uiautomator dump /sdcard/pharmflow_ui.xml", serial=ser)
+        xml = farm.adb.shell("cat /sdcard/pharmflow_ui.xml", serial=ser).stdout or ""
         (OUT / f"{tag}.xml").write_text(xml, encoding="utf-8", errors="replace")
         texts = re.findall(r'text="([^"]{2,80})"', xml)
         keys = (

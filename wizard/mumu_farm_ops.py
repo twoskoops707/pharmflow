@@ -1,7 +1,7 @@
 """
-MuMu farm operations — single module used by CPharmMuMuSetup, CPharm wizard, and dashboard.
+MuMu farm operations — single module used by PharmFlowMuMuSetup, PharmFlow wizard, and dashboard.
 
-Operators run **CPharmMuMuSetup.exe → GO** or wizard Boot/Go buttons. The ``tools/`` scripts
+Operators run **PharmFlow → Phones → Set up my phones** or wizard Boot/Go buttons. The ``tools/`` scripts
 are thin dev-only CLIs that call into this module.
 """
 
@@ -26,7 +26,7 @@ LogFn = Callable[[str], None]
 
 BASE_W, BASE_H = 900, 1600
 HITS_PER_DAY = 720
-CPHARM_PHONE_FB_W, CPHARM_PHONE_FB_H, CPHARM_PHONE_FB_DPI = 900, 1600, 300
+PHARMFLOW_PHONE_FB_W, PHARMFLOW_PHONE_FB_H, PHARMFLOW_PHONE_FB_DPI = 900, 1600, 300
 
 CORE_NO_AD = "900x1600/no-ad/dabflow__demo__ONE.json"
 CORE_AD = "900x1600/ad/dabflow__demo__TWO.json"
@@ -122,13 +122,13 @@ def scan_mumu_vm_profiles() -> list[dict]:
 
 
 def profile_needs_phone_baseline(prof: dict) -> bool:
-    """True when MuMu setting.json is Tablet or not CPharm 900x1600 phone portrait."""
+    """True when MuMu setting.json is Tablet or not PharmFlow 900x1600 phone portrait."""
     if (prof.get("resolution_type") or "").lower() == "tablet":
         return True
     fw, fh = prof.get("framebuffer") or (0, 0)
-    if (fw, fh) != (CPHARM_PHONE_FB_W, CPHARM_PHONE_FB_H):
+    if (fw, fh) != (PHARMFLOW_PHONE_FB_W, PHARMFLOW_PHONE_FB_H):
         return True
-    if int(prof.get("dpi") or 0) != CPHARM_PHONE_FB_DPI:
+    if int(prof.get("dpi") or 0) != PHARMFLOW_PHONE_FB_DPI:
         return True
     if (prof.get("orientation") or "").lower() != "portrait":
         return True
@@ -152,15 +152,15 @@ def fix_mumu_tablet_profiles(log: LogFn | None = None, *, dry_run: bool = False)
         if dry_run:
             fixed += 1
             continue
-        bak = sp.with_suffix(sp.suffix + f".bak-cpharm-{int(time.time())}")
+        bak = sp.with_suffix(sp.suffix + f".bak-pharmflow-{int(time.time())}")
         shutil.copy2(sp, bak)
         data = json.loads(sp.read_text(encoding="utf-8-sig"))
         res = data.setdefault("ResolutionPresetSelected", {})
         res["ResolutionType"] = "Phone"
         data["DeviceOrientation"] = "Portrait"
-        data["FramebufferWidth"] = CPHARM_PHONE_FB_W
-        data["FramebufferHeight"] = CPHARM_PHONE_FB_H
-        data["FramebufferDPI"] = CPHARM_PHONE_FB_DPI
+        data["FramebufferWidth"] = PHARMFLOW_PHONE_FB_W
+        data["FramebufferHeight"] = PHARMFLOW_PHONE_FB_H
+        data["FramebufferDPI"] = PHARMFLOW_PHONE_FB_DPI
         sp.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
         log(f"    Patched {sp.name} (backup {bak.name}) — cold-boot this MuMu instance.")
         fixed += 1
@@ -226,10 +226,9 @@ def discover_serials(
     force_mumu_scan: bool = False,
 ) -> list[str]:
     """
-    Discover phone serials from adb; optionally wait and fall back to MuMu port scan.
-
-    ``count`` limits how many phones are returned (0 = all). ``wait_minutes`` polls until
-    enough phones appear or the deadline passes.
+    Discover every phone serial adb answers. ``count`` is ignored — a returned
+    slice used to drop phones past that number. ``wait_minutes`` polls until
+    any phone appears or the deadline passes.
     """
     log = log or _noop_log
     deadline = time.monotonic() + max(0.0, wait_minutes) * 60.0
@@ -243,8 +242,8 @@ def discover_serials(
 
     while True:
         serials = _from_adb()
-        if serials and (not count or len(serials) >= count):
-            return serials[:count] if count else serials
+        if serials:
+            return serials
 
         if not force_mumu_scan and not count:
             if wait_minutes <= 0 or time.monotonic() >= deadline:
@@ -265,20 +264,19 @@ def discover_serials(
                 wiz.state["mumu_mgr_path"] = str(mgr)
                 log(f"MuMu manager: {mgr}")
             connected = wiz._connect_mumu_phones(
-                count=max(count, 8),
                 log_fn=lambda m: log(m),
                 force_full_scan=True,
             )
             serials = order_farm_serials(connected)
             if serials:
-                return serials[:count] if count else serials
+                return serials
 
         if wait_minutes <= 0:
             break
         log(f"  Found {len(serials)}/{count or '?'} phones — waiting 20s (boot more in MuMu)…")
         time.sleep(20)
 
-    return order_farm_serials(serials)[:count] if count and serials else order_farm_serials(serials)
+    return order_farm_serials(serials)
 
 
 def adb_device_props(serial: str) -> dict[str, str]:
@@ -676,7 +674,7 @@ def run_farm_setup(
     wait_minutes: float = 0,
 ) -> tuple[list[str], dict]:
     """
-    Core farm prep used by CPharmMuMuSetup GO and wizard re-apply buttons.
+    Core farm prep used by PharmFlowMuMuSetup GO and wizard re-apply buttons.
 
     Returns ``(serials, fingerprint_summary)``.
     """
@@ -735,7 +733,7 @@ def write_groups_config_file(
     out_path: Path,
     *,
     extended_ad: bool = False,
-    note: str = "Written by CPharm MuMu farm setup",
+    note: str = "Written by PharmFlow MuMu farm setup",
 ) -> Path:
     """Write ``groups_config.json`` for connected serials (repo dev or install root)."""
     phones = {
@@ -762,11 +760,11 @@ def write_groups_config_file(
 def write_desktop_prefs_file(serials: list[str], out_path: Path, *, note: str | None = None) -> Path:
     """Write ``desktop_prefs.json`` with Tor slot phone order."""
     data = {
-        "tor_proxy_configured": True,
+        "tor_proxy_configured": False,
         "browse_proxy_mode": "scramble",
         "phone_upstream_proxies": [],
         "phone_serials": serials,
-        "mumu_setup_complete": True,
+        "mumu_setup_complete": False,
         "note": note
         or "MuMu farm setup; Tor/upstream slots follow phone_serials order. Default browse: scramble.",
     }
@@ -775,7 +773,7 @@ def write_desktop_prefs_file(serials: list[str], out_path: Path, *, note: str | 
     return out_path
 
 
-# --- FamFlow generation appendix (merged): MuMuInstance / MuMuFarmOps ---
+# --- PharmFlow generation appendix (merged): MuMuInstance / MuMuFarmOps ---
 import logging as _logging_fb
 from dataclasses import asdict, dataclass, field
 from automation.adb_wrapper import AdbDevice, AdbWrapper
@@ -943,7 +941,7 @@ class MuMuFarmOps:
 
     def refresh_serials(self) -> dict[str, str]:
         """Re-resolve every known phone to its live ADB serial."""
-        log_dir = Path(os.environ.get("CPHARM_LOG_DIR", r"C:\CPharm\logs"))
+        log_dir = Path(os.environ.get("PHARMFLOW_LOG_DIR", r"C:\PharmFlow\logs"))
         lock_path = log_dir / "ADB_SERIAL_MAP.lock.json"
         phones_map: dict[str, str] = {}
         tablet_map: dict[str, str] = {}
@@ -987,7 +985,7 @@ class MuMuFarmOps:
     def _setting_identity_keys(self, vm_path: Path) -> list[str]:
         """Collect brand/model/Miit tokens from ARM or classic setting.json.
 
-        Prefer PhoneProp.* (what the running guest reports) over CPharm patch
+        Prefer PhoneProp.* (what the running guest reports) over PharmFlow patch
         fields that may lag until the next cold boot.
         """
         ordered: list[str] = []
@@ -1023,7 +1021,7 @@ class MuMuFarmOps:
 
     def _serial_map_from_lock(self, live_devices: list[AdbDevice]) -> dict[int, str] | None:
         """Use ADB_SERIAL_MAP.lock when every listed serial is live — skips mpid getprop storm."""
-        log_dir = Path(os.environ.get("CPHARM_LOG_DIR", r"C:\CPharm\logs"))
+        log_dir = Path(os.environ.get("PHARMFLOW_LOG_DIR", r"C:\PharmFlow\logs"))
         lock_path = log_dir / "ADB_SERIAL_MAP.lock.json"
         if not lock_path.is_file():
             return None
@@ -1187,7 +1185,7 @@ class MuMuFarmOps:
 
         Used on x64 transfer boxes running BlueStacks, Studio AVD, LDPlayer, etc.
         """
-        log_dir = Path(os.environ.get("CPHARM_LOG_DIR", r"C:\CPharm\logs"))
+        log_dir = Path(os.environ.get("PHARMFLOW_LOG_DIR", r"C:\PharmFlow\logs"))
         phones_map: dict[str, str] = {}
         try:
             lock_path = log_dir / "ADB_SERIAL_MAP.lock.json"
@@ -1206,12 +1204,12 @@ class MuMuFarmOps:
                 ov = json.loads(ov_path.read_text(encoding="utf-8-sig")) if ov_path.is_file() else {}
                 names = [
                     p.strip()
-                    for p in str(ov.get("CPHARM_FARM_PHONES") or "").split(",")
+                    for p in str(ov.get("PHARMFLOW_FARM_PHONES") or "").split(",")
                     if p.strip()
                 ]
                 serials = [
                     s.strip()
-                    for s in str(ov.get("CPHARM_ADB_SERIALS") or "").split(",")
+                    for s in str(ov.get("PHARMFLOW_ADB_SERIALS") or "").split(",")
                     if s.strip()
                 ]
                 for i, name in enumerate(names):
@@ -1239,7 +1237,7 @@ class MuMuFarmOps:
             inst = MuMuInstance(
                 name=name,
                 index=idx,
-                vm_path=Path(r"C:\CPharm\adb_only") / name,
+                vm_path=Path(r"C:\PharmFlow\adb_only") / name,
                 adb_serial=serial,
                 running=connected,
             )
@@ -1250,7 +1248,9 @@ class MuMuFarmOps:
                 "ADB-only phone seed: %s",
                 ", ".join(f"{i.name}={i.adb_serial}" for i in instances),
             )
-            self._sync_phone_names([i.name for i in instances])
+            # Live-only roster here too: an ADB-serial row whose phone is not
+            # actually online is a ghost and must not enter the config roster.
+            self._sync_phone_names([i.name for i in instances if i.running])
         return instances
 
     def _list_instances_unlocked(self) -> list[MuMuInstance]:
@@ -1327,7 +1327,11 @@ class MuMuFarmOps:
                 instances.append(extra)
                 self.instances[extra_name] = extra
 
-        self._sync_phone_names([i.name for i in instances])
+        # Roster = LIVE phones only. Syncing every disk folder made the farm
+        # adopt 40+ ghost phones (no VM, no ADB), poisoned pharmflow_config.json
+        # (phones=49), and blew the per-phone Tor/inject port mapping past the
+        # live Tor fleet — the 2026-09-13 "48 ghosts, 8 real" incident.
+        self._sync_phone_names([i.name for i in instances if i.running])
         return instances
 
     def _sync_phone_names(self, names: list[str]) -> None:
@@ -1476,7 +1480,7 @@ class MuMuFarmOps:
         return inst
 
     def _apply_farm_guest_rails(self, inst: MuMuInstance) -> None:
-        """Rooted phone (not tablet), writable disk, lean CPU/RAM — CPharm.exe create path."""
+        """Rooted phone (not tablet), writable disk, lean CPU/RAM — PharmFlow.exe create path."""
         vm = find_vm_dir(self.vms_dir or inst.vm_path.parent, inst.name)
         if vm:
             notes = apply_farm_guest_rails_vm(vm)
@@ -1538,7 +1542,7 @@ class MuMuFarmOps:
         except Exception:
             pass
         try:
-            log_dir = Path(os.environ.get("CPHARM_LOG_DIR", r"C:\CPharm\logs"))
+            log_dir = Path(os.environ.get("PHARMFLOW_LOG_DIR", r"C:\PharmFlow\logs"))
             lock_path = log_dir / "ADB_SERIAL_MAP.lock.json"
             if lock_path.is_file():
                 data = json.loads(lock_path.read_text(encoding="utf-8-sig"))
@@ -1593,37 +1597,19 @@ class MuMuFarmOps:
                 inst.running = True
             return True
 
-        # Host-side wedge recovery BEFORE any VM churn: a wedged adb server
-        # makes every device look offline (even `adb devices -l` can time out),
-        # and spinning VMs on that false signal was restart-looping healthy
-        # phones. Restart the server + reconnect known serials once; only if
-        # the phone is STILL silent do we consider relaunching the VM.
+        # An empty ADB listing is not proof the server is wedged. kill-server
+        # drops every phone the farm is already using, including ones this
+        # client failed to list. Reconnect known serials. Do not restart ADB.
         if not instance_shell_running(idx):
             try:
-                live = self.enumerate_adb_devices(force=True)
-                any_live = any(
-                    getattr(d, "online", False)
-                    and (d.serial.startswith("10.0.2.") or d.serial.startswith("127.0.0.1:"))
-                    for d in live
-                )
-            except Exception:
-                any_live = False
-            if not any_live:
-                try:
-                    logger.warning(
-                        "ARM start %s: no live ADB devices — restarting wedged adb server + reconnecting fleet",
-                        name,
-                    )
-                    self.adb.run("kill-server", timeout=15.0)
-                    self.adb.run("start-server", timeout=20.0)
-                    self._reconnect_known_serials()
-                except Exception as exc:
-                    logger.warning("adb server restart failed: %s", exc)
-                serial2 = self._arm_usable_serial(name, inst)
-                if serial2 and self.adb.wait_for_device(serial2, timeout=_ARM_ADB_WAIT_ALREADY_S):
-                    if inst:
-                        inst.running = True
-                    return True
+                self._reconnect_known_serials()
+            except Exception as exc:
+                logger.warning("adb reconnect before ARM start failed: %s", exc)
+            serial2 = self._arm_usable_serial(name, inst)
+            if serial2 and self.adb.wait_for_device(serial2, timeout=_ARM_ADB_WAIT_ALREADY_S):
+                if inst:
+                    inst.running = True
+                return True
 
         # Shell already up (slow Snapdragon boot) — wait, do NOT re-launch.
         if instance_shell_running(idx):
@@ -1688,14 +1674,18 @@ class MuMuFarmOps:
         return result.returncode == 0
 
     def cold_boot(self, name: str) -> bool:
-        """Stop and restart â€” required after fingerprint patch for getprop update."""
+        """Stop and restart so a fingerprint patch is visible in getprop.
+
+        ARM MuMu has no manager CLI for this. Power the VM off and on from the
+        MuMu window. A True return used to claim a reboot that did not happen.
+        """
         if self._is_arm_backend():
             logger.info(
-                "ARM cold_boot skipped for %s (no manager CLI) â€” patch applies on next manual restart",
+                "ARM cold_boot skipped for %s (no manager CLI). "
+                "Patch applies on the next restart from the MuMu window.",
                 name,
             )
-            self.refresh_serials()
-            return True
+            return False
         self.stop_phone(name)
         time.sleep(3.0)
         return self.start_phone(name)
@@ -1792,25 +1782,21 @@ class MuMuFarmOps:
 
             apply_fingerprint(self.vms_dir, name, prof, shell_fn=shell_fn)
             want_unique = require_unique_exit_ip()
-            if dabflow_browse_active() and not want_unique:
-                try:
-                    self.tor.clear_all_proxies_on_devices([inst.adb_serial])
-                except Exception as exc:
-                    logger.warning("Clear proxy after VM rotate failed for %s: %s", name, exc)
-            else:
-                try:
-                    self.setup_tor(name)
-                    ip_result = self.tor.ensure_unique_exit_ip(inst.index, inst.adb_serial)
-                    self._last_exit_ip_rotate = ip_result
-                    logger.info("[%s] %s", name, ip_result.log_line())
-                    if want_unique and not ip_result.ok:
-                        raise RuntimeError(
-                            f"exit IP not unique after rotate ({ip_result.log_line()})"
-                        )
-                except Exception as exc:
-                    logger.warning("Tor re-setup after rotate failed for %s: %s", name, exc)
-                    if want_unique:
-                        raise
+            # Clearing the guest proxy after rotate sent traffic out the VM/host.
+            # Re-apply that phone's Tor exit instead.
+            try:
+                self.setup_tor(name)
+                ip_result = self.tor.ensure_unique_exit_ip(inst.index, inst.adb_serial)
+                self._last_exit_ip_rotate = ip_result
+                logger.info("[%s] %s", name, ip_result.log_line())
+                if want_unique and not ip_result.ok:
+                    raise RuntimeError(
+                        f"exit IP not unique after rotate ({ip_result.log_line()})"
+                    )
+            except Exception as exc:
+                logger.warning("Tor re-setup after rotate failed for %s: %s", name, exc)
+                if want_unique:
+                    raise
             # Always re-pin inject for Chromium after rotate (never leave :0/null).
             try:
                 pkg = browser_package_for_serial(inst.adb_serial)

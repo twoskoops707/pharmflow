@@ -1,7 +1,7 @@
 """
 Per-device human-like variance: same step semantics, stable RNG per (serial, cycle).
 
-Enable via config/env (see ``config.HUMAN_VARIATION`` / ``CPHARM_HUMAN_VARIATION``).
+Enable via config/env (see ``config.HUMAN_VARIATION`` / ``PHARMFLOW_HUMAN_VARIATION``).
 
 Scheduling uses a separate stable RNG (see :func:`schedule_rng`) so a given phone's
 fire times for a calendar day are reproducible across process restarts when the
@@ -29,8 +29,6 @@ FALLBACK_STEP_GAP_MIN = 0.35
 FALLBACK_STEP_GAP_MAX = 0.55
 # Pre-tap delay scaling
 PRE_WAIT_SPREAD = 0.06
-# Cap scaled pre-tap wait (ms) so bad configs cannot stall taps unbounded
-PRE_WAIT_MS_CAP = 10000.0
 # Multi-phone stagger: scale base delay by ± this fraction (open_url / legacy paths)
 STAGGER_JITTER_FRAC = 0.15
 # Group phone stagger: ± this fraction around ``stagger_secs`` when ``human_stagger`` (default on)
@@ -48,7 +46,7 @@ INTER_SCHEDULED_HIT_MAX = 1.38
 POST_DAY_IDLE_MIN_SEC = 60.0
 POST_DAY_IDLE_MAX_SEC = 300.0
 # Blake2b key so schedule RNG stream never collides with :func:`stable_seed` mixes
-_SCHED_RNG_KEY = b"cpharm.sched.firetimes.v1"
+_SCHED_RNG_KEY = b"pharmflow.sched.firetimes.v1"
 
 
 def _digest_blake2b_or_sha256(data: bytes, *, digest_size: int = 8, key: bytes | None = None) -> bytes:
@@ -121,21 +119,29 @@ def scaled_wait_seconds(
 
 
 def scaled_pre_wait_ms(base_ms: float, rng: random.Random) -> float:
-    """Scale pre-tap delay like ``scaled_wait_seconds``, capped at ``PRE_WAIT_MS_CAP``."""
+    """Scale pre-tap delay like ``scaled_wait_seconds``.
+
+    Variance is applied around the stored number. It is not pulled back under
+    a hidden cap. Age-gate taps apply their own short cap in the runner.
+    """
     if base_ms <= 0:
         return 0.0
     lo, hi = 1.0 - PRE_WAIT_SPREAD, 1.0 + PRE_WAIT_SPREAD
-    return min(PRE_WAIT_MS_CAP, base_ms * rng.uniform(lo, hi))
+    return max(0.0, base_ms * rng.uniform(lo, hi))
 
 
 def effective_tap_jitter(step_jitter: int, rng: Optional[random.Random]) -> int:
-    """Clamp step jitter to [0,120]; if human mode and rng set, add bounded variance."""
-    j = max(0, min(120, step_jitter))
+    """Use the stored tap radius. Human mode may add a small extra radius.
+
+    A missing radius (0) still gets a small automatic radius when human
+    variation is on. A stored radius is not pulled back under 120.
+    """
+    j = max(0, int(step_jitter))
     if rng is None or not enabled():
         return j
     if j == 0:
         return rng.randint(AUTO_JITTER_MIN, AUTO_JITTER_MAX)
-    return min(120, j + rng.randint(0, EXTRA_ON_TOP))
+    return j + rng.randint(0, EXTRA_ON_TOP)
 
 
 def step_gap_seconds(rng: random.Random) -> float:

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""End-to-end flow audit — catches wiring mistakes before they ship in CPharm.exe."""
+"""End-to-end flow audit — catches wiring mistakes before they ship in PharmFlow.exe."""
 from __future__ import annotations
 
 import ast
@@ -18,13 +18,13 @@ def _fail(msg: str) -> int:
 def main() -> int:
     sys.path.insert(0, str(_WIZARD))
 
-    from cpharm_wizard_bridge import WIZARD_STEPS
-    from setup_wizard import CPharmWizard
+    from pharmflow_wizard_bridge import WIZARD_STEPS
+    from setup_wizard import PharmFlowWizard
 
     if len(WIZARD_STEPS) != 10:
         return _fail(f"WIZARD_STEPS has {len(WIZARD_STEPS)} entries, expected 10")
-    if len(CPharmWizard.PAGES) != 9:
-        return _fail(f"CPharmWizard.PAGES has {len(CPharmWizard.PAGES)} entries, expected 9")
+    if len(PharmFlowWizard.PAGES) != 9:
+        return _fail(f"PharmFlowWizard.PAGES has {len(PharmFlowWizard.PAGES)} entries, expected 9")
     for i, step in enumerate(WIZARD_STEPS):
         if step.get("index") != i:
             return _fail(f"WIZARD_STEPS[{i}] index mismatch: {step.get('index')}")
@@ -35,7 +35,7 @@ def main() -> int:
         ("groups", 7),
         ("launch", 8),
     ):
-        if idx >= len(CPharmWizard.PAGE_NAMES):
+        if idx >= len(PharmFlowWizard.PAGE_NAMES):
             return _fail(f"spawn page index {idx} for {label} out of range")
 
     spawn_src = (_WIZARD / "wizard_tk_spawn.py").read_text(encoding="utf-8")
@@ -44,17 +44,17 @@ def main() -> int:
     if "subprocess.Popen" not in spawn_src:
         return _fail("wizard_tk_spawn must use subprocess.Popen")
 
-    desktop = (_WIZARD / "cpharm_desktop.py").read_text(encoding="utf-8")
-    if "run_cpharm_app_or_fallback" not in desktop.split("def main")[-1]:
-        return _fail("default main() path must call run_cpharm_app_or_fallback() (WebView UI)")
+    desktop = (_WIZARD / "pharmflow_desktop.py").read_text(encoding="utf-8")
+    if "run_pharmflow_app_or_fallback" not in desktop.split("def main")[-1]:
+        return _fail("default main() path must call run_pharmflow_app_or_fallback() (WebView UI)")
     if "_use_classic_tk_shell" not in desktop:
         return _fail("main() missing classic Tk gate")
 
     phone_entry = (_WIZARD / "phone_setup_entry.py").read_text(encoding="utf-8")
     if "mumu_setup_webview" not in phone_entry:
         return _fail("phone_setup_main must open mumu_setup_webview")
-    if "cpharm_app_webview" in phone_entry:
-        return _fail("phone_setup must not route to cpharm_app_webview")
+    if "pharmflow_app_webview" in phone_entry:
+        return _fail("phone_setup must not route to pharmflow_app_webview")
 
     core = (_WIZARD / "mumu_setup_core.py").read_text(encoding="utf-8")
     if "Already set up — opening PharmFlow" not in core:
@@ -62,13 +62,13 @@ def main() -> int:
     if "phone settings and sequences refreshed" not in core:
         return _fail("unified exe refresh message missing from mumu_setup_core")
 
-    html = (_WIZARD / "assets" / "cpharm_app" / "index.html").read_text(encoding="utf-8")
+    html = (_WIZARD / "assets" / "pharmflow_app" / "index.html").read_text(encoding="utf-8")
     if "data-bubble" in html or "bubble-panel" in html:
         return _fail("WebView HTML still uses bubble panels")
 
-    import cpharm_desktop
+    import pharmflow_desktop
 
-    src = inspect.getsource(cpharm_desktop.main)
+    src = inspect.getsource(pharmflow_desktop.main)
     tree = ast.parse(src)
     handlers = set()
     for node in ast.walk(tree):
@@ -82,7 +82,7 @@ def main() -> int:
             if node.func.id == "_use_classic_tk_shell":
                 handlers.add("classic_tk")
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
-            if node.func.id == "run_cpharm_app_or_fallback":
+            if node.func.id == "run_pharmflow_app_or_fallback":
                 handlers.add("webview")
 
     for required in ("--internal-tk-page", "phone_setup", "webview"):
@@ -94,8 +94,8 @@ def main() -> int:
     if not callable(_persist_groups_config) or not callable(_try_load_groups_config):
         return _fail("groups persist/load helpers missing")
 
-    bridge_src = (_WIZARD / "cpharm_wizard_bridge.py").read_text(encoding="utf-8")
-    webview_src = (_WIZARD / "cpharm_app_webview.py").read_text(encoding="utf-8")
+    bridge_src = (_WIZARD / "pharmflow_wizard_bridge.py").read_text(encoding="utf-8")
+    webview_src = (_WIZARD / "pharmflow_app_webview.py").read_text(encoding="utf-8")
     if "run_startup_cleanup(" in webview_src:
         return _fail("Control Panel open must not run phone-setup cleanup (adb kill-server)")
     # Deck-native path: cursor_* endpoints + headless builder/groups (no Tk page windows).
@@ -106,13 +106,16 @@ def main() -> int:
         "cursor_remove_group",
         "cursor_rename_group",
         "boot_all_phones",
+        "boot_all_status",
+        "test_phone_status",
+        "scan_site_status",
     ):
         if f"def {fn}" not in bridge_src:
-            return _fail(f"cpharm_wizard_bridge missing {fn}")
+            return _fail(f"pharmflow_wizard_bridge missing {fn}")
     for fn in ("open_sequence_builder", "open_groups_manager"):
         block = bridge_src.split(f"def {fn}", 1)
         if len(block) < 2:
-            return _fail(f"cpharm_wizard_bridge missing {fn}")
+            return _fail(f"pharmflow_wizard_bridge missing {fn}")
         head = block[1].split("\ndef ", 1)[0]
         if "_open_wizard_page_window" in head:
             return _fail(f"{fn} must stay deck-native (no Tk page window)")

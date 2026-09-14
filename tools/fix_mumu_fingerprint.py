@@ -25,7 +25,7 @@ def main() -> int:
     args = ap.parse_args()
 
     serials = args.serial or farm.order_farm_serials(farm.list_adb_serials())
-    print("CPharm — phone fingerprint fix / audit (dev CLI)")
+    print("PharmFlow — phone fingerprint fix / audit (dev CLI)")
     print("Operators: PharmFlow → Phones → Set up my phones")
     print("=" * 50)
 

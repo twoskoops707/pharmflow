@@ -93,7 +93,7 @@ def test_reap_stale_never_kills_inject_keepalive() -> None:
     """Keepalive holds lock-map inject ports — roster inject is poison, keepalive is not."""
     farm_cmd = "pythonw -u scripts/run_farm_354.py"
     roster_inject_cmd = "pythonw -u scripts/run_mantis_inject_proxies.py --phones 14"
-    keepalive_cmd = "pythonw -u scripts/cpharm_inject_keepalive.py"
+    keepalive_cmd = "pythonw -u scripts/pharmflow_inject_keepalive.py"
 
     class _Proc:
         def __init__(self, pid: int, ppid: int, cmd: str) -> None:
@@ -112,7 +112,7 @@ def test_reap_stale_never_kills_inject_keepalive() -> None:
 
     with mock.patch.dict("sys.modules", {"psutil": fake_psutil}):
         with mock.patch(
-            "tools.cpharm_watchdog.reap_stale",
+            "tools.pharmflow_watchdog.reap_stale",
             return_value={"found": 0, "killed": 0, "kills": []},
         ):
             fixes = heal.reap_stale_processes(apply=False)
@@ -126,8 +126,8 @@ def test_reap_stale_never_kills_inject_keepalive() -> None:
 
 def test_reap_stale_dedupes_inject_keepalive() -> None:
     """When >1 keepalive, kill extras but keep highest PID."""
-    keepalive_old = "pythonw -u scripts/cpharm_inject_keepalive.py"
-    keepalive_new = "pythonw -u scripts/cpharm_inject_keepalive.py"
+    keepalive_old = "pythonw -u scripts/pharmflow_inject_keepalive.py"
+    keepalive_new = "pythonw -u scripts/pharmflow_inject_keepalive.py"
 
     class _Proc:
         def __init__(self, pid: int, ppid: int, cmd: str) -> None:
@@ -145,7 +145,7 @@ def test_reap_stale_dedupes_inject_keepalive() -> None:
 
     with mock.patch.dict("sys.modules", {"psutil": fake_psutil}):
         with mock.patch(
-            "tools.cpharm_watchdog.reap_stale",
+            "tools.pharmflow_watchdog.reap_stale",
             return_value={"found": 0, "killed": 0, "kills": []},
         ):
             fixes = heal.reap_stale_processes(apply=False)
@@ -169,8 +169,8 @@ def _storm_proc(pid: int, ppid: int, name: str, cmd: str, age_s: float = 10.0) -
 
 def test_reap_process_storm_kills_orphan_tor() -> None:
     farm_cmd = "pythonw -u scripts/run_farm_354.py"
-    owned_tor_cmd = r'tor.exe -f C:\CPharm\automation\tor\tmp1.cfg'
-    orphan_tor_cmd = r'tor.exe -f C:\CPharm\automation\tor\tmp99.cfg'
+    owned_tor_cmd = r'tor.exe -f C:\PharmFlow\automation\tor\tmp1.cfg'
+    orphan_tor_cmd = r'tor.exe -f C:\PharmFlow\automation\tor\tmp99.cfg'
 
     rows = [
         _storm_proc(100, 1, "pythonw.exe", farm_cmd),
@@ -206,7 +206,7 @@ def test_reap_process_storm_kills_orphan_tor() -> None:
 def test_reap_process_storm_keeps_farm_owned_tor() -> None:
     """Tor spawned under tor_manager.py (not run_farm) is still farm-owned."""
     owner_cmd = "pythonw -u automation/tor_manager.py warm"
-    tor_cmd = r'tor.exe -f C:\CPharm\automation\tor\data_5\torrc'
+    tor_cmd = r'tor.exe -f C:\PharmFlow\automation\tor\data_5\torrc'
 
     rows = [
         _storm_proc(50, 1, "pythonw.exe", owner_cmd),
@@ -223,7 +223,7 @@ def test_reap_process_storm_keeps_farm_owned_tor() -> None:
 
 
 def test_reap_process_storm_dedupes_keepalive() -> None:
-    keepalive = "pythonw -u scripts/cpharm_inject_keepalive.py"
+    keepalive = "pythonw -u scripts/pharmflow_inject_keepalive.py"
     rows = [
         _storm_proc(300, 1, "pythonw.exe", keepalive),
         _storm_proc(400, 1, "pythonw.exe", keepalive),

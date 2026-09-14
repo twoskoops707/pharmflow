@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Start a FamFlow helper with no console window (Windows)."""
+"""Start a PharmFlow helper with no console window (Windows)."""
 from __future__ import annotations
 
 import os

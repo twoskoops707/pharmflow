@@ -5,7 +5,7 @@ At runtime, ``dashboard.run_sequence_step`` scales x/y to the device's ``wm size
 
 MuMu / narrow portrait sequences in this repo use **900×1600**; omitting
 ``base_w`` / ``base_h`` on a step uses that default. Override globally with
-``CPHARM_SEQUENCE_BASE_W`` / ``CPHARM_SEQUENCE_BASE_H`` if needed.
+``PHARMFLOW_SEQUENCE_BASE_W`` / ``PHARMFLOW_SEQUENCE_BASE_H`` if needed.
 
 getdabflow landing flows often insert **preflight** taps before the hero tap
 ``(658, 755)``: bottom-strip consent ~``(450, 1488)`` then modal-age band
@@ -28,8 +28,8 @@ def _int_env(name: str, default: int) -> int:
         return default
 
 
-SEQUENCE_BASE_W = _int_env("CPHARM_SEQUENCE_BASE_W", 900)
-SEQUENCE_BASE_H = _int_env("CPHARM_SEQUENCE_BASE_H", 1600)
+SEQUENCE_BASE_W = _int_env("PHARMFLOW_SEQUENCE_BASE_W", 900)
+SEQUENCE_BASE_H = _int_env("PHARMFLOW_SEQUENCE_BASE_H", 1600)
 
 
 def parse_wm_size_output(raw: str) -> tuple[int, int] | None:

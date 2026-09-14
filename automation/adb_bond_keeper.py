@@ -12,8 +12,8 @@ runs independently, every few seconds:
 
   * START   — ``adb connect`` every known serial that is missing from
               ``adb devices``.
-  * REPAIR  — if ``adb devices`` itself fails (server wedged), restart the
-              server and reconnect the whole fleet.
+  * REPAIR  — if ``adb devices`` comes back empty while known serials exist,
+              start-server (never kill-server) and reconnect the whole fleet.
   * HOLD    — otherwise report the bond is healthy.
 
 It never touches VMs, never raises, and is safe to run alongside the farm
@@ -32,15 +32,17 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+import automation.no_window  # noqa: E402,F401  — hide adb consoles under pythonw
+
 from automation.farm_phone_discover import (  # noqa: E402
     ADB,
     _adb_online_serials,
     _known_candidate_serials,
 )
+from automation.win_subprocess import hidden_run_kwargs  # noqa: E402
 
-LOG = Path(os.environ.get("CPHARM_LOGS") or r"C:\CPharm\logs")
-INTERVAL_S = float(os.environ.get("CPHARM_ADB_KEEPER_INTERVAL_S", "8") or "8")
-MAX_MISSING = 24
+LOG = Path(os.environ.get("PHARMFLOW_LOGS") or r"C:\PharmFlow\logs")
+INTERVAL_S = float(os.environ.get("PHARMFLOW_ADB_KEEPER_INTERVAL_S", "8") or "8")
 REPAIR_AFTER_CONSECUTIVE = 2
 
 
@@ -65,6 +67,7 @@ def _run_adb(args: list[str], timeout: float) -> str:
             timeout=timeout,
             encoding="utf-8",
             errors="replace",
+            **hidden_run_kwargs(),
         )
         return (p.stdout or "") + (p.stderr or "")
     except Exception as exc:  # noqa: BLE001 — keeper is best-effort
@@ -72,10 +75,13 @@ def _run_adb(args: list[str], timeout: float) -> str:
 
 
 def _repair_server() -> set[str]:
-    """Wedged server: restart it, then reconnect every known serial."""
-    _log("BOND REPAIR: adb server wedged — kill-server + start-server + fleet reconnect")
-    _run_adb(["kill-server"], timeout=15.0)
-    time.sleep(2.0)
+    """Dead server: start it, then reconnect every known serial.
+
+    ``adb kill-server`` drops every live phone. An empty devices list is not
+    proof the server is wedged. start-server brings a dead daemon up and
+    leaves an already-running daemon alone.
+    """
+    _log("BOND REPAIR: adb listing empty — start-server + reconnect every known serial (no kill-server)")
     _run_adb(["start-server"], timeout=20.0)
     time.sleep(1.0)
     return _reconnect_missing(set())
@@ -83,7 +89,7 @@ def _repair_server() -> set[str]:
 
 def _reconnect_missing(online: set[str]) -> set[str]:
     missing = [s for s in _known_candidate_serials() if s and s not in online]
-    for serial in missing[:MAX_MISSING]:
+    for serial in missing:
         out = _run_adb(["connect", serial], timeout=4.0)
         if "connected" in out.lower() or "already connected" in out.lower():
             _log(f"BOND START: {serial} reattached")

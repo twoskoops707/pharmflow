@@ -15,7 +15,7 @@ if (-not $Src -or -not (Test-Path $Src)) { throw "No built EXE found. Pass -Src.
 New-Item -ItemType Directory -Force -Path $DestDir | Out-Null
 $dest = Join-Path $DestDir $ExeName
 # Stop running EXE if it holds the file
-Get-Process PharmFlow,CPharm -EA SilentlyContinue | ForEach-Object {
+Get-Process PharmFlow,PharmFlow -EA SilentlyContinue | ForEach-Object {
   try { Stop-Process -Id $_.Id -Force -EA Stop; "stopped pid=$($_.Id)" } catch { "warn stop $($_.Id): $_" }
 }
 Start-Sleep -Seconds 2
@@ -26,8 +26,8 @@ $startup = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\Startup
 foreach ($dir in @($programs, $startup)) {
   New-Item -ItemType Directory -Force -Path $dir | Out-Null
 }
-# PharmFlow only — remove legacy CPharm.lnk so Start Menu is not dual-branded.
-$legacy = Join-Path $programs "CPharm.lnk"
+# PharmFlow only — remove legacy PharmFlow.lnk so Start Menu is not dual-branded.
+$legacy = Join-Path $programs "PharmFlow.lnk"
 if (Test-Path $legacy) {
   Remove-Item -LiteralPath $legacy -Force
   "removed_legacy=$legacy"

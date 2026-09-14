@@ -23,7 +23,7 @@ sys.path.insert(0, str(ROOT))
 
 import automation.no_window  # noqa: E402,F401  (kill child console-window flashes)
 
-INTERVAL = float(os.environ.get("CPHARM_SUPPRESS_FLASH_INTERVAL", "0.35") or "0.35")
+INTERVAL = float(os.environ.get("PHARMFLOW_SUPPRESS_FLASH_INTERVAL", "0.05") or "0.05")
 
 user32 = ctypes.windll.user32 if sys.platform == "win32" else None
 ole32 = ctypes.windll.ole32 if sys.platform == "win32" else None
@@ -37,8 +37,14 @@ _FLASH_CMD_MARKERS = (
     "nemux-shell-winui",
     "kill-azure-telemetry",
     "kill_azure_telemetry",
-    "c:\\cpharm\\bundled\\adb",
-    "c:\\cpharm\\bundled\\tor",
+    "c:\\pharmflow\\bundled\\adb",
+    "c:\\pharmflow\\bundled\\tor",
+    "c:\\pharmflow\\automation\\tor",
+    "pharmflow\\automation\\tor",
+    "automation\\tor\\tor.exe",
+    "automation/tor/tor.exe",
+    "tor_instances\\phone_",
+    "tor\\data_",
     "platform-tools\\adb",
     "platform-tools/adb",
     "run_farm_",
@@ -53,7 +59,31 @@ _FLASH_CMD_MARKERS = (
     "ensure_farm_24x7",
     "mouse_tickler",
     "watch_adb_devices",
+    "_money_arm_inject",
+    "tor_manager",
+    "farm_exe_self_heal",
+    "agent_unison_freebuff",
 )
+
+# Cursor / VS Code MCP and extension hosts — must never be killed by the flash reaper.
+_IDE_MCP_MARKERS = (
+    "firebase mcp",
+    "@azure/mcp",
+    "azmcp ",
+    "azmcp.exe",
+    "@wonderwhy-er/desktop-commander",
+    "desktop-commander",
+    "mcp-server",
+    "mcp server",
+    "npx ",
+    "cursor-mcp",
+    "user-freellmapi",
+    "bright-data",
+)
+
+
+def _is_ide_mcp_cmd(joined: str) -> bool:
+    return any(m in joined for m in _IDE_MCP_MARKERS)
 
 
 def _hide_hwnd(hwnd: int) -> None:
@@ -61,6 +91,10 @@ def _hide_hwnd(hwnd: int) -> None:
         return
     try:
         user32.ShowWindow(hwnd, SW_HIDE)
+        try:
+            user32.ShowWindowAsync(hwnd, SW_HIDE)
+        except Exception:
+            pass
     except Exception:
         pass
 
@@ -75,30 +109,47 @@ def _should_hide_pid(pid: int) -> bool:
         cmd = " ".join(str(x) for x in (proc.cmdline() or [])).lower()
         if name in {"tor.exe", "tor", "adb.exe", "adb"}:
             return True
-        if name in {"cmd.exe", "cmd"} and (
-            "nemux-shell-winui" in cmd
-            or "watch_adb_devices" in cmd
-            or any(m in cmd for m in _FLASH_CMD_MARKERS)
-        ):
-            return True
+        if name in {"cmd.exe", "cmd"}:
+            if _is_ide_mcp_cmd(cmd):
+                return False
+            if (
+                "nemux-shell-winui" in cmd
+                or "watch_adb_devices" in cmd
+                or any(m in cmd for m in _FLASH_CMD_MARKERS)
+            ):
+                return True
         if name in {"conhost.exe", "conhost"}:
             try:
                 parent = proc.parent()
                 pname = ((parent.name() if parent else "") or "").lower()
-                if pname in {"tor.exe", "tor", "adb.exe", "adb", "cmd.exe", "cmd", "powershell.exe", "powershell"}:
-                    if pname.startswith("powershell") or pname.startswith("pwsh"):
-                        pcmd = " ".join(str(x) for x in (parent.cmdline() or [])).lower()
-                        return any(
-                            m in pcmd
-                            for m in (
-                                "kill-azure-telemetry",
-                                "kill_azure_telemetry",
-                                "cpharm",
-                                "famflow",
-                                "run_farm",
-                            )
-                        )
+                # ANY tor-owned conhost flashes — hide unconditionally.
+                if pname in {"tor.exe", "tor", "adb.exe", "adb"}:
                     return True
+                if pname in {"cmd.exe", "cmd"}:
+                    pcmd = " ".join(str(x) for x in (parent.cmdline() or [])).lower()
+                    if _is_ide_mcp_cmd(pcmd):
+                        return False
+                    return (
+                        "nemux-shell-winui" in pcmd
+                        or any(m in pcmd for m in _FLASH_CMD_MARKERS)
+                    )
+                if pname.startswith("powershell") or pname.startswith("pwsh"):
+                    pcmd = " ".join(str(x) for x in (parent.cmdline() or [])).lower()
+                    return any(
+                        m in pcmd
+                        for m in (
+                            "kill-azure-telemetry",
+                            "kill_azure_telemetry",
+                            "pharmflow",
+                            "pharmflow",
+                            "pharmflow",
+                            "run_farm",
+                            "tor",
+                            "taskkill",
+                            "adb connect",
+                            "mei",
+                        )
+                    )
             except (psutil.Error, ProcessLookupError):
                 return False
         if name in {"powershell.exe", "powershell", "pwsh.exe", "pwsh"}:
@@ -107,8 +158,8 @@ def _should_hide_pid(pid: int) -> bool:
                 for m in (
                     "kill-azure-telemetry",
                     "kill_azure_telemetry",
-                    "c:\\cpharm",
-                    "famflow",
+                    "c:\\pharmflow",
+                    "pharmflow",
                     "run_farm",
                 )
             )
@@ -135,7 +186,7 @@ def _should_hide_pid(pid: int) -> bool:
                             "kill-azure-telemetry",
                             "kill_azure_telemetry",
                             "nemux-shell-winui",
-                            "c:\\cpharm\\bundled\\adb",
+                            "c:\\pharmflow\\bundled\\adb",
                             "platform-tools\\adb",
                             "platform-tools/adb",
                             "watch_adb_devices",
@@ -149,7 +200,7 @@ def _should_hide_pid(pid: int) -> bool:
                 return False
         if name in {"python.exe", "py.exe"} and any(n in cmd for n in _FLASH_CMD_MARKERS):
             return True
-        if "cpharm" in cmd or "famflow" in cmd:
+        if "pharmflow" in cmd or "pharmflow" in cmd:
             if name in {"adb.exe", "adb", "cmd.exe", "cmd"}:
                 return True
     except Exception:
@@ -158,7 +209,7 @@ def _should_hide_pid(pid: int) -> bool:
 
 
 def _enum_hide_for_pids(pids: set[int]) -> int:
-    """Hide visible top-level windows owned by any pid in pids. Returns hide count."""
+    """Hide top-level windows owned by any pid in pids (visible or not)."""
     if not user32 or not pids:
         return 0
     hidden = 0
@@ -168,8 +219,6 @@ def _enum_hide_for_pids(pids: set[int]) -> int:
     def _cb(hwnd, _lparam):  # type: ignore[misc]
         nonlocal hidden
         try:
-            if not user32.IsWindowVisible(hwnd):
-                return True
             user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid_buf))
             if int(pid_buf.value) not in pids:
                 return True
@@ -197,15 +246,14 @@ def _kill_flash_procs() -> tuple[int, int]:
             joined = " ".join(str(x) for x in cmd).lower()
             pid = int(proc.info["pid"])
 
+            # Never touch Cursor / IDE MCP cmd hosts — killing them makes the IDE
+            # respawn visible terminals every tick (the flash storm users report).
+            if name in {"cmd.exe", "cmd"} and _is_ide_mcp_cmd(joined):
+                continue
+
             # Windows Terminal hosting platform-tools adb = the visible flash.
             if name in {"windowsterminal.exe", "openconsole.exe"}:
-                title = ""
                 try:
-                    title = (psutil.Process(pid).name() or "").lower()
-                except Exception:
-                    title = ""
-                try:
-                    # MainWindowTitle via GetWindowText is unreliable here; use children.
                     kids_adb = False
                     for child in proc.children(recursive=True):
                         cname = (child.name() or "").lower()
@@ -220,20 +268,12 @@ def _kill_flash_procs() -> tuple[int, int]:
                 except (psutil.Error, ProcessLookupError, PermissionError):
                     pass
 
-            # ALL orphan cmd.exe flash windows (MuMu /K, watchers, etc.).
-            if name in {"cmd.exe", "cmd"}:
-                proc.kill()
-                killed += 1
-                continue
-
-            # MuMu ADB debug consoles (any /c or /k).
-            if name in {"cmd.exe", "cmd"} and "nemux-shell-winui" in joined:
-                proc.kill()
-                killed += 1
-                continue
-
-            # Operator ADB watch / farm helper cmd windows.
-            if name in {"cmd.exe", "cmd"} and "watch_adb_devices" in joined:
+            # Farm flash cmd only (MuMu /K adb shells, adb watchers) — never all cmd.exe.
+            if name in {"cmd.exe", "cmd"} and (
+                "nemux-shell-winui" in joined
+                or "watch_adb_devices" in joined
+                or any(m in joined for m in _FLASH_CMD_MARKERS)
+            ):
                 proc.kill()
                 killed += 1
                 continue
@@ -253,6 +293,33 @@ def _kill_flash_procs() -> tuple[int, int]:
 
             if _should_hide_pid(pid):
                 hide_pids.add(pid)
+                # Always queue conhost/openconsole children of tor/adb — the
+                # blank flash window is owned by conhost, not tor.exe itself.
+                if name in {"tor.exe", "tor", "adb.exe", "adb"}:
+                    try:
+                        for child in proc.children(recursive=True):
+                            cname = (child.name() or "").lower()
+                            if cname in {
+                                "conhost.exe",
+                                "conhost",
+                                "openconsole.exe",
+                                "windowsterminal.exe",
+                            }:
+                                hide_pids.add(int(child.pid))
+                    except (psutil.Error, ProcessLookupError, PermissionError):
+                        pass
+            # Bare conhost 0x4 attached to farm tor/adb — hide even if parent
+            # lookup raced (parent already exited / reparented to services).
+            if name in {"conhost.exe", "conhost"} and "0x4" in joined:
+                try:
+                    parent = proc.parent()
+                    pname = ((parent.name() if parent else "") or "").lower()
+                    if pname in {"tor.exe", "tor", "adb.exe", "adb"}:
+                        hide_pids.add(pid)
+                        if parent is not None:
+                            hide_pids.add(int(parent.pid))
+                except (psutil.Error, ProcessLookupError, PermissionError):
+                    pass
         except (psutil.Error, ProcessLookupError, PermissionError, TypeError, ValueError):
             continue
     hid = _enum_hide_for_pids(hide_pids)

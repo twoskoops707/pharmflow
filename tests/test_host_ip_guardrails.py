@@ -16,11 +16,11 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_billing_direct_default_is_zero() -> None:
-    from automation.cpharm_farm_config import get_runtime
+    from automation.pharmflow_farm_config import get_runtime
 
     data = get_runtime()
-    assert data["CPHARM_MANTIS_BILLING_DIRECT"] == "0", (
-        "CPHARM_MANTIS_BILLING_DIRECT must stay 0: host-IP billing exposes a "
+    assert data["PHARMFLOW_MANTIS_BILLING_DIRECT"] == "0", (
+        "PHARMFLOW_MANTIS_BILLING_DIRECT must stay 0: host-IP billing exposes a "
         "single-IP bot pattern to Mantis and dedupes clicks. Operator rule."
     )
 
@@ -30,10 +30,10 @@ def test_no_rails_source_sets_billing_direct_to_one() -> None:
         for py in path.rglob("*.py"):
             text = py.read_text(encoding="utf-8", errors="replace")
             for m in re.finditer(
-                r"[\"']CPHARM_MANTIS_BILLING_DIRECT[\"']\s*:\s*[\"']1[\"']", text
+                r"[\"']PHARMFLOW_MANTIS_BILLING_DIRECT[\"']\s*:\s*[\"']1[\"']", text
             ):
                 raise AssertionError(
-                    f"{py.relative_to(ROOT)} sets CPHARM_MANTIS_BILLING_DIRECT to 1 "
+                    f"{py.relative_to(ROOT)} sets PHARMFLOW_MANTIS_BILLING_DIRECT to 1 "
                     "(host-IP billing). Operator rule forbids this."
                 )
 
@@ -66,7 +66,7 @@ def test_inject_proxy_billing_direct_source_default_is_zero() -> None:
     inject = (ROOT / "automation" / "mantis_inject_proxy.py").read_text(
         encoding="utf-8", errors="replace"
     )
-    assert 'os.environ.get("CPHARM_MANTIS_BILLING_DIRECT", "0")' in inject, (
+    assert 'os.environ.get("PHARMFLOW_MANTIS_BILLING_DIRECT", "0")' in inject, (
         "billing_direct_enabled() must default to 0 (no host-IP egress) — "
         "standing rule 7"
     )
@@ -83,7 +83,7 @@ def test_upstream_tor_port_follows_live_broadcast(tmp_path, monkeypatch) -> None
         ),
         encoding="utf-8",
     )
-    monkeypatch.setenv("CPHARM_LOGS", str(tmp_path))
+    monkeypatch.setenv("PHARMFLOW_LOGS", str(tmp_path))
     from automation.mantis_inject_proxy import upstream_tor_port
 
     assert upstream_tor_port(2) == 8882
@@ -106,7 +106,7 @@ def test_upstream_tor_port_ignores_stale_broadcast(tmp_path, monkeypatch) -> Non
         ),
         encoding="utf-8",
     )
-    monkeypatch.setenv("CPHARM_LOGS", str(tmp_path))
+    monkeypatch.setenv("PHARMFLOW_LOGS", str(tmp_path))
     from automation.mantis_inject_proxy import TOR_HTTP_TUNNEL_BASE, upstream_tor_port
 
     assert upstream_tor_port(2) != 8882

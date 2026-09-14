@@ -30,12 +30,12 @@ class GuestProxyHealthTests(unittest.TestCase):
             self.assertFalse(bp.guest_proxy_healthy(bad), msg=repr(bad))
 
     def test_accepts_inject_endpoint(self) -> None:
-        with patch.dict("os.environ", {"CPHARM_MANTIS_INJECT_PROXY": "1"}):
+        with patch.dict("os.environ", {"PHARMFLOW_MANTIS_INJECT_PROXY": "1"}):
             self.assertTrue(bp.guest_proxy_healthy("127.0.0.1:8218", phone_idx=0))
             self.assertTrue(bp.guest_proxy_healthy("127.0.0.1:8220", phone_idx=2))
 
     def test_rejects_wrong_phone_port(self) -> None:
-        with patch.dict("os.environ", {"CPHARM_MANTIS_INJECT_PROXY": "1"}):
+        with patch.dict("os.environ", {"PHARMFLOW_MANTIS_INJECT_PROXY": "1"}):
             self.assertFalse(bp.guest_proxy_healthy("127.0.0.1:8219", phone_idx=0))
 
 
@@ -61,7 +61,7 @@ class PinGuestProxyTests(unittest.TestCase):
     def test_pin_does_not_treat_colon_zero_as_success(self) -> None:
         """Race: settings get still returns :0 after put — must retry, not return :0."""
         adb = self._adb_with_reads([":0", ":0", "127.0.0.1:8218", "127.0.0.1:8218"])
-        with patch.dict("os.environ", {"CPHARM_MANTIS_INJECT_PROXY": "1"}):
+        with patch.dict("os.environ", {"PHARMFLOW_MANTIS_INJECT_PROXY": "1"}):
             with patch(
                 "automation.mantis_inject_proxy.point_phone_at_inject",
                 return_value="127.0.0.1:8218",
@@ -73,7 +73,7 @@ class PinGuestProxyTests(unittest.TestCase):
 
     def test_pin_idempotent_when_already_healthy(self) -> None:
         adb = self._adb_with_reads(["127.0.0.1:8219"])
-        with patch.dict("os.environ", {"CPHARM_MANTIS_INJECT_PROXY": "1"}):
+        with patch.dict("os.environ", {"PHARMFLOW_MANTIS_INJECT_PROXY": "1"}):
             with patch(
                 "automation.mantis_inject_proxy.point_phone_at_inject"
             ) as point:
@@ -83,7 +83,7 @@ class PinGuestProxyTests(unittest.TestCase):
 
     def test_pin_retries_after_null(self) -> None:
         adb = self._adb_with_reads(["null", "null", "127.0.0.1:8220"])
-        with patch.dict("os.environ", {"CPHARM_MANTIS_INJECT_PROXY": "1"}):
+        with patch.dict("os.environ", {"PHARMFLOW_MANTIS_INJECT_PROXY": "1"}):
             with patch(
                 "automation.mantis_inject_proxy.point_phone_at_inject",
                 return_value="127.0.0.1:8220",
@@ -91,6 +91,27 @@ class PinGuestProxyTests(unittest.TestCase):
                 with patch("time.sleep"):
                     got = bp.pin_guest_proxy(adb, "10.0.2.32:5555", 2, attempts=3)
         self.assertEqual(got, "127.0.0.1:8220")
+
+    def test_failed_pin_does_not_invent_colon_zero(self) -> None:
+        adb = self._adb_with_reads(["", "", ""])
+        with patch.dict("os.environ", {"PHARMFLOW_MANTIS_INJECT_PROXY": "1"}):
+            with patch(
+                "automation.mantis_inject_proxy.ensure_inject_for_phone",
+                return_value={"ok": False, "error": "down"},
+            ):
+                with patch.object(bp, "_host_port_listens", return_value=False):
+                    with patch("time.sleep"):
+                        got = bp.pin_guest_proxy(adb, "10.0.2.199:5555", 0, attempts=1)
+        self.assertEqual(got, "")
+        self.assertFalse(bp.guest_proxy_healthy(got, phone_idx=0))
+
+    def test_prepare_does_not_claim_pinned_when_pin_failed(self) -> None:
+        adb = MagicMock()
+        with patch.object(bp, "browse_proxy_mode", return_value="tor"):
+            with patch.object(bp, "pin_guest_proxy", return_value=""):
+                out = bp.prepare_browse_session(adb, "10.0.2.199:5555", 0)
+        self.assertFalse(out.get("ok"))
+        self.assertFalse(out.get("pinned"))
 
 
 class RestoreBrowseSessionTests(unittest.TestCase):
@@ -149,7 +170,7 @@ class RestoreInjectAfterIdentityTests(unittest.TestCase):
         adb.set_http_proxy = MagicMock()
         adb.reverse = MagicMock()
         adb.run = MagicMock()
-        with patch.dict("os.environ", {"CPHARM_MANTIS_INJECT_PROXY": "1"}):
+        with patch.dict("os.environ", {"PHARMFLOW_MANTIS_INJECT_PROXY": "1"}):
             with patch(
                 "automation.mantis_inject_proxy.ensure_inject_for_phone",
                 return_value={"ok": True, "endpoint": "127.0.0.1:8221", "port": 8221},
@@ -172,7 +193,7 @@ class RestoreInjectAfterIdentityTests(unittest.TestCase):
         with patch.object(bp, "browse_proxy_mode", return_value="scramble"):
             with patch.object(bp, "expected_guest_proxy", return_value="127.0.0.1:8119"):
                 with patch.object(bp, "_host_port_listens", return_value=True):
-                    with patch.dict("os.environ", {"CPHARM_MANTIS_INJECT_PROXY": "1"}):
+                    with patch.dict("os.environ", {"PHARMFLOW_MANTIS_INJECT_PROXY": "1"}):
                         got = bp.restore_inject_after_identity(
                             adb,
                             "10.0.2.70:5555",

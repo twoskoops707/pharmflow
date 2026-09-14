@@ -169,7 +169,7 @@ body::before {
 
 .panel-title {
   margin: 0;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.09em;
@@ -295,7 +295,7 @@ input:focus-visible {
   background: var(--panel);
   border: 1px solid var(--line);
   color: var(--dim);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 750;
   display: grid;
   place-items: center;
@@ -483,7 +483,7 @@ input:focus-visible {
   background: var(--panel);
   border: 1px solid var(--line);
   color: var(--dim);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 750;
   display: grid;
   place-items: center;
@@ -584,7 +584,7 @@ input:focus-visible {
   display: none;
 }
 
-#alert-cpharm:not(:empty) {
+#alert-pharmflow:not(:empty) {
   background: var(--accent-soft);
   border: 1px solid rgba(61, 154, 120, 0.4);
   color: var(--accent);

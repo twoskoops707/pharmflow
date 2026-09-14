@@ -3,7 +3,7 @@ PharmFlow — Windows onboarding for virtual phones + browser dashboard (`wizard
 
 **Primary entry (standalone wizard, no unified desktop):** from repo root run
 ``py -3 wizard/setup_wizard.py`` — or from ``wizard/``: ``py -3 setup_wizard.py``.
-Optional unified shell: ``py -3 wizard/cpharm_desktop.py``, or set ``CPHARM_USE_DESKTOP=1``
+Optional unified shell: ``py -3 wizard/pharmflow_desktop.py``, or set ``PHARMFLOW_USE_DESKTOP=1``
 when executing this file to launch that shell instead.
 
 Happy path: Start → install tools (Java/Python/PharmFlow + quick verify) → Android or MuMu →
@@ -11,16 +11,16 @@ create/connect phones → automation & groups → launch dashboard (browser-only
 
 When you close the wizard (X or File → Exit), PharmFlow tries to fix each phone's internet so
 browsers are not stuck. Use **Launch → Fix the phone's internet** anytime without closing.
-Advanced: ``CPHARM_SKIP_EXIT_PROXY_CLEAR=1`` skips exit cleanup; ``CPHARM_SKIP_TOR_WAIT=1``
+Advanced: ``PHARMFLOW_SKIP_EXIT_PROXY_CLEAR=1`` skips exit cleanup; ``PHARMFLOW_SKIP_TOR_WAIT=1``
 is for quick tests on your home network only.
 
 State keys `state[...]` hold install path, `use_mumu`, `sdk_path`, `avds`, `phones`, `groups`,
 `default_steps`, and merge install uses `_install_targets_live_tree` + `_merge_zip_tree_safe` / `_merge_dir_into`.
 
 Frozen ship (one .exe for end users), from the ``wizard`` directory — use the unified spec
-(``CPharm.spec`` → ``CPharm.exe``; embeds this wizard via ``cpharm_desktop.py``):
+(``PharmFlow.spec`` → ``PharmFlow.exe``; embeds this wizard via ``pharmflow_desktop.py``):
     pip install pyinstaller pillow
-    pyinstaller CPharm.spec
+    pyinstaller PharmFlow.spec
 """
 
 import copy
@@ -57,11 +57,15 @@ from tkinter import ttk, messagebox, filedialog
 
 from wizard_paths import (
     automation_on_sys_path,
-    cpharm_default_install_root,
-    cpharm_install_root,
-    cpharm_search_roots_ordered,
+    pharmflow_default_install_root,
+    pharmflow_install_root,
+    pharmflow_search_roots_ordered,
     first_existing_subdir,
+    bind_live_phone_entries,
+    groups_config_path,
+    iter_group_phone_entries,
     meipass_dir,
+    phone_entry_steps,
     wizard_module_dir,
 )
 from wizard_theme import (
@@ -144,10 +148,10 @@ from sequence_humanize import humanize_steps
 
 REPO_URL            = "https://github.com/twoskoops707/pharmflow.git"
 IS_WIN              = platform.system() == "Windows"
-SETUP_GUIDE_URL     = "https://github.com/twoskoops707/pharmflow/blob/main/docs/CPharm_emulator_MuMu_and_sequences.md"
+SETUP_GUIDE_URL     = "https://github.com/twoskoops707/pharmflow/blob/main/docs/PharmFlow_emulator_MuMu_and_sequences.md"
 # Raw markdown — more reliable to open in a browser than the GitHub HTML "blob" wrapper page.
 SETUP_GUIDE_URL_RAW = (
-    "https://raw.githubusercontent.com/twoskoops707/pharmflow/main/docs/CPharm_emulator_MuMu_and_sequences.md"
+    "https://raw.githubusercontent.com/twoskoops707/pharmflow/main/docs/PharmFlow_emulator_MuMu_and_sequences.md"
 )
 PLAY_CONSOLE_URL    = "https://play.google.com/console"
 PLAY_TESTING_DOCS_URL = "https://support.google.com/googleplay/android-developer/answer/9845334"
@@ -163,15 +167,15 @@ def clear_dashboard_listen_port_cache() -> None:
 
 
 def _env_dashboard_http_port() -> int:
-    """Configured HTTP port from ``CPHARM_PORT`` — first candidate when probing for the server."""
+    """Configured HTTP port from ``PHARMFLOW_PORT`` — first candidate when probing for the server."""
     try:
-        return int(os.environ.get("CPHARM_PORT", "8080"))
+        return int(os.environ.get("PHARMFLOW_PORT", "8080"))
     except (TypeError, ValueError):
         return 8080
 
 
 def _dashboard_port_try_count() -> int:
-    raw = (os.environ.get("CPHARM_PORT_TRY_COUNT") or "").strip()
+    raw = (os.environ.get("PHARMFLOW_PORT_TRY_COUNT") or "").strip()
     if not raw:
         return 20
     try:
@@ -195,8 +199,8 @@ def _dashboard_candidate_ports() -> list[int]:
 def probe_dashboard_listen_port() -> bool:
     """Resolve the running dashboard's HTTP port via GET ``/api/config`` on loopback candidates.
 
-    If ``CPHARM_PORT`` is busy, the server binds the next free port; this probes
-    ``CPHARM_PORT`` … ``CPHARM_PORT + CPHARM_PORT_TRY_COUNT - 1`` (defaults mirror ``dashboard.py``),
+    If ``PHARMFLOW_PORT`` is busy, the server binds the next free port; this probes
+    ``PHARMFLOW_PORT`` … ``PHARMFLOW_PORT + PHARMFLOW_PORT_TRY_COUNT - 1`` (defaults mirror ``dashboard.py``),
     caches ``httpPort`` from JSON, and keeps wizard URLs aligned.
 
     Returns True when the dashboard responded with a valid config payload.
@@ -262,14 +266,14 @@ def probe_dashboard_listen_port() -> bool:
 
 
 def dashboard_http_port() -> int:
-    """HTTP port for dashboard APIs — ``CPHARM_PORT`` until :func:`probe_dashboard_listen_port` succeeds."""
+    """HTTP port for dashboard APIs — ``PHARMFLOW_PORT`` until :func:`probe_dashboard_listen_port` succeeds."""
     if _DASHBOARD_LISTEN_HTTP_PORT_CACHE is not None:
         return _DASHBOARD_LISTEN_HTTP_PORT_CACHE
     return _env_dashboard_http_port()
 
 
 def dashboard_base_url() -> str:
-    """Probe loopback with IPv4 ``127.0.0.1`` (matches default ``CPHARM_BIND``; avoids ``localhost`` → ``::1`` flakes)."""
+    """Probe loopback with IPv4 ``127.0.0.1`` (matches default ``PHARMFLOW_BIND``; avoids ``localhost`` → ``::1`` flakes)."""
     return f"http://127.0.0.1:{dashboard_http_port()}"
 
 
@@ -303,7 +307,7 @@ def _bind_nested_canvas_mousewheel(canvas: tk.Canvas) -> None:
 
 def _dashboard_ready_timeout_sec() -> float:
     """Seconds to poll GET /api/config after spawning the dashboard (pip/deps often exceed 45s)."""
-    raw = (os.environ.get("CPHARM_DASHBOARD_READY_SEC") or "").strip()
+    raw = (os.environ.get("PHARMFLOW_DASHBOARD_READY_SEC") or "").strip()
     if not raw:
         return 180.0
     try:
@@ -320,8 +324,8 @@ JAVA_DOWNLOAD_URL_X64    = "https://aka.ms/download-jdk/microsoft-jdk-21-windows
 TOR_FALLBACK_URL  = "https://dist.torproject.org/torbrowser/14.0.9/tor-expert-bundle-windows-x86_64-14.0.9.tar.gz"
 PYTHON_URL        = "https://www.python.org/ftp/python/3.13.0/python-3.13.0-arm64.exe"
 PYTHON_URL_X64    = "https://www.python.org/ftp/python/3.13.0/python-3.13.0-amd64.exe"
-CPHARM_ZIP_URL    = "https://github.com/twoskoops707/pharmflow/archive/refs/heads/main.zip"
-CPHARM_DEFAULT    = os.path.join(os.path.expanduser("~"), "CPharm")
+PHARMFLOW_ZIP_URL    = "https://github.com/twoskoops707/pharmflow/archive/refs/heads/main.zip"
+PHARMFLOW_DEFAULT    = os.path.join(os.path.expanduser("~"), "PharmFlow")
 
 # MuMu / Netease CLI: newer installs use nemux-shell-winui.Manager.exe; older builds use MuMuManager.exe
 MUMU_MANAGER_PRIMARY = "nemux-shell-winui.Manager.exe"
@@ -329,9 +333,9 @@ MUMU_MANAGER_LEGACY = "MuMuManager.exe"
 MUMU_MANAGER_EXES = (MUMU_MANAGER_PRIMARY, MUMU_MANAGER_LEGACY)
 
 
-def _cpharm_install_root() -> Path:
-    """Delegate to :func:`wizard_paths.cpharm_install_root` (PyInstaller + ``CPHARM_HOME`` + common clone paths)."""
-    return cpharm_install_root()
+def _pharmflow_install_root() -> Path:
+    """Delegate to :func:`wizard_paths.pharmflow_install_root` (PyInstaller + ``PHARMFLOW_HOME`` + common clone paths)."""
+    return pharmflow_install_root()
 
 
 def _automation_on_sys_path() -> Path:
@@ -341,32 +345,32 @@ def _automation_on_sys_path() -> Path:
 
 def _wizard_runtime_root() -> Path:
     """Repo/install root containing automation/ and wizard/ for this running wizard."""
-    return _cpharm_install_root()
+    return _pharmflow_install_root()
 
 
-def _cpharm_tree_root() -> Path:
-    """Prefer ``state['cpharm_dir']`` when set; else bundled/install root."""
-    d = (state.get("cpharm_dir") or "").strip()
+def _pharmflow_tree_root() -> Path:
+    """Prefer ``state['pharmflow_dir']`` when set; else bundled/install root."""
+    d = (state.get("pharmflow_dir") or "").strip()
     if d:
         try:
             return Path(d).expanduser().resolve()
         except Exception:
             pass
-    return _cpharm_install_root()
+    return _pharmflow_install_root()
 
 
-def _cpharm_search_roots_ordered() -> list[Path]:
-    """Distinct search roots — delegates to :func:`wizard_paths.cpharm_search_roots_ordered`."""
-    d = (state.get("cpharm_dir") or "").strip()
-    return cpharm_search_roots_ordered(d if d else None)
+def _pharmflow_search_roots_ordered() -> list[Path]:
+    """Distinct search roots — delegates to :func:`wizard_paths.pharmflow_search_roots_ordered`."""
+    d = (state.get("pharmflow_dir") or "").strip()
+    return pharmflow_search_roots_ordered(d if d else None)
 
 
 def _default_sequences_dir() -> Path:
-    """Local sequences folder (``CPHARM_SEQUENCES_DIR`` or ``~/CPharm/sequences``)."""
-    raw = (os.environ.get("CPHARM_SEQUENCES_DIR") or "").strip()
+    """Local sequences folder (``PHARMFLOW_SEQUENCES_DIR`` or ``~/PharmFlow/sequences``)."""
+    raw = (os.environ.get("PHARMFLOW_SEQUENCES_DIR") or "").strip()
     if raw:
         return Path(raw).expanduser().resolve()
-    return (Path.home() / "CPharm" / "sequences").resolve()
+    return (Path.home() / "PharmFlow" / "sequences").resolve()
 
 
 def _ensure_sequences_dir() -> Path:
@@ -380,7 +384,7 @@ def _ensure_sequences_dir() -> Path:
 
 
 def _sync_sequences_to_user_profile(log_write=None) -> None:
-    """Copy shipped ``sequences/`` from the install tree into ``~/CPharm/sequences``."""
+    """Copy shipped ``sequences/`` from the install tree into ``~/PharmFlow/sequences``."""
     log = log_write or (lambda _m: None)
     try:
         from wizard_paths import automation_on_sys_path
@@ -443,7 +447,7 @@ def _load_sequence_document_from_path(path: Path):
 
 
 def _sequences_initial_dir() -> str:
-    """Default folder for sequence JSON dialogs — local ``~/CPharm/sequences``."""
+    """Default folder for sequence JSON dialogs — local ``~/PharmFlow/sequences``."""
     try:
         p = _ensure_sequences_dir()
         if p.is_dir():
@@ -459,13 +463,13 @@ def _sequences_dir_str() -> str:
 
 
 def _recordings_dir_str() -> str:
-    """Return ``automation/recordings`` under a known CPharm root (prefer existing dir among roots)."""
-    roots = _cpharm_search_roots_ordered()
+    """Return ``automation/recordings`` under a known PharmFlow root (prefer existing dir among roots)."""
+    roots = _pharmflow_search_roots_ordered()
     hit = first_existing_subdir(roots, "automation", "recordings")
     if hit is not None:
         return str(hit)
     try:
-        p = _cpharm_tree_root() / "automation" / "recordings"
+        p = _pharmflow_tree_root() / "automation" / "recordings"
         try:
             p.mkdir(parents=True, exist_ok=True)
         except OSError:
@@ -488,13 +492,13 @@ def _recordings_dir_str() -> str:
     return ""
 
 
-def _resolve_under_cpharm(
+def _resolve_under_pharmflow(
     *names: str,
     subdirs: tuple[str, ...] | None = None,
     glob_patterns: tuple[str, ...] | None = None,
 ) -> str:
-    """First existing file under ``cpharm_dir`` / install roots (cheap; shallow names + globs)."""
-    roots = _cpharm_search_roots_ordered()
+    """First existing file under ``pharmflow_dir`` / install roots (cheap; shallow names + globs)."""
+    roots = _pharmflow_search_roots_ordered()
     subs = subdirs or ()
     globs = glob_patterns or ()
     names_t = tuple(n for n in names if n)
@@ -599,7 +603,7 @@ def _sync_sequence_playlist_basenames() -> None:
 
 
 def _json_file_dialog_fallback_dir() -> str | None:
-    """Last-resort folder when no CPharm tree paths exist yet (avoids broken Tk initialdir)."""
+    """Last-resort folder when no PharmFlow tree paths exist yet (avoids broken Tk initialdir)."""
     try:
         dl = Path.home() / "Downloads"
         if dl.is_dir():
@@ -765,7 +769,7 @@ def _merge_zip_tree_safe(src: Path, dst: Path) -> None:
 
 
 def _git_repo_roots_for_pull(install_dir: Path) -> list[Path]:
-    """Git repo roots under *install_dir* (including nested clones like ``…/cpharm-clone``).
+    """Git repo roots under *install_dir* (including nested clones like ``…/pharmflow-clone``).
 
     Walk is depth-bounded and skips descending into ``.git`` (objects packfiles are locked on Windows).
     """
@@ -824,7 +828,7 @@ def _install_dir_has_any_git(install_dir: Path) -> bool:
     return len(_git_repo_roots_for_pull(install_dir)) > 0
 
 
-def _try_git_pull_cpharm(install_dir: Path, log_fn) -> bool:
+def _try_git_pull_pharmflow(install_dir: Path, log_fn) -> bool:
     """If a git checkout exists, try ``git pull --ff-only`` so we never overwrite .git via ZIP."""
     for repo in _git_repo_roots_for_pull(install_dir):
         log_fn(f"  Git repo found at {repo} — trying git pull --ff-only…\n")
@@ -839,9 +843,9 @@ def _try_git_pull_cpharm(install_dir: Path, log_fn) -> bool:
     return False
 
 
-def _find_cpharm_dashboard_root(install_dir: Path) -> Path | None:
-    """Directory containing ``automation/dashboard.py`` (repo root, ``cpharm/``, or nested clone)."""
-    for base in (install_dir, install_dir / "cpharm"):
+def _find_pharmflow_dashboard_root(install_dir: Path) -> Path | None:
+    """Directory containing ``automation/dashboard.py`` (repo root, ``pharmflow/``, or nested clone)."""
+    for base in (install_dir, install_dir / "pharmflow"):
         if (base / "automation" / "dashboard.py").is_file():
             try:
                 return base.resolve()
@@ -957,7 +961,7 @@ STEP_LABELS = {
 }
 
 state = {
-    "cpharm_dir":  "",
+    "pharmflow_dir":  "",
     "python_cmd":  "python",
     "python_cmd_argv": ["python"],
     "sdk_path":    "",
@@ -1290,30 +1294,26 @@ def _normalize_all_groups():
 
 def _scheduler_maps_for_serials(serials: list[str], fallback_hits: int):
     """Per-phone hits/steps from groups (first group listing each serial wins)."""
+    wanted = [str(s).strip() for s in serials if str(s or "").strip()]
+    bound = bind_live_phone_entries(list(state.get("groups") or []), wanted)
     hits_ps: dict[str, int] = {}
     steps_ps: dict[str, list] = {}
-    for g in state.get("groups") or []:
-        pmap = g.get("phones") or {}
-        if not isinstance(pmap, dict):
+    for serial, pdata, _source in bound:
+        if serial in hits_ps:
             continue
-        for serial, pdata in pmap.items():
-            if not isinstance(pdata, dict):
-                continue
-            if serial in hits_ps:
-                continue
-            try:
-                h = int(pdata.get("hits_per_day", DEFAULT_HITS_PER_DAY))
-            except (TypeError, ValueError):
-                h = DEFAULT_HITS_PER_DAY
-            hits_ps[serial] = max(0, min(h, 1440))
-            steps_ps[serial] = list(pdata.get("steps") or [])
+        try:
+            h = int(pdata.get("hits_per_day", DEFAULT_HITS_PER_DAY))
+        except (TypeError, ValueError):
+            h = DEFAULT_HITS_PER_DAY
+        hits_ps[serial] = max(0, h)
+        steps_ps[serial] = phone_entry_steps(pdata, serial)
     try:
-        fb = max(0, min(int(fallback_hits), 1440))
+        fb = max(0, int(fallback_hits))
     except (TypeError, ValueError):
         fb = DEFAULT_HITS_PER_DAY
     hits_out: dict[str, int] = {}
     steps_out: dict[str, list] = {}
-    for s in serials:
+    for s in wanted:
         if s in hits_ps:
             hits_out[s] = hits_ps[s]
             steps_out[s] = steps_ps.get(s, [])
@@ -1327,7 +1327,7 @@ def _int_clamped_entry(
     parent: tk.Misc,
     variable: tk.IntVar,
     lo: int,
-    hi: int,
+    hi: int | None,
     *,
     width: int = 6,
     bg: str = BG3,
@@ -1354,7 +1354,7 @@ def _int_clamped_entry(
             v = int(str(variable.get()).strip())
         except (tk.TclError, ValueError, TypeError):
             v = lo
-        v = max(lo, min(hi, v))
+        v = max(lo, v if hi is None else min(hi, v))
         variable.set(v)
 
     ent.bind("<FocusOut>", _commit)
@@ -1366,7 +1366,7 @@ def _open_setup_guide_doc(parent: tk.Misc | None = None) -> None:
     """Open MuMu / sequence / display docs (local tree or bundled _MEIPASS), else the guide in a browser.
 
     The Groups-step button targets operator-facing **emulator + sequence** notes shipped under
-    ``docs/`` (also embedded in ``CPharm.exe`` via PyInstaller ``datas``).
+    ``docs/`` (also embedded in ``PharmFlow.exe`` via PyInstaller ``datas``).
     """
     roots: list[Path] = []
     try:
@@ -1376,13 +1376,13 @@ def _open_setup_guide_doc(parent: tk.Misc | None = None) -> None:
     except Exception:
         pass
     try:
-        d = (state.get("cpharm_dir") or "").strip()
+        d = (state.get("pharmflow_dir") or "").strip()
         if d:
             roots.append(Path(d))
     except Exception:
         pass
-    roots.extend(_cpharm_search_roots_ordered())
-    roots.append(_cpharm_install_root())
+    roots.extend(_pharmflow_search_roots_ordered())
+    roots.append(_pharmflow_install_root())
     seen_root: set[str] = set()
     uniq_roots: list[Path] = []
     for r in roots:
@@ -1396,8 +1396,8 @@ def _open_setup_guide_doc(parent: tk.Misc | None = None) -> None:
         uniq_roots.append(r)
     roots = uniq_roots
     doc_names = (
-        "CPharm_emulator_MuMu_and_sequences.md",
-        "CPharm_EMULATOR_AND_DISPLAY.md",
+        "PharmFlow_emulator_MuMu_and_sequences.md",
+        "PharmFlow_EMULATOR_AND_DISPLAY.md",
         "SEQUENCE_CATALOG.md",
     )
     mb_parent = parent
@@ -1478,42 +1478,91 @@ def _try_hydrate_default_steps_from_groups() -> None:
                 return
 
 
+def _drop_empty_phone_serials(groups: list) -> None:
+    """Drop ``phones['']`` keys. Do not invent serials when ADB is empty."""
+    for group in groups:
+        if not isinstance(group, dict):
+            continue
+        phones = group.get("phones")
+        if not isinstance(phones, dict):
+            continue
+        group["phones"] = {
+            str(raw).strip(): ent
+            for raw, ent in phones.items()
+            if str(raw or "").strip() and isinstance(ent, dict)
+        }
+
+
+def _try_load_default_steps() -> bool:
+    """Load the operator default sequence. False means the file is absent."""
+    from wizard_paths import default_sequence_path
+
+    path = default_sequence_path()
+    if not path.is_file():
+        return False
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError, UnicodeError, TypeError, ValueError) as exc:
+        print(f"[wizard] Could not load default sequence ({path}): {exc}", file=sys.stderr)
+        return False
+    steps = raw.get("steps") if isinstance(raw, dict) else raw
+    if not isinstance(steps, list):
+        return False
+    state["default_steps"] = _normalize_step_list(steps)
+    return True
+
+
+def _persist_default_steps() -> str | None:
+    """Write the operator default sequence even when groups cannot be written."""
+    from wizard_paths import default_sequence_path
+
+    path = default_sequence_path()
+    steps = list(state.get("default_steps") or [])
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps({"steps": steps}, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        return str(path)
+    except OSError as exc:
+        print(f"[wizard] Could not persist default sequence: {exc}", file=sys.stderr)
+        return None
+
+
 def _try_load_groups_config():
-    """Restore groups from recordings/groups_config.json when present."""
-    d = (state.get("cpharm_dir") or "").strip()
-    root = Path(d) if d else _cpharm_install_root()
-    cfg = root / "automation" / "recordings" / "groups_config.json"
+    """Restore groups from the live recordings/groups_config.json when present."""
+    loaded_default = _try_load_default_steps()
+    cfg = groups_config_path()
     if not cfg.is_file():
-        _try_hydrate_default_steps_from_groups()
+        if not loaded_default:
+            _try_hydrate_default_steps_from_groups()
         return
     try:
         raw = json.loads(cfg.read_text(encoding="utf-8"))
         groups = raw.get("groups")
         if isinstance(groups, list) and groups:
+            _drop_empty_phone_serials(groups)
             state["groups"] = groups
             _normalize_all_groups()
-            _try_hydrate_default_steps_from_groups()
+            if not loaded_default:
+                _try_hydrate_default_steps_from_groups()
     except (json.JSONDecodeError, OSError, UnicodeError, TypeError, ValueError) as exc:
         print(f"[wizard] Could not load groups config ({cfg}): {exc}", file=sys.stderr)
 
 
 def _groups_have_assigned_phones() -> bool:
-    for g in state.get("groups") or []:
-        if not isinstance(g, dict):
-            continue
-        phones = g.get("phones")
-        if isinstance(phones, dict) and phones:
-            return True
-    return False
+    return bool(iter_group_phone_entries(list(state.get("groups") or [])))
 
 
 def _persist_groups_config() -> str | None:
     """Write groups to recordings/groups_config.json (shared by wizard + spawned windows)."""
+    _persist_default_steps()
     if not _groups_have_assigned_phones():
         try:
             from mumu_setup_core import repair_groups_if_empty
 
-            repaired = repair_groups_if_empty()
+            repaired, _wrote = repair_groups_if_empty()
             if repaired is not None:
                 _try_load_groups_config()
                 return str(repaired)
@@ -1524,12 +1573,13 @@ def _persist_groups_config() -> str | None:
             file=sys.stderr,
         )
         return None
-    d = (state.get("cpharm_dir") or "").strip()
-    rec = (Path(d) if d else _cpharm_install_root()) / "automation" / "recordings"
+    out = groups_config_path()
+    rec = out.parent
     try:
         rec.mkdir(parents=True, exist_ok=True)
-        out = rec / "groups_config.json"
-        payload = {"_note": "Written by CPharm", "groups": state["groups"]}
+        groups = state["groups"]
+        _drop_empty_phone_serials(groups)
+        payload = {"_note": "Written by PharmFlow", "groups": groups}
         out.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
         return str(out)
     except OSError as exc:
@@ -2472,7 +2522,7 @@ class PerPhoneSequenceEditor(tk.Toplevel):
     def _resolve_wizard_shell(self):
         cur = self.master
         while cur is not None:
-            if isinstance(cur, CPharmWizard):
+            if isinstance(cur, PharmFlowWizard):
                 return cur
             cur = getattr(cur, "master", None)
         return None
@@ -3026,10 +3076,10 @@ def run_cmd(cmd, cwd=None, timeout=120):
         return False, str(e)
 
 
-def _calibrate_installed_stack(py: str | list[str], cpharm_root: Path, log_fn) -> bool:
+def _calibrate_installed_stack(py: str | list[str], pharmflow_root: Path, log_fn) -> bool:
     """Post-install health check: bytecode compile + ``smoke_imports``; stamp recordings dir."""
     try:
-        root = Path(cpharm_root).resolve()
+        root = Path(pharmflow_root).resolve()
     except OSError:
         return False
     auto = root / "automation"
@@ -3087,7 +3137,8 @@ def _calibrate_installed_stack(py: str | list[str], cpharm_root: Path, log_fn) -
     return True
 
 
-def adb(*args, serial=None, timeout=20):
+def adb_result(*args, serial=None, timeout=20) -> tuple[int, str]:
+    """Returncode and text. Empty text with returncode 0 is a landed command."""
     exe = adb_executable()
     cmd = [exe]
     if serial:
@@ -3103,10 +3154,28 @@ def adb(*args, serial=None, timeout=20):
             encoding="utf-8",
             errors="replace",
         )
-        return (r.stdout + r.stderr).strip()
+        return r.returncode, (r.stdout + r.stderr).strip()
     except (OSError, subprocess.SubprocessError, UnicodeError) as e:
         _wiz_debug(f"adb({args!r}, serial={serial!r}): {e!r}", None)
-        return ""
+        return 1, ""
+
+
+def adb(*args, serial=None, timeout=20):
+    _rc, text = adb_result(*args, serial=serial, timeout=timeout)
+    return text
+
+
+def input_command_landed(rc: int, text: str) -> bool:
+    """True when adb accepted an input command. Empty text with returncode 0 is enough.
+
+    A non-zero exit or an error line is not a tap, a swipe, a key, or typed text.
+    """
+    if rc != 0:
+        return False
+    blob = (text or "").lower()
+    if "error:" in blob or "exception" in blob:
+        return False
+    return True
 
 
 def _adb_start_server_if_needed(log_fn=None):
@@ -3181,44 +3250,51 @@ def _wiz_collect_all_adb_serials_for_proxy_cleanup() -> list[str]:
     return out
 
 
-def wiz_clear_phone_proxies_best_effort(*, stop_tor_host: bool = True) -> int:
-    """Clear ``global http_proxy`` and Tor ``adb reverse`` ports on all known devices.
+def wiz_repin_phone_exits() -> tuple[bool, int, str]:
+    """Reconnect ADB and re-pin guests onto their own Tor/inject exits.
 
-    Runs **locally via ADB** — does not require the automation server. Call on wizard exit
-    so MuMu browsers are not left pointing at a dead tunnel after PharmFlow closes.
-
-    Set ``CPHARM_SKIP_EXIT_PROXY_CLEAR=1`` to disable exit-time cleanup.
+    Does not delete ``http_proxy`` and does not stop Tor. Clearing those sends
+    farm traffic out the VM or host path.
     """
-    if os.environ.get("CPHARM_SKIP_EXIT_PROXY_CLEAR", "").strip().lower() in (
-        "1",
-        "true",
-        "yes",
-        "on",
-    ):
-        return 0
-    with _wiz_proxy_clear_lock:
-        serials = _wiz_collect_all_adb_serials_for_proxy_cleanup()
-        if not serials:
-            return 0
-        try:
-            automation_on_sys_path()
-            import tor_manager  # noqa: WPS433
+    try:
+        from automation.farm_exe_self_heal import (
+            adb_live_serials,
+            connect_live_fleet,
+            heal_inject_and_tor,
+        )
+    except Exception as exc:
+        return False, 0, str(exc)
+    notes: list[str] = []
+    try:
+        notes.extend(connect_live_fleet() or [])
+    except Exception as exc:
+        notes.append(f"connect_failed:{exc}")
+    try:
+        live = list(adb_live_serials() or [])
+    except Exception as exc:
+        return False, 0, str(exc)
+    try:
+        notes.extend(heal_inject_and_tor(live=live) or [])
+    except Exception as exc:
+        return False, len(live), str(exc)
+    failed = [
+        n
+        for n in notes
+        if "repin_fail" in n or n.startswith("inject_start_err") or n.startswith("connect_failed")
+    ]
+    if failed:
+        return False, len(live), "; ".join(failed)[:400]
+    return True, len(live), f"Re-pinned {len(live)} phone(s) onto their own exits."
 
-            tor_manager.clear_all_proxies_on_devices(serials)
-            tor_manager.kick_default_browser_after_proxy_teardown(serials)
-            try:
-                tor_manager.clear_tor_slots()
-            except Exception:
-                pass
-            if stop_tor_host:
-                try:
-                    tor_manager.stop_all()
-                except Exception:
-                    pass
-        except Exception:
-            _wiz_debug("wiz_clear_phone_proxies_best_effort: failed", None)
-            return 0
-        return len(serials)
+
+def wiz_clear_phone_proxies_best_effort(*, stop_tor_host: bool = True) -> int:
+    """Re-pin exits. The old body deleted http_proxy and stopped Tor.
+
+    ``stop_tor_host`` is ignored. Clearing the guest proxy is host-IP egress.
+    """
+    _ = stop_tor_host
+    ok, n, _msg = wiz_repin_phone_exits()
+    return n if ok else 0
 
 
 def _adb_devices_tcp_ready_serials(devices_l_output: str):
@@ -3309,22 +3385,22 @@ def _resolve_sdk_root_auto() -> str:
     return ""
 
 
-def _maybe_autofill_cpharm_dir() -> None:
-    """If ``cpharm_dir`` is missing or not a valid install tree, set from install root."""
-    d = (state.get("cpharm_dir") or "").strip()
+def _maybe_autofill_pharmflow_dir() -> None:
+    """If ``pharmflow_dir`` is missing or not a valid install tree, set from install root."""
+    d = (state.get("pharmflow_dir") or "").strip()
     if d:
         try:
             p = Path(d).expanduser().resolve()
             if p.is_dir() and (p / "automation" / "dashboard.py").is_file():
                 return
         except Exception as e:
-            _wiz_debug(f"_maybe_autofill_cpharm_dir: invalid cpharm_dir {d!r}: {e!r}", None)
+            _wiz_debug(f"_maybe_autofill_pharmflow_dir: invalid pharmflow_dir {d!r}: {e!r}", None)
     try:
-        root = _cpharm_install_root()
+        root = _pharmflow_install_root()
         if (root / "automation" / "dashboard.py").is_file():
-            state["cpharm_dir"] = str(root.resolve())
+            state["pharmflow_dir"] = str(root.resolve())
     except Exception as e:
-        _wiz_debug(f"_maybe_autofill_cpharm_dir: could not set from install root: {e!r}", None)
+        _wiz_debug(f"_maybe_autofill_pharmflow_dir: could not set from install root: {e!r}", None)
 
 
 def sdk_tool(name):
@@ -3661,7 +3737,7 @@ MUMU_ADB_PER_INSTANCE_HINT = (
 )
 
 # Module-level MuMu ADB / instance cache (``_connect_mumu_phones`` may run on worker threads).
-# Verbose MuMu/ADB trace lines: set CPHARM_WIZARD_DEBUG=1 in the environment before launching.
+# Verbose MuMu/ADB trace lines: set PHARMFLOW_WIZARD_DEBUG=1 in the environment before launching.
 MUMU_INSTANCES_CACHE_TTL_S = 8.0
 MUMU_CONNECT_COOLDOWN_S = 3.0
 _mumu_connect_lock = threading.Lock()
@@ -3673,7 +3749,7 @@ _last_mumu_connect_mono: float = 0.0
 
 
 def _wiz_debug_enabled() -> bool:
-    for key in ("CPHARM_WIZARD_DEBUG", "CPHARM_WIZ_DEBUG"):
+    for key in ("PHARMFLOW_WIZARD_DEBUG", "PHARMFLOW_WIZ_DEBUG"):
         v = os.environ.get(key, "").strip().lower()
         if v and v not in ("0", "false", "no", "off"):
             return True
@@ -4051,7 +4127,7 @@ def _instances_append_from_info_json(data, instances: list) -> None:
     def _parse_one(d):
         if not isinstance(d, dict):
             return
-        ip = d.get("adb_host_ip") or d.get("ip") or "127.0.0.1"
+        ip = str(d.get("adb_host_ip") or d.get("ip") or "").strip()
         port = _mumu_adb_port(d)
         if port is None:
             return
@@ -4060,10 +4136,13 @@ def _instances_append_from_info_json(data, instances: list) -> None:
             idx = int(idx)
         except (TypeError, ValueError):
             idx = 0
+        # A missing host is not this PC's loopback. ARM MuMu publishes
+        # 10.0.2.x in state.json. Inventing 127.0.0.1 hides that serial.
+        serial = f"{ip}:{port}" if ip else ""
         instances.append({
             "index":      idx,
             "name":       d.get("name") or d.get("vm_name") or f"MuMu-{idx}",
-            "adb_serial": f"{ip}:{port}",
+            "adb_serial": serial,
             "started":    bool(d.get("is_android_started") or d.get("started")),
         })
 
@@ -4080,11 +4159,160 @@ def _instances_append_from_info_json(data, instances: list) -> None:
                 _parse_one(item)
 
 
+def _prefer_mumu_serial(current: str, incoming: str) -> str:
+    """Keep a published guest serial over an invented loopback serial."""
+    cur = str(current or "").strip()
+    inc = str(incoming or "").strip()
+    if not cur:
+        return inc
+    if not inc:
+        return cur
+    if cur.startswith("127.0.0.1:") and inc.startswith("10.0.2."):
+        return inc
+    return cur
+
+
+def _merge_mumu_instances(primary: list, extra: list) -> list:
+    """Union MuMu instance rows by index. ``extra`` fills indexes primary missed.
+
+    A CLI row that names 127.0.0.1 does not hide the state.json 10.0.2.x serial
+    for that same index. Classic boot was connecting a port this ARM host does not publish.
+    """
+    out = [row for row in primary if isinstance(row, dict)]
+    seen = set()
+    for row in out:
+        try:
+            seen.add(int(row.get("index")))
+        except (TypeError, ValueError):
+            continue
+    for row in extra:
+        if not isinstance(row, dict):
+            continue
+        try:
+            idx = int(row.get("index"))
+        except (TypeError, ValueError):
+            continue
+        if idx in seen:
+            for row_out in out:
+                try:
+                    out_idx = int(row_out.get("index"))
+                except (TypeError, ValueError):
+                    continue
+                if out_idx != idx:
+                    continue
+                row_out["adb_serial"] = _prefer_mumu_serial(
+                    str(row_out.get("adb_serial") or ""),
+                    str(row.get("adb_serial") or ""),
+                )
+                if row.get("started") and not row_out.get("started"):
+                    row_out["started"] = True
+                break
+            continue
+        out.append(row)
+        seen.add(idx)
+    return out
+
+
+def _mumu_instances_from_disk(log_fn=None) -> list:
+    """Every MuMu VM folder. Not a 0–15 probe."""
+    found: list = []
+    try:
+        from mumu_farm_ops import MuMuFarmOps
+
+        live = set()
+        try:
+            raw = adb("devices", "-l", timeout=10)
+            for line in raw.splitlines()[1:]:
+                parts = line.split()
+                if len(parts) >= 2 and parts[1] == "device":
+                    live.add(parts[0])
+        except Exception as exc:  # noqa: BLE001
+            _wiz_debug(f"mumu disk listing adb devices probe failed: {exc}", log_fn)
+
+        ops = MuMuFarmOps()
+        vms_dir = getattr(ops, "vms_dir", None)
+        try:
+            from automation.mumu_shell_cli import instance_shell_running
+        except Exception:  # noqa: BLE001
+            instance_shell_running = None
+
+        for _inst in ops.list_instances() or []:
+            idx = int(getattr(_inst, "index", 0) or 0)
+            name = str(getattr(_inst, "name", "") or "")
+            serial = str(getattr(_inst, "adb_serial", "") or "")
+            started = bool(getattr(_inst, "running", False)) or (
+                bool(serial) and serial in live
+            )
+            if instance_shell_running is not None:
+                try:
+                    if instance_shell_running(idx):
+                        started = True
+                except Exception:  # noqa: BLE001
+                    pass
+            if vms_dir is not None and name:
+                state_path = Path(vms_dir) / name / "misc" / "state.json"
+                try:
+                    state = json.loads(state_path.read_text(encoding="utf-8-sig"))
+                    host = str(state.get("AdbHost") or "").strip()
+                    port = str(state.get("AdbPort") or "5555").strip()
+                    if host.startswith("10.0.2."):
+                        serial = f"{host}:{port}"
+                        if serial in live:
+                            started = True
+                except (OSError, ValueError, TypeError):
+                    pass
+            found.append(
+                {
+                    "index": idx,
+                    "name": name or f"MuMu-{idx}",
+                    "adb_serial": serial,
+                    "started": started,
+                }
+            )
+    except Exception as exc:  # noqa: BLE001 — best-effort fallback
+        _wiz_debug(f"mumu disk listing failed: {exc}", log_fn)
+    return found
+
+
+def _mumu_probe_indexes_until_gap(exes: list, log_fn=None) -> list:
+    """Ask the CLI for indexes until replies stop. A gap is the end of the list, not a phone cap."""
+    found: list = []
+    misses = 0
+    idx = 0
+    while misses < 4:
+        progressed = False
+        for exe in exes:
+            ok, so, se = _mumu_run_capture(
+                exe, "info", "-v", str(idx), timeout=10, log_fn=log_fn
+            )
+            del ok
+            blob = (so + "\n" + se).strip()
+            if not blob:
+                continue
+            data = _mumu_parse_json_output(blob)
+            if data is None:
+                continue
+            before = len(found)
+            _instances_append_from_info_json(data, found)
+            added = found[before:]
+            if any(int(row.get("index", -1)) == idx for row in added):
+                progressed = True
+                break
+        if progressed:
+            misses = 0
+        else:
+            misses += 1
+        idx += 1
+    return found
+
+
 def _mumu_get_instances(mgr_path, log_fn=None):
     """Return list of dicts: {index, name, adb_serial, started}.
 
     Tries ``nemux-shell-winui.Manager.exe`` and ``shell\\MuMuManager.exe`` (JSON ``info``
-    often works only on the legacy shell binary). Falls back to ``info -v <n>`` per VM.
+    often works only on the legacy shell binary). A partial CLI list is merged with
+    every VM folder on disk. Index probing is only the last resort, and it stops
+    on a gap — it does not stop at phone 16.
     """
     _wiz_debug(f"mumu_get_instances start mgr={_wiz_dbg_path(mgr_path)}", log_fn)
     mgr_path = Path(mgr_path)
@@ -4138,101 +4366,18 @@ def _mumu_get_instances(mgr_path, log_fn=None):
                 log_fn(f"  Using JSON from fallback: {exe}\n")
             break
 
-        # 2) Per-VM info -v 0 .. 15 (works when ``all`` returns log spam only).
-        if log_fn:
-            log_fn(f"  Trying per-VM info -v <n> via {tag}…\n")
-        for idx in range(16):
-            ok, so, se = _mumu_run_capture(
-                exe, "info", "-v", str(idx), timeout=10, log_fn=log_fn
-            )
-            blob = (so + "\n" + se).strip()
-            if not blob:
-                continue
-            data = _mumu_parse_json_output(blob)
-            if data is None:
-                continue
-            before = len(instances)
-            _instances_append_from_info_json(data, instances)
-            if len(instances) > before:
-                continue
-        if instances:
-            if log_fn and exe != mgr_path:
-                log_fn(f"  Instance list via fallback: {exe}\n")
-            break
-
-    if not instances and gui_only:
-        # GUI-only manager (MuMuPlayerARM): the CLI exes (if any) produced no
-        # usable output, so enumerate VMs from their config files instead of
-        # executing anything. Keeps spin-up working with zero manager windows.
-        if log_fn:
+    disk = _mumu_instances_from_disk(log_fn)
+    if disk:
+        if log_fn and not instances:
             log_fn(
                 "  CLI returned no MuMu instances — reading VMs from config "
                 "files (no window opened)...\n"
             )
-        _wiz_debug("mumu_get_instances: CLI empty, config-file enumeration fallback", log_fn)
-        try:
-            from mumu_farm_ops import MuMuFarmOps
-
-            # Ground truth for "started": a VM is up when its shell process runs
-            # or its ADB serial answers. The config listing's ``running`` flag
-            # can't see ARM 10.0.2.x serials, which made the boot flow burn a
-            # full 180s wait on every phone.
-            live = set()
-            try:
-                raw = adb("devices", "-l", timeout=10)
-                for line in raw.splitlines()[1:]:
-                    parts = line.split()
-                    if len(parts) >= 2 and parts[1] == "device":
-                        live.add(parts[0])
-            except Exception as exc:  # noqa: BLE001
-                _wiz_debug(f"mumu_get_instances adb devices probe failed: {exc}", log_fn)
-
-            ops = MuMuFarmOps()
-            vms_dir = getattr(ops, "vms_dir", None)
-            try:
-                from automation.mumu_shell_cli import instance_shell_running
-            except Exception:  # noqa: BLE001
-                instance_shell_running = None
-
-            for _inst in ops.list_instances() or []:
-                idx = int(getattr(_inst, "index", 0) or 0)
-                name = str(getattr(_inst, "name", "") or "")
-                serial = str(getattr(_inst, "adb_serial", "") or "")
-                started = bool(getattr(_inst, "running", False)) or (
-                    bool(serial) and serial in live
-                )
-                if instance_shell_running is not None:
-                    try:
-                        if instance_shell_running(idx):
-                            started = True
-                    except Exception:  # noqa: BLE001
-                        pass
-                # MuMuPlayerARM exposes ADB only at the VM's 10.0.2.x NAT
-                # address (AdbHost:AdbPort in misc/state.json), never on the
-                # classic 127.0.0.1:16xxx ports. Point the boot flow at the
-                # real serial so `adb connect` can actually reach the phone.
-                if vms_dir is not None:
-                    state_path = Path(vms_dir) / name / "misc" / "state.json"
-                    try:
-                        state = json.loads(state_path.read_text(encoding="utf-8-sig"))
-                        host = str(state.get("AdbHost") or "").strip()
-                        port = str(state.get("AdbPort") or "5555").strip()
-                        if host.startswith("10.0.2."):
-                            serial = f"{host}:{port}"
-                            if serial in live:
-                                started = True
-                    except (OSError, ValueError, TypeError):
-                        pass
-                instances.append(
-                    {
-                        "index": idx,
-                        "name": name,
-                        "adb_serial": serial,
-                        "started": started,
-                    }
-                )
-        except Exception as exc:  # noqa: BLE001 — best-effort fallback
-            _wiz_debug(f"mumu_get_instances config fallback failed: {exc}", log_fn)
+        instances = _merge_mumu_instances(instances, disk)
+    if not instances and exes:
+        if log_fn:
+            log_fn("  CLI and disk listing were empty — probing indexes until the replies stop…\n")
+        instances = _mumu_probe_indexes_until_gap(exes, log_fn)
     if not instances and log_fn:
         log_fn(
             "  Could not parse JSON from manager output — "
@@ -4310,12 +4455,11 @@ def _mumu_launch(mgr_path, index, log_fn=None):
     return ok
 
 
-def _connect_mumu_phones(count=16, log_fn=None, *, force_full_scan=False):
-    """Connect to MuMuPlayer instances via MuMu shell CLI + adb connect.
+def _connect_mumu_phones(count=0, log_fn=None, *, force_full_scan=False):
+    """Connect to MuMuPlayer instances via MuMu shell CLI + published guests.
 
-    Always tries both the manager CLI (for names/exact ports) AND the port
-    fallback scan — so phones are found even if the MuMu CLI lookup fails.
-    Returns list of connected ADB serials.
+    ``count`` is ignored. Stopping at 16 dropped phones whose guest serial was
+    not in the first localhost sweep. Returns every serial that answers ADB.
     """
     global _last_mumu_connected_serials, _last_mumu_connect_mono
 
@@ -4459,54 +4603,43 @@ def _connect_mumu_phones_impl(count=16, log_fn=None):
         if log_fn:
             log_fn("  MuMu shell CLI not found — using port scan fallback\n")
 
-    # Port scan only when CLI + listed devices found nothing (saves 60–120s when phones are up).
+    # CLI found nothing. Attach every published guest, not a 16- or 48-port
+    # localhost sweep. ``count`` is ignored: a phone-count ceiling drops live VMs.
     if not connected:
-        n_cap = min(48, max(count, 16))
+        try:
+            from automation.farm_canonical_phones import _fleet_from_disk
+
+            disk_fleet = _fleet_from_disk()
+        except Exception as exc:  # noqa: BLE001
+            disk_fleet = {}
+            _wiz_debug(f"disk fleet unavailable: {exc}", log_fn)
         _wiz_debug(
-            f"port_scan begin n_cap={n_cap} connected_before_scan={len(connected)}",
+            f"guest attach begin n_vms={len(disk_fleet)} connected_before={len(connected)}",
             log_fn,
         )
-
-        def _scan_ports(base_port, stride, n_iter):
-            for i in range(n_iter):
-                if count and len(connected) >= count:
-                    return
-                serial = f"127.0.0.1:{base_port + i * stride}"
-                if serial in tried_serials or serial in connected:
+        for name, raw_serial in disk_fleet.items():
+            serial = str(raw_serial or "").strip()
+            if not serial:
+                m_idx = re.match(r"^vm(\d+)", str(name), re.IGNORECASE)
+                if not m_idx:
                     continue
-                tried_serials.add(serial)
-                out = adb("connect", serial, timeout=4)
-                low = out.lower()
-                if "connected" in low or "already" in low:
-                    check = adb("shell", "echo", "ok", serial=serial, timeout=5)
-                    if check.strip() == "ok":
-                        connected.append(serial)
-                        _wiz_debug(f"port_scan hit {serial}", log_fn)
-                        if log_fn:
-                            log_fn(f"  ✅ port scan: {serial}\n")
-
-        port_waves = (
-            (16384, 32, n_cap),
-            (27666, 1, min(48, max(count, 16))),
-            (7555, 2, n_cap),
-            (5555, 2, min(32, max(count, 8))),
-            (22471, 1, min(32, max(count, 8))),
-        )
-        for base_port, stride, n_iter in port_waves:
-            if count and len(connected) >= count:
-                break
-            before_w = len(connected)
-            _wiz_debug(
-                f"port_scan_wave base={base_port} stride={stride} n_iter={n_iter}",
-                log_fn,
-            )
-            _scan_ports(base_port, stride, n_iter)
-            _wiz_debug(
-                f"port_scan_wave done +{len(connected) - before_w} new (total {len(connected)})",
-                log_fn,
-            )
+                serial = f"127.0.0.1:{16384 + int(m_idx.group(1)) * 32}"
+            if serial in tried_serials or serial in connected:
+                continue
+            tried_serials.add(serial)
+            out = adb("connect", serial, timeout=4)
+            low = (out or "").lower()
+            if "connected" not in low and "already" not in low:
+                continue
+            check = adb("shell", "echo", "ok", serial=serial, timeout=5)
+            if check.strip() != "ok":
+                continue
+            connected.append(serial)
+            _wiz_debug(f"guest attach hit {name} {serial}", log_fn)
+            if log_fn:
+                log_fn(f"  ✅ guest attach: {serial}\n")
     elif log_fn:
-        log_fn(f"  Skipping port scan — {len(connected)} phone(s) already connected.\n")
+        log_fn(f"  Skipping guest attach — {len(connected)} phone(s) already connected.\n")
 
     _last_mumu_connected_serials = connected
     _last_mumu_connect_mono = time.monotonic()
@@ -5250,23 +5383,20 @@ def start_emulator(avd_name, port):
     # On x64 Windows: x86_64 guest needs -accel auto (WHPX or HAXM).
     # -gpu swiftshader_indirect — Adreno Vulkan lacks VK_KHR_external_memory so
     #   host GPU passthrough is unavailable; software GLES is required either way.
-    # -no-snapshot-save / -no-boot-anim / -no-audio / -wipe-data — speed + clean state
+    # -wipe-data on every start erased the phone. A start keeps the data disk.
+    # CREATE_NO_WINDOW hides the console only. DETACHED_PROCESS plus SW_HIDE
+    # parked the phone window off-screen, so those flags are not used.
     host_is_arm64 = IS_WIN and "arm64" in _machine_arch()
     base_args = ["-gpu", "swiftshader_indirect",
-                 "-no-snapshot-save", "-no-boot-anim", "-no-audio", "-wipe-data"]
+                 "-no-snapshot-save", "-no-boot-anim", "-no-audio"]
     accel_args = base_args if host_is_arm64 else ["-accel", "auto"] + base_args
-
-    # CREATE_NO_WINDOW hides the console window (no blank/flashing terminal).
-    # File-handle inheritance works fine with CREATE_NO_WINDOW — the inheritance
-    # problem only affects CREATE_NEW_CONSOLE. The emulator's graphical phone
-    # window is a separate Win32 window and still appears normally.
     launch_flags = subprocess.CREATE_NO_WINDOW if IS_WIN else 0
 
     log_path = None
     try:
         log_dir = Path(os.environ.get("TEMP", "/tmp"))
         log_dir.mkdir(parents=True, exist_ok=True)
-        log_path = log_dir / f"cpharm_emu_{avd_name}.log"
+        log_path = log_dir / f"pharmflow_emu_{avd_name}.log"
         log_file = open(log_path, "w")
     except Exception:
         log_file = subprocess.DEVNULL
@@ -5278,11 +5408,6 @@ def start_emulator(avd_name, port):
     cmd_str = subprocess.list2cmdline(argv)
 
     popen_kwargs = dict(env=env, creationflags=launch_flags, shell=True)
-    if IS_WIN and hasattr(subprocess, "DETACHED_PROCESS"):
-        popen_kwargs["creationflags"] = int(subprocess.DETACHED_PROCESS) | int(subprocess.CREATE_NO_WINDOW)
-        popen_kwargs["startupinfo"] = subprocess.STARTUPINFO()
-        popen_kwargs["startupinfo"].dwFlags |= subprocess.STARTF_USESHOWWINDOW
-        popen_kwargs["startupinfo"].wShowWindow = subprocess.SW_HIDE
     if log_file is not None:
         popen_kwargs["stdout"] = log_file
         popen_kwargs["stderr"] = log_file
@@ -5321,22 +5446,19 @@ def rotate_android_id(serial):
 
 
 def _serial_to_idx(serial: str) -> int:
-    """Legacy index for Tor control port (NEWNYM). Tor HTTP proxy slots use ``tor_manager.phone_idx_from_adb_serial`` (``desktop_prefs.json`` ``phone_serials`` order for MuMu guest-bridge). AVD: emulator-5554->0. MuMu TCP: 127.0.0.1:16384->0, :16416->1, ..."""
-    try:
-        if serial.startswith("emulator-"):
-            return max(0, (int(serial.split("-")[1]) - 5554) // 2)
-        if ":" in serial:
-            port = int(serial.rsplit(":", 1)[1])
-            if 16384 <= port <= 16896:
-                return (port - 16384) // 32
-        return 0
-    except (IndexError, ValueError):
-        return 0
+    """Tor slot for this serial. Do not treat every ARM guest (10.0.2.x:5555) as phone 0."""
+    automation_on_sys_path()
+    import tor_manager as _tm
+
+    return _tm.phone_idx_from_adb_serial(serial)
 
 
 def _try_newnym(serial: str) -> bool:
-    idx       = _serial_to_idx(serial)
-    ctrl_port = 10050 + idx
+    automation_on_sys_path()
+    import tor_manager as _tm
+
+    idx = _tm.phone_idx_from_adb_serial(serial)
+    ctrl_port = _tm.phone_control_port(idx)
     try:
         with socket.create_connection(("127.0.0.1", ctrl_port), timeout=2) as s:
             s.sendall(b'AUTHENTICATE ""\r\n')
@@ -5539,7 +5661,7 @@ def setup_chrome(serial, log_fn=None):
         serial=serial)
     time.sleep(3)
     try:
-        ap = str(_cpharm_install_root() / "automation")
+        ap = str(_pharmflow_install_root() / "automation")
         if ap not in sys.path:
             sys.path.insert(0, ap)
         import chromium_fre_uia as _fre
@@ -5555,7 +5677,7 @@ def setup_chrome(serial, log_fn=None):
 
 def _wiz_phone_idx_for_tor(s: str) -> int:
     """Tor slot from ADB serial — delegated to ``tor_manager.phone_idx_from_adb_serial``."""
-    root = _cpharm_install_root()
+    root = _pharmflow_install_root()
     auto_path = root / "automation"
     ap = str(auto_path)
     if ap not in sys.path:
@@ -5570,7 +5692,7 @@ def _wiz_phone_idx_for_tor(s: str) -> int:
 
 def _wiz_repair_proxy_adb_reverse(serial: str) -> None:
     """Re-apply ``adb reverse`` when ``http_proxy`` is set but the forward dropped (MuMu reconnect)."""
-    root = _cpharm_install_root()
+    root = _pharmflow_install_root()
     auto_path = root / "automation"
     ap = str(auto_path)
     if ap not in sys.path:
@@ -5582,7 +5704,7 @@ def _wiz_repair_proxy_adb_reverse(serial: str) -> None:
         result = _tm.repair_adb_reverse_for_proxy(str(serial), idx)
         if result.get("repaired"):
             print(
-                f"[cpharm] Proxy reverse repaired serial={serial} "
+                f"[pharmflow] Proxy reverse repaired serial={serial} "
                 f"port={result.get('port')} reason={result.get('reason')}"
             )
     except Exception:
@@ -5591,7 +5713,7 @@ def _wiz_repair_proxy_adb_reverse(serial: str) -> None:
 
 def _wiz_open_url_am_start_timeout_sec() -> float:
     try:
-        v = float(os.environ.get("CPHARM_OPEN_URL_AM_START_TIMEOUT_SEC", "35") or 35)
+        v = float(os.environ.get("PHARMFLOW_OPEN_URL_AM_START_TIMEOUT_SEC", "35") or 35)
     except (TypeError, ValueError):
         v = 35.0
     return max(15.0, min(120.0, v))
@@ -5613,7 +5735,7 @@ def _wiz_normalize_url_for_intent(raw) -> str:
 
 
 def _wiz_skip_tor_wait() -> bool:
-    return os.environ.get("CPHARM_SKIP_TOR_WAIT", "").strip().lower() in ("1", "true", "yes", "on")
+    return os.environ.get("PHARMFLOW_SKIP_TOR_WAIT", "").strip().lower() in ("1", "true", "yes", "on")
 
 
 def _wiz_pid_pkg_running(serial: str, pkg: str) -> bool:
@@ -5628,7 +5750,7 @@ def _wiz_wait_browser_pid_after_open(serial: str, pkgs: list[str]) -> None:
     if not pkgs:
         return
     try:
-        timeout = float(os.environ.get("CPHARM_OPEN_URL_LAUNCH_WAIT_SEC", "65"))
+        timeout = float(os.environ.get("PHARMFLOW_OPEN_URL_LAUNCH_WAIT_SEC", "65"))
     except (TypeError, ValueError):
         timeout = 65.0
     timeout = max(8.0, min(timeout, 180.0))
@@ -5643,19 +5765,19 @@ def _wiz_wait_browser_pid_after_open(serial: str, pkgs: list[str]) -> None:
 def _wiz_settle_after_open_url(*, fast: bool = False) -> float:
     if fast:
         try:
-            return min(1.0, max(0.0, float(os.environ.get("CPHARM_OPEN_URL_FAST_SETTLE_SEC", "0") or 0)))
+            return min(1.0, max(0.0, float(os.environ.get("PHARMFLOW_OPEN_URL_FAST_SETTLE_SEC", "0") or 0)))
         except (TypeError, ValueError):
             return 0.0
     try:
-        d = float(os.environ.get("CPHARM_OPEN_URL_DEFAULT_WAIT_SEC", "6") or 6)
+        d = float(os.environ.get("PHARMFLOW_OPEN_URL_DEFAULT_WAIT_SEC", "6") or 6)
     except (TypeError, ValueError):
         d = 0.0
     try:
-        f = float(os.environ.get("CPHARM_OPEN_URL_FIRST_NAV_SEC", "4") or 4)
+        f = float(os.environ.get("PHARMFLOW_OPEN_URL_FIRST_NAV_SEC", "4") or 4)
     except (TypeError, ValueError):
         f = 4.0
-    d = min(120.0, max(0.0, d))
-    f = min(90.0, max(0.0, f))
+    d = max(0.0, d)
+    f = max(0.0, f)
     return max(d, f)
 
 
@@ -5680,22 +5802,30 @@ def _plain_tor_user_message(err: str | None) -> str:
 
 
 def _wiz_prepare_browse_skip_tor(serial: str, url: str) -> bool:
-    """Scramble/direct/upstream getdabflow: clear proxy and skip Tor before ``open_url``."""
+    """Pin the guest exit before a getdabflow open. Never clear the proxy.
+
+    The old call passed the serial as the adb object, so it always threw and
+    Test URL opened without a pin.
+    """
     if "getdabflow.app" not in (url or "").lower():
         return False
     try:
+        automation_on_sys_path()
         import browse_proxy as bp
+        from adb_wrapper import AdbWrapper
 
-        if not bp.dabflow_browse_active(serial):
+        if not bp.dabflow_browse_active():
             return False
         idx = _wiz_phone_idx_for_tor(serial)
-        bp.prepare_browse_session(
+        out = bp.prepare_browse_session(
+            AdbWrapper(),
             str(serial),
             idx,
-            log_fn=lambda m: print(f"[cpharm] {m}", flush=True),
+            log_fn=lambda m: print(f"[pharmflow] {m}", flush=True),
         )
-        return True
-    except Exception:
+        return bool(out.get("ok"))
+    except Exception as exc:
+        print(f"[pharmflow] browse pin failed serial={serial}: {exc}", flush=True)
         return False
 
 
@@ -5713,18 +5843,87 @@ def _wiz_apply_dabflow_mantis_patch(serial: str, url: str) -> None:
             _wiz_phone_idx_for_tor(serial),
         )
     except Exception as exc:
-        print(f"[cpharm] Mantis patch error serial={serial}: {exc}", flush=True)
+        print(f"[pharmflow] Mantis patch error serial={serial}: {exc}", flush=True)
+
+
+def _wiz_read_guest_proxy(serial: str) -> str:
+    out = adb(
+        "shell",
+        "settings",
+        "get",
+        "global",
+        "http_proxy",
+        serial=serial,
+        timeout=8,
+    )
+    return (out or "").strip()
+
+
+def _wiz_ensure_phone_exit(serial: str) -> tuple[bool, str]:
+    """Refuse to browse until the guest proxy is this phone's loopback exit.
+
+    An empty, null, or ``:0`` proxy sends the page out the VM NAT (this PC).
+    That rule applies to every URL, not only getdabflow. A pinned exit short-
+    circuits. A missing one gets one pin attempt, then a re-read. Failure does
+    not launch the browser.
+    """
+    cur = _wiz_read_guest_proxy(serial)
+    if "error:" in cur.lower():
+        return False, cur
+    try:
+        automation_on_sys_path()
+        from browse_proxy import guest_proxy_healthy, pin_guest_proxy
+        from adb_wrapper import AdbWrapper
+    except Exception as exc:
+        return False, f"Could not check this phone's exit: {exc}"
+    if guest_proxy_healthy(cur):
+        return True, cur
+    try:
+        pinned = pin_guest_proxy(
+            AdbWrapper(),
+            str(serial),
+            _wiz_phone_idx_for_tor(serial),
+            attempts=1,
+        )
+    except Exception as exc:
+        print(f"[pharmflow] exit pin failed serial={serial}: {exc}", flush=True)
+        pinned = ""
+    if guest_proxy_healthy(str(pinned or "")):
+        return True, str(pinned)
+    again = _wiz_read_guest_proxy(serial)
+    if "error:" in again.lower():
+        return False, again
+    if guest_proxy_healthy(again):
+        return True, again
+    return False, (
+        "This phone has no exit proxy, so the page was not opened. "
+        "Traffic would leave this PC. Press Fix phone internet, then try again."
+    )
+
+
+def _am_start_landed(out: str | None) -> bool:
+    """True only when ``am start`` reported a start or a delivery to a running app."""
+    low = (out or "").strip().lower()
+    if not low:
+        return False
+    if "error:" in low or "exception" in low or "unable to resolve intent" in low:
+        return False
+    return (
+        "starting:" in low
+        or "intent has been delivered" in low
+        or "brought to the front" in low
+    )
 
 
 def chrome_open_url(serial, url, *, fast_pre_site: bool = False):
     """Open a URL on-device with the same fallback order as runtime.
 
-    Returns ``(ok, note)`` where ``ok`` is True when an ``am start`` attempt
-    appeared to succeed (no ``error:`` / ``unable to resolve intent`` in adb
-    text). ``note`` is set when Tor/proxy was not ready (pages may still time
+    Returns ``(ok, note)`` where ``ok`` is True only when ``am start`` reported
+    Starting, delivered, or brought to the front. Empty adb output is not an
+    open. ``note`` is set when Tor/proxy was not ready (pages may still time
     out) or when ``ok`` is False to carry the last adb error / a short reason.
     """
-    root = _cpharm_install_root()
+    root = _pharmflow_install_root()
     auto_path = root / "automation"
     ap = str(auto_path)
     if ap not in sys.path:
@@ -5751,10 +5950,10 @@ def chrome_open_url(serial, url, *, fast_pre_site: bool = False):
             prepare_for_dabflow_open(
                 serial,
                 url,
-                log=lambda m: print(f"[cpharm] {m}", flush=True),
+                log=lambda m: print(f"[pharmflow] {m}", flush=True),
             )
         except Exception as _prep_exc:
-            print(f"[cpharm] dabflow prep warning serial={serial}: {_prep_exc}", flush=True)
+            print(f"[pharmflow] dabflow prep warning serial={serial}: {_prep_exc}", flush=True)
 
     tor_note = None
     try:
@@ -5771,18 +5970,37 @@ def chrome_open_url(serial, url, *, fast_pre_site: bool = False):
                 _err = _tor_ready.get("error", "unknown")
                 tor_note = _plain_tor_user_message(str(_err))
                 print(
-                    f"[cpharm] Tor not ready before opening link — {_err} "
+                    f"[pharmflow] Tor not ready before opening link — {_err} "
                     f"(wait for Set up Tor on Launch)"
                 )
-                if os.environ.get("CPHARM_OPEN_URL_DEBUG", "").strip().lower() in (
+                if os.environ.get("PHARMFLOW_OPEN_URL_DEBUG", "").strip().lower() in (
                     "1",
                     "true",
                     "yes",
                     "on",
                 ):
-                    print(f"[cpharm] open_url DEBUG tor detail: {_err}")
-        except Exception:
-            pass
+                    print(f"[pharmflow] open_url DEBUG tor detail: {_err}")
+        except Exception as exc:
+            tor_note = _plain_tor_user_message(str(exc))
+            print(f"[pharmflow] Tor check failed before opening link — {exc}", flush=True)
+
+    # A getdabflow open with no pin and no ready exit leaves the host IP.
+    if dabflow and not skip_tor and not _wiz_skip_tor_wait():
+        if _tor_m is None:
+            return False, tor_note or (
+                "This phone's exit is not ready. The page was not opened."
+            )
+        if tor_note:
+            return False, tor_note
+
+    # Every URL, not only getdabflow. No guest loopback proxy means the page
+    # leaves through the VM NAT (this PC). Do not launch the browser.
+    exit_ok, exit_note = _wiz_ensure_phone_exit(serial)
+    if not exit_ok:
+        return False, exit_note or (
+            "This phone has no exit proxy, so the page was not opened. "
+            "Traffic would leave this PC."
+        )
 
     try:
         from browser_adb import package_installed, packages_for_dabflow_view_url_attempts, packages_for_view_url_attempts
@@ -5800,8 +6018,7 @@ def chrome_open_url(serial, url, *, fast_pre_site: bool = False):
             serial=serial,
             timeout=tout_fb,
         )
-        low = (out or "").lower()
-        if "error:" not in low and "exception" not in low and "unable to resolve intent" not in low:
+        if _am_start_landed(out):
             try:
                 _st = _wiz_settle_after_open_url(fast=fast_pre_site)
                 if _st > 0:
@@ -5824,10 +6041,23 @@ def chrome_open_url(serial, url, *, fast_pre_site: bool = False):
         try:
             automation_on_sys_path()
             import emulator_ad_mode as _eam
+            from adb_wrapper import AdbWrapper
 
-            _eam.pause_tor_for_ads(serial, _wiz_phone_idx_for_tor(serial))
+            paused = _eam.pause_tor_for_ads(
+                AdbWrapper(), serial, _wiz_phone_idx_for_tor(serial)
+            )
         except Exception:
-            pass
+            return False, (
+                "This phone's exit was not pinned, so the page was not opened."
+            )
+        if (
+            isinstance(paused, dict)
+            and paused.get("ok") is False
+            and not paused.get("skipped")
+        ):
+            return False, (
+                "This phone's exit was not pinned, so the page was not opened."
+            )
     if pkgs and "org.chromium.chrome" in pkgs:
         try:
             from browser_setup import reset_chromium_session
@@ -5854,8 +6084,8 @@ def chrome_open_url(serial, url, *, fast_pre_site: bool = False):
             attempts.append(am_start_view_url_argv(url, package=pkg))
     # No Chrome-specific component / package fallback: operator wants device default browser
     # so the system http_proxy → Tor path is honored. Chromium bypasses that proxy in many
-    # builds and triggers ERR_TIMED_OUT. Set CPHARM_CHROME_FALLBACK_INTENTS=1 to opt back in.
-    if os.environ.get("CPHARM_CHROME_FALLBACK_INTENTS", "").strip().lower() in (
+    # builds and triggers ERR_TIMED_OUT. Set PHARMFLOW_CHROME_FALLBACK_INTENTS=1 to opt back in.
+    if os.environ.get("PHARMFLOW_CHROME_FALLBACK_INTENTS", "").strip().lower() in (
         "1", "true", "yes", "on"
     ):
         attempts.extend(
@@ -5867,7 +6097,7 @@ def chrome_open_url(serial, url, *, fast_pre_site: bool = False):
                 ),
             ]
         )
-    _ou_debug = os.environ.get("CPHARM_OPEN_URL_DEBUG", "").strip().lower() in (
+    _ou_debug = os.environ.get("PHARMFLOW_OPEN_URL_DEBUG", "").strip().lower() in (
         "1",
         "true",
         "yes",
@@ -5875,7 +6105,7 @@ def chrome_open_url(serial, url, *, fast_pre_site: bool = False):
     )
     if _ou_debug:
         print(
-            f"[cpharm] open_url DEBUG serial={serial} candidates={pkgs[:8]} "
+            f"[pharmflow] open_url DEBUG serial={serial} candidates={pkgs[:8]} "
             f"attempts={len(attempts)}"
         )
     last_fail: str | None = None
@@ -5889,10 +6119,10 @@ def chrome_open_url(serial, url, *, fast_pre_site: bool = False):
         low = (out or "").lower()
         if _ou_debug:
             print(
-                f"[cpharm] open_url DEBUG attempt serial={serial} argv={' '.join(argv[:8])} "
+                f"[pharmflow] open_url DEBUG attempt serial={serial} argv={' '.join(argv[:8])} "
                 f"out={(out or '')[:160].strip()}"
             )
-        if "error:" not in low and "exception" not in low and "unable to resolve intent" not in low:
+        if _am_start_landed(out):
             _wiz_wait_browser_pid_after_open(serial, pkgs)
             try:
                 _st = _wiz_settle_after_open_url(fast=fast_pre_site)
@@ -5917,7 +6147,7 @@ def chrome_open_url(serial, url, *, fast_pre_site: bool = False):
     if len(fail_txt) > 240:
         fail_txt = fail_txt[:237] + "..."
     print(
-        f"[cpharm] open_url FAILED serial={serial} url={url[:80]} "
+        f"[pharmflow] open_url FAILED serial={serial} url={url[:80]} "
         f"attempts={len(seen)} last={fail_txt[:120]!r}"
     )
     return False, tor_note or fail_txt or "The phone did not open a browser."
@@ -5959,7 +6189,7 @@ def describe_step(step):
 
 
 def _normalize_sequence_steps(steps: list) -> list:
-    """Coerce MuMu/CPharm sequence JSON (e.g. string wait.seconds) before storing in state."""
+    """Coerce MuMu/PharmFlow sequence JSON (e.g. string wait.seconds) before storing in state."""
     automation_on_sys_path()
     try:
         from sequence_normalize import normalize_automation_steps
@@ -5980,7 +6210,14 @@ def execute_steps(steps, serial):
             _wiz_repair_proxy_adb_reverse(serial)
     except Exception:
         pass
-    from browser_adb import browser_pkg_for_clear, invalidate_webview_inset_cache, looks_like_package, webview_content_top_inset
+    from browser_adb import (
+        browser_pkg_for_clear,
+        invalidate_webview_inset_cache,
+        looks_like_package,
+        monkey_launch_reported,
+        pm_clear_reported,
+        webview_content_top_inset,
+    )
     from sequence_geometry import baseline_from_step, baseline_y_to_screen_y, parse_wm_size_output, scale_point
     from session_notes_uia import dismiss_session_notes_verified, wait_session_notes_gone
     from sequence_normalize import step_is_fast_phase
@@ -5998,14 +6235,14 @@ def execute_steps(steps, serial):
             try:
                 pr = urllib.parse.urlparse(url)
                 if pr.scheme not in ("http", "https") or not pr.netloc or " " in url:
-                    time.sleep(0.2)
-                    continue
+                    print(f"[pharmflow] sequence open_url failed serial={serial}: not a web address")
+                    return False
             except Exception:
-                time.sleep(0.2)
-                continue
+                print(f"[pharmflow] sequence open_url failed serial={serial}: not a web address")
+                return False
             skip_launch = last_open_url == url
             if skip_launch:
-                print(f"[cpharm] execute_steps: skip duplicate open_url serial={serial} url={url[:80]}")
+                print(f"[pharmflow] execute_steps: skip duplicate open_url serial={serial} url={url[:80]}")
             else:
                 invalidate_webview_inset_cache(serial)
                 if "getdabflow.app" in url.lower():
@@ -6015,18 +6252,19 @@ def execute_steps(steps, serial):
                         prepare_for_dabflow_open(
                             serial,
                             url,
-                            log=lambda m: print(f"[cpharm] {m}", flush=True),
+                            log=lambda m: print(f"[pharmflow] {m}", flush=True),
                         )
                     except Exception as _prep_exc:
-                        print(f"[cpharm] dabflow browser prep failed serial={serial}: {_prep_exc}", flush=True)
+                        print(f"[pharmflow] dabflow browser prep failed serial={serial}: {_prep_exc}", flush=True)
                 _ou_ok, _ou_note = chrome_open_url(serial, url, fast_pre_site=step_is_fast_phase(step))
                 if not _ou_ok:
-                    print(f"[cpharm] sequence open_url failed serial={serial}: {_ou_note}")
+                    print(f"[pharmflow] sequence open_url failed serial={serial}: {_ou_note}")
+                    return False
                 last_open_url = url
             try:
                 pws = step.get("post_wait_secs", None)
                 if pws is not None and pws != "":
-                    base = min(120.0, max(0.0, float(pws)))
+                    base = max(0.0, float(pws))
                     if "getdabflow.app" in url.lower():
                         automation_on_sys_path()
                         from dabflow_layout import AGE_GATE_OPEN_POST_WAIT_MAX_SEC
@@ -6036,13 +6274,13 @@ def execute_steps(steps, serial):
                         if step_is_fast_phase(step) or phase in ("pre_site_fast", "") or cp in ("loaded", ""):
                             base = min(base, AGE_GATE_OPEN_POST_WAIT_MAX_SEC)
                     try:
-                        extra = float(os.environ.get("CPHARM_OPEN_URL_EXTRA_WAIT", "") or 0)
+                        extra = float(os.environ.get("PHARMFLOW_OPEN_URL_EXTRA_WAIT", "") or 0)
                     except (TypeError, ValueError):
                         extra = 0.0
                     if step_is_fast_phase(step):
                         extra = 0.0
-                    extra = min(60.0, max(0.0, extra))
-                    time.sleep(min(120.0, base + extra))
+                    extra = max(0.0, extra)
+                    time.sleep(base + extra)
                 else:
                     time.sleep(0.8 if not step_is_fast_phase(step) else 0.2)
             except (TypeError, ValueError):
@@ -6062,9 +6300,9 @@ def execute_steps(steps, serial):
         elif t == "launch_app":
             pkg = str(step.get("package", "")).strip()
             if not pkg_re.match(pkg):
-                time.sleep(0.2)
-                continue
-            adb(
+                print(f"[pharmflow] sequence launch_app did not land serial={serial} pkg={pkg or '(empty)'}")
+                return False
+            launched = adb(
                 "shell",
                 "monkey",
                 "-p",
@@ -6074,16 +6312,19 @@ def execute_steps(steps, serial):
                 "1",
                 serial=serial,
             )
+            if not monkey_launch_reported(launched or "", ""):
+                print(f"[pharmflow] sequence launch_app did not land serial={serial} pkg={pkg}")
+                return False
             try:
                 pws = step.get("post_wait_secs", None)
                 if pws is not None and pws != "":
-                    base = min(120.0, max(0.0, float(pws)))
+                    base = max(0.0, float(pws))
                     try:
-                        extra = float(os.environ.get("CPHARM_OPEN_URL_EXTRA_WAIT", "") or 0)
+                        extra = float(os.environ.get("PHARMFLOW_OPEN_URL_EXTRA_WAIT", "") or 0)
                     except (TypeError, ValueError):
                         extra = 0.0
-                    extra = min(60.0, max(0.0, extra))
-                    time.sleep(min(120.0, base + extra))
+                    extra = max(0.0, extra)
+                    time.sleep(base + extra)
                 else:
                     time.sleep(2.0)
             except (TypeError, ValueError):
@@ -6105,19 +6346,19 @@ def execute_steps(steps, serial):
 
                 pre_ms = min(AGE_GATE_PRE_WAIT_MAX_MS, pre_ms)
             if pre_ms > 0:
-                time.sleep(min(pre_ms / 1000.0, 10.0))
+                time.sleep(pre_ms / 1000.0)
             try:
                 retries = int(step.get("retries", 1) or 1)
             except (TypeError, ValueError):
                 retries = 1
             if is_age:
                 retries = max(retries, 5)
-            retries = max(1, min(retries, 8))
+            retries = max(1, retries)
             try:
                 jitter = int(step.get("jitter", 0) or 0)
             except (TypeError, ValueError):
                 jitter = 0
-            jitter = max(0, min(jitter, 120))
+            jitter = max(0, jitter)
             if is_age:
                 jitter = min(jitter, 6)
             bw, bh = baseline_from_step(step)
@@ -6139,7 +6380,7 @@ def execute_steps(steps, serial):
                     _eam.prepare_ad_tap(
                         serial,
                         _cp_tap,
-                        log_fn=lambda m: print(f"[cpharm] {m}", flush=True),
+                        log_fn=lambda m: print(f"[pharmflow] {m}", flush=True),
                     )
                 except Exception:
                     pass
@@ -6188,10 +6429,11 @@ def execute_steps(steps, serial):
                     uia_center = None
                 if uia_center:
                     ucx, ucy = uia_center
+                    tap_landed = False
                     for r in range(retries):
                         jx = ucx + (random.randint(-jitter, jitter) if jitter else 0)
                         jy = ucy + (random.randint(-jitter, jitter) if jitter else 0)
-                        adb(
+                        rc, text = adb_result(
                             "shell",
                             "input",
                             "tap",
@@ -6199,21 +6441,32 @@ def execute_steps(steps, serial):
                             str(max(0, jy)),
                             serial=serial,
                         )
+                        tap_landed = tap_landed or input_command_landed(rc, text)
                         if r + 1 < retries:
                             time.sleep(random.uniform(0.12, 0.22))
+                    if not tap_landed:
+                        print(f"[pharmflow] sequence tap did not land serial={serial}")
+                        return False
                     age_tapped_uia = True
             if not age_tapped_uia:
+                tap_landed = False
                 for r in range(retries):
                     jx = bx + (random.randint(-jitter, jitter) if jitter else 0)
                     jy = by + (random.randint(-jitter, jitter) if jitter else 0)
                     if is_age:
                         jx = min(age_x_max, max(age_x_min, jx))
                         jy = min(age_y_max, max(age_y_min, jy))
-                    adb("shell", "input", "tap",
-                        str(max(0, jx)), str(max(0, jy)), serial=serial)
+                    rc, text = adb_result(
+                        "shell", "input", "tap",
+                        str(max(0, jx)), str(max(0, jy)), serial=serial,
+                    )
+                    tap_landed = tap_landed or input_command_landed(rc, text)
                     if r + 1 < retries:
                         gap = random.uniform(0.12, 0.22) if is_age else random.uniform(0.08, 0.18)
                         time.sleep(gap)
+                if not tap_landed:
+                    print(f"[pharmflow] sequence tap did not land serial={serial}")
+                    return False
             if is_age:
                 from dabflow_layout import AGE_GATE_POST_TAP_WAIT_SEC
 
@@ -6222,8 +6475,15 @@ def execute_steps(steps, serial):
             if _cp_skip == "popup_dismiss" or step.get("verify_dismiss") is True:
                 def _json_skip_tap(_bx, _by_page):
                     _by_s = baseline_y_to_screen_y(_by_page, phys_h=phys[1] if phys else bh, base_h=bh, wv_top=webview_content_top_inset(serial, force_refresh=False))
-                    adb("shell", "input", "tap", str(max(0, _bx)), str(max(0, _by_s)), serial=serial)
-                dismiss_session_notes_verified(serial, json_tap=(bx0, by0), json_tap_fn=_json_skip_tap)
+                    rc, text = adb_result(
+                        "shell", "input", "tap",
+                        str(max(0, _bx)), str(max(0, _by_s)), serial=serial,
+                    )
+                    if not input_command_landed(rc, text):
+                        print(f"[pharmflow] sequence popup dismiss tap did not land serial={serial}")
+                if not dismiss_session_notes_verified(serial, json_tap=(bx0, by0), json_tap_fn=_json_skip_tap):
+                    print(f"[pharmflow] sequence popup dismiss did not land serial={serial}")
+                    return False
             elif step.get("ad_selected") and _cp_skip and not step.get("mantis_hardcode"):
                 try:
                     automation_on_sys_path()
@@ -6233,14 +6493,16 @@ def execute_steps(steps, serial):
                         serial,
                         _cp_skip,
                         open_url_fn=lambda s, u: chrome_open_url(s, u),
-                        log_fn=lambda m: print(f"[cpharm] {m}", flush=True),
+                        log_fn=lambda m: print(f"[pharmflow] {m}", flush=True),
                     )
                 except Exception:
                     pass
         elif t == "wait":
             time.sleep(float(step.get("seconds", 1)))
             if step.get("until_session_notes_gone") is True or str(step.get("checkpoint", "")).strip().lower() == "popup_dismissed":
-                wait_session_notes_gone(serial, timeout_sec=8.0)
+                if not wait_session_notes_gone(serial, timeout_sec=8.0):
+                    print(f"[pharmflow] sequence session notes still up serial={serial}")
+                    return False
         elif t == "swipe":
             sw_bw, sw_bh = baseline_from_step(step)
             x1, y1 = int(step.get("x1", 0)), int(step.get("y1", 0))
@@ -6254,25 +6516,60 @@ def execute_steps(steps, serial):
             else:
                 y1 = baseline_y_to_screen_y(y1, phys_h=sw_bh, base_h=sw_bh, wv_top=wv_top_sw)
                 y2 = baseline_y_to_screen_y(y2, phys_h=sw_bh, base_h=sw_bh, wv_top=wv_top_sw)
-            adb("shell", "input", "swipe",
+            rc, text = adb_result(
+                "shell", "input", "swipe",
                 str(x1), str(y1), str(x2), str(y2),
-                str(step.get("ms", 500)), serial=serial)
+                str(step.get("ms", 500)), serial=serial,
+            )
+            if not input_command_landed(rc, text):
+                print(f"[pharmflow] sequence swipe did not land serial={serial}")
+                return False
         elif t == "keyevent":
-            adb("shell", "input", "keyevent", step.get("key", "BACK"), serial=serial)
+            key = str(step.get("key", "BACK") or "BACK")
+            rc, text = adb_result("shell", "input", "keyevent", key, serial=serial)
+            if not input_command_landed(rc, text):
+                print(f"[pharmflow] sequence keyevent did not land serial={serial} key={key}")
+                return False
         elif t == "clear_cookies":
             preferred = str(step.get("package", "")).strip()
             pkg = browser_pkg_for_clear(serial, preferred)
-            if pkg:
-                adb("shell", "pm", "clear", pkg, serial=serial)
+            if not pkg:
+                print(
+                    f"[pharmflow] execute_steps: cookies were not cleared "
+                    f"serial={serial} (no browser package)"
+                )
+                return False
+            out = adb("shell", "pm", "clear", pkg, serial=serial)
+            if not pm_clear_reported(out or "", ""):
+                time.sleep(0.4)
+                out = adb("shell", "pm", "clear", pkg, serial=serial)
+            if pm_clear_reported(out or "", ""):
                 last_open_url = None
+            else:
+                print(
+                    f"[pharmflow] execute_steps: cookies were not cleared "
+                    f"serial={serial} pkg={pkg}"
+                )
+                return False
         elif t == "close_app":
             preferred = str(step.get("package", "")).strip()
             pkg = preferred if looks_like_package(preferred) else ""
             if not pkg:
                 pkg = browser_pkg_for_clear(serial, "") or ""
-            if pkg:
-                adb("shell", "am", "force-stop", pkg, serial=serial)
-                last_open_url = None
+            if not pkg:
+                print(
+                    f"[pharmflow] execute_steps: app was not closed "
+                    f"serial={serial} (no browser package)"
+                )
+                return False
+            rc, text = adb_result("shell", "am", "force-stop", pkg, serial=serial)
+            if rc != 0 or "error" in (text or "").lower() or "exception" in (text or "").lower():
+                print(
+                    f"[pharmflow] execute_steps: app was not closed "
+                    f"serial={serial} pkg={pkg}"
+                )
+                return False
+            last_open_url = None
             try:
                 automation_on_sys_path()
                 import emulator_ad_mode as _eam
@@ -6281,8 +6578,15 @@ def execute_steps(steps, serial):
             except Exception:
                 pass
         elif t == "type_text":
-            text = step.get("text", "").replace(" ", "%s").replace("'", "")
-            adb("shell", "input", "text", text, serial=serial)
+            raw_text = str(step.get("text") or "")
+            if not raw_text:
+                print(f"[pharmflow] sequence type_text did not land serial={serial} (no text)")
+                return False
+            text = raw_text.replace(" ", "%s").replace("'", "")
+            rc, typed = adb_result("shell", "input", "text", text, serial=serial)
+            if not input_command_landed(rc, typed):
+                print(f"[pharmflow] sequence type_text did not land serial={serial}")
+                return False
         elif t == "rotate_identity":
             idx = _wiz_phone_idx_for_tor(serial)
             try:
@@ -6291,40 +6595,79 @@ def execute_steps(steps, serial):
 
                 mode = _bp.browse_proxy_mode()
                 if mode in ("scramble", "direct", "upstream"):
+                    from adb_wrapper import AdbWrapper
                     import emulator_ad_mode as _eam
 
-                    _eam.scramble_device_session(
+                    scrambled = _eam.scramble_device_session(
+                        AdbWrapper(),
                         serial,
                         idx,
-                        log_fn=lambda m: print(f"[cpharm] {m}", flush=True),
+                        log_fn=lambda m: print(f"[pharmflow] {m}", flush=True),
                     )
+                    if not (isinstance(scrambled, dict) and scrambled.get("ok")):
+                        print(
+                            f"[pharmflow] sequence rotate_identity scramble did not land "
+                            f"serial={serial}"
+                        )
+                        return False
                 else:
-                    rotate_android_id(serial)
-                    _try_newnym(serial)
-            except Exception:
-                rotate_android_id(serial)
-                _try_newnym(serial)
+                    import tor_manager as _tm
+
+                    rotated = _tm.rotate_identity_adb(serial, idx)
+                    proxy = str((rotated or {}).get("http_proxy") or "")
+                    pinned = (
+                        isinstance(rotated, dict)
+                        and rotated.get("circuit_rotated")
+                        and rotated.get("http_proxy_applied")
+                        and proxy.startswith("127.0.0.1:")
+                        and not proxy.endswith(":0")
+                    )
+                    if not pinned:
+                        print(
+                            f"[pharmflow] sequence rotate_identity did not pin a loopback exit "
+                            f"serial={serial} proxy={proxy}"
+                        )
+                        return False
+            except Exception as exc:
+                print(f"[pharmflow] sequence rotate_identity failed serial={serial}: {exc}")
+                return False
         elif t == "full_reset":
             idx = _wiz_phone_idx_for_tor(serial)
-            ap = str(_cpharm_install_root() / "automation")
+            ap = str(_pharmflow_install_root() / "automation")
             if ap not in sys.path:
                 sys.path.insert(0, ap)
             import tor_manager as _tm
 
-            _tm.full_identity_reset(serial, idx)
-            last_open_url = None
+            reset = _tm.full_identity_reset(serial, idx)
+            landed_reset = (
+                isinstance(reset, dict)
+                and reset.get("tor_circuit_rotated")
+                and reset.get("http_proxy_applied")
+            )
+            if landed_reset:
+                last_open_url = None
+            else:
+                print(
+                    f"[pharmflow] sequence full_reset did not land a new circuit on a pinned exit "
+                    f"serial={serial}"
+                )
+                return False
             try:
                 import emulator_ad_mode as _eam
 
                 _eam.resume_tor_after_ads(serial, idx)
             except Exception:
                 pass
+        else:
+            print(f"[pharmflow] sequence step is not runnable serial={serial} type={t}")
+            return False
         if step_is_fast_phase(step):
             time.sleep(0.05)
         elif step.get("phase") == "on_site_human":
             time.sleep(random.uniform(0.05, 0.12))
         else:
             time.sleep(0.4)
+    return True
 
 
 # ─── base page ────────────────────────────────────────────────────────────────
@@ -6682,7 +7025,7 @@ def _fetch_latest_tor_url() -> str:
 
 def _find_python() -> str:
     """Return path to a ``python.exe`` on disk (venv / common installs), or ``''``."""
-    bundled = _resolve_under_cpharm(
+    bundled = _resolve_under_pharmflow(
         "python.exe",
         subdirs=(".venv/Scripts", "venv/Scripts", "tools"),
     )
@@ -6713,7 +7056,7 @@ def _maybe_autofill_python_cmd() -> None:
 
 
 class PrerequisitesPage(PageBase):
-    """Install path + Java/Python/packages/Tor/CPharm; then a quick run check."""
+    """Install path + Java/Python/packages/Tor/PharmFlow; then a quick run check."""
 
     _log_write = lambda self, t: self._log(t)
 
@@ -6766,7 +7109,7 @@ class PrerequisitesPage(PageBase):
         path_card.pack(fill="x", pady=(0, SP["md"]))
         tk.Label(path_card, text="Folder for PharmFlow:",
                  font=("Segoe UI", 10, "bold"), bg=BG4, fg=T1).pack(side="left")
-        self._install_dir = tk.StringVar(value=CPHARM_DEFAULT)
+        self._install_dir = tk.StringVar(value=PHARMFLOW_DEFAULT)
         tk.Entry(path_card, textvariable=self._install_dir, font=FM,
                  bg=BG2, fg=T1, insertbackground=T1, relief="flat",
                  width=36).pack(side="left", padx=8)
@@ -6798,7 +7141,7 @@ class PrerequisitesPage(PageBase):
                 "Gives each phone its own internet location for browsing.",
                 False,
             ),
-            ("cpharm",   "prereq_cpharm", "PharmFlow files",       "App + automation folder",     True),
+            ("pharmflow",   "prereq_pharmflow", "PharmFlow files",       "App + automation folder",     True),
         ]
         for key, icon_stem, name, desc, required in items:
             row = tk.Frame(list_card, bg=BG2, pady=5)
@@ -6870,13 +7213,13 @@ class PrerequisitesPage(PageBase):
 
         self._auto_install_started = False
         self._auto_install_allowed = os.environ.get(
-            "CPHARM_WIZARD_AUTO_INSTALL", "1"
+            "PHARMFLOW_WIZARD_AUTO_INSTALL", "1"
         ).strip().lower() not in ("0", "false", "no", "off")
 
     def on_enter(self):
         """Scan installed tools; optionally auto-run full install."""
         try:
-            root = _cpharm_install_root()
+            root = _pharmflow_install_root()
             if (root / "automation" / "dashboard.py").is_file():
                 good = str(root.resolve())
                 cur = self._install_dir.get().strip()
@@ -6894,11 +7237,11 @@ class PrerequisitesPage(PageBase):
                         replace = True
                 if replace:
                     self._install_dir.set(good)
-                    state["cpharm_dir"] = good
+                    state["pharmflow_dir"] = good
         except Exception:
             pass
         try:
-            _maybe_autofill_cpharm_dir()
+            _maybe_autofill_pharmflow_dir()
         except Exception:
             pass
         try:
@@ -7004,7 +7347,7 @@ class PrerequisitesPage(PageBase):
         return ok
 
     def _check_tor(self) -> bool:
-        d = state.get("cpharm_dir", "") or self._install_dir.get()
+        d = state.get("pharmflow_dir", "") or self._install_dir.get()
         if d:
             tor_exe = Path(d) / "automation" / "tor" / "tor.exe"
             if tor_exe.exists():
@@ -7014,27 +7357,27 @@ class PrerequisitesPage(PageBase):
                 return True
         return False
 
-    def _check_cpharm(self) -> bool:
-        d = state.get("cpharm_dir", "") or self._install_dir.get()
+    def _check_pharmflow(self) -> bool:
+        d = state.get("pharmflow_dir", "") or self._install_dir.get()
         if d:
             p = Path(d).resolve()
             if (p / "automation" / "dashboard.py").is_file():
                 miss = _automation_bundle_missing(p)
                 if not miss:
-                    state["cpharm_dir"] = str(p)
+                    state["pharmflow_dir"] = str(p)
                     return True
                 return False
-            nested = _find_cpharm_dashboard_root(p)
+            nested = _find_pharmflow_dashboard_root(p)
             if nested:
                 miss = _automation_bundle_missing(nested)
                 if not miss:
-                    state["cpharm_dir"] = str(nested)
+                    state["pharmflow_dir"] = str(nested)
                     return True
-        root = _cpharm_install_root()
+        root = _pharmflow_install_root()
         if (root / "automation" / "dashboard.py").is_file():
             miss = _automation_bundle_missing(root)
             if not miss:
-                state["cpharm_dir"] = str(root)
+                state["pharmflow_dir"] = str(root)
                 return True
         return False
 
@@ -7044,7 +7387,7 @@ class PrerequisitesPage(PageBase):
             "python":   self._check_python,
             "packages": self._check_packages,
             "tor":      self._check_tor,
-            "cpharm":   self._check_cpharm,
+            "pharmflow":   self._check_pharmflow,
         }
         all_required = True
         for key, fn in checks.items():
@@ -7056,7 +7399,7 @@ class PrerequisitesPage(PageBase):
                 self._set_row(key, "✅  Ready", GREEN)
             else:
                 self._set_row(key, "⬇  Not installed", T2)
-                if key in ("java", "python", "packages", "cpharm"):
+                if key in ("java", "python", "packages", "pharmflow"):
                     all_required = False
         return all_required
 
@@ -7155,7 +7498,7 @@ class PrerequisitesPage(PageBase):
         state["python_cmd_argv"] = list(py_argv)
         self._set_row("packages", "⚙  Installing…", STATUS_PROGRESS)
         self._set_progress(55, "Installing Python packages…")
-        req_txt = cpharm_default_install_root() / "requirements.txt"
+        req_txt = pharmflow_default_install_root() / "requirements.txt"
         if req_txt.is_file():
             self._log_write(f"Running: pip install -r {req_txt.name} …\n")
             ok, out = run_cmd(
@@ -7186,7 +7529,7 @@ class PrerequisitesPage(PageBase):
         )
 
     def _install_tor(self):
-        install_dir = Path(state.get("cpharm_dir", "") or self._install_dir.get())
+        install_dir = Path(state.get("pharmflow_dir", "") or self._install_dir.get())
         tor_dir = install_dir / "automation" / "tor"
         tor_dir.mkdir(parents=True, exist_ok=True)
 
@@ -7204,7 +7547,7 @@ class PrerequisitesPage(PageBase):
         self._log_write(f"Downloading: {tor_url}")
         self._set_row("tor", "⬇  Downloading…", ACCENT)
 
-        tmp = Path(os.environ.get("TEMP", "C:\\Temp")) / "cpharm_tor_bundle.tar.gz"
+        tmp = Path(os.environ.get("TEMP", "C:\\Temp")) / "pharmflow_tor_bundle.tar.gz"
         try:
             _urlretrieve(tor_url, tmp, timeout=120)
         except Exception as e:
@@ -7215,7 +7558,7 @@ class PrerequisitesPage(PageBase):
 
         self._set_row("tor", "📦  Extracting…", STATUS_PROGRESS)
         self._log_write("Extracting Tor to a temp folder, then merging into automation/tor…")
-        ext_root = Path(os.environ.get("TEMP", "C:\\Temp")) / "_cpharm_tor_extract"
+        ext_root = Path(os.environ.get("TEMP", "C:\\Temp")) / "_pharmflow_tor_extract"
         try:
             if ext_root.exists():
                 shutil.rmtree(ext_root)
@@ -7246,13 +7589,13 @@ class PrerequisitesPage(PageBase):
             self._set_row("tor", "⚠  Skipped", T3)
             self._log_write("Tor not found after extract — IP rotation will use system Tor if available.")
 
-    def _install_cpharm(self):
+    def _install_pharmflow(self):
         install_dir = Path(self._install_dir.get()).resolve()
         live_tree = _install_targets_live_tree(install_dir)
 
-        if self._check_cpharm():
-            self._set_row("cpharm", "✅  Already here", GREEN)
-            self._log_write(f"CPharm files already present at {state.get('cpharm_dir', install_dir)}")
+        if self._check_pharmflow():
+            self._set_row("pharmflow", "✅  Already here", GREEN)
+            self._log_write(f"PharmFlow files already present at {state.get('pharmflow_dir', install_dir)}")
             return
 
         if live_tree:
@@ -7264,8 +7607,8 @@ class PrerequisitesPage(PageBase):
                 "If this path is a git repo, updating with git pull first "
                 "(ZIP files never overwrite .git — avoids Access denied on locked objects).\n"
             )
-            if _try_git_pull_cpharm(install_dir, self._log_write):
-                root = _find_cpharm_dashboard_root(install_dir)
+            if _try_git_pull_pharmflow(install_dir, self._log_write):
+                root = _find_pharmflow_dashboard_root(install_dir)
                 if root:
                     miss = _automation_bundle_missing(root)
                     if miss:
@@ -7275,25 +7618,25 @@ class PrerequisitesPage(PageBase):
                             + "\n"
                         )
                     else:
-                        state["cpharm_dir"] = str(root)
-                        self._set_row("cpharm", "✅  Done", GREEN)
+                        state["pharmflow_dir"] = str(root)
+                        self._set_row("pharmflow", "✅  Done", GREEN)
                         self._log_write(f"PharmFlow ready at {root} ✅\n")
                         _sync_sequences_to_user_profile(self._log_write)
                         return
 
         elif _install_dir_has_any_git(install_dir):
-            # Install path is not the live wizard tree, but may still hold a nested clone (e.g. …/CPharm/cpharm-clone).
+            # Install path is not the live wizard tree, but may still hold a nested clone (e.g. …/PharmFlow/pharmflow-clone).
             self._log_write(
                 "Install path contains a git working tree — trying git pull before ZIP (avoids "
                 "WinError 5 on locked .git objects).\n"
             )
-            if _try_git_pull_cpharm(install_dir, self._log_write):
-                root = _find_cpharm_dashboard_root(install_dir)
+            if _try_git_pull_pharmflow(install_dir, self._log_write):
+                root = _find_pharmflow_dashboard_root(install_dir)
                 if root:
                     miss = _automation_bundle_missing(root)
                     if not miss:
-                        state["cpharm_dir"] = str(root)
-                        self._set_row("cpharm", "✅  Done", GREEN)
+                        state["pharmflow_dir"] = str(root)
+                        self._set_row("pharmflow", "✅  Done", GREEN)
                         self._log_write(f"PharmFlow ready at {root} ✅\n")
                         _sync_sequences_to_user_profile(self._log_write)
                         return
@@ -7303,21 +7646,21 @@ class PrerequisitesPage(PageBase):
                         + "\n"
                     )
 
-        self._set_row("cpharm", "⬇  Downloading…", ACCENT)
+        self._set_row("pharmflow", "⬇  Downloading…", ACCENT)
         self._log_write("Downloading PharmFlow files from GitHub…")
-        tmp = Path(os.environ.get("TEMP", "C:\\Temp")) / "cpharm.zip"
+        tmp = Path(os.environ.get("TEMP", "C:\\Temp")) / "pharmflow.zip"
         zip_ok = True
         try:
-            _urlretrieve(CPHARM_ZIP_URL, tmp, timeout=120)
+            _urlretrieve(PHARMFLOW_ZIP_URL, tmp, timeout=120)
         except Exception as e:
             self._log_write(f"  ZIP download failed: {e}")
             tmp.unlink(missing_ok=True)
             zip_ok = False
 
         if zip_ok:
-            self._set_row("cpharm", "📦  Extracting…", STATUS_PROGRESS)
+            self._set_row("pharmflow", "📦  Extracting…", STATUS_PROGRESS)
             self._log_write(f"Extracting ZIP to temp, then merging into {install_dir}…")
-            extract_tmp = Path(os.environ.get("TEMP", "C:\\Temp")) / "_cpharm_zip_extract"
+            extract_tmp = Path(os.environ.get("TEMP", "C:\\Temp")) / "_pharmflow_zip_extract"
             if extract_tmp.exists():
                 shutil.rmtree(extract_tmp)
             extract_tmp.mkdir(parents=True)
@@ -7329,7 +7672,7 @@ class PrerequisitesPage(PageBase):
                 src_root = inner if inner and inner.is_dir() else extract_tmp
                 if live_tree:
                     install_dir.mkdir(parents=True, exist_ok=True)
-                    # Nested clones (e.g. …/CPharm/cpharm-clone/.git) cannot be ZIP-merged; git pull runs above.
+                    # Nested clones (e.g. …/PharmFlow/pharmflow-clone/.git) cannot be ZIP-merged; git pull runs above.
                     if _install_dir_has_any_git(install_dir):
                         self._log_write(
                             "  Skipping ZIP merge into this folder — a git repo already exists here "
@@ -7360,28 +7703,28 @@ class PrerequisitesPage(PageBase):
                 zip_ok = False
                 shutil.rmtree(extract_tmp, ignore_errors=True)
 
-        root = _find_cpharm_dashboard_root(install_dir)
+        root = _find_pharmflow_dashboard_root(install_dir)
         if root:
             miss = _automation_bundle_missing(root)
             if miss:
-                self._set_row("cpharm", "⚠  Incomplete tree", WARNING)
+                self._set_row("pharmflow", "⚠  Incomplete tree", WARNING)
                 self._log_write(
                     "  ZIP extracted but automation bundle is incomplete — missing:\n    "
                     + "\n    ".join(miss)
                     + "\n  Trying git fallback…\n"
                 )
             else:
-                state["cpharm_dir"] = str(root)
-                self._set_row("cpharm", "✅  Done", GREEN)
+                state["pharmflow_dir"] = str(root)
+                self._set_row("pharmflow", "✅  Done", GREEN)
                 self._log_write(f"PharmFlow installed at {root} ✅")
                 _sync_sequences_to_user_profile(self._log_write)
                 return
 
         self._log_write("  ZIP method failed — trying git clone fallback…")
-        self._set_row("cpharm", "⬇  git clone…", STATUS_PROGRESS)
+        self._set_row("pharmflow", "⬇  git clone…", STATUS_PROGRESS)
 
         if live_tree and install_dir == _wizard_runtime_root().resolve():
-            self._set_row("cpharm", "❌  Failed", RED)
+            self._set_row("pharmflow", "❌  Failed", RED)
             self._log_write(
                 "Git clone skipped: install path is this running repo, but automation/dashboard.py "
                 "is still missing.\n"
@@ -7397,10 +7740,10 @@ class PrerequisitesPage(PageBase):
         if not _install_dir_empty_or_absent(install_dir):
             try:
                 temp_clone = Path(
-                    _tf.mkdtemp(prefix="cpharm_git_clone_", dir=os.environ.get("TEMP"))
+                    _tf.mkdtemp(prefix="pharmflow_git_clone_", dir=os.environ.get("TEMP"))
                 )
             except OSError:
-                temp_clone = Path(_tf.mkdtemp(prefix="cpharm_git_clone_"))
+                temp_clone = Path(_tf.mkdtemp(prefix="pharmflow_git_clone_"))
             clone_dest = temp_clone
             self._log_write(
                 f"  Install folder is not empty — cloning to temp, then merging into {install_dir}…\n"
@@ -7419,22 +7762,22 @@ class PrerequisitesPage(PageBase):
                     self._log_write(f"  Temp clone merge failed: {e}\n")
                     ok = False
             shutil.rmtree(temp_clone, ignore_errors=True)
-        root = _find_cpharm_dashboard_root(install_dir)
+        root = _find_pharmflow_dashboard_root(install_dir)
         if root:
             miss = _automation_bundle_missing(root)
             if miss:
-                self._set_row("cpharm", "❌  Incomplete", RED)
+                self._set_row("pharmflow", "❌  Incomplete", RED)
                 self._log_write(
                     "Git clone finished but automation bundle is still incomplete — missing:\n    "
                     + "\n    ".join(miss)
                     + f"\nManual: git clone {REPO_URL} \"{install_dir}\""
                 )
             else:
-                state["cpharm_dir"] = str(root)
-                self._set_row("cpharm", "✅  Done", GREEN)
+                state["pharmflow_dir"] = str(root)
+                self._set_row("pharmflow", "✅  Done", GREEN)
                 self._log_write("PharmFlow installed via git clone ✅")
         else:
-            self._set_row("cpharm", "❌  Failed", RED)
+            self._set_row("pharmflow", "❌  Failed", RED)
             self._log_write("Both ZIP download and git clone failed.")
             if not ok and (out or "").strip():
                 self._log_write(f"  git clone output (tail): {(out or '')[-600:]}\n")
@@ -7477,14 +7820,14 @@ class PrerequisitesPage(PageBase):
 
             self._set_progress(56, "")
 
-            if not self._check_cpharm():
-                self._install_cpharm()
+            if not self._check_pharmflow():
+                self._install_pharmflow()
             else:
-                self._set_row("cpharm", "✅  Already here", GREEN)
+                self._set_row("pharmflow", "✅  Already here", GREEN)
 
-            if not self._check_cpharm():
+            if not self._check_pharmflow():
                 install_root = Path(self._install_dir.get()).resolve()
-                found_root = _find_cpharm_dashboard_root(install_root)
+                found_root = _find_pharmflow_dashboard_root(install_root)
                 check_root = found_root if found_root else install_root
                 miss = (
                     _automation_bundle_missing(check_root)
@@ -7492,7 +7835,7 @@ class PrerequisitesPage(PageBase):
                     else ["automation/"]
                 )
                 self._set_progress(100, "Incomplete install folder")
-                self._set_row("cpharm", "❌  Incomplete", RED)
+                self._set_row("pharmflow", "❌  Incomplete", RED)
                 self._log_write(
                     "\nInstall folder is incomplete — dashboard needs these:\n    "
                     + "\n    ".join(miss)
@@ -7513,7 +7856,7 @@ class PrerequisitesPage(PageBase):
 
             self._set_progress(66, "Quick check…")
             py_argv, _ = _resolve_python_cmd(state.get("python_cmd"))
-            cal_root = Path(state.get("cpharm_dir") or self._install_dir.get()).resolve()
+            cal_root = Path(state.get("pharmflow_dir") or self._install_dir.get()).resolve()
             if not _calibrate_installed_stack(py_argv, cal_root, self._log_write):
                 self._set_progress(100, "Didn’t verify — tap Try again")
 
@@ -7566,7 +7909,7 @@ class PrerequisitesPage(PageBase):
 
     def can_advance(self):
         if not self._ready:
-            if self._check_all() and self._check_cpharm():
+            if self._check_all() and self._check_pharmflow():
                 self._ready = True
                 return True
             messagebox.showinfo(
@@ -8139,7 +8482,7 @@ class AndroidStudioPage(PageBase):
 
     def on_enter(self):
         try:
-            _maybe_autofill_cpharm_dir()
+            _maybe_autofill_pharmflow_dir()
         except Exception:
             pass
         if state.get("use_mumu") and IS_WIN:
@@ -8300,6 +8643,17 @@ class AndroidStudioPage(PageBase):
 
 # ─── page 4: phone farm (create AVDs / MuMu) ─────────────────────────────────
 
+def coerce_phone_count(raw) -> int | None:
+    """Positive phone count. None means the field is empty or not a number yet."""
+    try:
+        n = int(str(raw).strip())
+    except (TypeError, ValueError):
+        return None
+    if n < 1:
+        return None
+    return n
+
+
 class PhoneFarmPage(PageBase):
     def __init__(self, parent):
         super().__init__(parent)
@@ -8316,13 +8670,13 @@ class PhoneFarmPage(PageBase):
         name_box.pack(fill="x", pady=(0, 8))
         tk.Label(name_box, text="Phone name prefix:",
                  font=("Segoe UI", 10, "bold"), bg=BG3, fg=T1, anchor="w").pack(side="left")
-        self._prefix_var = tk.StringVar(value=state.get("phone_prefix", "CPharm_Phone"))
+        self._prefix_var = tk.StringVar(value=state.get("phone_prefix", "PharmFlow_Phone"))
         tk.Entry(name_box, textvariable=self._prefix_var, font=FM,
                  bg=BG2, fg=T1, insertbackground=T1, relief="flat",
                  width=22).pack(side="left", padx=(8, 6))
         tk.Label(name_box, text="_1, _2, _3…", font=FS, bg=BG3, fg=T3).pack(side="left")
         self._prefix_var.trace_add("write", lambda *_: state.update(
-            {"phone_prefix": self._prefix_var.get().strip() or "CPharm_Phone"}))
+            {"phone_prefix": self._prefix_var.get().strip() or "PharmFlow_Phone"}))
 
         # Count selection
         count_box = tk.Frame(self, bg=BG3, padx=SP["lg"], pady=SP["lg"])
@@ -8330,9 +8684,10 @@ class PhoneFarmPage(PageBase):
         tk.Label(count_box, text="How many virtual phones?",
                  font=("Segoe UI", 11, "bold"), bg=BG3, fg=T1, anchor="w").pack(fill="x")
         tk.Label(count_box,
-                 text="16 GB RAM → up to 5 phones  |  32 GB RAM → up to 10 phones\n"
-                      "Start small. You can always add more later.",
-                 font=FS, bg=BG3, fg=T2, anchor="w").pack(fill="x", pady=(4, 10))
+                 text="Type any number, or use a shortcut. A host RAM and CPU check "
+                      "still runs before each phone boots. There is no phone-count stop.",
+                 font=FS, bg=BG3, fg=T2, anchor="w", justify="left", wraplength=640,
+                 ).pack(fill="x", pady=(4, 10))
 
         picker = tk.Frame(count_box, bg=BG3)
         picker.pack(fill="x", pady=(4, 8))
@@ -8347,6 +8702,22 @@ class PhoneFarmPage(PageBase):
                           command=lambda v=n: self._pick_count(v))
             b.pack(side="left", padx=3)
             self._count_btns[n] = b
+
+        typed = tk.Frame(count_box, bg=BG3)
+        typed.pack(fill="x", pady=(4, 0))
+        tk.Label(typed, text="Count:", font=FS, bg=BG3, fg=T1).pack(side="left")
+        self._count_var = tk.StringVar(value=str(state.get("num_phones", 3)))
+        tk.Entry(
+            typed,
+            textvariable=self._count_var,
+            font=FM,
+            bg=BG2,
+            fg=T1,
+            insertbackground=T1,
+            relief="flat",
+            width=8,
+        ).pack(side="left", padx=(8, 0))
+        self._count_var.trace_add("write", lambda *_: self._on_count_typed())
 
         self._count_lbl = tk.Label(count_box, text="3 phones selected",
                                     font=FS, bg=BG3, fg=T2)
@@ -8389,7 +8760,7 @@ class PhoneFarmPage(PageBase):
         del_btn = tk.Button(create_row, **del_kw)
         style_danger_button(del_btn)
         del_btn.pack(side="left", padx=(0, 10))
-        # Auto-connect already-created phones (MuMu 16384-16393 + emulator/cloud 5555-5562)
+        # Auto-connect every published guest. Not a fixed 10-port or 8-port range.
         auto_btn = tk.Button(
             create_row,
             text="Auto-Connect All Phones",
@@ -8473,7 +8844,7 @@ class PhoneFarmPage(PageBase):
         tk.Label(
             self._docker_panel,
             text="If you run redroid containers (Docker Desktop / Linux host), connect them here."
-            "\nEach container exposes an ADB port in the 5555-5562 range."
+            "\nEach container's published ADB port is connected. There is no 8-port ceiling."
             "\nDocker stays open alongside the farm — connecting never stops containers.",
             font=FS, bg="#0b1f1c", fg=T2, anchor="w", justify="left",
         ).pack(fill="x", pady=(6, 10))
@@ -8554,11 +8925,22 @@ class PhoneFarmPage(PageBase):
             self.after(0, fin)
             self._log_write(f"Docker: {msg}\n")
 
+    def _on_count_typed(self):
+        n = coerce_phone_count(self._count_var.get())
+        if n is None:
+            return
+        self._pick_count(n)
+
     def _pick_count(self, n):
+        n = coerce_phone_count(n)
+        if n is None:
+            return
         state["num_phones"] = n
         for num, btn in self._count_btns.items():
             btn.config(bg=ACCENT if num == n else BG2,
                        fg=ON_ACCENT    if num == n else T1)
+        if hasattr(self, "_count_var") and self._count_var.get() != str(n):
+            self._count_var.set(str(n))
         ram  = n * 2
         disk = n * 4
         self._count_lbl.config(
@@ -8588,9 +8970,9 @@ class PhoneFarmPage(PageBase):
 
     def on_enter(self):
         try:
-            _maybe_autofill_cpharm_dir()
+            _maybe_autofill_pharmflow_dir()
         except Exception as e:
-            _wiz_debug(f"PhoneFarmPage.on_enter _maybe_autofill_cpharm_dir: {e!r}", None)
+            _wiz_debug(f"PhoneFarmPage.on_enter _maybe_autofill_pharmflow_dir: {e!r}", None)
         # Docker / cloud phones — show the panel when the engine answers; never
         # auto-starts or stops containers, only surfaces + connects via ADB.
         try:
@@ -8627,8 +9009,8 @@ class PhoneFarmPage(PageBase):
             self._mumu_panel.pack(fill="x", pady=(6, 0))
             self._log_write(
                 "MuMuPlayer ARM64 mode — no AVD creation needed.\n"
-                "Open MuMu yourself when ready; create instances; enable ADB in each instance’s settings; "
-                "then Next →\n"
+                "Boot all phones in the Control Panel starts stopped MuMu instances. "
+                "Enable USB debugging on each phone, then Check again.\n"
             )
 
             def _prep_adb():
@@ -8643,10 +9025,10 @@ class PhoneFarmPage(PageBase):
                 self._mumu_panel.pack_forget()
 
         self._pick_count(state.get("num_phones", 3))
-        prefix = state.get("phone_prefix", "CPharm_Phone")
+        prefix = state.get("phone_prefix", "PharmFlow_Phone")
         existing = [a for a in list_avds() if a.startswith(prefix + "_")]
         if not existing:
-            existing = [a for a in list_avds() if a.startswith("CPharm_Phone_")]
+            existing = [a for a in list_avds() if a.startswith("PharmFlow_Phone_")]
         if existing:
             state["avds"] = existing
             self._log_write(f"Found {len(existing)} existing phone(s): "
@@ -8664,12 +9046,12 @@ class PhoneFarmPage(PageBase):
 
     def _delete_phones(self):
         all_avds = list_avds()
-        prefix = state.get("phone_prefix", "CPharm_Phone")
-        # Only wizard-created AVD names (prefix + legacy CPharm_Phone_*); never substring-match "cpharm".
+        prefix = state.get("phone_prefix", "PharmFlow_Phone")
+        # Only wizard-created AVD names (prefix + legacy PharmFlow_Phone_*); never substring-match "pharmflow".
         seen: set[str] = set()
         to_delete: list[str] = []
         for a in all_avds:
-            if (a.startswith(prefix + "_") or a.startswith("CPharm_Phone_")) and a not in seen:
+            if (a.startswith(prefix + "_") or a.startswith("PharmFlow_Phone_")) and a not in seen:
                 seen.add(a)
                 to_delete.append(a)
         if not to_delete:
@@ -8711,7 +9093,7 @@ class PhoneFarmPage(PageBase):
 
     def _create(self):
         n = state.get("num_phones", 3)
-        prefix = state.get("phone_prefix", "CPharm_Phone")
+        prefix = state.get("phone_prefix", "PharmFlow_Phone")
         self._create_btn.config(state="disabled", text=" Creating phones… ")
         self._log_write(f"Creating {n} virtual phone(s). This may take 10–30 minutes.\n\n")
 
@@ -8760,9 +9142,9 @@ class PhoneFarmPage(PageBase):
         avds = state.get("avds", [])
         if avds:
             return True
-        prefix = state.get("phone_prefix", "CPharm_Phone")
+        prefix = state.get("phone_prefix", "PharmFlow_Phone")
         running = [a for a in list_avds()
-                   if a.startswith(prefix + "_") or a.startswith("CPharm_Phone_")]
+                   if a.startswith(prefix + "_") or a.startswith("PharmFlow_Phone_")]
         if running:
             state["avds"] = running
             return True
@@ -9127,7 +9509,7 @@ class BootPage(PageBase):
         except Exception:
             pass
         try:
-            _maybe_autofill_cpharm_dir()
+            _maybe_autofill_pharmflow_dir()
         except Exception:
             pass
         if not state.get("use_mumu"):
@@ -9456,7 +9838,7 @@ class BootPage(PageBase):
                             "  If nothing appears, turn on ADB in each phone's Settings.\n"
                         )
                         connected = _connect_mumu_phones(
-                            count=12, log_fn=self._log_write, force_full_scan=True
+                            log_fn=self._log_write, force_full_scan=True
                         )
                         _wiz_debug(f"go_mumu port_scan path connected n={len(connected)}", self._log_write)
                         if connected:
@@ -9566,7 +9948,10 @@ class BootPage(PageBase):
                             text=f"✅ {n} MuMuPlayer phone(s) ready" if phones else "❌ No phones connected",
                             fg=GREEN if phones else RED),
                     ))
-                    self._log_write(f"\n{n} MuMuPlayer phone(s) ready.\n")
+                    if phones:
+                        self._log_write(f"\n{n} MuMuPlayer phone(s) ready.\n")
+                    else:
+                        self._log_write("\nNo phones connected. Nothing is ready.\n")
                     _wiz_debug(f"go_mumu normal exit phones={n}", self._log_write)
                 except Exception as exc:
                     tb = traceback.format_exc()
@@ -9609,29 +9994,29 @@ class BootPage(PageBase):
             )
             return
 
-        # ARM64 preflight: if emulator.exe is x64 on an ARM64 host, fail immediately
+        # A non-ARM64 emulator.exe is not a reason to refuse the start.
+        # Refusing here left Studio AVDs unlaunched on this host. Start, then
+        # report a dead process. Hide the console only — start_emulator does that.
         if IS_WIN and "arm64" in _machine_arch():
             sdk = state.get("sdk_path") or find_sdk()
-            emu_ok = False
-            if sdk:
-                emu_exe = Path(sdk) / "emulator" / "emulator.exe"
-                if emu_exe.exists() and _pe_machine_type(str(emu_exe)) == 0xAA64:
-                    emu_ok = True
-            if not emu_ok:
+            emu_exe = Path(sdk) / "emulator" / "emulator.exe" if sdk else Path()
+            if not emu_exe.is_file():
                 self._log_write(
-                    "❌ ARM64 (Snapdragon) detected — Google has no Windows ARM64 emulator.\n"
-                    "   Go back to Android runtime and enable  ✅ Use MuMuPlayer ARM64.\n"
-                    f"   Download: {MUMU_DOWNLOAD_URL}\n"
+                    "Studio AVDs are listed but emulator.exe was not found — not launched.\n"
                 )
                 messagebox.showerror(
-                    "MuMuPlayer required",
-                    "ARM64 (Snapdragon) detected — Google has no Windows ARM64 emulator.\n\n"
-                    "Go back to Android runtime and click  ✅ Use MuMuPlayer ARM64  to switch modes.\n\n"
-                    f"Download MuMuPlayer ARM:  {MUMU_DOWNLOAD_URL}",
+                    "Emulator not found",
+                    "Android Studio AVDs are listed, but emulator.exe was not found.\n\n"
+                    "Install Android tools, then start the phones again.",
                     parent=self.winfo_toplevel(),
                 )
                 self._boot_btn.config(state="normal", text="Start all phones")
                 return
+            if _pe_machine_type(str(emu_exe)) != 0xAA64:
+                self._log_write(
+                    "emulator.exe is not an ARM64 binary. Starting anyway. "
+                    "If the phone window dies immediately, install the ARM64 emulator.\n"
+                )
 
         self._boot_btn.config(state="disabled", text="Starting…")
         self._stop_btn.config(state="normal")
@@ -10138,7 +10523,7 @@ class AutomationPage(PageBase):
         except Exception:
             pass
         try:
-            _maybe_autofill_cpharm_dir()
+            _maybe_autofill_pharmflow_dir()
         except Exception:
             pass
         self._seq_steps.clear()
@@ -10242,7 +10627,7 @@ class AutomationPage(PageBase):
 # ─── page: google play testing guide (deprecated — not in wizard flow) ─────────
 
 class PlayStorePage(PageBase):
-    """Deprecated stub — not in ``CPharmWizard.PAGES``. DabFlow is browser-only (getdabflow.app)."""
+    """Deprecated stub — not in ``PharmFlowWizard.PAGES``. DabFlow is browser-only (getdabflow.app)."""
 
     def __init__(self, parent):
         super().__init__(parent)
@@ -10362,7 +10747,7 @@ class GroupsPage(PageBase):
 
     def on_enter(self):
         try:
-            _maybe_autofill_cpharm_dir()
+            _maybe_autofill_pharmflow_dir()
         except Exception:
             pass
         try:
@@ -10372,6 +10757,15 @@ class GroupsPage(PageBase):
         _normalize_all_groups()
         _apply_default_steps_to_template_phones()
         self._rebuild()
+
+    def _write_groups_or_warn(self, fail_text: str) -> bool:
+        if _persist_groups_config():
+            cur = str(self._grp_status.cget("text") or "")
+            if "Groups on disk were not changed." in cur:
+                self._grp_status.config(text="", fg=T2)
+            return True
+        self._grp_status.config(text=fail_text, fg=RED)
+        return False
 
     def _add_group(self):
         n = len(state["groups"]) + 1
@@ -10403,6 +10797,11 @@ class GroupsPage(PageBase):
             "repeat":         1,
             "repeat_forever": False,
         })
+        if not self._write_groups_or_warn(
+            "Group was not saved. Groups on disk were not changed."
+        ):
+            state["groups"].pop()
+            _try_load_groups_config()
         self._rebuild()
 
     def _remove_group(self, idx):
@@ -10413,7 +10812,12 @@ class GroupsPage(PageBase):
                 parent=self.winfo_toplevel(),
             )
             return
-        state["groups"].pop(idx)
+        removed = state["groups"].pop(idx)
+        if not self._write_groups_or_warn(
+            "Group was not removed. Groups on disk were not changed."
+        ):
+            state["groups"].insert(idx, removed)
+            _try_load_groups_config()
         self._rebuild()
 
     def _rebuild(self):
@@ -10447,10 +10851,18 @@ class GroupsPage(PageBase):
         tk.Frame(hdr, bg=col, width=5).pack(side="left", fill="y", padx=(0, 10))
 
         name_var = tk.StringVar(value=group["name"])
-        tk.Entry(hdr, textvariable=name_var, font=("Segoe UI", 13, "bold"),
-                 bg=BG3, fg=T1, relief="flat", width=20,
-                 insertbackground=T1).pack(side="left")
+        name_ent = tk.Entry(hdr, textvariable=name_var, font=("Segoe UI", 13, "bold"),
+                            bg=BG3, fg=T1, relief="flat", width=20,
+                            insertbackground=T1)
+        name_ent.pack(side="left")
         name_var.trace_add("write", lambda *_: group.update({"name": name_var.get()}))
+
+        def _persist_name(_event=None, g=group, var=name_var):
+            g["name"] = var.get()
+            self._write_groups_or_warn("Group name was not saved. Groups on disk were not changed.")
+
+        name_ent.bind("<FocusOut>", _persist_name)
+        name_ent.bind("<Return>", _persist_name)
 
         if len(state["groups"]) > 1:
             rm = tk.Button(hdr, text="Remove", font=FS, bg=RED, fg=ON_ACCENT,
@@ -10550,15 +10962,18 @@ class GroupsPage(PageBase):
                     if sv not in g["phones"] or not isinstance(ent, dict):
                         return
                     try:
-                        ent["hits_per_day"] = max(0, min(int(var.get()), 1440))
+                        ent["hits_per_day"] = max(0, int(var.get()))
                     except (tk.TclError, TypeError, ValueError):
                         ent["hits_per_day"] = DEFAULT_HITS_PER_DAY
 
-                hits_ent = _int_clamped_entry(details, hits_var, 0, 1440, width=5, bg=BG2)
+                hits_ent = _int_clamped_entry(details, hits_var, 0, None, width=5, bg=BG2)
                 hits_ent.pack(side="left", padx=(2, 8))
 
                 def persist_hits(_event=None):
                     save_hits()
+                    self._write_groups_or_warn(
+                        "Hits per day was not saved. Groups on disk were not changed."
+                    )
 
                 hits_ent.bind("<FocusOut>", persist_hits)
                 hits_ent.bind("<Return>", persist_hits)
@@ -10628,7 +11043,7 @@ class GroupsPage(PageBase):
                                 other["phones"].pop(s, None)
                         if s not in g["phones"]:
                             try:
-                                h = max(0, min(int(hv.get()), 1440))
+                                h = max(0, int(hv.get()))
                             except (tk.TclError, TypeError, ValueError):
                                 h = DEFAULT_HITS_PER_DAY
                             g["phones"][s] = {
@@ -10737,6 +11152,15 @@ class GroupsPage(PageBase):
                                     _normalize_sequence_playlist_shuffle(mpsh)
                                 )
                                 g["phones"][s] = ent
+                        saved = _persist_groups_config()
+                        if not saved:
+                            _try_load_groups_config()
+                            self._rebuild()
+                            self._grp_status.config(
+                                text=f"[{g['name']}] Copy was not saved. Groups on disk were not changed.",
+                                fg=RED,
+                            )
+                            return
                         self._rebuild()
                         self._log_write(f"[{g['name']}] Master sequence copied to all phones.")
 
@@ -10769,6 +11193,9 @@ class GroupsPage(PageBase):
             group.update({"stagger_secs": stag_var.get(),
                           "repeat":       rep_var.get(),
                           "repeat_forever": forever_var.get()})
+            self._write_groups_or_warn(
+                "Group timing was not saved. Groups on disk were not changed."
+            )
 
         def int_timing_entry(var, lo, hi, w=5):
             e = _int_clamped_entry(timing, var, lo, hi, width=w, bg=BG3)
@@ -10781,9 +11208,9 @@ class GroupsPage(PageBase):
             return e
 
         lbl("Delay between phones:").pack(side="left")
-        int_timing_entry(stag_var, 0, 3600).pack(side="left", padx=4)
+        int_timing_entry(stag_var, 0, None).pack(side="left", padx=4)
         lbl("sec  |  Repeat:").pack(side="left", padx=(4, 0))
-        int_timing_entry(rep_var, 1, 9999).pack(side="left", padx=4)
+        int_timing_entry(rep_var, 1, None).pack(side="left", padx=4)
         lbl("times  |").pack(side="left")
         tk.Checkbutton(timing, text="Forever", variable=forever_var,
                        font=FS, bg=BG2, fg=T1, selectcolor=BG3,
@@ -10861,6 +11288,21 @@ class GroupsPage(PageBase):
                 ent["explicit_override"] = True
                 ent["use_default_template"] = False
                 n += 1
+        if n == 0:
+            self._grp_status.config(
+                text="No phone sequences to change. Add steps on a phone first.",
+                fg=T2,
+            )
+            return
+        saved = _persist_groups_config()
+        if not saved:
+            _try_load_groups_config()
+            self._rebuild()
+            self._grp_status.config(
+                text="Natural timing was not saved. Groups on disk were not changed.",
+                fg=RED,
+            )
+            return
         self._rebuild()
         self._log_write(f"Applied natural timing tweaks on {n} phone sequence(s).")
 
@@ -10922,7 +11364,7 @@ class GroupsPage(PageBase):
         Validation order matches ``can_advance`` so the same dialogs surface that
         ``Next Step`` would show, then we additionally require at least one phone
         to have steps or a playlist (otherwise the run would target zero phones).
-        Routes through ``CPharmWizard.start_tryout_from_groups`` so the actual
+        Routes through ``PharmFlowWizard.start_tryout_from_groups`` so the actual
         sequence execution stays on the single, tested ``_start_automation_one_click``
         code path used by the Launch step.
         """
@@ -11124,7 +11566,7 @@ class AddStepDialog(tk.Toplevel):
                 continue
             if key == "post_wait_secs" and t == "open_url":
                 try:
-                    step[key] = min(120.0, max(0.0, float(v)))
+                    step[key] = max(0.0, float(v))
                 except ValueError:
                     pass
                 continue
@@ -11486,8 +11928,8 @@ class LaunchPage(PageBase):
         tor_copy = tk.Label(
             tor_fr,
             text=(
-                "Scramble (default) — direct internet + new device look each getdabflow visit; "
-                "best Mantis ad fill on MuMu.\n"
+                "Scramble (default) — pin each phone's own exit and rotate device look each visit. "
+                "Never the host IP.\n"
                 "Tor — different country per phone (privacy; ads often empty on emulator).\n"
                 "Upstream — add residential proxy URLs in desktop_prefs.json (one per phone)."
             ),
@@ -11554,7 +11996,7 @@ class LaunchPage(PageBase):
         self._btn_tor.pack(side="left", padx=(0, 8))
         self._btn_tor_off = tk.Button(
             tor_row,
-            text="Turn off Tor",
+            text="Re-pin phone exits",
             font=FS,
             bg=BG4,
             fg=T1,
@@ -11575,7 +12017,7 @@ class LaunchPage(PageBase):
             tor_fix,
             text=(
                 "Phone says no internet or the page is blank? Tap the button below. "
-                "Closing PharmFlow usually fixes this too."
+                "It reconnects that phone to its own exit. It does not turn the proxy off."
             ),
             font=FS,
             bg=BG3,
@@ -11693,7 +12135,7 @@ class LaunchPage(PageBase):
 
     def on_enter(self):
         try:
-            _maybe_autofill_cpharm_dir()
+            _maybe_autofill_pharmflow_dir()
         except Exception:
             pass
         try:
@@ -11771,7 +12213,7 @@ class LaunchPage(PageBase):
         return _persist_groups_config() or ""
 
     def _open_dashboard_browser(self, path: str = "/") -> None:
-        """Open the web dashboard; discover actual HTTP port if default ``CPHARM_PORT`` is busy."""
+        """Open the web dashboard; discover actual HTTP port if default ``PHARMFLOW_PORT`` is busy."""
 
         def work() -> None:
             probe_dashboard_listen_port()
@@ -11788,10 +12230,10 @@ class LaunchPage(PageBase):
     def _start_server(self):
         import tempfile
 
-        d = state.get("cpharm_dir", "")
+        d = state.get("pharmflow_dir", "")
         if not d:
-            d = str(_cpharm_install_root())
-            state["cpharm_dir"] = d
+            d = str(_pharmflow_install_root())
+            state["pharmflow_dir"] = d
 
         self._save()
         dashboard = Path(d) / "automation" / "dashboard.py"
@@ -11829,7 +12271,7 @@ class LaunchPage(PageBase):
                     )
                     return chk.returncode == 0
 
-                skip_pip = os.environ.get("CPHARM_OFFLINE", "").strip().lower() in (
+                skip_pip = os.environ.get("PHARMFLOW_OFFLINE", "").strip().lower() in (
                     "1",
                     "true",
                     "yes",
@@ -11846,7 +12288,7 @@ class LaunchPage(PageBase):
                     self.after(
                         0,
                         lambda: self._log(
-                            "CPHARM_OFFLINE set — skipping pip. "
+                            "PHARMFLOW_OFFLINE set — skipping pip. "
                             f"If launch fails, install:\n  {py_disp} -m pip install websockets psutil\n"
                         ),
                     )
@@ -11858,7 +12300,7 @@ class LaunchPage(PageBase):
                                 self._btn_srv_start.config(state="normal"),
                                 self._log(
                                     "websockets/psutil not importable. "
-                                    "Unset CPHARM_OFFLINE or install deps manually.\n"
+                                    "Unset PHARMFLOW_OFFLINE or install deps manually.\n"
                                 ),
                             ),
                         )
@@ -11957,7 +12399,7 @@ class LaunchPage(PageBase):
 
                 # Wait until GET /api/config answers (or process dies). A fixed 3s sleep
                 # falsely reports "running" before the HTTP bind on slow ARM64 hosts.
-                ready_sec = min(90.0, float(_dashboard_ready_timeout_sec()))
+                ready_sec = float(_dashboard_ready_timeout_sec())
                 deadline = time.time() + ready_sec
                 ready = False
                 while time.time() < deadline:
@@ -12009,19 +12451,8 @@ class LaunchPage(PageBase):
 
     def _stop_server(self):
         self._stop_groups()
-        td = self._api("/api/proxy/teardown", {})
-        if td.get("error"):
-            self._log_write(f"Proxy clear before stop (non-fatal): {td.get('error')}\n")
-            fb = wiz_clear_phone_proxies_best_effort(stop_tor_host=True)
-            if fb > 0:
-                self._log_write(
-                    f"Fallback: cleared HTTP proxy + Tor reverse on {fb} device(s) via local ADB; "
-                    "host Tor stopped (dashboard teardown failed).\n"
-                )
-        else:
-            n = td.get("n")
-            if isinstance(n, int) and n > 0:
-                self._log_write(f"Cleared HTTP proxy on {n} device(s) before stopping server.\n")
+        # Stopping the wizard server must not delete guest http_proxy or stop
+        # Tor. That drops farm traffic onto the VM/host path.
         self._api("/api/scheduler/stop", {})
         if self._server_proc:
             self._server_proc.terminate()
@@ -12239,7 +12670,7 @@ class LaunchPage(PageBase):
     def _start_schedule(self):
         """Start the daily schedule on all booted phones (per-phone steps and hits from Groups)."""
         try:
-            fallback_hits = max(0, min(int(self._sched_hits_var.get()), 1440))
+            fallback_hits = max(0, int(self._sched_hits_var.get()))
         except (TypeError, ValueError, tk.TclError):
             fallback_hits = DEFAULT_HITS_PER_DAY
         phones = state.get("phones", [])
@@ -12266,8 +12697,7 @@ class LaunchPage(PageBase):
                 if isinstance(pdata, dict):
                     steps_per_serial[s] = list(pdata.get("steps", default_steps))
                     try:
-                        hits_per_serial[s] = max(
-                            0, min(int(pdata.get("hits_per_day", fallback_hits)), 1440))
+                        hits_per_serial[s] = max(0, int(pdata.get("hits_per_day", fallback_hits)))
                     except (TypeError, ValueError):
                         hits_per_serial[s] = fallback_hits
                 assigned.add(s)
@@ -12290,16 +12720,25 @@ class LaunchPage(PageBase):
                 method="POST")
             with urllib.request.urlopen(req, timeout=5) as r:
                 result = json.loads(r.read())
-            if result.get("ok"):
-                hvals = list(hits_per_serial.values())
-                hsum = f"{min(hvals)}–{max(hvals)}" if hvals and min(hvals) != max(hvals) else str(
+            started = result.get("started") if isinstance(result.get("started"), list) else []
+            already = result.get("already_running") if isinstance(result.get("already_running"), list) else []
+            errors = result.get("errors") if isinstance(result.get("errors"), list) else []
+            if started or already:
+                hvals = [hits_per_serial.get(s, fallback_hits) for s in started or already]
+                hsum = f"{min(hvals)}-{max(hvals)}" if hvals and min(hvals) != max(hvals) else str(
                     hvals[0] if hvals else fallback_hits)
+                note = "already running" if already and not started else "threads started"
                 self._sched_lbl.config(
-                    text=f"Scheduled {len(serials)} phones ({hsum} hits/day)",
-                    fg=GREEN)
-                self._log_write("Scheduler started (per-phone steps and hits from Groups).\n")
+                    text=f"Scheduler {note} for {len(started or already)} phone(s) ({hsum} hits/day). A hit counts only after the sequence lands.",
+                    fg=T1)
+                self._log_write(
+                    "Scheduler threads started. Each phone uses its own Groups steps and hits. "
+                    "A hit counts only after that sequence lands.\n"
+                )
+                for err in errors:
+                    self._log_write(f"Scheduler: {err}\n")
             else:
-                self._sched_lbl.config(text="Failed: " + str(result), fg=RED)
+                self._sched_lbl.config(text="Failed: " + str(result.get("error") or result), fg=RED)
         except Exception as e:
             self._sched_lbl.config(text=f"Error: {e}", fg=RED)
 
@@ -12453,8 +12892,12 @@ class LaunchPage(PageBase):
             automation_on_sys_path()
             import browse_proxy as bp
 
-            bp.save_browse_prefs(browse_proxy_mode=mode)
-            os.environ["CPHARM_BROWSE_PROXY_MODE"] = mode
+            saved = bp.save_browse_prefs(browse_proxy_mode=mode)
+            if not saved or saved.get("browse_proxy_mode") != mode:
+                self._browse_mode_lbl.config(text="Browse mode was not saved", fg=RED)
+                self._log_write("Browse mode was not saved — disk copy does not match.\n")
+                return
+            os.environ["PHARMFLOW_BROWSE_PROXY_MODE"] = mode
             self._browse_mode_lbl.config(
                 text=f"Saved: {bp.browse_proxy_mode_label(mode)[:64]}",
                 fg=GREEN,
@@ -12480,8 +12923,10 @@ class LaunchPage(PageBase):
                     self._tor_lbl.config(text=str(err)[:96], fg=RED)
                     self._log_write(f"Tor setup error: {err}\n")
                 else:
-                    self._tor_lbl.config(text="Tor starting — see Live log", fg=GREEN)
-                    self._log_write("Tor setup started (runs in the background).\n")
+                    self._tor_lbl.config(text="Started — read each phone line in the Live log", fg=STATUS_PROGRESS)
+                    self._log_write(
+                        "Tor setup started. Each phone line says whether a loopback exit was pinned.\n"
+                    )
 
             self.after(0, ui)
 
@@ -12512,108 +12957,43 @@ class LaunchPage(PageBase):
         )
         return False
 
-    def _tor_teardown(self):
-        if self._ensure_server_ready_for_tor():
-
-            def go():
-                result = self._api("/api/proxy/teardown", {})
-
-                def ui():
-                    err = result.get("error")
-                    if err:
-                        self._tor_lbl.config(text=str(err)[:96], fg=RED)
-                        self._log_write(f"Tor teardown error: {err}\n")
-                        n2 = wiz_clear_phone_proxies_best_effort(stop_tor_host=True)
-                        if n2 > 0:
-                            self._tor_lbl.config(
-                                text=f"Internet reset on {n2} phone(s)",
-                                fg=GREEN,
-                            )
-                            self._log_write(
-                                f"Local ADB fallback cleared proxy on {n2} device(s) after dashboard error.\n"
-                            )
-                    else:
-                        n = result.get("n")
-                        if isinstance(n, int):
-                            self._tor_lbl.config(
-                                text=(
-                                    f"Tor off ({n} phone(s))"
-                                    if n
-                                    else "Tor off (no phones connected)"
-                                ),
-                                fg=GREEN if n else STATUS_PROGRESS,
-                            )
-                            self._log_write(
-                                f"Tor turned off; internet reset on {n} phone(s).\n"
-                            )
-                        else:
-                            self._tor_lbl.config(text="Tor off", fg=GREEN)
-                            self._log_write("Tor turned off.\n")
-
-                self.after(0, ui)
-
-            threading.Thread(target=go, daemon=True).start()
+    def _show_repin_result(self, ok: bool, n: int, msg: str) -> None:
+        if not ok and n <= 0:
+            self._tor_lbl.config(text="No phones connected — start phones on Connect", fg=STATUS_PROGRESS)
+            self._log_write(f"{msg}\n")
+            messagebox.showinfo(
+                "Re-pin phone exits",
+                "No phones are connected yet.\n\n"
+                "1. Start your phones on the Connect step.\n"
+                "2. Wait until they show in the list.\n"
+                "3. Tap this button again.",
+                parent=self.winfo_toplevel(),
+            )
             return
+        if not ok:
+            self._tor_lbl.config(text=msg[:96], fg=RED)
+            self._log_write(f"Re-pin failed: {msg}\n")
+            messagebox.showerror("Re-pin phone exits", msg, parent=self.winfo_toplevel())
+            return
+        self._tor_lbl.config(text=msg[:96], fg=GREEN)
+        self._log_write(msg + "\n")
+        messagebox.showinfo("Re-pin phone exits", msg, parent=self.winfo_toplevel())
 
-        def local_clear():
-            n = wiz_clear_phone_proxies_best_effort(stop_tor_host=True)
-
-            def ui():
-                if n <= 0:
-                    self._tor_lbl.config(text="Tor off (no phones connected)", fg=STATUS_PROGRESS)
-                    self._log_write(
-                        "Turn off Tor: no phones connected — "
-                        "start phones on Connect, then try again.\n"
-                    )
-                else:
-                    self._tor_lbl.config(text=f"Tor off ({n} phone(s))", fg=GREEN)
-                    self._log_write(
-                        f"Turn off Tor: internet reset on {n} phone(s).\n"
-                    )
-
-            self.after(0, ui)
-
-        threading.Thread(target=local_clear, daemon=True).start()
-
-    def _fix_browsers_clear_proxy(self):
-        """Clear stuck ``http_proxy`` / ``adb reverse`` on all ADB devices (no dashboard required)."""
+    def _tor_teardown(self):
+        """Re-pin exits. Do not delete guest proxies or stop Tor."""
 
         def work():
-            n = wiz_clear_phone_proxies_best_effort(stop_tor_host=False)
+            ok, n, msg = wiz_repin_phone_exits()
+            self.after(0, lambda: self._show_repin_result(ok, n, msg))
 
-            def ui():
-                if n <= 0:
-                    self._tor_lbl.config(
-                        text="No phones connected — start phones on Connect",
-                        fg=STATUS_PROGRESS,
-                    )
-                    self._log_write(
-                        "Fix internet: no phones connected. Start phones on Connect, then try again.\n"
-                    )
-                    messagebox.showinfo(
-                        "Fix the phone's internet",
-                        "No phones are connected yet.\n\n"
-                        "1. Start your phones on the Connect step.\n"
-                        "2. Wait until they show in the list.\n"
-                        "3. Tap this button again.",
-                        parent=self.winfo_toplevel(),
-                    )
-                else:
-                    self._tor_lbl.config(text=f"Internet fixed on {n} phone(s)", fg=GREEN)
-                    self._log_write(
-                        f"Fix internet: reset network on {n} phone(s). "
-                        "Close the browser app completely, then open it again.\n"
-                    )
-                    messagebox.showinfo(
-                        "Fix the phone's internet",
-                        f"Fixed the internet on {n} phone(s).\n\n"
-                        "1. Swipe the browser app away to close it.\n"
-                        "2. Open the browser again.\n"
-                        "3. Try your link.",
-                        parent=self.winfo_toplevel(),
-                    )
+        threading.Thread(target=work, daemon=True).start()
 
-            self.after(0, ui)
+    def _fix_browsers_clear_proxy(self):
+        """Re-pin live phones onto their own exits. Does not clear http_proxy."""
+
+        def work():
+            ok, n, msg = wiz_repin_phone_exits()
+            self.after(0, lambda: self._show_repin_result(ok, n, msg))
 
         threading.Thread(target=work, daemon=True).start()
 
@@ -13481,7 +13861,7 @@ class SequenceGeneratorPage(PageBase):
             canvas_set_scrollregion_from_bbox_all(self.master)
 
     def _calibration_path(self) -> Path:
-        root = _cpharm_tree_root()
+        root = _pharmflow_tree_root()
         return root / "automation" / "recordings" / "sequence_generator_calibration.json"
 
     def _load_calibration_profile(self) -> None:
@@ -13701,14 +14081,14 @@ class SequenceGeneratorPage(PageBase):
 
     def _tap_step(self, x: int, y: int) -> dict:
         bw, bh = self._profile_dims()
-        boost = min(100, int(getattr(self, "_tap_jitter_boost_next", 0)))
+        boost = int(getattr(self, "_tap_jitter_boost_next", 0))
         self._tap_jitter_boost_next = 0
         human = bool(self._human_timing_var.get())
         if human:
-            j = min(120, 20 + boost)
+            j = 20 + boost
             pre = random.randint(150, 380)
         else:
-            j = min(120, max(4, 8 + boost // 3))
+            j = max(4, 8 + boost // 3)
             pre = 0
         return {"type": "tap", "x": x, "y": y, "base_w": bw, "base_h": bh, "retries": 2, "jitter": j, "pre_wait_ms": pre}
 
@@ -13731,7 +14111,7 @@ class SequenceGeneratorPage(PageBase):
         bw, bh = self._profile_dims()
         ms = 900
         if self._human_timing_var.get():
-            ms = int(max(80, min(5000, random.gauss(900, 85))))
+            ms = int(max(1, random.gauss(900, 85)))
         self._steps.append(
             self._swipe_step(max(1, bw // 2), int(bh * 0.78), max(1, bw // 2) + 12, int(bh * 0.32), ms),
         )
@@ -13758,9 +14138,9 @@ class SequenceGeneratorPage(PageBase):
         return {"type": "wait", "seconds": round(random.uniform(lo, hi), 2)}
 
     def _human_arm_jitter_next_tap(self) -> None:
-        self._tap_jitter_boost_next = min(100, int(getattr(self, "_tap_jitter_boost_next", 0)) + 14)
+        self._tap_jitter_boost_next = int(getattr(self, "_tap_jitter_boost_next", 0)) + 14
         self._save_status_var.set(
-            f"The next tap will use extra randomness ({self._tap_jitter_boost_next} pixels out of 120 max). "
+            f"The next tap will use extra randomness ({self._tap_jitter_boost_next} pixels). "
             "Record in the preview, add an action, or use Record from desktop browser."
         )
 
@@ -13774,7 +14154,7 @@ class SequenceGeneratorPage(PageBase):
             self._save_status_var.set("That step is not a tap — pick a tap in the list.")
             return
         j = int(step.get("jitter", 20))
-        step["jitter"] = min(120, j + 12)
+        step["jitter"] = j + 12
         self._steps = self._normalize_with_context(self._steps)
         self._refresh_builder(select_index=idx)
         self._save_status_var.set(f"Tap randomness is now {step['jitter']} pixels.")
@@ -13783,7 +14163,7 @@ class SequenceGeneratorPage(PageBase):
         bw, bh = self._profile_dims()
         dur = ms
         if self._human_timing_var.get():
-            dur = int(max(80, min(5000, random.gauss(ms, ms * 0.08))))
+            dur = int(max(1, random.gauss(ms, ms * 0.08)))
         return {"type": "swipe", "x1": x1, "y1": y1, "x2": x2, "y2": y2, "ms": dur, "base_w": bw, "base_h": bh}
 
     def _normalize_with_context(self, steps: list[dict]) -> list[dict]:
@@ -14441,7 +14821,7 @@ class WebpePage(PageBase):
         )
         self._debug_proc: subprocess.Popen[str] | None = None
         self._latest_log_path: Path | None = None
-        self._log_dir = _cpharm_tree_root() / "automation" / "logs" / "webpe"
+        self._log_dir = _pharmflow_tree_root() / "automation" / "logs" / "webpe"
         remembered_exe = (state.get("webpe_exe_path") or "").strip()
         remembered_out = (state.get("webpe_output_path") or "").strip()
         self._exe_var = tk.StringVar(value=remembered_exe or str(self._guess_default_exe()))
@@ -14457,7 +14837,7 @@ class WebpePage(PageBase):
         self._guidance_var = tk.StringVar(
             value=(
                 "Download official WebPE from GitHub (twoskoops707/webpe) with one click — it installs under "
-                "%LOCALAPPDATA%\\CPharm\\webpe\\webpe.exe. Or set a path from another build (for example shine)."
+                "%LOCALAPPDATA%\\PharmFlow\\webpe\\webpe.exe. Or set a path from another build (for example shine)."
             )
         )
         self._build_layout()
@@ -14465,14 +14845,14 @@ class WebpePage(PageBase):
         scroll_bottom_spacer(self).pack(fill="x")
 
     def _guess_default_exe(self) -> Path:
-        env = (os.environ.get("CPHARM_SEQUENCER_EXE") or "").strip()
+        env = (os.environ.get("PHARMFLOW_SEQUENCER_EXE") or "").strip()
         if env:
             p = Path(env).expanduser()
             return p
         managed = _webpe_managed_exe_path()
         if managed.is_file():
             return managed
-        roots = [_cpharm_tree_root(), Path.home() / "source" / "repos", Path.home()]
+        roots = [_pharmflow_tree_root(), Path.home() / "source" / "repos", Path.home()]
         cands = [
             ("shine", "dist", "sequencer.exe"),
             ("shine", "bin", "sequencer.exe"),
@@ -14484,7 +14864,7 @@ class WebpePage(PageBase):
                 p = r.joinpath(*tup)
                 if p.exists():
                     return p
-        return _cpharm_tree_root() / "automation" / "tools" / "sequencer.exe"
+        return _pharmflow_tree_root() / "automation" / "tools" / "sequencer.exe"
 
     def _build_layout(self) -> None:
         shell = tk.Frame(self, bg=BG)
@@ -14718,7 +15098,7 @@ class WebpePage(PageBase):
                 error="Pick the sequencer executable file and retry.",
             )
             return False
-        ok_contract, raw_contract = self._probe_command([str(exe), "--cpharm-contract"], timeout=10.0)
+        ok_contract, raw_contract = self._probe_command([str(exe), "--pharmflow-contract"], timeout=10.0)
         if ok_contract:
             try:
                 payload = json.loads(raw_contract)
@@ -14736,7 +15116,7 @@ class WebpePage(PageBase):
                 self._contract_var.set("Contract: invalid response")
                 self._set_status(
                     "Sequencer contract probe returned non-JSON output.",
-                    error="Expected JSON from '--cpharm-contract'.",
+                    error="Expected JSON from '--pharmflow-contract'.",
                 )
                 return False
         else:
@@ -15031,7 +15411,7 @@ class WebpePage(PageBase):
 
 # ─── main wizard ──────────────────────────────────────────────────────────────
 
-class CPharmWizard(tk.Frame):
+class PharmFlowWizard(tk.Frame):
     """Nine-screen standalone setup flow with focused content and simple progress chrome."""
 
     PAGES = [
@@ -15153,18 +15533,18 @@ class CPharmWizard(tk.Frame):
 
         # Try to auto-detect PharmFlow directory
         guesses = [
-            _cpharm_install_root(),
-            Path.home() / "CPharm",
-            Path("C:/CPharm"),
+            _pharmflow_install_root(),
+            Path.home() / "PharmFlow",
+            Path("C:/PharmFlow"),
         ]
         for g in guesses:
             gp = Path(g)
             if (gp / "automation" / "dashboard.py").exists():
-                state["cpharm_dir"] = str(gp.resolve())
+                state["pharmflow_dir"] = str(gp.resolve())
                 break
-            found = _find_cpharm_dashboard_root(gp)
+            found = _find_pharmflow_dashboard_root(gp)
             if found:
-                state["cpharm_dir"] = str(found)
+                state["pharmflow_dir"] = str(found)
                 break
         _try_load_groups_config()
 
@@ -15404,10 +15784,10 @@ def _env_truthy(name: str) -> bool:
 
 
 if __name__ == "__main__":
-    # Default: full Tk wizard only (embeddable ``CPharmWizard`` needs a ``Tk`` or ``Toplevel`` parent).
-    if _env_truthy("CPHARM_USE_DESKTOP"):
+    # Default: full Tk wizard only (embeddable ``PharmFlowWizard`` needs a ``Tk`` or ``Toplevel`` parent).
+    if _env_truthy("PHARMFLOW_USE_DESKTOP"):
         try:
-            from cpharm_desktop import main as _desktop_main
+            from pharmflow_desktop import main as _desktop_main
         except ImportError:
             pass
         else:
@@ -15421,18 +15801,8 @@ if __name__ == "__main__":
     _root.minsize(960, 780)
     _root.config(bg=BG)
     _root.configure(highlightthickness=0)
-    _wiz = CPharmWizard(_root)
+    _wiz = PharmFlowWizard(_root)
     _wiz.pack(fill="both", expand=True)
-
-    def _standalone_root_destroy(event: tk.Event) -> None:
-        if event.widget is not _root:
-            return
-        try:
-            wiz_clear_phone_proxies_best_effort(stop_tor_host=True)
-        except Exception:
-            pass
-
-    _root.bind("<Destroy>", _standalone_root_destroy)
 
     def _standalone_wm_delete() -> None:
         _root.destroy()

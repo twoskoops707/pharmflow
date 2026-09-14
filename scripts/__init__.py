@@ -1,1 +1,1 @@
-"""Reusable CPharm operational entry points."""
+"""Reusable PharmFlow operational entry points."""

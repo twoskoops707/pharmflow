@@ -10,13 +10,13 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-LOG = Path(r"C:\CPharm\logs")
+LOG = Path(r"C:\PharmFlow\logs")
 sys.path.insert(0, str(ROOT))
 
-os.environ["CPHARM_TOR_HTTP_BASE"] = "8118"
-os.environ["CPHARM_TOR_SOCKS_BASE"] = "9050"
-os.environ["CPHARM_TOR_CONTROL_BASE"] = "9151"
-os.environ["CPHARM_TOR_PATH"] = r"C:\CPharm\bundled\tor.exe"
+os.environ["PHARMFLOW_TOR_HTTP_BASE"] = "8118"
+os.environ["PHARMFLOW_TOR_SOCKS_BASE"] = "9050"
+os.environ["PHARMFLOW_TOR_CONTROL_BASE"] = "9151"
+os.environ["PHARMFLOW_TOR_PATH"] = r"C:\PharmFlow\bundled\tor.exe"
 
 from automation.adb_wrapper import AdbWrapper
 from automation.browse_proxy import pin_guest_proxy, _read_guest_proxy
@@ -24,7 +24,7 @@ from automation.mantis_inject_proxy import ensure_inject_for_phone, start_inject
 from automation.tor_manager import TorManager
 
 VMS = Path(r"C:\Program Files\Netease\MuMuPlayerARM\vms")
-ADB = Path(r"C:\CPharm\bundled\adb.exe")
+ADB = Path(r"C:\PharmFlow\bundled\adb.exe")
 PYW = Path(r"C:\Users\jsmil\AppData\Local\Python\pythoncore-3.14-64\pythonw.exe")
 FLAGS = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
@@ -63,24 +63,24 @@ def main() -> int:
         ov = json.loads(ov_path.read_text(encoding="utf-8-sig"))
     ov.update(
         {
-            "CPHARM_FARM_PHONES": ",".join(names),
-            "CPHARM_ADB_SERIALS": ",".join(serials),
-            "CPHARM_FARM_PHONE_COUNT": str(n),
-            "CPHARM_FARM_EXPECT_PHONES": str(n),
-            "CPHARM_TABLET_FARM": "1",
-            "CPHARM_FARM_BAN_SERIALS": "10.0.2.216,127.0.0.1:16544,10.0.2.108",
-            "CPHARM_REQUIRE_FARM_BROWSERS": "0",
-            "CPHARM_FAST_STICKY_BOOT": "1",
-            "CPHARM_FARM_UNIQUE_SEQ": "1",
-            "CPHARM_SKIP_SEQUENCE_ISOLATION": "0",
-            "CPHARM_NEVER_SHARE_EXIT_IP": "1",
-            "CPHARM_MANTIS_INJECT_PROXY": "1",
-            "CPHARM_TOR_HTTP_BASE": "8118",
-            "CPHARM_TOR_PATH": r"C:\CPharm\bundled\tor.exe",
-            "CPHARM_FARM_STOP": "0",
-            "CPHARM_SKIP_BOOT_GEO": "1",
-            "CPHARM_PREFER_PAYING": "1",
-            "CPHARM_SSP_PREFER_PAYING": "1",
+            "PHARMFLOW_FARM_PHONES": ",".join(names),
+            "PHARMFLOW_ADB_SERIALS": ",".join(serials),
+            "PHARMFLOW_FARM_PHONE_COUNT": str(n),
+            "PHARMFLOW_FARM_EXPECT_PHONES": str(n),
+            "PHARMFLOW_TABLET_FARM": "1",
+            "PHARMFLOW_FARM_BAN_SERIALS": "10.0.2.216,127.0.0.1:16544,10.0.2.108",
+            "PHARMFLOW_REQUIRE_FARM_BROWSERS": "0",
+            "PHARMFLOW_FAST_STICKY_BOOT": "1",
+            "PHARMFLOW_FARM_UNIQUE_SEQ": "1",
+            "PHARMFLOW_SKIP_SEQUENCE_ISOLATION": "0",
+            "PHARMFLOW_NEVER_SHARE_EXIT_IP": "1",
+            "PHARMFLOW_MANTIS_INJECT_PROXY": "1",
+            "PHARMFLOW_TOR_HTTP_BASE": "8118",
+            "PHARMFLOW_TOR_PATH": r"C:\PharmFlow\bundled\tor.exe",
+            "PHARMFLOW_FARM_STOP": "0",
+            "PHARMFLOW_SKIP_BOOT_GEO": "1",
+            "PHARMFLOW_PREFER_PAYING": "1",
+            "PHARMFLOW_SSP_PREFER_PAYING": "1",
         }
     )
     ov_path.write_text(json.dumps(ov, indent=2) + "\n", encoding="utf-8")

@@ -15,9 +15,9 @@ sys.path.insert(0, str(ROOT))
 
 from wizard.mumu_farm_ops import MuMuFarmOps
 
-OUT = Path(r"C:\CPharm\logs\ad_map")
+OUT = Path(r"C:\PharmFlow\logs\ad_map")
 OUT.mkdir(parents=True, exist_ok=True)
-ADB = os.environ.get("CPHARM_ADB") or r"C:\CPharm\bundled\adb.exe"
+ADB = os.environ.get("PHARMFLOW_ADB") or r"C:\PharmFlow\bundled\adb.exe"
 
 
 def shot(farm, ser: str, tag: str) -> None:
@@ -29,8 +29,8 @@ def shot(farm, ser: str, tag: str) -> None:
 
 
 def ui_xml(farm, ser: str) -> str:
-    farm.adb.shell("uiautomator dump /sdcard/cpharm_ui.xml", serial=ser)
-    return farm.adb.shell("cat /sdcard/cpharm_ui.xml", serial=ser).stdout or ""
+    farm.adb.shell("uiautomator dump /sdcard/pharmflow_ui.xml", serial=ser)
+    return farm.adb.shell("cat /sdcard/pharmflow_ui.xml", serial=ser).stdout or ""
 
 
 def find_nodes(xml: str, *needles: str):

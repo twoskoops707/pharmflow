@@ -27,14 +27,14 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 import automation.no_window  # noqa: E402,F401  — hide adb consoles
 
-RESULTS = Path(r"C:\CPharm\logs\farm_354_results.jsonl")
-REVIEW_LOG = Path(r"C:\CPharm\logs\farm_fail_review.log")
-REVIEW_JSONL = Path(r"C:\CPharm\logs\farm_fail_reviews.jsonl")
-STATE = Path(r"C:\CPharm\logs\farm_fail_review_state.json")
-OVERRIDES = Path(r"C:\CPharm\logs\farm_runtime_overrides.json")
-QUARANTINE = Path(r"C:\CPharm\logs\farm_seq_quarantine.json")
-PATCH_JSONL = Path(r"C:\CPharm\logs\farm_seq_patches.jsonl")
-SEQ_ROOT = Path(r"C:\CPharm\automation\recordings\sequences")
+RESULTS = Path(r"C:\PharmFlow\logs\farm_354_results.jsonl")
+REVIEW_LOG = Path(r"C:\PharmFlow\logs\farm_fail_review.log")
+REVIEW_JSONL = Path(r"C:\PharmFlow\logs\farm_fail_reviews.jsonl")
+STATE = Path(r"C:\PharmFlow\logs\farm_fail_review_state.json")
+OVERRIDES = Path(r"C:\PharmFlow\logs\farm_runtime_overrides.json")
+QUARANTINE = Path(r"C:\PharmFlow\logs\farm_seq_quarantine.json")
+PATCH_JSONL = Path(r"C:\PharmFlow\logs\farm_seq_patches.jsonl")
+SEQ_ROOT = Path(r"C:\PharmFlow\automation\recordings\sequences")
 
 PHONES = ("vm0.gmadoa", "vm1.gmadoa", "vm2.gmadoa", "vm3.gmadoa", "vm4.gmadoa", "vm5.gmadoa")
 RECOVER_COOLDOWN_S = 45.0
@@ -212,7 +212,10 @@ def repin_inject(phone: str | None) -> str:
                 bits.append(f"{pname}=no_serial")
                 continue
             idx = int(getattr(inst, "index", 0) or 0)
-            ok = bool(pin_guest_proxy(farm.adb, inst.adb_serial, idx))
+            from automation.browse_proxy import guest_proxy_healthy
+
+            pinned = pin_guest_proxy(farm.adb, inst.adb_serial, idx)
+            ok = guest_proxy_healthy(pinned, idx)
             bits.append(f"{pname}=pin:{int(ok)}")
         return "repin " + "; ".join(bits)
     except Exception as exc:
@@ -382,7 +385,7 @@ def apply_fix(kind: str, row: dict, state: dict) -> str:
     phone = row.get("phone")
     if kind in ("early_disconnect", "early_abort"):
         actions.append(recover_phone(str(phone) if phone else None, state))
-        actions.append(persist_overrides({"CPHARM_GEO_TIME_WINDOW": "1"}))
+        actions.append(persist_overrides({"PHARMFLOW_GEO_TIME_WINDOW": "1"}))
     if kind == "isolation_proxy":
         actions.append(repin_inject(str(phone) if phone else None))
         actions.append(recover_phone(str(phone) if phone else None, state))
@@ -393,19 +396,19 @@ def apply_fix(kind: str, row: dict, state: dict) -> str:
         actions.append(
             persist_overrides(
                 {
-                    "CPHARM_DABFLOW_LOAD_WAIT": "5.5",
-                    "CPHARM_AGE_GATE_WAIT": "2.0",
-                    "CPHARM_START_DAB_VERIFY_WAIT": "2.5",
+                    "PHARMFLOW_DABFLOW_LOAD_WAIT": "5.5",
+                    "PHARMFLOW_AGE_GATE_WAIT": "2.0",
+                    "PHARMFLOW_START_DAB_VERIFY_WAIT": "2.5",
                 }
             )
         )
         actions.append(recover_phone(str(phone) if phone else None, state))
         actions.append(patch_sequence_json(row, state))
     if kind == "fre_splash":
-        actions.append(persist_overrides({"CPHARM_FRE_PAINT_WAIT": "5.5"}))
+        actions.append(persist_overrides({"PHARMFLOW_FRE_PAINT_WAIT": "5.5"}))
     if kind == "age_gate":
         actions.append(
-            persist_overrides({"CPHARM_AGE_GATE_WAIT": "2.0", "CPHARM_DABFLOW_LOAD_WAIT": "5.5"})
+            persist_overrides({"PHARMFLOW_AGE_GATE_WAIT": "2.0", "PHARMFLOW_DABFLOW_LOAD_WAIT": "5.5"})
         )
         actions.append(patch_sequence_json(row, state))
     if kind == "path2_halfway":
@@ -483,7 +486,7 @@ def review_row(row: dict, state: dict) -> None:
 
 
 def main() -> int:
-    crash = Path(r"C:\CPharm\logs\_fail_review_crash.txt")
+    crash = Path(r"C:\PharmFlow\logs\_fail_review_crash.txt")
     try:
         log.info("farm_fail_review starting (no ntfy; patch+quarantine broken seqs)")
         state = load_state()
@@ -494,9 +497,9 @@ def main() -> int:
         # Floor critical waits immediately (current sticky had age_gate=0.5).
         persist_overrides(
             {
-                "CPHARM_AGE_GATE_WAIT": "2.0",
-                "CPHARM_DABFLOW_LOAD_WAIT": "5.5",
-                "CPHARM_START_DAB_VERIFY_WAIT": "2.5",
+                "PHARMFLOW_AGE_GATE_WAIT": "2.0",
+                "PHARMFLOW_DABFLOW_LOAD_WAIT": "5.5",
+                "PHARMFLOW_START_DAB_VERIFY_WAIT": "2.5",
             }
         )
         while True:

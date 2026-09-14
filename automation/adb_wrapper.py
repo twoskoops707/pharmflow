@@ -231,8 +231,21 @@ class AdbWrapper:
         return self.shell(f"input keyevent {code}", serial=serial)
 
     def set_http_proxy(self, host: str, port: int, serial: str | None = None) -> AdbResult:
-        """Set Android global HTTP proxy (honored by MuMu Browser)."""
-        return self.shell(f"settings put global http_proxy {host}:{port}", serial=serial)
+        """Set Android global HTTP proxy. Only a loopback exit is allowed."""
+        try:
+            port_i = int(port)
+        except (TypeError, ValueError):
+            port_i = 0
+        host_s = str(host or "").strip()
+        if host_s != "127.0.0.1" or port_i <= 0:
+            logger.warning(
+                "set_http_proxy refused on %s — %s:%s is not a loopback exit",
+                serial or self.default_serial or "(default)",
+                host_s or "(empty)",
+                port,
+            )
+            return AdbResult(1, "", "refused: guest proxy must be 127.0.0.1:<port>")
+        return self.shell(f"settings put global http_proxy 127.0.0.1:{port_i}", serial=serial)
 
     def clear_http_proxy(self, serial: str | None = None) -> AdbResult:
         """Refuse ``:0``. That setting is host-IP egress and drops ads."""

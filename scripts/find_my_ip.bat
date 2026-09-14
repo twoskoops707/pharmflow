@@ -1,11 +1,11 @@
 @echo off
 setlocal EnableDelayedExpansion
-title CPharm - Find My IP
+title PharmFlow - Find My IP
 color 0A
 
 echo.
 echo  ==========================================
-echo   CPharm - Your PC's Local IP Address
+echo   PharmFlow - Your PC's Local IP Address
 echo  ==========================================
 echo.
 

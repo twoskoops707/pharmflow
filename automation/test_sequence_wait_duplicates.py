@@ -32,7 +32,7 @@ class TestNoConsecutiveDuplicateCommands(unittest.TestCase):
             files.extend(
                 sorted(p for p in seq_dir.rglob("*.json") if not p.name.startswith("_"))
             )
-        self.assertTrue(files, "No sequence files under local CPharm/sequences or test fixtures")
+        self.assertTrue(files, "No sequence files under local PharmFlow/sequences or test fixtures")
 
         violations: list[str] = []
         for fp in files:
@@ -66,6 +66,27 @@ class TestNoConsecutiveDuplicateCommands(unittest.TestCase):
         out = normalize_automation_steps(steps)
         self.assertEqual(len(out), 1)
         self.assertEqual(out[0]["retries"], 5)
+
+    def test_normalize_keeps_operator_wait_retries_and_swipe(self) -> None:
+        steps = [
+            {"type": "wait", "seconds": 900},
+            {"type": "wait", "seconds": 200},
+            {"type": "tap", "x": 10, "y": 20, "retries": 12, "jitter": 200, "pre_wait_ms": 15000},
+            {"type": "swipe", "x1": 1, "y1": 2, "x2": 3, "y2": 4, "ms": 8000},
+            {"type": "open_url", "url": "https://example.com", "post_wait_secs": 180},
+        ]
+        out = normalize_automation_steps(steps)
+        waits = [s for s in out if s.get("type") == "wait"]
+        self.assertEqual(len(waits), 1)
+        self.assertEqual(waits[0]["seconds"], 1100)
+        tap = next(s for s in out if s.get("type") == "tap")
+        self.assertEqual(tap["retries"], 12)
+        self.assertEqual(tap["jitter"], 200)
+        self.assertEqual(tap["pre_wait_ms"], 15000)
+        swipe = next(s for s in out if s.get("type") == "swipe")
+        self.assertEqual(swipe["ms"], 8000)
+        opened = next(s for s in out if s.get("type") == "open_url")
+        self.assertEqual(opened["post_wait_secs"], 180)
 
 
 if __name__ == "__main__":

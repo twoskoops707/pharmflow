@@ -18,5 +18,5 @@ If there is no dash: open **PharmFlow.exe** → **Start farm**.
 
 ## Product
 
-- Product: **`C:\PharmFlow\PharmFlow.exe`** from the latest [GitHub Release](https://github.com/twoskoops707/cpharm/releases). Logs stay under `C:\CPharm\`.
+- Product: **`C:\PharmFlow\PharmFlow.exe`** from the latest [GitHub Release](https://github.com/twoskoops707/pharmflow/releases). Logs stay under `C:\PharmFlow\`.
 - Ship fixes as a new Release EXE — not live `.py` copies onto `C:\PharmFlow\`

@@ -1,6 +1,6 @@
-"""Adaptive live phone map — CPharm/MuMu ADB, never a frozen vm list.
+"""Adaptive live phone map — PharmFlow/MuMu ADB, never a frozen vm list.
 
-Discover whatever MuMu VMs CPharm sees as ADB-online. Ban tablet + ghost.
+Discover whatever MuMu VMs PharmFlow sees as ADB-online. Ban tablet + ghost.
 Inject port = 8218 + MuMu index from name (vmN → N).
 """
 from __future__ import annotations
@@ -17,6 +17,8 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+import automation.no_window  # noqa: E402,F401  — CREATE_NO_WINDOW for adb children
+
 from automation.farm_canonical_phones import (  # noqa: E402
     BANNED_PHONE_NAMES,
     BANNED_SERIALS,
@@ -28,19 +30,20 @@ from automation.farm_canonical_phones import (  # noqa: E402
     is_banned_serial,
     is_canonical_phone,
 )
+from automation.win_subprocess import hidden_run_kwargs  # noqa: E402
 
-LOG = Path(os.environ.get("CPHARM_LOGS") or r"C:\CPharm\logs")
+LOG = Path(os.environ.get("PHARMFLOW_LOGS") or r"C:\PharmFlow\logs")
 GHOST_NAMES = set(BANNED_PHONE_NAMES) | {"vm11", "vm11.gmadoa"}
 # Ghost vm3/vm4/vm11 + canonical-only money set (never adaptive bleed).
 SKIP_MONEY = set(BANNED_PHONE_NAMES) | {"vm11"}
 OVERFLOW_NAMES: set[str] = set()
-INJECT_BASE = int(os.environ.get("CPHARM_MANTIS_INJECT_BASE", "8218") or "8218")
+INJECT_BASE = int(os.environ.get("PHARMFLOW_MANTIS_INJECT_BASE", "8218") or "8218")
 VMS_DIR = Path(
-    os.environ.get("CPHARM_MUMU_VMS")
+    os.environ.get("PHARMFLOW_MUMU_VMS")
     or r"C:\Program Files\Netease\MuMuPlayerARM\vms"
 )
 _NAME_IDX = re.compile(r"^vm(\d+)", re.I)
-ADB = r"C:\CPharm\bundled\adb.exe"
+ADB = r"C:\PharmFlow\bundled\adb.exe"
 if not Path(ADB).is_file():
     ADB = "adb"
 
@@ -109,6 +112,7 @@ def _adb_online_serials(*, timeout: float = 6.0) -> set[str]:
             timeout=timeout,
             encoding="utf-8",
             errors="replace",
+            **hidden_run_kwargs(),
         )
     except Exception:
         return set()
@@ -128,12 +132,12 @@ def _from_sticky(online: set[str] | None = None) -> list[tuple[str, str, str]]:
         data = {}
     phones = [
         p.strip()
-        for p in str(data.get("CPHARM_FARM_PHONES") or "").split(",")
+        for p in str(data.get("PHARMFLOW_FARM_PHONES") or "").split(",")
         if p.strip() and "vm11" not in p.lower()
     ]
     serials = [
         s.strip()
-        for s in str(data.get("CPHARM_ADB_SERIALS") or "").split(",")
+        for s in str(data.get("PHARMFLOW_ADB_SERIALS") or "").split(",")
         if s.strip()
     ]
     out: list[tuple[str, str, str]] = []
@@ -227,8 +231,8 @@ def _dedupe_sort(rows: list[tuple[str, str, str]]) -> list[tuple[str, str, str]]
     return ordered
 
 
-def _from_cpharm(online: set[str]) -> list[tuple[str, str, str]]:
-    """Same phone list CPharm.exe uses (MuMuFarmOps + ADB)."""
+def _from_pharmflow(online: set[str]) -> list[tuple[str, str, str]]:
+    """Same phone list PharmFlow.exe uses (MuMuFarmOps + ADB)."""
     rows: list[tuple[str, str, str]] = []
     try:
         from wizard.mumu_farm_ops import MuMuFarmOps
@@ -259,7 +263,7 @@ def _from_cpharm(online: set[str]) -> list[tuple[str, str, str]]:
 def _known_candidate_serials() -> list[str]:
     """Serials the farm already knows about, regardless of current adb state.
 
-    Sources: sticky ``CPHARM_ADB_SERIALS`` overrides and each MuMu ARM VM's
+    Sources: sticky ``PHARMFLOW_ADB_SERIALS`` overrides and each MuMu ARM VM's
     ``misc/state.json`` ``AdbHost``. These are the re-attach candidates when a
     phone falls off the adb server. Never raises.
     """
@@ -270,7 +274,7 @@ def _known_candidate_serials() -> list[str]:
             data = json.loads(ov.read_text(encoding="utf-8-sig"))
             cands.extend(
                 s.strip()
-                for s in str(data.get("CPHARM_ADB_SERIALS") or "").split(",")
+                for s in str(data.get("PHARMFLOW_ADB_SERIALS") or "").split(",")
                 if s.strip()
             )
     except (OSError, json.JSONDecodeError, TypeError, ValueError):
@@ -308,7 +312,7 @@ def _reconnect_missing(online: set[str]) -> set[str]:
     online, then return the refreshed list. Never raises.
     """
     missing = [s for s in _known_candidate_serials() if s not in online]
-    for serial in missing[:24]:
+    for serial in missing:
         try:
             subprocess.run(
                 [ADB, "connect", serial],
@@ -317,6 +321,7 @@ def _reconnect_missing(online: set[str]) -> set[str]:
                 timeout=4,
                 encoding="utf-8",
                 errors="replace",
+                **hidden_run_kwargs(),
             )
         except Exception:  # noqa: BLE001 — best-effort reconnect
             continue
@@ -336,27 +341,27 @@ def _select_money_set(rows: list[tuple[str, str, str]]) -> list[tuple[str, str, 
 
 
 def discover_live_phones() -> list[tuple[str, str, str]]:
-    """Return [(short_name, serial, proxy), ...] for CPharm-online money VMs.
+    """Return [(short_name, serial, proxy), ...] for PharmFlow-online money VMs.
 
-    CPharm MuMuFarmOps is the source of truth. ARM state.json fills gaps.
+    PharmFlow MuMuFarmOps is the source of truth. ARM state.json fills gaps.
     Sticky is last-resort. Tablet/ghost stay out. No hardcoded serials.
     """
     online = _adb_online_serials()
     online = _reconnect_missing(online)
     rows: list[tuple[str, str, str]] = []
     if online:
-        rows.extend(_from_cpharm(online))
+        rows.extend(_from_pharmflow(online))
         rows.extend(_from_state_json(online))
         if not rows:
             rows.extend(_from_sticky(online))
     if not rows:
-        return _select_money_set(_dedupe_sort(_from_cpharm(set()) or _from_sticky(None)))
+        return _select_money_set(_dedupe_sort(_from_pharmflow(set()) or _from_sticky(None)))
     return _select_money_set(_dedupe_sort(rows))
 
 
 def persist_discovered(phones: list[tuple[str, str, str]]) -> None:
     """Record live ADB snapshot — canonical lock only, no override JSON."""
-    from automation.cpharm_farm_config import merge_runtime, write_adb_serial_lock
+    from automation.pharmflow_farm_config import merge_runtime, write_adb_serial_lock
 
     floor = canonical_expect_phones()
     names = canonical_names_sorted()
@@ -372,11 +377,11 @@ def persist_discovered(phones: list[tuple[str, str, str]]) -> None:
     write_adb_serial_lock(live_full)
     merge_runtime(
         {
-            "CPHARM_FARM_PHONES": ",".join(names),
-            "CPHARM_ADB_SERIALS": ",".join(canonical_serials_sorted()),
-            "CPHARM_FARM_PHONE_COUNT": str(floor),
-            "CPHARM_FARM_EXPECT_PHONES": str(floor),
-            "CPHARM_FARM_BAN_SERIALS": ",".join(sorted(BANNED_SERIALS)),
+            "PHARMFLOW_FARM_PHONES": ",".join(names),
+            "PHARMFLOW_ADB_SERIALS": ",".join(canonical_serials_sorted()),
+            "PHARMFLOW_FARM_PHONE_COUNT": str(floor),
+            "PHARMFLOW_FARM_EXPECT_PHONES": str(floor),
+            "PHARMFLOW_FARM_BAN_SERIALS": ",".join(sorted(BANNED_SERIALS)),
         },
         note="discover",
     )

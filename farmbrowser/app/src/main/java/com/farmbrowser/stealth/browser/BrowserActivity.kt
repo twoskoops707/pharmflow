@@ -452,7 +452,7 @@ class BrowserActivity : Activity() {
 
 /**
  * JavaScript interface for ADB/automation control.
- * CPharm can call: FarmBrowser.openUrl(url), FarmBrowser.clearData(), etc.
+ * PharmFlow can call: FarmBrowser.openUrl(url), FarmBrowser.clearData(), etc.
  */
 class FarmJsInterface(private val activity: BrowserActivity) {
 

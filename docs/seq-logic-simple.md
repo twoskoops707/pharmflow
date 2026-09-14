@@ -1,4 +1,4 @@
-# FamFlow sequence logic (high-school level)
+# PharmFlow sequence logic (high-school level)
 
 One **sequence** = one full run on one phone. The farm schedules ~**15 sequences per hour per phone**, spread through the hour (not all at once).
 

@@ -1,6 +1,6 @@
 """Hard rule: concurrent farm phones must NEVER share the same public exit IP.
 
-Used by run_farm_354, farm_remediate_loop, and CPharm Start farm. Not env-gated.
+Used by run_farm_354, farm_remediate_loop, and PharmFlow Start farm. Not env-gated.
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ from automation.tor_manager import TorManager, release_exit_ip
 
 logger = logging.getLogger(__name__)
 
-LOG_DIR = Path(r"C:\CPharm\logs")
+LOG_DIR = Path(r"C:\PharmFlow\logs")
 AUDIT_PATH = LOG_DIR / "farm_exit_ip_audit.json"
 MAX_ENFORCE_ROUNDS = 4
 

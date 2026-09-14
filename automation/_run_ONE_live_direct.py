@@ -11,16 +11,16 @@ import traceback
 from datetime import datetime, timezone
 from pathlib import Path
 
-CPHARM = Path(r"C:\Users\jsmil\CPharm")
+PHARMFLOW = Path(r"C:\Users\jsmil\PharmFlow")
 ROOT = Path(__file__).resolve().parent.parent
-SEQ = CPHARM / "sequences/900x1600/no-ad/dabflow__demo__ONE.json"
-OUT = CPHARM / "FULL_FLOW_LIVE.txt"
+SEQ = PHARMFLOW / "sequences/900x1600/no-ad/dabflow__demo__ONE.json"
+OUT = PHARMFLOW / "FULL_FLOW_LIVE.txt"
 
 sys.path.insert(0, str(ROOT / "wizard"))
 sys.path.insert(0, str(ROOT / "automation"))
-os.environ["CPHARM_HUMAN_VARIATION"] = "0"
-os.environ["CPHARM_SKIP_TOR_WAIT"] = "1"
-os.environ.setdefault("CPHARM_USE_SHELL_WM_FOCUS_CHEAT", "1")
+os.environ["PHARMFLOW_HUMAN_VARIATION"] = "0"
+os.environ["PHARMFLOW_SKIP_TOR_WAIT"] = "1"
+os.environ.setdefault("PHARMFLOW_USE_SHELL_WM_FOCUS_CHEAT", "1")
 
 import tor_manager
 from adb_paths import adb_executable
@@ -30,8 +30,8 @@ from setup_wizard import execute_steps
 adb = adb_executable()
 
 
-def kill_other_cpharm_python() -> None:
-    """Stop stray CPharm automation processes so ADB/Tor are not contended."""
+def kill_other_pharmflow_python() -> None:
+    """Stop stray PharmFlow automation processes so ADB/Tor are not contended."""
     if os.name != "nt":
         return
     me = os.getpid()
@@ -44,7 +44,7 @@ def kill_other_cpharm_python() -> None:
                 "Get-CimInstance Win32_Process -Filter \"Name='python.exe' OR Name='pythonw.exe'\" "
                 "| Where-Object { $_.ProcessId -ne "
                 + str(me)
-                + " -and $_.CommandLine -match 'cpharm|CPharm|setup_wizard|dabflow' } "
+                + " -and $_.CommandLine -match 'pharmflow|PharmFlow|setup_wizard|dabflow' } "
                 "| ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"
             ),
         ],
@@ -59,7 +59,7 @@ def kill_other_cpharm_python() -> None:
 def repair_proxy(serial: str) -> None:
     idx = tor_manager.phone_idx_from_adb_serial(serial)
     port = tor_manager.http_proxy_port_for_phone_idx(idx)
-    print(f"[cpharm] proxy repair serial={serial} phone_idx={idx} port={port}", flush=True)
+    print(f"[pharmflow] proxy repair serial={serial} phone_idx={idx} port={port}", flush=True)
     tor_manager.repair_adb_reverse_for_proxy(serial, idx)
     tor_manager.ensure_tor_and_proxy_for_phone(serial, idx)
 
@@ -77,7 +77,7 @@ def main() -> int:
     t0 = time.monotonic()
     started_at = datetime.now(timezone.utc).isoformat()
     overall = "FAIL"
-    kill_other_cpharm_python()
+    kill_other_pharmflow_python()
     serial = pick_serial()
 
     if not serial:
@@ -114,7 +114,8 @@ def main() -> int:
             print(f"{el:7.1f}s step {i + 1}/{len(steps)} {t} {cp}", flush=True)
             if t == "wait" and cp == "timer_complete":
                 print(f"  >>> TIMER WAIT {timer_wait}s START", flush=True)
-            execute_steps([step], serial)
+            if execute_steps([step], serial) is False:
+                raise RuntimeError(f"step {i + 1} {t} did not land")
             if t == "wait" and cp == "timer_complete":
                 print(f"  >>> TIMER WAIT END wall={time.monotonic() - t0 - el:.1f}s", flush=True)
         overall = "PASS"

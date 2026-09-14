@@ -13,19 +13,19 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-os.environ["CPHARM_ALLOW_SEQUENCE_RUNS"] = "1"
-os.environ["CPHARM_SKIP_MANTIS_PATCH"] = "1"
-os.environ["CPHARM_EMULATOR_AD_FILL_WAIT"] = "0"
-os.environ.setdefault("CPHARM_BROWSE_PROXY_MODE", "scramble")
+os.environ["PHARMFLOW_ALLOW_SEQUENCE_RUNS"] = "1"
+os.environ["PHARMFLOW_SKIP_MANTIS_PATCH"] = "1"
+os.environ["PHARMFLOW_EMULATOR_AD_FILL_WAIT"] = "0"
+os.environ.setdefault("PHARMFLOW_BROWSE_PROXY_MODE", "scramble")
 
 from automation.sequence_runner import Sequence, SequenceRunner
 from wizard.mumu_farm_ops import MuMuFarmOps
 
-OUT = Path(r"C:\CPharm\logs\ad_map")
+OUT = Path(r"C:\PharmFlow\logs\ad_map")
 OUT.mkdir(parents=True, exist_ok=True)
-ADB = os.environ.get("CPHARM_ADB") or r"C:\CPharm\bundled\adb.exe"
+ADB = os.environ.get("PHARMFLOW_ADB") or r"C:\PharmFlow\bundled\adb.exe"
 SEQ = Path(
-    r"C:\CPharm\automation\recordings\sequences\base\quartz\quartz_shatter_butane_p1a_complete.json"
+    r"C:\PharmFlow\automation\recordings\sequences\base\quartz\quartz_shatter_butane_p1a_complete.json"
 )
 
 
@@ -61,8 +61,8 @@ def main() -> int:
     print("runner_success", report.get("success"), "error", report.get("error"), flush=True)
     time.sleep(2.5)
     shot(farm, ser, "after_start")
-    farm.adb.shell("uiautomator dump /sdcard/cpharm_ui.xml", serial=ser)
-    xml = farm.adb.shell("cat /sdcard/cpharm_ui.xml", serial=ser).stdout or ""
+    farm.adb.shell("uiautomator dump /sdcard/pharmflow_ui.xml", serial=ser)
+    xml = farm.adb.shell("cat /sdcard/pharmflow_ui.xml", serial=ser).stdout or ""
     texts = " | ".join(re.findall(r'text="([^"]{1,80})"', xml))
     print("TEXTS_SNIP", texts[:500], flush=True)
     ok = ("HEAT YOUR BANGER" in texts.upper()) or ("PAUSE" in texts.upper()) or ("PERFECT AWAITS" in texts.upper())

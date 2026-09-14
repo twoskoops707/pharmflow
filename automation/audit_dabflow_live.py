@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Audit live getdabflow.app Mantis ad wiring vs CPharm expectations.
+"""Audit live getdabflow.app Mantis ad wiring vs PharmFlow expectations.
 
 Fetches public assets (JS + HTML shell). Does not bypass Cloudflare browser challenges on `/`.
 """
@@ -16,7 +16,7 @@ TIMEOUT = 45
 
 
 def _fetch(url: str) -> tuple[int | None, str, dict[str, str]]:
-    req = urllib.request.Request(url, headers={"User-Agent": "CPharm-audit/1.0"})
+    req = urllib.request.Request(url, headers={"User-Agent": "PharmFlow-audit/1.0"})
     try:
         with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
             headers = {k.lower(): v for k, v in resp.headers.items()}

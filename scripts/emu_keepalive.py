@@ -12,8 +12,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 import automation.no_window  # noqa: E402,F401
 
-LOG = Path(r"C:\CPharm\logs")
-ADB = r"C:\CPharm\bundled\adb.exe"
+LOG = Path(r"C:\PharmFlow\logs")
+ADB = r"C:\PharmFlow\bundled\adb.exe"
 if not Path(ADB).is_file():
     ADB = "adb"
 INTERVAL_S = 45.0
@@ -36,7 +36,7 @@ def _serials() -> list[str]:
         ov = json.loads(path.read_text(encoding="utf-8-sig"))
         return [
             _normalize_serial(s)
-            for s in str(ov.get("CPHARM_ADB_SERIALS") or "").split(",")
+            for s in str(ov.get("PHARMFLOW_ADB_SERIALS") or "").split(",")
             if _normalize_serial(s)
         ]
     except (OSError, json.JSONDecodeError, TypeError, ValueError):

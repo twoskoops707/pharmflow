@@ -227,37 +227,37 @@ def apply_site_to_panel(
     panel["active_site_slug"] = profile.slug
     env = dict(panel.get("env") or {})
     for key in (
-        "CPHARM_SITE_SLUG",
-        "CPHARM_FARM_SEQUENCE_ROOT",
-        "CPHARM_FARM_UNIQUE_SEQ",
-        "CPHARM_FARM_DAILY_VISITS",
-        "CPHARM_FARM_DAILY_ADS",
-        "CPHARM_FARM_ALLOW_ADS",
-        "CPHARM_NTFY_TOPIC",
-        "CPHARM_NTFY_INTERVAL_S",
-        "CPHARM_FARM_PHONE_COUNT",
-        "CPHARM_FARM_START_STAGGER_BAND",
-        "CPHARM_FARM_START_STAGGER_WINDOW",
-        "CPHARM_FARM_START_STAGGER_MIN_GAP",
-        "CPHARM_FARM_START_STAGGER_JITTER",
-        "CPHARM_FARM_IMPRESSIONS_PER_VISIT",
-        "CPHARM_FARM_PATH3_DAILY_CAP",
-        "CPHARM_FARM_EST_IMPRESSIONS",
-        "CPHARM_REQUIRE_UNIQUE_EXIT_IP",
-        "CPHARM_ALLOW_SEQUENCE_RUNS",
+        "PHARMFLOW_SITE_SLUG",
+        "PHARMFLOW_FARM_SEQUENCE_ROOT",
+        "PHARMFLOW_FARM_UNIQUE_SEQ",
+        "PHARMFLOW_FARM_DAILY_VISITS",
+        "PHARMFLOW_FARM_DAILY_ADS",
+        "PHARMFLOW_FARM_ALLOW_ADS",
+        "PHARMFLOW_NTFY_TOPIC",
+        "PHARMFLOW_NTFY_INTERVAL_S",
+        "PHARMFLOW_FARM_PHONE_COUNT",
+        "PHARMFLOW_FARM_START_STAGGER_BAND",
+        "PHARMFLOW_FARM_START_STAGGER_WINDOW",
+        "PHARMFLOW_FARM_START_STAGGER_MIN_GAP",
+        "PHARMFLOW_FARM_START_STAGGER_JITTER",
+        "PHARMFLOW_FARM_IMPRESSIONS_PER_VISIT",
+        "PHARMFLOW_FARM_PATH3_DAILY_CAP",
+        "PHARMFLOW_FARM_EST_IMPRESSIONS",
+        "PHARMFLOW_REQUIRE_UNIQUE_EXIT_IP",
+        "PHARMFLOW_ALLOW_SEQUENCE_RUNS",
     ):
         val = os.environ.get(key)
         if val is not None and val != "":
             env[key] = str(val)
-    env["CPHARM_FARM_UNIQUE_SEQ"] = "1"
-    env["CPHARM_REQUIRE_UNIQUE_EXIT_IP"] = env.get("CPHARM_REQUIRE_UNIQUE_EXIT_IP") or "1"
-    env["CPHARM_SITE_SLUG"] = profile.slug
+    env["PHARMFLOW_FARM_UNIQUE_SEQ"] = "1"
+    env["PHARMFLOW_REQUIRE_UNIQUE_EXIT_IP"] = env.get("PHARMFLOW_REQUIRE_UNIQUE_EXIT_IP") or "1"
+    env["PHARMFLOW_SITE_SLUG"] = profile.slug
     if profile.adapter == "dabflow":
-        env.pop("CPHARM_FARM_SEQUENCE_ROOT", None)
+        env.pop("PHARMFLOW_FARM_SEQUENCE_ROOT", None)
     else:
-        env["CPHARM_FARM_SEQUENCE_ROOT"] = str(sequence_root_for(profile))
+        env["PHARMFLOW_FARM_SEQUENCE_ROOT"] = str(sequence_root_for(profile))
     if profile.farm.ntfy_topic:
-        env["CPHARM_NTFY_TOPIC"] = str(profile.farm.ntfy_topic)
+        env["PHARMFLOW_NTFY_TOPIC"] = str(profile.farm.ntfy_topic)
     panel["env"] = env
     phones = [p for p in (panel.get("phones") or []) if isinstance(p, str)]
     if not phones:

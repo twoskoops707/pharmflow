@@ -2,9 +2,9 @@
 """
 Direct ADB runner — spoof identity + multi-tab Mantis ad tour.
 
-No CPharm.exe / dashboard required. Uses MuMu ADB + FamFlow automation modules.
+No PharmFlow.exe / dashboard required. Uses MuMu ADB + PharmFlow automation modules.
 
-  $env:CPHARM_ALLOW_SEQUENCE_RUNS='1'
+  $env:PHARMFLOW_ALLOW_SEQUENCE_RUNS='1'
   py scripts/run_adb_ad_tour.py --phone vm0.gmadoa
   py scripts/run_adb_ad_tour.py --all-online
 """
@@ -22,8 +22,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-os.environ.setdefault("CPHARM_ALLOW_SEQUENCE_RUNS", "1")
-os.environ.setdefault("CPHARM_EMULATOR_AD_FILL_WAIT", "4")
+os.environ.setdefault("PHARMFLOW_ALLOW_SEQUENCE_RUNS", "1")
+os.environ.setdefault("PHARMFLOW_EMULATOR_AD_FILL_WAIT", "4")
 
 from automation.browser_farm import browse_url, clear_browser_before_sequence, scramble_for_sequence
 from automation.dabflow_overlays import back_from_advertiser, bypass_splash_and_age_gate
@@ -31,7 +31,7 @@ from automation.emulator_ad_mode import chromium_url_bar_text, maybe_fallback_ad
 from automation.browser_adb import open_url as adb_open_url
 from wizard.mumu_farm_ops import MuMuFarmOps
 
-OUT = Path(r"C:\CPharm\logs\ad_proof")
+OUT = Path(r"C:\PharmFlow\logs\ad_proof")
 OUT.mkdir(parents=True, exist_ok=True)
 
 # Live-calibrated 900x1600 nav + ad taps
@@ -185,7 +185,7 @@ def main() -> int:
         return 1
 
     print(f"Phones: {phones}")
-    print("NOTE: CPharm.exe not required — this is pure ADB + Python automation")
+    print("NOTE: PharmFlow.exe not required — this is pure ADB + Python automation")
     reports = [run_tour(farm, p) for p in phones]
     print(json.dumps(reports, indent=2))
     return 0 if all(r.get("success") for r in reports) else 1

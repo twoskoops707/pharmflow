@@ -1,6 +1,6 @@
 # Farm Remote (Android)
 
-**Farm Remote** — dead-simple phone app to control your CPharm laptop farm. Big buttons, kid-simple.
+**Farm Remote** — dead-simple phone app to control your PharmFlow laptop farm. Big buttons, kid-simple.
 
 ## Main screen
 
@@ -16,8 +16,8 @@
 
 ## Setup
 
-1. Laptop: run dashboard (`CPharm Go` or `automation/run_dashboard.bat`).
-2. `CPHARM_BIND=0.0.0.0` + Windows firewall allow TCP **8080**.
+1. Laptop: run dashboard (`PharmFlow Go` or `automation/run_dashboard.bat`).
+2. `PHARMFLOW_BIND=0.0.0.0` + Windows firewall allow TCP **8080**.
 3. Phone on same Wi‑Fi → enter `192.168.x.x:8080` → **Connect**.
 
 ## Build
@@ -29,7 +29,7 @@ cd scorecard-android
 
 ## CI / download
 
-Push to `main` builds **CPharmFarmRemote.apk** on GitHub Releases (`scorecard-*` tag).
+Push to `main` builds **PharmFlowFarmRemote.apk** on GitHub Releases (`scorecard-*` tag).
 
 ## Docs
 

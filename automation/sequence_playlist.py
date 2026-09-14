@@ -115,7 +115,7 @@ def load_steps_from_filename(name: str, directory: Path | None = None) -> list[d
     steps = data.get("steps")
     if not isinstance(steps, list):
         return None
-    # Normalize prior CPharm "type" field to FamFlow "action".
+    # Normalize prior PharmFlow "type" field to PharmFlow "action".
     out: list[dict[str, Any]] = []
     for step in steps:
         if not isinstance(step, dict):
@@ -189,7 +189,7 @@ def estimate_step_count(ent: dict[str, Any], inline_steps: list[Any] | None = No
     return len(inline_steps or [])
 
 
-# ==== merged from cpharm automation/sequence_playlist.py (old playlist API) ====
+# ==== merged from pharmflow automation/sequence_playlist.py (old playlist API) ====
 
 def normalize_playlist_ref(raw: str, *, sequences_dir: Path | None = None) -> str:
     """Normalize a playlist entry to a safe path relative to the sequences root.

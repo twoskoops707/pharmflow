@@ -37,8 +37,8 @@ LABEL_REPLACEMENTS = (
 
 DEFAULT_ROOTS = (
     ROOT / "automation" / "recordings" / "sequences",
-    Path(r"C:\CPharm\automation\recordings\sequences"),
-    Path(r"C:\CPharm\sequences"),
+    Path(r"C:\PharmFlow\automation\recordings\sequences"),
+    Path(r"C:\PharmFlow\sequences"),
 )
 
 

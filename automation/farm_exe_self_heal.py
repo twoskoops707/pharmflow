@@ -33,7 +33,7 @@ from typing import Any
 
 log = logging.getLogger("farm_exe_self_heal")
 
-LOG = Path(os.environ.get("CPHARM_LOGS") or os.environ.get("CPHARM_LOG_DIR") or r"C:\CPharm\logs")
+LOG = Path(os.environ.get("PHARMFLOW_LOGS") or os.environ.get("PHARMFLOW_LOG_DIR") or r"C:\PharmFlow\logs")
 SERIAL_MAP = LOG / "ADB_SERIAL_MAP.lock.json"
 STICKY_LOCK = LOG / "FARM_STICKY_7_PHONES.lock"
 HEAL_REPORT = LOG / "farm_exe_self_heal.json"
@@ -42,9 +42,9 @@ RELOAD_FLAG = LOG / "FARM_RELOAD_FARM.flag"
 _CREATE_NO_WINDOW = int(getattr(subprocess, "CREATE_NO_WINDOW", 0) or 0)
 
 _TOR_SEED_CANDIDATES = (
-    Path(r"C:\CPharm\automation\tor\tor.exe"),
     Path(r"C:\PharmFlow\automation\tor\tor.exe"),
-    Path(r"C:\CPharm\bundled\tor.exe"),
+    Path(r"C:\PharmFlow\automation\tor\tor.exe"),
+    Path(r"C:\PharmFlow\bundled\tor.exe"),
     Path(r"C:\PharmFlow\bundled\tor.exe"),
     Path(r"C:\Tor\tor.exe"),
 )
@@ -56,7 +56,7 @@ def _utc() -> str:
 
 def _adb_bin() -> str:
     for cand in (
-        Path(r"C:\CPharm\bundled\adb.exe"),
+        Path(r"C:\PharmFlow\bundled\adb.exe"),
         Path(r"C:\PharmFlow\bundled\adb.exe"),
         Path(r"C:\Program Files\Netease\MuMuPlayerARM\shell\adb.exe"),
     ):
@@ -148,7 +148,7 @@ def ensure_tor_binary() -> list[str]:
         except OSError:
             continue
     if seed is None:
-        env_tor = (os.environ.get("CPHARM_TOR_PATH") or "").strip()
+        env_tor = (os.environ.get("PHARMFLOW_TOR_PATH") or "").strip()
         if env_tor and Path(env_tor).is_file():
             seed = Path(env_tor)
     if seed is None:
@@ -168,7 +168,7 @@ def ensure_tor_binary() -> list[str]:
             shutil.copy2(seed, dest)
         if dest.is_file():
             fixes.append(f"tor_seeded_from={seed}")
-            os.environ.setdefault("CPHARM_TOR_PATH", str(dest))
+            os.environ.setdefault("PHARMFLOW_TOR_PATH", str(dest))
         else:
             fixes.append("tor_seed_copy_failed")
     except OSError as exc:
@@ -281,7 +281,7 @@ def _heal_phone_rows(
 def _publish_slot_map(rows: list[tuple[str, str, int, int]]) -> None:
     """Export the same slot map the farm arm path writes before inject dials Tor."""
     slot_map = {str(idx): slot for _name, _ser, idx, slot in rows}
-    os.environ["CPHARM_INJECT_SLOT_MAP"] = json.dumps(slot_map, separators=(",", ":"))
+    os.environ["PHARMFLOW_INJECT_SLOT_MAP"] = json.dumps(slot_map, separators=(",", ":"))
 
 
 def _caller_tor_would_be_reaped() -> bool:
@@ -351,7 +351,7 @@ def _restore_inject_listeners(
 ) -> list[str]:
     """Bind dead inject ports in this process and pin guests with CA install.
 
-    A running ``cpharm_inject_keepalive.py`` is not a restore — the old script
+    A running ``pharmflow_inject_keepalive.py`` is not a restore — the old script
     watched hardcoded 8242-8249. The tick itself must bind the lock-map ports
     and must not report restored until those ports accept.
     """
@@ -498,7 +498,7 @@ def _tor_http_base() -> int:
     except (TypeError, ValueError):
         pass
     try:
-        return int(os.environ.get("CPHARM_TOR_HTTP_BASE") or "8118")
+        return int(os.environ.get("PHARMFLOW_TOR_HTTP_BASE") or "8118")
     except ValueError:
         return 8118
 
@@ -528,7 +528,7 @@ def _inject_keepalive_alive() -> bool:
                 cmd = " ".join(str(x) for x in (proc.info.get("cmdline") or []))
             except (psutil.Error, TypeError, ValueError):
                 continue
-            if "cpharm_inject_keepalive.py" in cmd:
+            if "pharmflow_inject_keepalive.py" in cmd:
                 return True
             if "_arm_inject_keepalive.py" in cmd:
                 return True
@@ -544,7 +544,7 @@ def _ensure_inject_keepalive_process(*, idxs: list[int]) -> list[str]:
     if _inject_keepalive_alive():
         return ["inject_keepalive_already"]
     # Prefer repo script; fall back to writing nothing if missing.
-    script = Path(__file__).resolve().parents[1] / "scripts" / "cpharm_inject_keepalive.py"
+    script = Path(__file__).resolve().parents[1] / "scripts" / "pharmflow_inject_keepalive.py"
     if not script.is_file():
         return [f"inject_keepalive_script_missing:{script}"]
     py = sys.executable
@@ -726,7 +726,7 @@ _STALE_COMPETING_SCRIPTS = (
 
 # Detached inject keepalive — holds lock-map ports; never roster poison.
 _INJECT_KEEPALIVE_MARKERS = (
-    "cpharm_inject_keepalive.py",
+    "pharmflow_inject_keepalive.py",
     "_arm_inject_keepalive.py",
 )
 
@@ -736,23 +736,23 @@ _FARM_TOR_PRIMARY_MARKERS = (
 )
 # Acceptable Tor owners only when farm lane is DOWN (bootstrap / heal).
 _FARM_TOR_FALLBACK_MARKERS = (
-    "cpharm_inject_keepalive",
+    "pharmflow_inject_keepalive",
     "tor_manager",
-    "cpharm_unison",
+    "pharmflow_unison",
 )
 # Legacy: money_monitor must never be treated as Tor owner (spawns duplicate fleets).
 _FARM_TOR_OWNER_MARKERS = _FARM_TOR_PRIMARY_MARKERS + _FARM_TOR_FALLBACK_MARKERS
 
 # Duplicate helper scripts — keep newest pid only (never run_farm_354.py).
 _STORM_DEDUPE_BASENAMES = (
-    "cpharm_inject_keepalive.py",
+    "pharmflow_inject_keepalive.py",
     "watch_bottom_ads.py",
     "watch_proxy_inject.py",
     "farm_money_monitor.py",
-    "cpharm_stealth_guard.py",
-    "cpharm_unison_supervisor.py",
+    "pharmflow_stealth_guard.py",
+    "pharmflow_unison_supervisor.py",
     "farm_watchdog.py",
-    "cpharm_watchdog.py",
+    "pharmflow_watchdog.py",
     "agent_unison_freebuff_loop.py",
     "agent_unison_freebuff_tick.py",
 )
@@ -771,7 +771,7 @@ _STORM_PROTECTED_NAME_FRAGMENTS = (
     "nemux",
     "mumu",
     "vmmem",
-    "cpharm.exe",
+    "pharmflow.exe",
     "pharmflow.exe",
 )
 
@@ -1050,7 +1050,7 @@ def reap_process_storm(*, apply: bool = True) -> list[str]:
     tor_rows = [r for r in rows if (r.get("name") or "").lower() == "tor.exe"]
     helper_parent_markers = (
         "farm_money_monitor",
-        "cpharm_inject_keepalive",
+        "pharmflow_inject_keepalive",
         "_arm_inject_keepalive",
     )
 
@@ -1241,7 +1241,7 @@ def reap_stale_processes(*, apply: bool = True) -> list[str]:
     """EXE-owned kill of dead/stale/unused farm helpers.
 
     Layers:
-      1) ``tools.cpharm_watchdog.reap_stale`` — stuck adb shells, dup workers,
+      1) ``tools.pharmflow_watchdog.reap_stale`` — stuck adb shells, dup workers,
          orphan helpers (non-allowlisted), tor missing/dup config.
       2) Local extras the watchdog allowlists but that poison the money path:
          one-shot ``_fix_*`` / ``_flash_*`` / ``_money_arm_*`` scripts,
@@ -1250,9 +1250,9 @@ def reap_stale_processes(*, apply: bool = True) -> list[str]:
     """
     fixes: list[str] = []
 
-    # 1) Watchdog reaper (bundled in frozen EXE as tools.cpharm_watchdog).
+    # 1) Watchdog reaper (bundled in frozen EXE as tools.pharmflow_watchdog).
     try:
-        from tools.cpharm_watchdog import reap_stale as _wd_reap
+        from tools.pharmflow_watchdog import reap_stale as _wd_reap
 
         rep = _wd_reap(apply=apply)
         n_found = int(rep.get("found") or 0)
@@ -1313,7 +1313,7 @@ def reap_stale_processes(*, apply: bool = True) -> list[str]:
     unison_rows = [
         (pid, ppid, cmd)
         for pid, ppid, cmd in rows
-        if "cpharm_unison_supervisor.py" in cmd
+        if "pharmflow_unison_supervisor.py" in cmd
     ]
 
     kill_plan: list[tuple[int, str]] = []

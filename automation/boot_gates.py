@@ -11,10 +11,10 @@ many phones may run. It only delays (or skips, on timeout) the *next* VM
 launch until the host can absorb it without wedging the whole farm.
 
 Env knobs (all optional):
-- ``CPHARM_BOOT_MIN_FREE_RAM_MB`` — floor for free RAM before a launch (default 2200)
-- ``CPHARM_BOOT_MAX_CPU_PCT``     — CPU ceiling for a launch window (default 85)
-- ``CPHARM_BOOT_GATE_TIMEOUT_S``  — max seconds to wait for headroom per phone (default 600)
-- ``CPHARM_BOOT_GATE_DISABLED``   — set to ``1`` to bypass gates entirely
+- ``PHARMFLOW_BOOT_MIN_FREE_RAM_MB`` — floor for free RAM before a launch (default 2200)
+- ``PHARMFLOW_BOOT_MAX_CPU_PCT``     — CPU ceiling for a launch window (default 85)
+- ``PHARMFLOW_BOOT_GATE_TIMEOUT_S``  — max seconds to wait for headroom per phone (default 600)
+- ``PHARMFLOW_BOOT_GATE_DISABLED``   — set to ``1`` to bypass gates entirely
 """
 
 from __future__ import annotations
@@ -40,15 +40,15 @@ def _env_float(name: str, default: float) -> float:
 
 
 def gate_disabled() -> bool:
-    return os.environ.get("CPHARM_BOOT_GATE_DISABLED", "").strip() in {"1", "true", "yes"}
+    return os.environ.get("PHARMFLOW_BOOT_GATE_DISABLED", "").strip() in {"1", "true", "yes"}
 
 
 def gate_settings() -> dict:
     """Effective gate thresholds (surfaced in logs so operators see the knobs)."""
     return {
-        "min_free_ram_mb": _env_float("CPHARM_BOOT_MIN_FREE_RAM_MB", DEFAULT_MIN_FREE_RAM_MB),
-        "max_cpu_pct": _env_float("CPHARM_BOOT_MAX_CPU_PCT", DEFAULT_MAX_CPU_PCT),
-        "timeout_s": _env_float("CPHARM_BOOT_GATE_TIMEOUT_S", DEFAULT_GATE_TIMEOUT_S),
+        "min_free_ram_mb": _env_float("PHARMFLOW_BOOT_MIN_FREE_RAM_MB", DEFAULT_MIN_FREE_RAM_MB),
+        "max_cpu_pct": _env_float("PHARMFLOW_BOOT_MAX_CPU_PCT", DEFAULT_MAX_CPU_PCT),
+        "timeout_s": _env_float("PHARMFLOW_BOOT_GATE_TIMEOUT_S", DEFAULT_GATE_TIMEOUT_S),
         "disabled": gate_disabled(),
     }
 

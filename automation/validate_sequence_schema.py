@@ -8,7 +8,7 @@ from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 
-from cpharm_defaults import home_combo_v2_key_for_basename, iter_home_combo_v2_sequence_paths
+from pharmflow_defaults import home_combo_v2_key_for_basename, iter_home_combo_v2_sequence_paths
 from sequence_normalize import unwrap_sequence_document
 
 ROOT = Path(__file__).resolve().parents[1]

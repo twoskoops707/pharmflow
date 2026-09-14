@@ -7,7 +7,7 @@ Usage::
     py -3 scripts/sideload_farm_browsers.py --install
     py -3 scripts/sideload_farm_browsers.py --force --install
 
-APKs land in C:\\CPharm\\apks\\ (override with CPHARM_APK_CACHE).
+APKs land in C:\\PharmFlow\\apks\\ (override with PHARMFLOW_APK_CACHE).
 No Google account / Play Store credentials are used or required.
 """
 

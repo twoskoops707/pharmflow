@@ -40,7 +40,7 @@ from automation.mumu_shell_cli import launch_instance_index  # noqa: E402
 
 ADB = REPO / "bundled" / "adb.exe"
 VMS_DIR = Path(r"C:\Program Files\Netease\MuMuPlayerARM\vms")
-SERIAL_MAP = Path(r"C:\CPharm\logs\ADB_SERIAL_MAP.lock.json")
+SERIAL_MAP = Path(r"C:\PharmFlow\logs\ADB_SERIAL_MAP.lock.json")
 
 
 def adb_serial(vm_idx: int) -> str:

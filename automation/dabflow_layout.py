@@ -303,7 +303,7 @@ SESSION_NOTES_SKIP_ONE = Region(276, 984, 60, 25)
 HOME_AD_SLOT = Region(450, 964, 140, 120)  # #ad-slot-1 zone-one @ 900×1600 Playwright
 
 # Timer screen — #cooldown-video-ad (empty until DabFlow app.js shows it on cool)
-# then #ad-slot-2 / #ad-slot-3 (zone-two/three). CPharm taps both video slot + zone-two.
+# then #ad-slot-2 / #ad-slot-3 (zone-two/three). PharmFlow taps both video slot + zone-two.
 TIMER_COOLDOWN_VIDEO_AD = Region(450, 875, 150, 125)  # #cooldown-video-ad below pause/reset
 TIMER_AD_SLOT = Region(450, 1000, 140, 120)  # #ad-slot-2 zone-two — primary Mantis fill today
 TIMER_AD_SLOT_LOWER = Region(450, 1280, 140, 120)  # #ad-slot-3 zone-three

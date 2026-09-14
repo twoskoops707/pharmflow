@@ -30,9 +30,9 @@ Omit keys you cannot infer. Never include API keys or secrets."""
 def get_llm_settings() -> dict[str, str]:
     cfg = load_config()
     llm = cfg.get("llm") if isinstance(cfg.get("llm"), dict) else {}
-    key = str(llm.get("api_key") or os.environ.get("CPHARM_LLM_API_KEY") or "").strip()
-    base = str(llm.get("base_url") or os.environ.get("CPHARM_LLM_BASE_URL") or DEFAULT_BASE_URL).strip()
-    model = str(llm.get("model") or os.environ.get("CPHARM_LLM_MODEL") or DEFAULT_MODEL).strip()
+    key = str(llm.get("api_key") or os.environ.get("PHARMFLOW_LLM_API_KEY") or "").strip()
+    base = str(llm.get("base_url") or os.environ.get("PHARMFLOW_LLM_BASE_URL") or DEFAULT_BASE_URL).strip()
+    model = str(llm.get("model") or os.environ.get("PHARMFLOW_LLM_MODEL") or DEFAULT_MODEL).strip()
     return {"api_key": key, "base_url": base.rstrip("/"), "model": model or DEFAULT_MODEL}
 
 

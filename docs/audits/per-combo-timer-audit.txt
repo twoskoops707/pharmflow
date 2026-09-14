@@ -1,7 +1,7 @@
 PER-COMBO DABFLOW TIMER AUDIT
 Matrix: 3 materials × 10 concentrates × 2 heaters = 60 combos
 Source: DabFlow www/js/app.js CONFIG + calculateTimings()
-CPharm formula: ui_total + completion_animation(5.5s) + modal_buffer(1.0s)
+PharmFlow formula: ui_total + completion_animation(5.5s) + modal_buffer(1.0s)
 Wait range: 75.5s – 111.5s
 Unique wait values in table: 35
 Violations: 0

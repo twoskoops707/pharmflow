@@ -28,8 +28,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-os.environ["CPHARM_ALLOW_SEQUENCE_RUNS"] = "1"
-os.environ.setdefault("CPHARM_EMULATOR_AD_FILL_WAIT", "5")
+os.environ["PHARMFLOW_ALLOW_SEQUENCE_RUNS"] = "1"
+os.environ.setdefault("PHARMFLOW_EMULATOR_AD_FILL_WAIT", "5")
 
 from automation.config import REQUIRED_SEQUENCE_VERSION
 from automation.sequence_paths import discover_sequence_files

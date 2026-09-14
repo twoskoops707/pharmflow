@@ -65,22 +65,22 @@ jobs:
 
       - name: Smoke — wizard imports + browser builder + sequence tests
         env:
-          CPHARM_SEQUENCES_DIR: ${{ github.workspace }}/sequences
+          PHARMFLOW_SEQUENCES_DIR: ${{ github.workspace }}/sequences
         run: |
           python -m compileall -q automation
           python -m py_compile wizard/setup_wizard.py
-          python -m py_compile wizard/cpharm_app_webview.py
-          python -m py_compile wizard/cpharm_wizard_bridge.py
+          python -m py_compile wizard/pharmflow_app_webview.py
+          python -m py_compile wizard/pharmflow_wizard_bridge.py
           python -m py_compile wizard/phone_setup_entry.py
-          python -m py_compile wizard/cpharm_mumu_setup.py
+          python -m py_compile wizard/pharmflow_mumu_setup.py
           python -m py_compile wizard/preflight_core.py
           python -m py_compile wizard/mumu_setup_core.py
           python -m py_compile wizard/mumu_setup_webview.py
           python -m py_compile wizard/setup_startup_cleanup.py
           python -m py_compile wizard/mumu_detect.py
-          python -m py_compile tools/kill_cpharm_stale_processes.py
+          python -m py_compile tools/kill_pharmflow_stale_processes.py
           python -m py_compile tools/notify_ntfy.py
-          python -m py_compile tools/cpharm_watchdog.py
+          python -m py_compile tools/pharmflow_watchdog.py
           python -m py_compile tools/project_agent.py
           python -m py_compile tools/cloud_agent.py
           python -m py_compile automation/dashboard.py
@@ -136,7 +136,7 @@ jobs:
       - name: Ensure WinForms compat shim (ARM64 .NET 8 deck)
         shell: pwsh
         run: |
-          $out = 'wizard/bundled/webview2_netcore/CPharmWinFormsCompat.dll'
+          $out = 'wizard/bundled/webview2_netcore/PharmFlowWinFormsCompat.dll'
           if (-not (Test-Path $out)) {
             $src = @'
           using System;
@@ -176,7 +176,7 @@ jobs:
           }
 
       # Single EXE per operator decision: watchdog + agent logic run inside
-      # PharmFlow.exe (background threads). tools/cpharm_watchdog.py and
+      # PharmFlow.exe (background threads). tools/pharmflow_watchdog.py and
       # tools/project_agent.py stay bundled as importable modules.
       - name: Smoke — verify EXE artifact and CLI flags
         shell: pwsh
@@ -223,7 +223,7 @@ jobs:
       - name: Prepare portable launcher bundle
         shell: pwsh
         run: |
-          Copy-Item tools/launch_cpharm.ps1 wizard/dist/launch_cpharm.ps1
+          Copy-Item tools/launch_pharmflow.ps1 wizard/dist/launch_pharmflow.ps1
           Copy-Item checksums-sha256.txt wizard/dist/checksums-sha256.txt
           Copy-Item release-manifest.json wizard/dist/release-manifest.json
           if (-not (Test-Path wizard/dist/PharmFlow.exe -PathType Leaf)) { throw 'PharmFlow.exe was not built' }
@@ -265,7 +265,7 @@ jobs:
             ### FarmBrowser
             - Package: `com.farmbrowser.stealth.debug` (Path3 / Mantis clicks)
             - Sequences: `preferred_browser` + `browser_tag: farmbrowser` (see `sequences/`)
-            - Automation SSOT mirrored from [FamFlow](https://github.com/twoskoops707/FamFlow)
+            - Automation SSOT mirrored from [PharmFlow](https://github.com/twoskoops707/PharmFlow)
 
             ### Wizard / groups mode
             1. Install MuMu, portrait **Phone** **900×1600**, USB debugging.
@@ -279,7 +279,7 @@ jobs:
             - **release-manifest.json** — commit, Python version, sizes, hashes
           files: |
             wizard/dist/PharmFlow.exe
-            wizard/dist/launch_cpharm.ps1
+            wizard/dist/launch_pharmflow.ps1
             wizard/dist/checksums-sha256.txt
             wizard/dist/release-manifest.json
           draft: false
@@ -294,7 +294,7 @@ jobs:
           retention-days: 1
           path: |
             wizard/dist/PharmFlow.exe
-            wizard/dist/launch_cpharm.ps1
+            wizard/dist/launch_pharmflow.ps1
             checksums-sha256.txt
             release-manifest.json
 
@@ -353,8 +353,8 @@ jobs:
 
       - name: Smoke — compile + imports that matter on arm64
         run: |
-          python -m py_compile wizard/cpharm_app_webview.py
-          python -m py_compile wizard/cpharm_wizard_bridge.py
+          python -m py_compile wizard/pharmflow_app_webview.py
+          python -m py_compile wizard/pharmflow_wizard_bridge.py
           python -m py_compile wizard/setup_wizard.py
           python -m py_compile wizard/mumu_farm_ops.py
           python -m py_compile wizard/farm_control.py
@@ -366,7 +366,7 @@ jobs:
       - name: Ensure WinForms compat shim (ARM64 .NET 8 deck)
         shell: pwsh
         run: |
-          $out = 'wizard/bundled/webview2_netcore/CPharmWinFormsCompat.dll'
+          $out = 'wizard/bundled/webview2_netcore/PharmFlowWinFormsCompat.dll'
           if (-not (Test-Path $out)) {
             $src = @'
           using System;
@@ -389,7 +389,7 @@ jobs:
           }
 
       # Patch pywebview's winforms.py IN SITE-PACKAGES before freezing. The
-      # runtime patch in cpharm_app_webview.py only edits the .py source — in a
+      # runtime patch in pharmflow_app_webview.py only edits the .py source — in a
       # frozen onefile the module is bytecode inside the archive, so a CI-fresh
       # pywebview dies at import (netfx-only OpenFolderDialog reflection) and
       # the deck falls back to Tk. Patching pre-freeze bakes the fixed bytecode

@@ -4,8 +4,8 @@ Before EVERY sequence (farm + EXE SequenceRunner):
   - wipe browser cookies / cache / site storage
   - new Tor exit IP (verified changed vs last + other phones — NEVER share IP with another online phone)
   - new browser identity (UA / model / android_id)
-  - display resolution: permanent when CPHARM_DISPLAY_LOCK=1; else at most once per
-    CPHARM_RES_MIN_INTERVAL_MIN (default 240) — NOT every sequence
+  - display resolution: permanent when PHARMFLOW_DISPLAY_LOCK=1; else at most once per
+    PHARMFLOW_RES_MIN_INTERVAL_MIN (default 240) — NOT every sequence
   - make/model/IMEI/android_id/UA/geo/Tor/proxy: ALWAYS every sequence (display lock
     does NOT disable identity rotation)
   - new geo/timezone/location
@@ -60,7 +60,7 @@ logger = logging.getLogger(__name__)
 _last_geo_by_serial: dict[str, str] = {}
 _last_imei_by_phone: dict[str, str] = {}
 _last_serial_by_phone: dict[str, str] = {}
-_GEO_STATE = Path(os.environ.get("CPHARM_LOGS") or r"C:\CPharm\logs") / "farm_last_geo.json"
+_GEO_STATE = Path(os.environ.get("PHARMFLOW_LOGS") or r"C:\PharmFlow\logs") / "farm_last_geo.json"
 
 
 def _load_last_geo() -> None:
@@ -121,7 +121,7 @@ class IsolationReport:
 def _append_isolation_jsonl(report: IsolationReport) -> None:
     """Operator-visible per-seq identity proof (IP/geo/IMEI/UA/android_id)."""
     try:
-        path = Path(os.environ.get("CPHARM_LOGS") or r"C:\CPharm\logs") / "farm_isolation.jsonl"
+        path = Path(os.environ.get("PHARMFLOW_LOGS") or r"C:\PharmFlow\logs") / "farm_isolation.jsonl"
         row = {
             "ts": datetime.now(timezone.utc).isoformat(),
             "ok": report.ok,
@@ -177,7 +177,7 @@ def _pick_fresh_locale(serial: str, rng: random.Random | None = None) -> GeoLoca
 
 
 def _apply_fresh_geo(adb: Any, serial: str) -> GeoLocale:
-    """Always apply a new place — ignores CPHARM_GEO_TIME_WINDOW off switch."""
+    """Always apply a new place — ignores PHARMFLOW_GEO_TIME_WINDOW off switch."""
     loc = _pick_fresh_locale(serial)
     apply_geo_to_phone(adb, serial, loc)
     _last_geo_by_serial[serial] = loc.label
@@ -188,14 +188,14 @@ def _apply_fresh_geo(adb: Any, serial: str) -> GeoLocale:
 def _force_unique_exit_ip(farm: Any, phone: str, phone_idx: int, serial: str) -> Any:
     """Always rotate until exit IP changes — env cannot disable this.
 
-    Retry count from CPHARM_UNIQUE_EXIT_IP_RETRIES (farm default 12). Floor
+    Retry count from PHARMFLOW_UNIQUE_EXIT_IP_RETRIES (farm default 12). Floor
     scales with concurrent phones so 8-phone collision pools don't exhaust
     a hard cap of 4 (that caused ~46% isolate fails on vm30/vm31).
     """
     if hasattr(farm, "setup_tor"):
         farm.setup_tor(phone)
     try:
-        max_retries = max(1, int(os.environ.get("CPHARM_UNIQUE_EXIT_IP_RETRIES") or "12"))
+        max_retries = max(1, int(os.environ.get("PHARMFLOW_UNIQUE_EXIT_IP_RETRIES") or "12"))
     except (TypeError, ValueError):
         max_retries = 12
     try:
@@ -233,6 +233,29 @@ def _ensure_device_tor_proxy(farm: Any, phone_idx: int, serial: str) -> str:
     return proxy
 
 
+def _read_guest_http_proxy(farm: Any, serial: str) -> str:
+    try:
+        out = farm.adb.shell("settings get global http_proxy", serial=serial)
+    except Exception:
+        return ""
+    return (getattr(out, "stdout", None) or "").strip()
+
+
+def _write_loopback_and_read(farm: Any, serial: str, port: int) -> str:
+    """Write a loopback exit, then return what the guest actually has."""
+    if port <= 0:
+        return _read_guest_http_proxy(farm, serial)
+    writer = getattr(farm.adb, "set_http_proxy", None)
+    if callable(writer):
+        writer("127.0.0.1", int(port), serial=serial)
+    else:
+        farm.adb.shell(
+            f"settings put global http_proxy 127.0.0.1:{int(port)}",
+            serial=serial,
+        )
+    return _read_guest_http_proxy(farm, serial)
+
+
 def _pin_inject_for_isolate(
     farm: Any,
     phone: str,
@@ -264,35 +287,45 @@ def _pin_inject_for_isolate(
             if guest_proxy_healthy(pinned, phone_idx):
                 break
         if not guest_proxy_healthy(pinned, phone_idx):
-            # Fallback: fall through to Tor proxy so sequence still completes.
+            # Tor is the backup exit. It is not a pin until the guest read matches.
             logger.warning(
                 "inject restore failed serial=%s phone=%d proxy=%r — "
-                "falling back to Tor",
+                "trying Tor",
                 serial, phone_idx, pinned,
             )
-            from automation.tor_manager import phone_http_port
-            tor_port = phone_http_port(phone_idx)
-            farm.adb.shell(
-                f"settings put global http_proxy 127.0.0.1:{tor_port}",
-                serial=serial,
-            )
-            pinned = f"127.0.0.1:{tor_port}"
+            tor_port = int(phone_http_port(phone_idx) or 0)
+            if tor_port <= 0:
+                logger.warning(
+                    "inject restore failed serial=%s phone=%d — "
+                    "not writing http_proxy :0",
+                    serial,
+                    phone_idx,
+                )
+                pinned = _read_guest_http_proxy(farm, serial)
+            else:
+                pinned = _write_loopback_and_read(farm, serial, tor_port)
+                if not guest_proxy_healthy(pinned, phone_idx):
+                    logger.warning(
+                        "tor fallback did not land serial=%s phone=%d proxy=%r",
+                        serial,
+                        phone_idx,
+                        pinned,
+                    )
+    live = (pinned or "").strip() or _read_guest_http_proxy(farm, serial)
+    if guest_proxy_healthy(live, phone_idx):
+        return live
     if pkg and skips_mitm(pkg):
         mode = browse_proxy_mode()
-        proxy_val = (pinned or "").strip()
         cleared = (
-            not proxy_val
-            or proxy_val.lower() in ("null", "none", "undefined")
-            or proxy_val.endswith(":0")
+            not live
+            or live.lower() in ("null", "none", "undefined")
+            or live.endswith(":0")
         )
-        if mode in ("scramble", "direct", "upstream") or cleared:
-            return pinned or ":0"
-        if "127.0.0.1:" not in proxy_val:
-            raise RuntimeError(f"http_proxy not Tor ({proxy_val!r})")
-        return pinned
-    if "127.0.0.1:" not in (pinned or ""):
-        raise RuntimeError(f"http_proxy not Tor ({pinned!r})")
-    return pinned
+        # Scramble/direct/upstream are phone-exit modes. A cleared guest
+        # proxy is that mode. A host address is not, and :0 is not invented.
+        if mode in ("scramble", "direct", "upstream") and cleared:
+            return live
+    raise RuntimeError(f"http_proxy is not a loopback exit ({live!r})")
 
 
 def _best_effort_imei(
@@ -384,21 +417,21 @@ def _best_effort_imei(
 def isolation_skip_allowed() -> bool:
     """Live farm / EXE-owned stack never skips isolation.
 
-    Demo/verify scripts may set CPHARM_SKIP_SEQUENCE_ISOLATION only when they
+    Demo/verify scripts may set PHARMFLOW_SKIP_SEQUENCE_ISOLATION only when they
     are NOT live farm (ALLOW_SEQUENCE_RUNS off) and not EXE/unison owned.
     """
-    if os.environ.get("CPHARM_EXE_OWNED_FARM", "").strip() in ("1", "true", "yes"):
+    if os.environ.get("PHARMFLOW_EXE_OWNED_FARM", "").strip() in ("1", "true", "yes"):
         return False
-    if os.environ.get("CPHARM_UNISON_MODE", "").strip() in ("1", "true", "yes"):
+    if os.environ.get("PHARMFLOW_UNISON_MODE", "").strip() in ("1", "true", "yes"):
         return False
-    skip = os.environ.get("CPHARM_SKIP_SEQUENCE_ISOLATION", "").strip().lower() in (
+    skip = os.environ.get("PHARMFLOW_SKIP_SEQUENCE_ISOLATION", "").strip().lower() in (
         "1",
         "true",
         "yes",
     )
     if not skip:
         return False
-    live = os.environ.get("CPHARM_ALLOW_SEQUENCE_RUNS", "").strip().lower() in (
+    live = os.environ.get("PHARMFLOW_ALLOW_SEQUENCE_RUNS", "").strip().lower() in (
         "1",
         "true",
         "yes",
@@ -569,7 +602,7 @@ def isolate_before_sequence(
         report.errors.append(f"proxy early restore: {exc}")
         logger.warning("[%s] early inject restore soft-fail: %s", phone, exc)
 
-    # 3b) Display resolution — permanent lock (CPHARM_DISPLAY_LOCK) or interval throttle.
+    # 3b) Display resolution — permanent lock (PHARMFLOW_DISPLAY_LOCK) or interval throttle.
     # Per-seq force_new scramble is intentionally off; gate in
     # maybe_rotate_display_for_isolate / DISPLAY_LOCK / RES_MIN_INTERVAL.
     try:

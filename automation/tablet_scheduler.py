@@ -1,10 +1,10 @@
 """Tablet visit scheduling: 1 tablet sequence per N successful phone visits.
 
-State: C:\\CPharm\\logs\\farm_tablet_schedule.json
+State: C:\\PharmFlow\\logs\\farm_tablet_schedule.json
 Sticky / env:
-  CPHARM_TABLET_PHONE          MuMu instance name (e.g. tablet.gmadoa)
-  CPHARM_TABLET_SERIAL         Optional ADB serial when MuMu restarts
-  CPHARM_TABLET_EVERY_N_PHONE_VISITS  Default 10
+  PHARMFLOW_TABLET_PHONE          MuMu instance name (e.g. tablet.gmadoa)
+  PHARMFLOW_TABLET_SERIAL         Optional ADB serial when MuMu restarts
+  PHARMFLOW_TABLET_EVERY_N_PHONE_VISITS  Default 10
 """
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ _tablet_due = threading.Event()
 
 
 def _logs_dir() -> Path:
-    raw = (os.environ.get("CPHARM_LOGS") or r"C:\CPharm\logs").strip()
+    raw = (os.environ.get("PHARMFLOW_LOGS") or r"C:\PharmFlow\logs").strip()
     return Path(raw)
 
 
@@ -35,7 +35,7 @@ def _state_path() -> Path:
 
 
 def tablet_every_n() -> int:
-    raw = (os.environ.get("CPHARM_TABLET_EVERY_N_PHONE_VISITS") or "10").strip()
+    raw = (os.environ.get("PHARMFLOW_TABLET_EVERY_N_PHONE_VISITS") or "10").strip()
     try:
         return max(1, int(float(raw)))
     except (TypeError, ValueError):
@@ -43,11 +43,11 @@ def tablet_every_n() -> int:
 
 
 def tablet_phone_name() -> str:
-    return (os.environ.get("CPHARM_TABLET_PHONE") or "").strip()
+    return (os.environ.get("PHARMFLOW_TABLET_PHONE") or "").strip()
 
 
 def tablet_serial_override() -> str:
-    return (os.environ.get("CPHARM_TABLET_SERIAL") or "").strip()
+    return (os.environ.get("PHARMFLOW_TABLET_SERIAL") or "").strip()
 
 
 def is_tablet_phone(name: str) -> bool:

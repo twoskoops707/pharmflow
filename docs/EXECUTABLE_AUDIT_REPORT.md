@@ -1,7 +1,7 @@
-> **Superseded:** the product is a single `PharmFlow.exe` in `C:\PharmFlow\` (`--watchdog`, `--agent`, phone setup in-process). Data still lives under `C:\CPharm\`. Ignore EXE names below.
+> **Superseded:** the product is a single `PharmFlow.exe` in `C:\PharmFlow\` (`--watchdog`, `--agent`, phone setup in-process). Data still lives under `C:\PharmFlow\`. Ignore EXE names below.
 
 ═══════════════════════════════════════════════════════════
-  CPHARM EXECUTABLE AUDIT & DEBUG REPORT
+  PHARMFLOW EXECUTABLE AUDIT & DEBUG REPORT
 ═══════════════════════════════════════════════════════════
 
 ⏰ GENERATED: 2026-08-26 (latest logs from your system)
@@ -10,25 +10,25 @@
 
 📋 EXECUTABLES REVIEWED:
 
-1. ✓ CPharm.exe (Main GUI — WORKING)
-2. ? CPharmAgent.exe (Project agent — TIMEOUT)
-3. ✓ CPharmWatchdog.exe (Health monitor — WORKING)
-4. ⚠ CPharmMuMuSetup.exe (Deprecated — LEGACY)
-5. ✗ CPharmSetup.exe (Invalid — WRONG ARCH)
+1. ✓ PharmFlow.exe (Main GUI — WORKING)
+2. ? PharmFlow.exe (Project agent — TIMEOUT)
+3. ✓ PharmFlow.exe (Health monitor — WORKING)
+4. ⚠ PharmFlow.exe (Deprecated — LEGACY)
+5. ✗ PharmFlowSetup.exe (Invalid — WRONG ARCH)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 🔍 DETAILED FINDINGS:
 
 ═══════════════════════════════════════════════════════════
-1. CPharm.exe — MAIN GUI WIZARD
+1. PharmFlow.exe — MAIN GUI WIZARD
 ═══════════════════════════════════════════════════════════
 
 STATUS: ✓ FUNCTIONAL
 ├─ Type: PyInstaller frozen Python app (9-step wizard)
 ├─ Mode: GUI (no console)
 ├─ Includes: Phone setup (step 4), dashboard, automation
-└─ Source: wizard/cpharm_desktop.py
+└─ Source: wizard/pharmflow_desktop.py
 
 FEATURES:
   ✓ Wizard (9 steps: Start, Install, Android, Phones, Test, Steps, Builder, Teams, Run)
@@ -45,7 +45,7 @@ KNOWN ISSUES (from logs):
 
 ROOT CAUSES:
   1. Python cache corruption (__pycache__)
-     FIX: Delete %APPDATA%\CPharm and wizard/__pycache__
+     FIX: Delete %APPDATA%\PharmFlow and wizard/__pycache__
   
   2. Port 8080/8091 already in use (stale processes)
      FIX: Run EMERGENCY_CLEANUP.ps1 or manually kill processes
@@ -61,7 +61,7 @@ RECOMMENDATIONS:
 
 
 ═══════════════════════════════════════════════════════════
-2. CPharmAgent.exe — PROJECT AGENT
+2. PharmFlow.exe — PROJECT AGENT
 ═══════════════════════════════════════════════════════════
 
 STATUS: ⚠ TIMEOUT / UNRESPONSIVE
@@ -71,7 +71,7 @@ STATUS: ⚠ TIMEOUT / UNRESPONSIVE
 └─ Purpose: Bounded agent planning, project status, emulator config
 
 COMMAND TESTED:
-  CPharmAgent.exe status
+  PharmFlow.exe status
   → RESULT: Timeout (>15s, no output, hangs indefinitely)
 
 ROOT CAUSE:
@@ -86,16 +86,16 @@ SPEC FILE INFO:
 RECOMMENDED FIXES:
 
   Option A: Add timeout wrapper
-    C:\CPharm\CPharmAgent.exe status --timeout 5
+    C:\PharmFlow\PharmFlow.exe status --timeout 5
     → Returns immediately with partial status
 
   Option B: Add async agent mode
-    C:\CPharm\CPharmAgent.exe status --nowait
+    C:\PharmFlow\PharmFlow.exe status --nowait
     → Returns immediately, background check continues
 
   Option C: Check what's blocking (debug mode)
-    set CPHARM_DEBUG=1
-    C:\CPharm\CPharmAgent.exe status
+    set PHARMFLOW_DEBUG=1
+    C:\PharmFlow\PharmFlow.exe status
     → Should print init steps
 
 ACTION ITEMS:
@@ -106,22 +106,22 @@ ACTION ITEMS:
 
 
 ═══════════════════════════════════════════════════════════
-3. CPharmWatchdog.exe — HEALTH MONITOR
+3. PharmFlow.exe — HEALTH MONITOR
 ═══════════════════════════════════════════════════════════
 
 STATUS: ✓ WORKING
 ├─ Type: PyInstaller frozen Python app
 ├─ Mode: CLI (console)
-├─ Source: tools/cpharm_watchdog.py
+├─ Source: tools/pharmflow_watchdog.py
 └─ Purpose: Self-healing health monitor for farm
 
 TESTED COMMANDS:
-  CPharmWatchdog.exe --once
+  PharmFlow.exe --once
   → RESULT: [DEGRADED] main=down dashboard=down docker=down adb_online=8
   ✓ Runs successfully, no timeouts
 
 HEALTH REPORT (from latest run):
-  ⚠ main = DOWN (CPharm.exe not running)
+  ⚠ main = DOWN (PharmFlow.exe not running)
   ⚠ dashboard = DOWN (web server not listening)
   ⚠ docker = DOWN (compose stack not running)
   ✓ adb_online = 8 (all 8 Redroid containers connected via ADB)
@@ -137,17 +137,17 @@ FEATURES AVAILABLE:
   ✓ --host / --start-port / --count (customize ADB targets)
 
 FULL HELP:
-  See: CPHARM_WATCHDOG_REFERENCE.txt (created below)
+  See: PHARMFLOW_WATCHDOG_REFERENCE.txt (created below)
 
 RECOMMENDED USE:
   # Monitor in background, auto-repair
-  start "CPharm Watchdog" CPharmWatchdog.exe --watch --interval 30 --apply --alert
+  start "PharmFlow Watchdog" PharmFlow.exe --watch --interval 30 --apply --alert
 
-  # One-time check before starting CPharm
-  CPharmWatchdog.exe --once
+  # One-time check before starting PharmFlow
+  PharmFlow.exe --once
 
   # Repair damaged state
-  CPharmWatchdog.exe --once --apply --repair-dashboard --repair-docker
+  PharmFlow.exe --once --apply --repair-dashboard --repair-docker
 
 NOTES:
   ✓ Safe to run multiple times (read-only by default)
@@ -156,18 +156,18 @@ NOTES:
 
 
 ═══════════════════════════════════════════════════════════
-4. CPharmMuMuSetup.exe — DEPRECATED LEGACY
+4. PharmFlow.exe — DEPRECATED LEGACY
 ═══════════════════════════════════════════════════════════
 
 STATUS: ⚠ DEPRECATED / NOT RECOMMENDED
 ├─ Type: PyInstaller frozen Python app (standalone phone setup)
 ├─ Mode: GUI (no console)
-├─ Source: wizard/cpharm_mumu_setup.py
+├─ Source: wizard/pharmflow_mumu_setup.py
 └─ Purpose: Legacy standalone phone setup (pre-Step-4 integration)
 
 HISTORY:
-  Previously: CPharmMuMuSetup.exe → phone setup wizard
-  Now: Phone setup embedded in CPharm.exe Step 4
+  Previously: PharmFlow.exe → phone setup wizard
+  Now: Phone setup embedded in PharmFlow.exe Step 4
   Reason: Unified single-exe distribution
 
 CURRENT STATUS:
@@ -177,7 +177,7 @@ CURRENT STATUS:
   ⚠ May timeout on certain system configurations
 
 WHEN TO USE:
-  Only if you need standalone phone setup without full CPharm wizard.
+  Only if you need standalone phone setup without full PharmFlow wizard.
   For 99% of users: Ignore this exe.
 
 RECOMMENDATION:
@@ -187,7 +187,7 @@ RECOMMENDATION:
 
 
 ═══════════════════════════════════════════════════════════
-5. CPharmSetup.exe — INVALID (ARCHITECTURE MISMATCH)
+5. PharmFlowSetup.exe — INVALID (ARCHITECTURE MISMATCH)
 ═══════════════════════════════════════════════════════════
 
 STATUS: ✗ BROKEN / NOT COMPATIBLE
@@ -204,8 +204,8 @@ LIKELY REASON:
   Old build artifact or CI/CD built on wrong platform.
 
 RECOMMENDATIONS:
-  □ Delete: rm C:\CPharm\CPharmSetup.exe
-  □ Or: Rebuild with correct architecture (PyInstaller --onefile CPharmSetup.spec)
+  □ Delete: rm C:\PharmFlow\PharmFlowSetup.exe
+  □ Or: Rebuild with correct architecture (PyInstaller --onefile PharmFlowSetup.spec)
   □ Or: Rename to .bak if needed for reference
 
 
@@ -213,23 +213,23 @@ RECOMMENDATIONS:
 
 🎯 PRIORITY FIXES:
 
-1. HIGH: Fix CPharmAgent.exe timeout
+1. HIGH: Fix PharmFlow.exe timeout
    - Add timeout handling
    - Add --nowait flag
    - Debug blocking call
    - ETA: 2 hours
 
-2. MEDIUM: Improve CPharm.exe startup
+2. MEDIUM: Improve PharmFlow.exe startup
    - Add progress splash screen
    - Clear cache on first run
    - Pre-warm ADB/Tor
    - ETA: 4 hours
 
-3. LOW: Remove/deprecate CPharmSetup.exe
+3. LOW: Remove/deprecate PharmFlowSetup.exe
    - Delete or recompile
    - ETA: 30 min
 
-4. LOW: Document CPharmWatchdog usage
+4. LOW: Document PharmFlowWatchdog usage
    - Create man page / help
    - Add to wizard "Launch" step
    - ETA: 1 hour
@@ -239,8 +239,8 @@ RECOMMENDATIONS:
 
 ✅ WHAT'S WORKING WELL:
 
-✓ CPharm.exe (main wizard, freezes resolved with cleanup)
-✓ CPharmWatchdog.exe (solid, production-ready)
+✓ PharmFlow.exe (main wizard, freezes resolved with cleanup)
+✓ PharmFlow.exe (solid, production-ready)
 ✓ ADB connection (8/8 Redroid containers online)
 ✓ Docker Redroid infrastructure
 ✓ Automation server (when dashboard running)
@@ -248,29 +248,29 @@ RECOMMENDATIONS:
 
 ⚠️ WHAT NEEDS ATTENTION:
 
-⚠ CPharmAgent.exe (timeout on startup)
-⚠ CPharmMuMuSetup.exe (deprecated, legacy)
-✗ CPharmSetup.exe (broken, wrong architecture)
+⚠ PharmFlow.exe (timeout on startup)
+⚠ PharmFlow.exe (deprecated, legacy)
+✗ PharmFlowSetup.exe (broken, wrong architecture)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 🔧 IMMEDIATE ACTION ITEMS:
 
 1. Run watchdog to verify system health:
-   CPharmWatchdog.exe --once --apply --repair-docker --repair-dashboard
+   PharmFlow.exe --once --apply --repair-docker --repair-dashboard
    
-2. Start CPharm normally:
-   CPharm.exe
+2. Start PharmFlow normally:
+   PharmFlow.exe
    
-3. Debug CPharmAgent issue:
-   set CPHARM_DEBUG=1
-   timeout /t 5 /nobreak && CPharmAgent.exe status
+3. Debug PharmFlowAgent issue:
+   set PHARMFLOW_DEBUG=1
+   timeout /t 5 /nobreak && PharmFlow.exe status
    
 4. Clean up:
-   del C:\CPharm\CPharmSetup.exe
+   del C:\PharmFlow\PharmFlowSetup.exe
    (or rename to .bak)
 
 5. Monitor farm health going forward:
-   start "" CPharmWatchdog.exe --watch --interval 30 --apply
+   start "" PharmFlow.exe --watch --interval 30 --apply
 
 ═══════════════════════════════════════════════════════════

@@ -11,7 +11,7 @@ import customtkinter as ctk
 
 from wizard.gui.styles import FONT_BODY, FONT_SMALL, SUCCESS, TEXT_MUTED, TEXT_PRIMARY
 from wizard.gui.widgets import GradientButton, LogPanel
-from wizard.mumu_setup_core import MuMuSetupCore
+from wizard.mumu_setup_core import run_full_setup
 from wizard.preflight_core import CheckStatus, run_preflight
 from wizard.path_detection import (
     auto_detect_adb,
@@ -34,7 +34,6 @@ class IntegratedSetupWizard(WizardShell):
     def __init__(self, on_complete: Callable[[], None] | None = None) -> None:
         super().__init__("PharmFlow — First Run Setup")
         self.on_complete = on_complete
-        self.core = MuMuSetupCore()
         self.phone_count = 1
         self._setup_started = False
         self._build_screens()
@@ -127,7 +126,7 @@ class IntegratedSetupWizard(WizardShell):
             btn_frame,
             "MuMu is ready — continue",
             icon="checkmark",
-            command=lambda: self.show_screen("create_phones"),
+            command=lambda: self.show_screen("usb_debug"),
             color=SUCCESS,
         ).pack(pady=8)
         GradientButton(btn_frame, "Download MuMu", icon="download", command=self._open_mumu_download).pack(pady=8)
@@ -141,9 +140,8 @@ class IntegratedSetupWizard(WizardShell):
                 text=f"Found MuMu.\n{result.path}",
                 text_color=SUCCESS,
             )
-            self.core.detect_and_save_mumu()
-            # Auto-advance when found — fewer clicks.
-            self.after(400, lambda: self.show_screen("create_phones"))
+            # Auto-advance when found. This screen does not create MuMu phones.
+            self.after(400, lambda: self.show_screen("usb_debug"))
         else:
             self.mumu_status.configure(
                 text="MuMu was not found.\nClick Download MuMu, install it, then Check again.\nOr click Find MuMu folder…",
@@ -157,7 +155,6 @@ class IntegratedSetupWizard(WizardShell):
                 text=f"Found MuMu at:\n{result.path}\n(manual)",
                 text_color=SUCCESS,
             )
-            self.core.detect_and_save_mumu()
             self._refresh_checklist()
 
     def _locate_tor(self) -> None:
@@ -172,7 +169,14 @@ class IntegratedSetupWizard(WizardShell):
         webbrowser.open("https://www.mumuglobal.com")
 
     def _screen_create_phones(self) -> None:
-        s = ScreenFrame(self._container, "How many phones?", "Pick a number. We create them for you.")
+        s = ScreenFrame(
+            self._container,
+            "How many phones?",
+            "Type any number. There is no phone-count stop.",
+        )
+        self.count_var = ctk.StringVar(value=str(self.phone_count or 1))
+        ctk.CTkEntry(s.content, textvariable=self.count_var, width=120).pack(pady=(12, 4))
+        self.count_var.trace_add("write", lambda *_: self._on_count_typed())
         btn_frame = ctk.CTkFrame(s.content, fg_color="transparent")
         btn_frame.pack(pady=20)
         for n in (1, 3, 5, 10):
@@ -195,9 +199,23 @@ class IntegratedSetupWizard(WizardShell):
         ).pack(pady=20)
         self.register_screen("create_phones", s)
 
+    def _on_count_typed(self) -> None:
+        raw = (self.count_var.get() or "").strip()
+        if not raw.isdigit():
+            return
+        n = int(raw)
+        if n < 1:
+            return
+        self._select_count(n)
+
     def _select_count(self, n: int) -> None:
+        if n < 1:
+            return
         self.phone_count = n
-        self.count_label.configure(text=f"Selected: {n} phone{'s' if n > 1 else ''}")
+        if hasattr(self, "count_var") and self.count_var.get() != str(n):
+            self.count_var.set(str(n))
+        if hasattr(self, "count_label"):
+            self.count_label.configure(text=f"Selected: {n} phone{'s' if n > 1 else ''}")
 
     def _screen_usb_debug(self) -> None:
         s = ScreenFrame(
@@ -229,7 +247,7 @@ class IntegratedSetupWizard(WizardShell):
         s = ScreenFrame(
             self._container,
             "Setting up…",
-            "Sit tight. We install tools, create phones, and get them ready.",
+            "Sit tight. We set up the phones that are already on. This does not create new MuMu phones.",
         )
         self.setup_progress = ctk.CTkProgressBar(s.content, width=500)
         self.setup_progress.pack(pady=10)
@@ -261,7 +279,7 @@ class IntegratedSetupWizard(WizardShell):
         if self.on_complete:
             self.on_complete()
         else:
-            from wizard.cpharm_desktop import launch_main_app
+            from wizard.pharmflow_desktop import launch_main_app
 
             launch_main_app()
 
@@ -272,27 +290,37 @@ class IntegratedSetupWizard(WizardShell):
         threading.Thread(target=self._setup_worker, daemon=True).start()
 
     def _setup_worker(self) -> None:
-        steps: list[tuple[str, Callable[[], None]]] = [
-            ("Installing phone tools…", self.core.download_adb),
-            ("Installing browser on phones…", self.core.download_browser),
-            ("Creating your phones…", self.core.create_all_phones),
-            ("Making each phone look unique…", self.core.apply_fingerprints_all),
-            ("Starting phones…", self.core.start_all_phones),
-            ("Setting up private network…", self.core.setup_tor_all),
-        ]
-        self.setup_log.clear()
-        self.core.phone_count = self.phone_count
-        for i, (msg, fn) in enumerate(steps):
-            self.after(0, lambda m=msg: self.setup_status.configure(text=m))
-            self.after(0, lambda m=msg: self.setup_log.append(m))
-            try:
-                fn()
-                self.after(0, lambda v=(i + 1) / len(steps): self.setup_progress.set(v))
-            except Exception as exc:
-                self.after(0, lambda f=friendly_error(exc): self.setup_log.append(f))
-                logger.exception("Setup step failed")
-                return
-        save_config({"setup_complete": True, "phone_count": self.phone_count, "first_run": False})
+        """Run the real phone setup. The old worker called methods that do not exist."""
+
+        def log(msg: str) -> None:
+            self.after(0, lambda m=str(msg): self.setup_log.append(m))
+
+        self.after(0, lambda: self.setup_status.configure(text="Setting up live phones…"))
+        try:
+            ok, msg, serials = run_full_setup(log)
+        except Exception as exc:
+            self.after(0, lambda f=friendly_error(exc): self.setup_log.append(f))
+            self.after(0, lambda: self.setup_status.configure(text="Setup failed. Read the log."))
+            logger.exception("Setup failed")
+            return
+        if msg:
+            log(msg)
+        live = [str(s) for s in (serials or []) if str(s).strip()]
+        if not ok or not live:
+            self.after(
+                0,
+                lambda m=msg or "Setup did not finish. Read the log.": self.setup_status.configure(text=m),
+            )
+            return
+        save_config(
+            {
+                "setup_complete": True,
+                "phones": live,
+                "phone_count": len(live),
+                "first_run": False,
+            }
+        )
+        self.after(0, lambda: self.setup_progress.set(1))
         self.after(0, lambda: self.show_screen("done"))
 
 
@@ -307,7 +335,7 @@ SetupWizardApp = IntegratedSetupWizard
 
 
 def main() -> None:
-    """Standalone entry — prefer wizard.cpharm_merged.main() for the unified EXE."""
+    """Standalone entry — prefer wizard.pharmflow_merged.main() for the unified EXE."""
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(message)s",

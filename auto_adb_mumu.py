@@ -27,21 +27,21 @@ from typing import Optional
 
 IS_WIN = sys.platform == "win32"
 
-# Mirror diagnostics to logs/cpharm.log (same location the wizard monitors),
-# honoring the CPHARM_LOGS override used by the watchdog. stderr stays on the
+# Mirror diagnostics to logs/pharmflow.log (same location the wizard monitors),
+# honoring the PHARMFLOW_LOGS override used by the watchdog. stderr stays on the
 # console so --json output on stdout remains machine-parseable.
 _ROOT = Path(__file__).resolve().parent
-_LOG_DIR = Path(os.environ.get("CPHARM_LOGS") or (_ROOT / "logs"))
+_LOG_DIR = Path(os.environ.get("PHARMFLOW_LOGS") or (_ROOT / "logs"))
 
 
 def _logger() -> logging.Logger:
-    """Return a module logger appending to logs/cpharm.log (never raises)."""
+    """Return a module logger appending to logs/pharmflow.log (never raises)."""
     lg = logging.getLogger("auto_adb_mumu")
     if not lg.handlers:
         lg.setLevel(logging.INFO)
         try:
             _LOG_DIR.mkdir(parents=True, exist_ok=True)
-            h = logging.FileHandler(_LOG_DIR / "cpharm.log", encoding="utf-8")
+            h = logging.FileHandler(_LOG_DIR / "pharmflow.log", encoding="utf-8")
             h.setFormatter(logging.Formatter(
                 "%(asctime)s %(levelname)s [auto_adb_mumu] %(message)s"))
             lg.addHandler(h)
@@ -52,7 +52,7 @@ def _logger() -> logging.Logger:
 
 
 def _log_file(msg: str) -> None:
-    """Print a diagnostic to stderr and mirror it to logs/cpharm.log."""
+    """Print a diagnostic to stderr and mirror it to logs/pharmflow.log."""
     print(msg, file=sys.stderr)
     try:
         _logger().info(msg)
@@ -61,7 +61,7 @@ def _log_file(msg: str) -> None:
 
 # Common ADB paths
 ADB_PATHS = [
-    Path("C:\\CPharm\\bundled\\adb.exe") if IS_WIN else Path("/usr/bin/adb"),
+    Path("C:\\PharmFlow\\bundled\\adb.exe") if IS_WIN else Path("/usr/bin/adb"),
     Path("C:\\Android\\platform-tools\\adb.exe") if IS_WIN else None,
     Path(os.environ.get("ANDROID_HOME", "")) / "platform-tools" / ("adb.exe" if IS_WIN else "adb"),
 ]
@@ -177,7 +177,7 @@ def main():
     # Find ADB
     adb_exe = find_adb()
     if not adb_exe:
-        _log_file("ERROR: ADB not found. Install Android SDK or CPharm.")
+        _log_file("ERROR: ADB not found. Install Android SDK or PharmFlow.")
         return 1
 
     _log_file(f"[*] Using ADB: {adb_exe}")

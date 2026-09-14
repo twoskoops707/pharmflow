@@ -6,6 +6,7 @@ import os
 import random
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 
 from automation.site_profile import interview_defaults
@@ -98,8 +99,8 @@ class FarmSchedulingTests(unittest.TestCase):
             farm._preflight = original  # type: ignore[assignment]
 
     def test_ad_pick_never_back_to_back(self) -> None:
-        os.environ["CPHARM_FARM_ALLOW_ADS"] = "1"
-        os.environ["CPHARM_FARM_PATHS"] = "1,2,3"
+        os.environ["PHARMFLOW_FARM_ALLOW_ADS"] = "1"
+        os.environ["PHARMFLOW_FARM_PATHS"] = "1,2,3"
         pools = {
             "ad": [Path("home_homead1_ad.json"), Path("home_homead2_ad.json")],
             "complete": [],
@@ -141,6 +142,46 @@ class FarmSchedulingTests(unittest.TestCase):
             sequence_files = [path for path in files if path.name != "_generated.json"]
             self.assertTrue(sequence_files)
             self.assertTrue(all(farm._preflight(path, strict=True) is None for path in sequence_files))
+
+    def test_saved_earn_plan_overrides_visit_caps_and_a_missing_file_does_not(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            env = {
+                "PHARMFLOW_LOGS": str(root),
+                "PHARMFLOW_FARM_DAILY_VISITS": "11",
+                "PHARMFLOW_FARM_DAILY_ADS": "1",
+                "PHARMFLOW_FARM_ALLOW_ADS": "0",
+                "PHARMFLOW_FARM_PATHS": "1,2",
+            }
+            with unittest.mock.patch.dict(os.environ, env, clear=False):
+                self.assertEqual(farm._phone_visits_cap(0), 11)
+                self.assertFalse(farm._ads_allowed())
+                from automation.earn_plan import save_earn_plan
+
+                saved = save_earn_plan(
+                    {
+                        "phones": 2,
+                        "visits_per_phone": 40,
+                        "ads_allowed": True,
+                        "visits_per_paid_action": 20,
+                        "path2_share": 0.25,
+                        "spread_seed": 9,
+                    },
+                    root / "earn_plan.json",
+                )
+                self.assertTrue(saved["saved"])
+                self.assertEqual(sum(saved["visits_by_phone"]), 80)
+                self.assertNotEqual(saved["visits_by_phone"][0], saved["visits_by_phone"][1])
+                self.assertEqual(farm._phone_visits_cap(0), saved["visits_by_phone"][0])
+                self.assertEqual(farm._phone_visits_cap(1), saved["visits_by_phone"][1])
+                self.assertEqual(farm._phone_ads_cap(0), saved["path3_by_phone"][0])
+                self.assertTrue(farm._ads_allowed())
+                self.assertEqual(farm._farm_paths(), {"1", "2", "3"})
+                self.assertEqual(farm._halfway_share(), 0.25)
+                self.assertEqual(farm._path3_per_hour(0), saved["path3_by_phone"][0])
+                self.assertEqual(farm._path3_per_hour(1), saved["path3_by_phone"][1])
+                # Extra live phones still get a count around the mean, not a shrink.
+                self.assertGreater(farm._phone_visits_cap(5), 0)
 
 
 if __name__ == "__main__":

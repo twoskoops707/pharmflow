@@ -3,7 +3,7 @@
 Production sequence JSON files are **not stored in git**. Generate and store them on your PC:
 
 ```text
-%USERPROFILE%\CPharm\sequences\
+%USERPROFILE%\PharmFlow\sequences\
   900x1600\
     ad\       ← DabFlow ad-path combos
     no-ad\    ← same matrix without ad clicks
@@ -13,9 +13,9 @@ Production sequence JSON files are **not stored in git**. Generate and store the
 ## Generate the full matrix
 
 ```powershell
-cd C:\Users\jsmil\CPharm\cpharm-clone\automation
+cd C:\Users\jsmil\PharmFlow\pharmflow-clone\automation
 python generate_dabflow_gold_matrix.py
-# optional: set CPHARM_SEQUENCES_DIR to override the default folder
+# optional: set PHARMFLOW_SEQUENCES_DIR to override the default folder
 ```
 
 ## Wizard / Groups

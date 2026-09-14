@@ -13,11 +13,11 @@ from pathlib import Path
 import psutil
 
 ROOT = Path(__file__).resolve().parents[1]
-CPharm = r"C:\CPharm"
-ADB = os.environ.get("CPHARM_ADB") or r"C:\CPharm\bundled\adb.exe"
-LOG = rf"{CPharm}\logs\farm_354.log"
-MANTIS_STATE = rf"{CPharm}\logs\mantis_today_state.json"
-MONITOR_LOG = rf"{CPharm}\logs\health_monitor.log"
+PharmFlow = r"C:\PharmFlow"
+ADB = os.environ.get("PHARMFLOW_ADB") or r"C:\PharmFlow\bundled\adb.exe"
+LOG = rf"{PharmFlow}\logs\farm_354.log"
+MANTIS_STATE = rf"{PharmFlow}\logs\mantis_today_state.json"
+MONITOR_LOG = rf"{PharmFlow}\logs\health_monitor.log"
 
 # All known phone IPs
 PHONE_IPS = [

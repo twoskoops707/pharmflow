@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""FamFlow farm digest reporter (default hourly) → ntfy.sh/twskoops.
+"""PharmFlow farm digest reporter (default hourly) → ntfy.sh/twskoops.
 
 Parses farm_354_results.jsonl (+ optional log hints) and posts a summary every hour,
 including a per-browser OK/ran line (chrome/brave/ff/ddg) so the operator does not
@@ -9,7 +9,7 @@ have to watch four browsers. Also watches for farm death and alerts once.
   py -u scripts/farm_hourly_ntfy.py --once          # single report then exit
   py -u scripts/farm_hourly_ntfy.py --interval 3600
 
-Logs: C:\\CPharm\\logs\\farm_hourly_ntfy.log
+Logs: C:\\PharmFlow\\logs\\farm_hourly_ntfy.log
 """
 
 from __future__ import annotations
@@ -35,11 +35,11 @@ if str(_REPO) not in sys.path:
 from automation.farm_checkin import format_browsers, summarize_browsers  # noqa: E402
 
 DEFAULT_TOPIC = "twskoops"
-RESULTS = Path(r"C:\CPharm\logs\farm_354_results.jsonl")
-FARM_LOG = Path(r"C:\CPharm\logs\farm_354.log")
-PROGRESS = Path(r"C:\CPharm\logs\farm_354_progress.json")
-WATCHER_LOG = Path(r"C:\CPharm\logs\farm_hourly_ntfy.log")
-STATE = Path(r"C:\CPharm\logs\farm_hourly_ntfy_state.json")
+RESULTS = Path(r"C:\PharmFlow\logs\farm_354_results.jsonl")
+FARM_LOG = Path(r"C:\PharmFlow\logs\farm_354.log")
+PROGRESS = Path(r"C:\PharmFlow\logs\farm_354_progress.json")
+WATCHER_LOG = Path(r"C:\PharmFlow\logs\farm_hourly_ntfy.log")
+STATE = Path(r"C:\PharmFlow\logs\farm_hourly_ntfy_state.json")
 
 # Same identity rules as scripts/run_farm_354.py::_parse_ad_key
 _AD_HOME = re.compile(r"homead(\d+)")
@@ -54,7 +54,7 @@ def _utc_now() -> datetime:
 
 
 def _topic() -> str:
-    return os.environ.get("CPHARM_NTFY_TOPIC", DEFAULT_TOPIC).strip() or DEFAULT_TOPIC
+    return os.environ.get("PHARMFLOW_NTFY_TOPIC", DEFAULT_TOPIC).strip() or DEFAULT_TOPIC
 
 
 def _ntfy_url() -> str:
@@ -217,7 +217,7 @@ def farm_start_hint() -> datetime | None:
 
 def farm_pids() -> list[int]:
     """PIDs for the real farm runner only (not this watcher / probe shells)."""
-    if os.environ.get("CPHARM_FARM_IN_PROCESS", "0").strip().lower() in {"1", "true", "yes", "on"}:
+    if os.environ.get("PHARMFLOW_FARM_IN_PROCESS", "0").strip().lower() in {"1", "true", "yes", "on"}:
         return [os.getpid()]
     # IMPORTANT: do not put the needle in the PowerShell -Command text, or the
     # probe process matches itself and death detection never fires.
@@ -377,8 +377,8 @@ def send_report(*, baseline: bool, state: dict, interval_s: int = 3600) -> bool:
 
 def maybe_death_alert(state: dict, saw_alive: bool) -> bool:
     """Alert once when farm was seen alive and is now dead."""
-    if os.environ.get("CPHARM_NTFY_EMERGENCY_ALERTS", "0").strip().lower() not in {"1", "true", "yes", "on"}:
-        log.info("farm death alert suppressed by CPHARM_NTFY_EMERGENCY_ALERTS=0")
+    if os.environ.get("PHARMFLOW_NTFY_EMERGENCY_ALERTS", "0").strip().lower() not in {"1", "true", "yes", "on"}:
+        log.info("farm death alert suppressed by PHARMFLOW_NTFY_EMERGENCY_ALERTS=0")
         state["death_alerted"] = True
         state["saw_alive"] = False
         save_state(state)
@@ -393,7 +393,7 @@ def maybe_death_alert(state: dict, saw_alive: bool) -> bool:
     if state.get("death_alerted"):
         return False
     # Confirm still dead after a short grace (caller already waited)
-    title = "FamFlow farm DIED"
+    title = "PharmFlow farm DIED"
     body = (
         f"run_farm_354 not running at {_utc_now().isoformat()}\n"
         f"log mtime age={_log_age_s():.0f}s\n"

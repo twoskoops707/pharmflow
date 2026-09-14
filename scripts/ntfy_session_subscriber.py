@@ -23,8 +23,8 @@ if hasattr(sys.stderr, "reconfigure"):
 
 TOPIC = "twskoops"
 BASE = f"https://ntfy.sh/{TOPIC}"
-INBOX = Path(r"C:\CPharm\logs\ntfy_inbox.jsonl")
-STATUS = Path(r"C:\CPharm\logs\ntfy_subscriber_status.txt")
+INBOX = Path(r"C:\PharmFlow\logs\ntfy_inbox.jsonl")
+STATUS = Path(r"C:\PharmFlow\logs\ntfy_subscriber_status.txt")
 POLL_SINCE = "all"  # first connect gets recent cache; then live stream
 
 

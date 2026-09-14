@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-LOG = Path(r"C:\CPharm\logs")
+LOG = Path(r"C:\PharmFlow\logs")
 sys.path.insert(0, str(ROOT))
 
 from automation.adb_wrapper import AdbWrapper
@@ -22,7 +22,7 @@ from automation.farm_money_monitor import cull_hung_adb, probe_ssp
 from automation.mantis_inject_proxy import ensure_inject_for_phone, verify_reverse_tunnel
 
 PY = Path(r"C:\Users\jsmil\AppData\Local\Python\pythoncore-3.14-64\python.exe")
-ADB = Path(r"C:\CPharm\bundled\adb.exe")
+ADB = Path(r"C:\PharmFlow\bundled\adb.exe")
 FLAGS = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 OVERRIDES = LOG / "farm_runtime_overrides.json"
 LOCK = LOG / "ADB_SERIAL_MAP.lock.json"
@@ -146,18 +146,18 @@ def _merge_stealth_overrides(phones: dict[str, str], serials: list[str]) -> None
     serials_sorted = [phones[n] for n in names]
     cur.update(
         {
-            "CPHARM_FARM_PHONES": ",".join(names),
-            "CPHARM_ADB_SERIALS": ",".join(serials_sorted),
-            "CPHARM_FARM_PHONE_COUNT": str(len(names)),
-            "CPHARM_FARM_EXPECT_PHONES": str(len(names)),
-            "CPHARM_FARM_STOP": "0",
-            "CPHARM_FARM_UNIQUE_SEQ": "1",
-            "CPHARM_SKIP_SEQUENCE_ISOLATION": "0",
-            "CPHARM_NEVER_SHARE_EXIT_IP": "1",
-            "CPHARM_MANTIS_INJECT_PROXY": "1",
-            "CPHARM_TOR_PATH": r"C:\CPharm\bundled\tor.exe",
-            "CPHARM_TOR_HTTP_BASE": "8118",
-            "CPHARM_AUTOPILOT_PAUSE": "1",
+            "PHARMFLOW_FARM_PHONES": ",".join(names),
+            "PHARMFLOW_ADB_SERIALS": ",".join(serials_sorted),
+            "PHARMFLOW_FARM_PHONE_COUNT": str(len(names)),
+            "PHARMFLOW_FARM_EXPECT_PHONES": str(len(names)),
+            "PHARMFLOW_FARM_STOP": "0",
+            "PHARMFLOW_FARM_UNIQUE_SEQ": "1",
+            "PHARMFLOW_SKIP_SEQUENCE_ISOLATION": "0",
+            "PHARMFLOW_NEVER_SHARE_EXIT_IP": "1",
+            "PHARMFLOW_MANTIS_INJECT_PROXY": "1",
+            "PHARMFLOW_TOR_PATH": r"C:\PharmFlow\bundled\tor.exe",
+            "PHARMFLOW_TOR_HTTP_BASE": "8118",
+            "PHARMFLOW_AUTOPILOT_PAUSE": "1",
             "cursor_monitor": _utc(),
         }
     )

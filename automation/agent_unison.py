@@ -1,6 +1,6 @@
 """Shared dual-agent coordination board — Cursor + FREEBUFF work in unison.
 
-State file: ``C:\\CPharm\\logs\\AGENT_UNISON.json``
+State file: ``C:\\PharmFlow\\logs\\AGENT_UNISON.json``
 
 Rules:
 - DO NOT kill or restart MuMu emulators (both agents).
@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-BOARD = Path(r"C:\CPharm\logs\AGENT_UNISON.json")
+BOARD = Path(r"C:\PharmFlow\logs\AGENT_UNISON.json")
 RULES = (
     "DO_NOT_KILL_EMULATORS",
     "PharmFlow.exe owns Start farm — agents diagnose/fix only",

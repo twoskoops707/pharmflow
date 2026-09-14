@@ -20,7 +20,7 @@ from automation.sequence_runner import Sequence, SequenceRunner
 class SequenceRunBlockTests(unittest.TestCase):
     def test_blocked_by_default(self) -> None:
         with patch.dict(os.environ, {}, clear=True):
-            os.environ.pop("CPHARM_ALLOW_SEQUENCE_RUNS", None)
+            os.environ.pop("PHARMFLOW_ALLOW_SEQUENCE_RUNS", None)
             self.assertFalse(sequences_run_allowed())
 
     def test_runner_refuses_when_blocked(self) -> None:
@@ -28,7 +28,7 @@ class SequenceRunBlockTests(unittest.TestCase):
         runner = SequenceRunner(farm)
         seq = Sequence(name="t", phone="p", steps=[], sequence_version=REQUIRED_SEQUENCE_VERSION)
         with patch.dict(os.environ, {}, clear=True):
-            os.environ.pop("CPHARM_ALLOW_SEQUENCE_RUNS", None)
+            os.environ.pop("PHARMFLOW_ALLOW_SEQUENCE_RUNS", None)
             report = runner.run(seq)
         self.assertFalse(report["success"])
         self.assertIn("BLOCKED", report["error"])
@@ -66,7 +66,7 @@ class AdPipelineTests(unittest.TestCase):
 
     def test_patch_enabled_default_on(self) -> None:
         with patch.dict(os.environ, {}, clear=True):
-            os.environ.pop("CPHARM_DABFLOW_MANTIS_PATCH", None)
+            os.environ.pop("PHARMFLOW_DABFLOW_MANTIS_PATCH", None)
             self.assertTrue(patch_enabled_from_env())
 
     def test_fallback_urls_for_checkpoints(self) -> None:

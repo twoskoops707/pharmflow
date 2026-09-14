@@ -1,7 +1,7 @@
-> **Superseded:** the product is a single `PharmFlow.exe` in `C:\PharmFlow\` (`--watchdog`, `--agent`, phone setup in-process). Data still lives under `C:\CPharm\`. Ignore EXE names below.
+> **Superseded:** the product is a single `PharmFlow.exe` in `C:\PharmFlow\` (`--watchdog`, `--agent`, phone setup in-process). Data still lives under `C:\PharmFlow\`. Ignore EXE names below.
 
 ═══════════════════════════════════════════════════════════
-  CPHARM DEBUG SESSION — COMPLETE INDEX
+  PHARMFLOW DEBUG SESSION — COMPLETE INDEX
 ═══════════════════════════════════════════════════════════
 
 📋 START HERE: FINAL_SUMMARY.md
@@ -19,7 +19,7 @@
   ├─ FINAL_SUMMARY.md (THIS FILE — Read first!)
   ├─ DEBUG_GUIDE.txt (Troubleshooting steps)
   ├─ EXECUTABLE_AUDIT_REPORT.md (Full exe review)
-  ├─ CPHARMWATCHDOG_REFERENCE.md (Watchdog how-to)
+  ├─ PHARMFLOWWATCHDOG_REFERENCE.md (Watchdog how-to)
   ├─ AUTO_ADB_SCRIPTS_README.md (Script reference)
   └─ WIZARD_INTEGRATION_GUIDE.md (For developers)
 
@@ -33,15 +33,15 @@
 🎯 QUICK START (3 STEPS):
 
 Step 1: Clean
-  powershell -ExecutionPolicy Bypass C:\CPharm\EMERGENCY_CLEANUP.ps1
+  powershell -ExecutionPolicy Bypass C:\PharmFlow\EMERGENCY_CLEANUP.ps1
 
 Step 2: Auto-connect phones
-  cd C:\CPharm
+  cd C:\PharmFlow
   python auto_phone_adb.py --docker
   (wait 60s)
 
-Step 3: Start CPharm
-  CPharm.exe
+Step 3: Start PharmFlow
+  PharmFlow.exe
 
 Done! Check http://localhost:8080 for dashboard
 
@@ -50,16 +50,16 @@ Done! Check http://localhost:8080 for dashboard
 📖 WHAT TO READ WHEN:
 
 I'm having an issue with...
-  ├─ CPharm.exe freezing → DEBUG_GUIDE.txt
+  ├─ PharmFlow.exe freezing → DEBUG_GUIDE.txt
   ├─ Phones not connecting → AUTO_ADB_SCRIPTS_README.md
-  ├─ Dashboard won't load → CPHARMWATCHDOG_REFERENCE.md
+  ├─ Dashboard won't load → PHARMFLOWWATCHDOG_REFERENCE.md
   ├─ Which exe to use → EXECUTABLE_AUDIT_REPORT.md
   ├─ How to integrate → WIZARD_INTEGRATION_GUIDE.md
   └─ General overview → FINAL_SUMMARY.md
 
 I want to...
   ├─ Add auto-connect to wizard → WIZARD_INTEGRATION_GUIDE.md
-  ├─ Monitor farm health → CPHARMWATCHDOG_REFERENCE.md
+  ├─ Monitor farm health → PHARMFLOWWATCHDOG_REFERENCE.md
   ├─ Fix everything at once → EMERGENCY_CLEANUP.ps1
   ├─ Understand the system → FINAL_SUMMARY.md
   └─ Troubleshoot systematically → DEBUG_GUIDE.txt
@@ -81,11 +81,11 @@ Auto-connect works?
   → Should complete with "All phones verified!"
 
 Farm healthy?
-  CPharmWatchdog.exe --once
+  PharmFlow.exe --once
   → Should show "[HEALTHY]" status
 
-CPharm ready?
-  CPharm.exe
+PharmFlow ready?
+  PharmFlow.exe
   → Should load Step 4 with 8 phones listed
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -93,7 +93,7 @@ CPharm ready?
 🔧 EXECUTIVE SUMMARY:
 
 WHAT WAS BROKEN:
-  ✗ CPharm.exe: Freezing on startup (cache corruption)
+  ✗ PharmFlow.exe: Freezing on startup (cache corruption)
   ✗ Phones: Not connecting to ADB (stale processes)
   ✗ Dashboard: Won't load (port 8080 in use)
   ✗ Docker: Containers crashed (OOM, exit 137)
@@ -103,19 +103,19 @@ WHAT'S FIXED:
   ✓ Created auto_phone_adb.py (auto-connects all phones)
   ✓ Created comprehensive documentation (8 files)
   ✓ Audited all 5 exes (found 1 broken, 1 deprecated)
-  ✓ Set up health monitoring (CPharmWatchdog)
+  ✓ Set up health monitoring (PharmFlowWatchdog)
 
 HOW TO USE NOW:
   1. Run: EMERGENCY_CLEANUP.ps1
   2. Run: python auto_phone_adb.py --docker
-  3. Run: CPharm.exe
+  3. Run: PharmFlow.exe
   4. Verify: http://localhost:8080
 
 PRODUCTION SETUP:
   • Auto-start watchdog on boot
   • Add auto-connect to wizard preflight
   • Monitor health with ntfy.sh alerts
-  • Delete or rebuild CPharmSetup.exe
+  • Delete or rebuild PharmFlowSetup.exe
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -124,7 +124,7 @@ PRODUCTION SETUP:
 [ ] Run EMERGENCY_CLEANUP.ps1
 [ ] Verify Docker: docker ps
 [ ] Test auto-connect: python auto_phone_adb.py --docker
-[ ] Start CPharm: CPharm.exe
+[ ] Start PharmFlow: PharmFlow.exe
 [ ] Check dashboard: http://localhost:8080
 [ ] Read: FINAL_SUMMARY.md
 
@@ -150,10 +150,10 @@ DONE ✓
    Issues → Fixes → Advanced recovery
 
 4. EXECUTABLE_AUDIT_REPORT.md (11 KB)
-   Full review of all 5 CPharm exes
+   Full review of all 5 PharmFlow exes
    Status, issues, recommendations
 
-5. CPHARMWATCHDOG_REFERENCE.md (8 KB)
+5. PHARMFLOWWATCHDOG_REFERENCE.md (8 KB)
    Complete watchdog user guide
    Commands, examples, production setups
 

@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-LOG = Path(r"C:\CPharm\logs")
+LOG = Path(r"C:\PharmFlow\logs")
 sys.path.insert(0, str(ROOT))
 
 from automation.adb_wrapper import AdbWrapper
@@ -75,8 +75,8 @@ def main() -> int:
 
     write_runtime_overrides(
         {
-            "CPHARM_TOR_PATH": r"C:\CPharm\bundled\tor.exe",
-            "CPHARM_FARM_STOP": "0",
+            "PHARMFLOW_TOR_PATH": r"C:\PharmFlow\bundled\tor.exe",
+            "PHARMFLOW_FARM_STOP": "0",
         }
     )
 
@@ -112,14 +112,14 @@ def main() -> int:
         "next_for_freebuff": [
             "Watch SSP paying>0 (house-only was blocker)",
             "Do NOT restart/kill MuMu",
-            "If isolation fails: verify CPHARM_TOR_PATH in overrides",
+            "If isolation fails: verify PHARMFLOW_TOR_PATH in overrides",
             "Reply on twskoops with live numbers",
         ],
         "checkin": body,
     }
     HANDOFF.write_text(json.dumps(handoff, indent=2) + "\n", encoding="utf-8")
 
-    title = f"[FamFlow] Cursor+FREEBUFF {snap.verdict}"
+    title = f"[PharmFlow] Cursor+FREEBUFF {snap.verdict}"
     publish_ntfy(title, body, tags="clipboard,phone,white_check_mark", force=True)
     print("HANDOFF", HANDOFF, flush=True)
     print(body, flush=True)

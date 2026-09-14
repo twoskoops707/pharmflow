@@ -1,4 +1,4 @@
-"""CPharm/dash self-monitor: money-health + flat-$ detection + auto-remediation.
+"""PharmFlow/dash self-monitor: money-health + flat-$ detection + auto-remediation.
 
 ALERTS on junk eCPM, house-only SSP, impression dilution, and flat $ — not only
 when payout has been unchanged for 25 minutes. last_ok / money_ok require paying
@@ -8,7 +8,7 @@ Safe remediations: re-pin inject, SSP refresh, heat_down on house/dilution,
 ensure bottom-ads watcher, cull hung adb / dup hunters. Does NOT start
 ensure_farm / farm_354 dual-run.
 
-State files under C:\\CPharm\\logs\\:
+State files under C:\\PharmFlow\\logs\\:
   farm_money_monitor_state.json
   farm_money_history.jsonl
   FARM_MONEY_HEALTH.json
@@ -48,7 +48,7 @@ from automation.farm_exe_self_heal import (  # noqa: E402
 )
 from automation.farm_health_audit import apply_money_rails, behind_on_path3_clicks  # noqa: E402
 
-LOG = Path(r"C:\CPharm\logs")
+LOG = Path(r"C:\PharmFlow\logs")
 STATE = LOG / "farm_money_monitor_state.json"
 HISTORY = LOG / "farm_money_history.jsonl"
 FLAT_FLAG = LOG / "FARM_FLAT_DOLLAR.flag"
@@ -58,7 +58,7 @@ ADS_WATCH = LOG / "ads_watch_state.json"
 MANTIS = LOG / "mantis_today_state.json"
 HONEST = LOG / "FARM_HONEST_NOW.txt"
 
-_ADB = str(Path(r"C:\CPharm\bundled\adb.exe"))
+_ADB = str(Path(r"C:\PharmFlow\bundled\adb.exe"))
 if not Path(_ADB).is_file():
     _ADB = "adb"
 
@@ -863,8 +863,8 @@ def start_background(
         if _thread is not None and _thread.is_alive():
             return {"ok": True, "already": True, "pid_thread": _thread.name}
         _stop.clear()
-        fm = float(flat_min if flat_min is not None else os.environ.get("CPHARM_FLAT_DOLLAR_MIN", DEFAULT_FLAT_MIN))
-        ts = float(tick_s if tick_s is not None else os.environ.get("CPHARM_MONEY_MON_TICK_S", DEFAULT_TICK_S))
+        fm = float(flat_min if flat_min is not None else os.environ.get("PHARMFLOW_FLAT_DOLLAR_MIN", DEFAULT_FLAT_MIN))
+        ts = float(tick_s if tick_s is not None else os.environ.get("PHARMFLOW_MONEY_MON_TICK_S", DEFAULT_TICK_S))
         _thread = threading.Thread(
             target=_loop,
             kwargs={"flat_min": fm, "tick_s": ts},

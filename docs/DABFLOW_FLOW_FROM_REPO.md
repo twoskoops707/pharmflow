@@ -10,7 +10,7 @@ Key files:
 | `www/js/app.js` | `CONFIG`, `state.settings`, `calculateTimings()`, `startTimer()`, `runTimer()`, `completeTimer()`, `showCompletionAnimation()`, `skipSessionNotes()`, tab nav |
 | `www/css/components.css` | `.nav-bar` height **70px**, `.option-grid`, modal/button layout |
 
-Execution note: CPharm dashboard applies **`webview_content_top_inset` (+192px @ 900×1600)** to tap Y at runtime. All coords below are **baseline 900×1600 content coords** (before inset).
+Execution note: PharmFlow dashboard applies **`webview_content_top_inset` (+192px @ 900×1600)** to tap Y at runtime. All coords below are **baseline 900×1600 content coords** (before inset).
 
 ---
 
@@ -24,9 +24,9 @@ Execution note: CPharm dashboard applies **`webview_content_top_inset` (+192px @
 6. **Tab tour** (matrix sequences) — Bottom nav: Home, Timer, Stats, Glass, Settings. Matrix adds Glass art select → BACK → Home, then other tabs before Stats scroll.
 7. **Ad path** (matrix `ad/` only) — Home banner → timer cooldown video + timer banners during cool → tab tour taps on Glass / Stats / Settings Mantis zones; Stats dwell **≥30s**.
 
-## Mantis ad slots (DabFlow web app — not configured in CPharm)
+## Mantis ad slots (DabFlow web app — not configured in PharmFlow)
 
-CPharm automates taps on Mantis zones defined in the **DabFlow** repo (`origin/web`, `www/index.html`). Publisher/network setup lives there, not in this repo.
+PharmFlow automates taps on Mantis zones defined in the **DabFlow** repo (`origin/web`, `www/index.html`). Publisher/network setup lives there, not in this repo.
 
 **Live deploy audit:** run `python3 automation/audit_dabflow_live.py` — see [DABFLOW_MANTIS_LIVE_AUDIT.md](./DABFLOW_MANTIS_LIVE_AUDIT.md) for known `app.js` bugs (zone typos, cooldown video slot).
 
@@ -45,7 +45,7 @@ CPharm automates taps on Mantis zones defined in the **DabFlow** repo (`origin/w
 2. Premium / ad-free flags in DabFlow `localStorage` block slots — test with a fresh profile (`clear_cookies` step).
 3. Tor exit IPs may get low fill — expected for some networks; the automation still performs tap + 30s dwell.
 4. On MuMu: sequences must **switch to Stats tab** (`bottom_nav: true` at y≈1566) before tapping (450, 857). Combo ad JSON regenerated 2026-07 fixes ending on Settings without returning to Stats.
-5. Farm playlists default to **50/50 no-ad/ad** (`dabflow__demo__ONE.json` + no-ad variants vs `dabflow__demo__TWO.json` + ad variants, `sequence_playlist_shuffle: combined`). Re-run **CPharmMuMuSetup GO** to refresh `groups_config.json` if you still have ad-only playlists.
+5. Farm playlists default to **50/50 no-ad/ad** (`dabflow__demo__ONE.json` + no-ad variants vs `dabflow__demo__TWO.json` + ad variants, `sequence_playlist_shuffle: combined`). Re-run **PharmFlowMuMuSetup GO** to refresh `groups_config.json` if you still have ad-only playlists.
 8. **Identity tail** (matrix) — `close_app` → `rotate_identity` → `full_reset`.
 
 Demo ONE (`dabflow__demo__ONE.json`) covers steps **1–5 + Stats tab** only.
@@ -113,7 +113,7 @@ Inter-tap gaps (demo ONE): **0.25–0.35s** between funnel taps.
 
 ## Coordinates table (900×1600 baseline)
 
-Measured live via `measure_dabflow_coords.py` / Playwright on getdabflow.app (2026-06-19). Defined in `cpharm-clone/automation/dabflow_layout.py`.
+Measured live via `measure_dabflow_coords.py` / Playwright on getdabflow.app (2026-06-19). Defined in `pharmflow-clone/automation/dabflow_layout.py`.
 
 | Region | DOM | cx | cy | half_w × half_h |
 |--------|-----|----|----|-----------------|
@@ -176,7 +176,7 @@ Measured live via `measure_dabflow_coords.py` / Playwright on getdabflow.app (20
 
 ## Generator & demo paths
 
-- Layout: `cpharm-clone/automation/dabflow_layout.py`
-- Matrix generator: `cpharm-clone/automation/generate_dabflow_gold_matrix.py` (fixed funnel: start → wait → skip → tab tour → ad/identity)
-- Demo ONE builder: `cpharm-clone/automation/_build_ONE.py` → `sequences/900x1600/no-ad/dabflow__demo__ONE.json`
-- Live proof: `cpharm-clone/automation/_proof_demo_ONE_live.py` on device **10.0.2.179**
+- Layout: `pharmflow-clone/automation/dabflow_layout.py`
+- Matrix generator: `pharmflow-clone/automation/generate_dabflow_gold_matrix.py` (fixed funnel: start → wait → skip → tab tour → ad/identity)
+- Demo ONE builder: `pharmflow-clone/automation/_build_ONE.py` → `sequences/900x1600/no-ad/dabflow__demo__ONE.json`
+- Live proof: `pharmflow-clone/automation/_proof_demo_ONE_live.py` on device **10.0.2.179**

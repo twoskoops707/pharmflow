@@ -2,7 +2,7 @@
 
 ## DabFlow blueprint (v3)
 
-CPharm Studio **Builder** embeds the full combinatorial catalog:
+PharmFlow Studio **Builder** embeds the full combinatorial catalog:
 
 - **60 cores:** 3 materials × 10 concentrates (incl. `hash_rosin`) × 2 heaters
 - **Path1 A–D** (no ads): `p1a_complete_<browser>`, `p1b_<tab>_complete_<browser>`, …
@@ -47,7 +47,7 @@ AI never auto-starts the farm. Offline Q&A works with no key. ntfy digests defau
 **New / transfer PCs:** start the farm only with **`C:\PharmFlow\PharmFlow.exe` → Start farm**.  
 Do **not** run `py scripts/run_farm_354.py` from Cursor to “bring the farm up.”
 
-The CLI below is for advanced/dev use when an operator already owns the stack via CPharm — not for transfer setup.
+The CLI below is for advanced/dev use when an operator already owns the stack via PharmFlow — not for transfer setup.
 
 ```powershell
 # DEV ONLY — not the transfer / new-desktop start path

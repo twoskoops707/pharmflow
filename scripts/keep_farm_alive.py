@@ -14,27 +14,27 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-LOG = Path(r"C:\CPharm\logs")
+LOG = Path(r"C:\PharmFlow\logs")
 OUT = LOG / "_keep_farm_alive.json"
 REMEDIATOR = ROOT / "scripts" / "farm_remediate_loop.py"
 DASH = ROOT / "scripts" / "farm_operator_dash.py"
 HUNTER = ROOT / "scripts" / "ssp_paying_hunter.py"
-ADB = r"C:\CPharm\bundled\adb.exe"
+ADB = r"C:\PharmFlow\bundled\adb.exe"
 if not Path(ADB).is_file():
     ADB = "adb"
 
-INTERVAL_S = float(os.environ.get("CPHARM_KEEPALIVE_INTERVAL_S", "90"))
+INTERVAL_S = float(os.environ.get("PHARMFLOW_KEEPALIVE_INTERVAL_S", "90"))
 sys.path.insert(0, str(ROOT))
 
 import automation.no_window  # noqa: E402,F401
-from automation.cpharm_unison_dedupe import pids_for_script  # noqa: E402
+from automation.pharmflow_unison_dedupe import pids_for_script  # noqa: E402
 from automation.farm_health_audit import apply_money_rails  # noqa: E402
 from automation.farm_process_janitor import sweep_dead_processes  # noqa: E402
 
 
 def _unison_active() -> bool:
     try:
-        return bool(pids_for_script("cpharm_unison_supervisor.py"))
+        return bool(pids_for_script("pharmflow_unison_supervisor.py"))
     except Exception:
         return False
 
@@ -47,7 +47,7 @@ def _run_shell_fix_if_needed() -> list[str]:
     """Scrub User-env braces that kill Cursor agent PowerShell wrapper."""
     flag = LOG / "FARM_FIX_SHELL.flag"
     report = LOG / "_shell_fix_report.json"
-    script = Path(r"C:\CPharm\logs\fix_cursor_shell.py")
+    script = Path(r"C:\PharmFlow\logs\fix_cursor_shell.py")
     if not script.is_file():
         script = ROOT / "_tmp_fix_cursor_shell.py"
     if not script.is_file():
@@ -88,9 +88,9 @@ def _spawn(script: Path, extra: list[str] | None = None) -> int | None:
         pyw = sys.executable
     env = os.environ.copy()
     env["PYTHONPATH"] = str(ROOT)
-    env.setdefault("CPHARM_ALLOW_SEQUENCE_RUNS", "1")
-    env.setdefault("CPHARM_FARM_STOP", "0")
-    env["CPHARM_EXE_OWNED_FARM"] = "1"
+    env.setdefault("PHARMFLOW_ALLOW_SEQUENCE_RUNS", "1")
+    env.setdefault("PHARMFLOW_FARM_STOP", "0")
+    env["PHARMFLOW_EXE_OWNED_FARM"] = "1"
     flags = 0x08000000  # CREATE_NO_WINDOW only — never OR DETACHED_PROCESS
     proc = subprocess.Popen(
         [pyw, "-u", str(script), *(extra or [])],
@@ -121,10 +121,10 @@ def _farm_354_pids() -> list[int]:
 
 
 def ensure_farm_worker() -> list[str]:
-    """CPharm owns the farm, but the money worker is pythonw run_farm_354.
+    """PharmFlow owns the farm, but the money worker is pythonw run_farm_354.
 
-    Frozen EXE + CPHARM_EXE_OWNED.flag made MEI ensure skip spawn, so a dead
-    worker stayed dead (0 clicks). Respawn from FamFlow, never from MEI.
+    Frozen EXE + PHARMFLOW_EXE_OWNED.flag made MEI ensure skip spawn, so a dead
+    worker stayed dead (0 clicks). Respawn from PharmFlow, never from MEI.
     """
     from automation.farm_pause import farm_halted
 
@@ -230,7 +230,7 @@ def reconnect_serials() -> list[str]:
     fixes: list[str] = []
     try:
         ov = json.loads((LOG / "farm_runtime_overrides.json").read_text(encoding="utf-8-sig"))
-        serials = [s.strip() for s in str(ov.get("CPHARM_ADB_SERIALS") or "").split(",") if s.strip()]
+        serials = [s.strip() for s in str(ov.get("PHARMFLOW_ADB_SERIALS") or "").split(",") if s.strip()]
     except Exception:
         serials = []
     for ser in serials:
@@ -336,8 +336,8 @@ def cycle() -> dict:
     # Lightweight sticky / money tripwires — APPLY rails, don't just log.
     try:
         ov = json.loads((LOG / "farm_runtime_overrides.json").read_text(encoding="utf-8-sig"))
-        ipv = float(ov.get("CPHARM_IPV_STICKY") or ov.get("CPHARM_FARM_IMPRESSIONS_PER_VISIT") or 0)
-        seqs = int(float(ov.get("CPHARM_FARM_SEQS_PER_HOUR") or 0))
+        ipv = float(ov.get("PHARMFLOW_IPV_STICKY") or ov.get("PHARMFLOW_FARM_IMPRESSIONS_PER_VISIT") or 0)
+        seqs = int(float(ov.get("PHARMFLOW_FARM_SEQS_PER_HOUR") or 0))
         site = {}
         try:
             site = json.loads((LOG / "farm_site_lock.json").read_text(encoding="utf-8-sig"))
@@ -345,12 +345,12 @@ def cycle() -> dict:
             site = {}
         visits = str(site.get("daily_visits_csv") or "")
         need_heat = ipv > 40 or seqs > 36 or ("500" in visits) or ("490" in visits)
-        gap = int(float(ov.get("CPHARM_FARM_PATH3_GLOBAL_GAP_MIN") or 0))
-        p3_hr = int(float(ov.get("CPHARM_PATH3_PER_HOUR") or 0))
-        farm_p3_hr = int(float(ov.get("CPHARM_FARM_PATH3_PER_HOUR") or 0))
-        req_pay = str(ov.get("CPHARM_PATH3_REQUIRE_PAYING") or "")
+        gap = int(float(ov.get("PHARMFLOW_FARM_PATH3_GLOBAL_GAP_MIN") or 0))
+        p3_hr = int(float(ov.get("PHARMFLOW_PATH3_PER_HOUR") or 0))
+        farm_p3_hr = int(float(ov.get("PHARMFLOW_FARM_PATH3_PER_HOUR") or 0))
+        req_pay = str(ov.get("PHARMFLOW_PATH3_REQUIRE_PAYING") or "")
         try:
-            dwell_bad = float(ov.get("CPHARM_AD_DWELL_MAX") or 0) > 12.0
+            dwell_bad = float(ov.get("PHARMFLOW_AD_DWELL_MAX") or 0) > 12.0
         except (TypeError, ValueError):
             dwell_bad = False
         need_path3 = (
@@ -359,7 +359,7 @@ def cycle() -> dict:
             or farm_p3_hr < 8
             or req_pay in ("1", "true", "yes", "on")
             or dwell_bad
-            or str(ov.get("CPHARM_EMULATOR_AD_FORCE_DIRECT") or "") != "1"
+            or str(ov.get("PHARMFLOW_EMULATOR_AD_FORCE_DIRECT") or "") != "1"
         )
         if need_heat:
             fixes.extend(

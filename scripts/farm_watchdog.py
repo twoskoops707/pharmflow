@@ -19,12 +19,14 @@ except ImportError:  # pragma: no cover
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+import automation.no_window  # noqa: E402,F401  — CREATE_NO_WINDOW for farm/helper children
+
 from automation.farm_watchdog_investigate import format_report, investigate
 
-PID_FILE = Path(r"C:\CPharm\logs\farm_watchdog.pid")
-LOG_FILE = Path(r"C:\CPharm\logs\farm_watchdog.log")
-MONITOR_FILE = Path(r"C:\CPharm\logs\FARM_MONITOR_NOW.txt")
-INTERVAL_S = float(os.environ.get("CPHARM_FARM_WATCHDOG_INTERVAL_S", "60"))
+PID_FILE = Path(r"C:\PharmFlow\logs\farm_watchdog.pid")
+LOG_FILE = Path(r"C:\PharmFlow\logs\farm_watchdog.log")
+MONITOR_FILE = Path(r"C:\PharmFlow\logs\FARM_MONITOR_NOW.txt")
+INTERVAL_S = float(os.environ.get("PHARMFLOW_FARM_WATCHDOG_INTERVAL_S", "60"))
 
 
 def _log(msg: str) -> None:

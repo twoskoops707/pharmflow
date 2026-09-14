@@ -25,7 +25,7 @@ class DabflowMantisPatchTests(unittest.TestCase):
         self.assertIn("zone-four", patch.PATCH_JS)
         self.assertNotIn("zone-four-", patch.PATCH_JS)
         self.assertIn("cooldown-video-ad", patch.PATCH_JS)
-        self.assertIn("__cpharmMantisPatchV1", patch.PATCH_JS)
+        self.assertIn("__pharmflowMantisPatchV1", patch.PATCH_JS)
 
     def test_host_cdp_port_per_phone(self) -> None:
         self.assertEqual(patch.host_cdp_port(0), 9222)
@@ -46,17 +46,17 @@ class DabflowMantisPatchTests(unittest.TestCase):
     def test_patch_enabled_env(self) -> None:
         import os
 
-        old = os.environ.get("CPHARM_DABFLOW_MANTIS_PATCH")
+        old = os.environ.get("PHARMFLOW_DABFLOW_MANTIS_PATCH")
         try:
-            os.environ["CPHARM_DABFLOW_MANTIS_PATCH"] = "0"
+            os.environ["PHARMFLOW_DABFLOW_MANTIS_PATCH"] = "0"
             self.assertFalse(patch.patch_enabled_from_env())
-            os.environ["CPHARM_DABFLOW_MANTIS_PATCH"] = "1"
+            os.environ["PHARMFLOW_DABFLOW_MANTIS_PATCH"] = "1"
             self.assertTrue(patch.patch_enabled_from_env())
         finally:
             if old is None:
-                os.environ.pop("CPHARM_DABFLOW_MANTIS_PATCH", None)
+                os.environ.pop("PHARMFLOW_DABFLOW_MANTIS_PATCH", None)
             else:
-                os.environ["CPHARM_DABFLOW_MANTIS_PATCH"] = old
+                os.environ["PHARMFLOW_DABFLOW_MANTIS_PATCH"] = old
 
 
 class MantisAdUrlPublisherTests(unittest.TestCase):

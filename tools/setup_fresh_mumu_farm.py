@@ -54,7 +54,7 @@ def main() -> int:
         sys.stdout.write(line)
         sys.stdout.flush()
 
-    log("CPharm — set up MuMu phones (dev CLI)")
+    log("PharmFlow — set up MuMu phones (dev CLI)")
     log("Operators: run PharmFlow → Phones → Set up my phones instead of this script.")
     log("")
 

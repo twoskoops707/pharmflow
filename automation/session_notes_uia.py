@@ -35,7 +35,7 @@ def _dump_ui_xml(serial: str) -> str:
         timeout=60,
         creationflags=_no_win(),
     )
-    local = Path(tempfile.gettempdir()) / f"cpharm_uia_{serial.replace(':', '_')}.xml"
+    local = Path(tempfile.gettempdir()) / f"pharmflow_uia_{serial.replace(':', '_')}.xml"
     subprocess.run(
         [adb, "-s", serial, "pull", remote, str(local)],
         capture_output=True,
@@ -82,6 +82,24 @@ def skip_button_screen_center(serial: str) -> tuple[int, int] | None:
 
 def session_notes_modal_visible(serial: str) -> bool:
     return skip_button_screen_center(serial) is not None
+
+
+def step_wants_session_notes_dismiss(step: dict | None) -> bool:
+    """True when the authored step must not continue while the sheet is up."""
+    if not isinstance(step, dict):
+        return False
+    if step.get("verify_dismiss") is True:
+        return True
+    return str(step.get("checkpoint") or "").strip().lower() == "popup_dismiss"
+
+
+def step_wants_session_notes_gone(step: dict | None) -> bool:
+    """True when the authored wait is only done after the sheet is gone."""
+    if not isinstance(step, dict):
+        return False
+    if step.get("until_session_notes_gone") is True:
+        return True
+    return str(step.get("checkpoint") or "").strip().lower() == "popup_dismissed"
 
 
 def wait_session_notes_gone(serial: str, *, timeout_sec: float = 8.0, poll_sec: float = 0.25) -> bool:

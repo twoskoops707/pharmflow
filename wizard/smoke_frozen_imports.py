@@ -2,7 +2,7 @@
 """
 Frozen-wizard import smoke: same modules PyInstaller must resolve (NameError at import = CI fail).
 
-Import order matches recommended frozen-app load: theme, sequence_humanize, browser_builder_webview, setup_wizard, cpharm_desktop (PyInstaller entry).
+Import order matches recommended frozen-app load: theme, sequence_humanize, browser_builder_webview, setup_wizard, pharmflow_desktop (PyInstaller entry).
 
 From repo root:
 
@@ -22,10 +22,10 @@ import wizard_theme  # noqa: F401
 import sequence_humanize  # noqa: F401
 import browser_builder_webview  # noqa: F401
 import setup_wizard  # noqa: F401
-import cpharm_desktop  # noqa: F401
-import cpharm_wizard_bridge  # noqa: F401
+import pharmflow_desktop  # noqa: F401
+import pharmflow_wizard_bridge  # noqa: F401
 
-# PyInstaller must ship these for Boot/Go fingerprint + lazy wizard imports in CPharm.exe
+# PyInstaller must ship these for Boot/Go fingerprint + lazy wizard imports in PharmFlow.exe
 wizard_paths.automation_on_sys_path()
 import adb_paths  # noqa: F401
 import browser_adb  # noqa: F401
@@ -42,7 +42,7 @@ import dabflow_mantis_client_patch  # noqa: F401
 
 
 def main() -> int:
-    import cpharm_wizard_bridge as bridge
+    import pharmflow_wizard_bridge as bridge
 
     steps = bridge.get_wizard_steps()
     # Deck + bridge share 10 steps (Site Map was added as step 6). Keep this

@@ -63,7 +63,7 @@ class TorManagerTests(unittest.TestCase):
             patch("automation.tor_manager._load_exit_ips"),
         ):
             remember_exit_ip(0, "1.1.1.1")
-            with patch.dict("os.environ", {"CPHARM_REQUIRE_UNIQUE_EXIT_IP": "1"}):
+            with patch.dict("os.environ", {"PHARMFLOW_REQUIRE_UNIQUE_EXIT_IP": "1"}):
                 result = mgr.rotate_until_unique_ip(
                     0, "serial", max_retries=5, avoid_other_phones=False
                 )

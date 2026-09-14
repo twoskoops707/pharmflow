@@ -44,41 +44,42 @@ def _env_on(name: str, *, default: bool = True) -> bool:
 
 
 def emulator_ad_mode_enabled(serial: str | None = None) -> bool:
-    if not _env_on("CPHARM_EMULATOR_AD_MODE", default=True):
+    if not _env_on("PHARMFLOW_EMULATOR_AD_MODE", default=True):
         return False
     mode = browse_proxy_mode()
     if mode in ("direct", "scramble", "upstream"):
         return True
     if mode == "tor":
-        return _env_on("CPHARM_EMULATOR_AD_FORCE_DIRECT", default=False) and bool(
+        return _env_on("PHARMFLOW_EMULATOR_AD_FORCE_DIRECT", default=False) and bool(
             serial and _MUMU_SERIAL_RE.match(serial)
         )
     return False
 
 
 def emulator_ad_fallback_enabled() -> bool:
-    return _env_on("CPHARM_EMULATOR_AD_FALLBACK", default=True)
+    return _env_on("PHARMFLOW_EMULATOR_AD_FALLBACK", default=True)
 
 
 def should_restore_tor_after_ads() -> bool:
     """True when Tor should be re-attached after an ad-fill window."""
     if browse_proxy_mode() in ("direct", "scramble", "upstream"):
-        return _env_on("CPHARM_EMULATOR_AD_RESTORE_TOR", default=False)
+        return _env_on("PHARMFLOW_EMULATOR_AD_RESTORE_TOR", default=False)
     return True
 
 
 def session_scramble_enabled() -> bool:
     mode = browse_proxy_mode()
     if mode in ("scramble", "upstream"):
-        return _env_on("CPHARM_AD_SESSION_SCRAMBLE", default=True)
-    return _env_on("CPHARM_AD_SESSION_SCRAMBLE", default=False)
+        return _env_on("PHARMFLOW_AD_SESSION_SCRAMBLE", default=True)
+    return _env_on("PHARMFLOW_AD_SESSION_SCRAMBLE", default=False)
 
 
 def emulator_ad_fill_wait_sec() -> float:
-    raw = os.environ.get("CPHARM_EMULATOR_AD_FILL_WAIT", "").strip()
+    """Seconds to wait for an ad fill. Default 2. An operator value is not cut at 60."""
+    raw = os.environ.get("PHARMFLOW_EMULATOR_AD_FILL_WAIT", "").strip()
     if raw:
         try:
-            return max(0.0, min(60.0, float(raw)))
+            return max(0.0, float(raw))
         except ValueError:
             pass
     # Keep short — sequences already include an explicit Mantis fill wait.
@@ -103,9 +104,9 @@ def ad_checkpoint_from_description(description: str) -> str:
 
 
 def chromium_url_bar_text(adb: object, serial: str) -> str:
-    remote = "/sdcard/cpharm_url_bar.xml"
+    remote = "/sdcard/pharmflow_url_bar.xml"
     try:
-        adb.shell("uiautomator dump /sdcard/cpharm_url_bar.xml", serial=serial)  # type: ignore[union-attr]
+        adb.shell("uiautomator dump /sdcard/pharmflow_url_bar.xml", serial=serial)  # type: ignore[union-attr]
         result = adb.shell(f"cat {remote}", serial=serial)  # type: ignore[union-attr]
         xml = result.stdout or ""
     except (OSError, AttributeError):
@@ -165,20 +166,24 @@ def pause_tor_for_ads(
     if ser in _paused:
         return {"skipped": True, "reason": "already_paused"}
 
-    from automation.browse_proxy import pin_guest_proxy
+    from automation.browse_proxy import guest_proxy_healthy, pin_guest_proxy
 
     # FORCE_DIRECT used to write http_proxy :0. That is host-IP egress:
     # inject stops painting ads and Mantis pays $0. Pin inject instead.
+    # A second pause used to return already_paused without reading the guest.
+    # That skipped a dead exit. Pin again. It is a no-op when the exit is healthy.
     _ = kick_browser
     pinned = pin_guest_proxy(adb, ser, int(phone_idx))
+    healthy = guest_proxy_healthy(pinned, int(phone_idx))
     out = {
-        "ok": True,
+        "ok": healthy,
         "mode": browse_proxy_mode(),
         "http_proxy": pinned,
-        "pinned": True,
+        "pinned": healthy,
         "force_clear_tor": False,
     }
-    if out.get("skipped") and not out.get("ok"):
+    if not healthy:
+        _paused.discard(ser)
         return out
     _paused.add(ser)
     return out
@@ -216,8 +221,9 @@ def resume_tor_after_ads(
         pinned = pin_guest_proxy(adb, ser, int(phone_idx), attempts=3)
         out = dict(out or {})
         out["http_proxy"] = pinned
-        out["pinned"] = True
-        if guest_proxy_healthy(pinned, int(phone_idx)):
+        healthy = guest_proxy_healthy(pinned, int(phone_idx))
+        out["pinned"] = healthy
+        if healthy:
             out["ok"] = True
     except Exception as exc:
         out = dict(out or {})
@@ -365,8 +371,13 @@ def ensure_ads_visible_browser_hidden(
     except Exception as exc:
         out["pause_error"] = str(exc)
         log(f"Ad fill pause soft-fail serial={serial}: {exc}")
+    paused = out.get("pause") if isinstance(out.get("pause"), dict) else {}
+    if paused.get("ok") is False and not paused.get("skipped"):
+        out["ok"] = False
+        log(f"Ad fill refused — guest has no loopback exit serial={serial}")
+        return out
     # Paint Mantis creatives WHILE direct (SSP + static.mantis often blocked via Tor).
-    if os.environ.get("CPHARM_SKIP_MANTIS_PATCH", "").strip().lower() not in (
+    if os.environ.get("PHARMFLOW_SKIP_MANTIS_PATCH", "").strip().lower() not in (
         "1",
         "true",
         "yes",

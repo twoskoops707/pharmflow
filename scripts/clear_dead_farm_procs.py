@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Clear dead / duplicate FamFlow farm helper processes.
+"""Clear dead / duplicate PharmFlow farm helper processes.
 
 Keeps exactly one of each long-running helper. Kills:
   - duplicate farm/cycles/watch/inject/dash/ensure/tickler/suppress/fail_review/ntfy
@@ -7,7 +7,7 @@ Keeps exactly one of each long-running helper. Kills:
   - MuMu nemux-shell ADB consoles
   - watch_adb_devices cmd windows
   - duplicate proxy_guard_loop.ps1 (keeps newest)
-  - Azure telemetry bash/wsl/conhost orphans (via FamFlowTools killer when present)
+  - Azure telemetry bash/wsl/conhost orphans (via PharmFlowTools killer when present)
 
 Does **not** kill a solitary healthy run_farm_354 / cycles / tor / adb server.
 Does **not** kill Freebuff / bun.exe processes (protected).
@@ -30,9 +30,9 @@ sys.path.insert(0, str(ROOT))
 from automation.farm_process_janitor import sweep_dead_processes  # noqa: E402
 
 LOG_DIR = Path(
-    os.environ.get("CPHARM_LOGS")
-    or os.environ.get("CPHARM_LOG_DIR")
-    or r"C:\CPharm\logs"
+    os.environ.get("PHARMFLOW_LOGS")
+    or os.environ.get("PHARMFLOW_LOG_DIR")
+    or r"C:\PharmFlow\logs"
 )
 HB = LOG_DIR / "clear_dead_procs_heartbeat.txt"
 

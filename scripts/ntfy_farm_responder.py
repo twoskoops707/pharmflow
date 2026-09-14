@@ -6,8 +6,8 @@ data, and executes safe commands (start/stop farm, clear+home phones).
 
   py -u scripts/ntfy_farm_responder.py
 
-Logs: C:\\CPharm\\logs\\ntfy_farm_responder.log
-Inbox: C:\\CPharm\\logs\\ntfy_inbox.jsonl
+Logs: C:\\PharmFlow\\logs\\ntfy_farm_responder.log
+Inbox: C:\\PharmFlow\\logs\\ntfy_inbox.jsonl
 """
 
 from __future__ import annotations
@@ -31,23 +31,23 @@ sys.path.insert(0, str(_REPO))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import automation.no_window  # noqa: E402,F401  — hide helper consoles
 import farm_hourly_ntfy as farm  # noqa: E402
-from automation.cpharm_exe_owned import exe_owns_farm  # noqa: E402
+from automation.pharmflow_exe_owned import exe_owns_farm  # noqa: E402
 from automation.farm_checkin import format_checkin, gather_checkin  # noqa: E402
-from automation.process_scan import cpharm_exe_pids  # noqa: E402
+from automation.process_scan import pharmflow_exe_pids  # noqa: E402
 from wizard.farm_control import start_farm  # noqa: E402
 
 TOPIC = "twskoops"
 BASE = f"https://ntfy.sh/{TOPIC}"
 NTFY_URL = BASE
-LOG_DIR = Path(r"C:\CPharm\logs")
+LOG_DIR = Path(r"C:\PharmFlow\logs")
 INBOX = LOG_DIR / "ntfy_inbox.jsonl"
 STATUS = LOG_DIR / "ntfy_farm_responder_status.txt"
 WATCHER_LOG = LOG_DIR / "ntfy_farm_responder.log"
-REPLY_PREFIX = "[FamFlow]"
+REPLY_PREFIX = "[PharmFlow]"
 REPO = _REPO
 PYTHON = sys.executable
 PHONE_NAMES = ("vm0.gmadoa", "vm1.gmadoa", "vm2.gmadoa", "vm3.gmadoa", "vm4.gmadoa", "vm5.gmadoa")
-# Default farm size is 6 MuMu x64 phones (vm0–vm5). Override via CPHARM_FARM_PHONES.
+# Default farm size is 6 MuMu x64 phones (vm0–vm5). Override via PHARMFLOW_FARM_PHONES.
 EXPECTED_PHONES = 6
 # Legacy fallbacks only - live serials come from MuMuFarmOps / adb devices.
 PHONE_SERIALS_FALLBACK = {
@@ -61,20 +61,20 @@ PHONE_SERIALS_FALLBACK = {
 
 # Titles / body prefixes that mean "we posted this" - do not reply.
 _OWN_TITLE_PREFIXES = (
-    "FamFlow",
+    "PharmFlow",
     "Farm check-in",
     "Farm FIX",
     "Farm:",
-    "[FamFlow]",
+    "[PharmFlow]",
     "Agent reply",
     "StockFlow",  # CI / release bots - never treat as operator chat
 )
 _OWN_BODY_PREFIXES = (
-    "[FamFlow]",
+    "[PharmFlow]",
     "Farm:",
     "Farm check-in",
     "Farm FIX",
-    "FamFlow farm",
+    "PharmFlow farm",
     "Heard you.",
     "window: ",
     "run_farm_354",
@@ -144,14 +144,14 @@ def _is_own_message(title: str, text: str, tags) -> bool:
         "robot",
     }
     if tag_list and own_tags.intersection(tag_list) and (
-        t.startswith("FamFlow") or b.startswith("window:") or b.startswith("FamFlow") or b.startswith("[FamFlow]")
+        t.startswith("PharmFlow") or b.startswith("window:") or b.startswith("PharmFlow") or b.startswith("[PharmFlow]")
     ):
         return True
     return False
 
 
 def _adb_bin() -> str:
-    return os.environ.get("CPHARM_ADB") or r"C:\CPharm\bundled\adb.exe"
+    return os.environ.get("PHARMFLOW_ADB") or r"C:\PharmFlow\bundled\adb.exe"
 
 
 def _adb_devices() -> list[str]:
@@ -288,7 +288,7 @@ def _online_from_log() -> list[str]:
 
 
 def _expected_phone_n() -> int:
-    raw = (os.environ.get("CPHARM_FARM_PHONES") or "").strip()
+    raw = (os.environ.get("PHARMFLOW_FARM_PHONES") or "").strip()
     if raw:
         n = len([p for p in raw.split(",") if p.strip()])
         if n > 0:
@@ -420,7 +420,7 @@ def _cmd_start_farm(*, force_restart: bool = False) -> str:
     if force_restart:
         clear_note = _cmd_clear_phones(quick=True)
 
-    if cpharm_exe_pids() or exe_owns_farm():
+    if pharmflow_exe_pids() or exe_owns_farm():
         if pids:
             return (
                 f"PharmFlow.exe already owns the farm pids={pids}. "
@@ -437,7 +437,7 @@ def _cmd_start_farm(*, force_restart: bool = False) -> str:
         stop_msg,
         clear_note,
         (
-            "Started farm via CPharm start_farm (hours=0 daily caps)."
+            "Started farm via PharmFlow start_farm (hours=0 daily caps)."
             if ok
             else "start_farm returned False — click Start farm in PharmFlow.exe."
         ),

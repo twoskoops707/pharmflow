@@ -58,7 +58,7 @@ CHROMIUM_SNAPSHOT_LIST = (
     "?prefix=Android_ARM64%2F&delimiter=%2F"
 )
 
-_USER_AGENT = "CPharm-FarmBrowserSideload/1.0 (+https://github.com/twoskoops707/FamFlow)"
+_USER_AGENT = "PharmFlow-FarmBrowserSideload/1.0 (+https://github.com/twoskoops707/PharmFlow)"
 
 
 @dataclass(frozen=True)
@@ -151,14 +151,14 @@ BROWSER_APK_SPECS: tuple[BrowserApkSpec, ...] = (
 
 
 def default_apk_cache_dir() -> Path:
-    """Prefer C:\\CPharm\\apks, fall back to repo-relative CPharm/apks when unset."""
-    env = (os.environ.get("CPHARM_APK_CACHE") or "").strip()
+    """Prefer C:\\PharmFlow\\apks, fall back to repo-relative PharmFlow/apks when unset."""
+    env = (os.environ.get("PHARMFLOW_APK_CACHE") or "").strip()
     if env:
         return Path(env)
     # Match live farm layout used by operators.
-    cpharm = Path(r"C:\CPharm\apks")
-    if cpharm.parent.is_dir() or os.name == "nt":
-        return cpharm
+    pharmflow = Path(r"C:\PharmFlow\apks")
+    if pharmflow.parent.is_dir() or os.name == "nt":
+        return pharmflow
     return Path.cwd() / "apks"
 
 
@@ -420,7 +420,7 @@ def download_browser_apk(
             if snap:
                 if progress_cb:
                     progress_cb(f"Chromium snapshot fallback: {snap}")
-                with tempfile.TemporaryDirectory(prefix="cpharm_chromium_") as td:
+                with tempfile.TemporaryDirectory(prefix="pharmflow_chromium_") as td:
                     zpath = Path(td) / "chrome-android.zip"
                     _http_download(snap, zpath, progress_cb=progress_cb)
                     with zipfile.ZipFile(zpath, "r") as zf:
@@ -518,11 +518,11 @@ def install_apks_on_serials(
 def required_path12_packages() -> list[str]:
     """Packages Path1/2 need before a phone may farm.
 
-    Honors ``CPHARM_FARM_BROWSERS=chromium,firefox,brave,duckduckgo`` when set;
+    Honors ``PHARMFLOW_FARM_BROWSERS=chromium,firefox,brave,duckduckgo`` when set;
     otherwise all Path1/2 catalog packages. Chromium is always required when
-    Path3 is enabled (``CPHARM_FARM_PATHS`` contains ``3``).
+    Path3 is enabled (``PHARMFLOW_FARM_PATHS`` contains ``3``).
     """
-    raw = (os.environ.get("CPHARM_FARM_BROWSERS") or "").strip().lower()
+    raw = (os.environ.get("PHARMFLOW_FARM_BROWSERS") or "").strip().lower()
     pkgs: list[str] = []
     if raw:
         for part in raw.split(","):
@@ -542,7 +542,7 @@ def required_path12_packages() -> list[str]:
         pkgs = [s.package for s in BROWSER_APK_SPECS if s.path12]
     paths = {
         p.strip()
-        for p in (os.environ.get("CPHARM_FARM_PATHS") or "1,2,3").split(",")
+        for p in (os.environ.get("PHARMFLOW_FARM_PATHS") or "1,2,3").split(",")
         if p.strip()
     }
     if "3" in paths and BROWSER_CHROMIUM not in pkgs:
@@ -623,7 +623,7 @@ def ensure_missing_farm_browsers_on_serials(
 
     Phones that already have every required package are left alone. New or
     wiped guests get Chromium + Firefox + Brave + DuckDuckGo (or the
-    ``CPHARM_FARM_BROWSERS`` subset) before sequences may start.
+    ``PHARMFLOW_FARM_BROWSERS`` subset) before sequences may start.
     """
     need = list(required) if required is not None else required_path12_packages()
     missing_by_serial: dict[str, list[str]] = {}
@@ -731,7 +731,7 @@ def catalog_markdown() -> str:
             "",
             "- **None required.** Downloads are anonymous HTTPS/FTP.",
             "- GitHub API for Brave is unauthenticated (rate-limited ~60/hr/IP).",
-            "- If rate-limited, place APKs manually under `C:\\CPharm\\apks\\` "
+            "- If rate-limited, place APKs manually under `C:\\PharmFlow\\apks\\` "
             "using the filenames in this catalog and re-run the sideload script.",
             "",
             "## Update APKs",

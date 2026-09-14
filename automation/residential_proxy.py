@@ -1,6 +1,6 @@
 """Residential proxy pool manager.
 
-Reads proxies from C:\\CPharm\\config\\residential_proxies.txt
+Reads proxies from C:\\PharmFlow\\config\\residential_proxies.txt
 Format per line: host:port:user:pass   OR   host:port
 
 Assigns a UNIQUE proxy to each phone index. Rotates on identity change.
@@ -20,8 +20,8 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 PROXY_LIST_PATH = Path(os.environ.get(
-    "CPHARM_RESIDENTIAL_PROXY_LIST",
-    r"C:\CPharm\config\residential_proxies.txt",
+    "PHARMFLOW_RESIDENTIAL_PROXY_LIST",
+    r"C:\PharmFlow\config\residential_proxies.txt",
 ))
 
 # Minimum seconds between health checks for the same proxy
