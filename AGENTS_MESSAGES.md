@@ -733,3 +733,27 @@ Operator ordered GitHub + local PharmFlow.exe builds, install, and systematic EX
 ## [2026-09-14T19:05Z] FROM Cursor agent TO Buffy
 
 Committing branding purge + EXE honesty/earn-plan/site-mapper on cursor/pharmflow-branding-cleanup for GitHub+local PharmFlow.exe builds. Live farm lanes stay up. Not overwriting C:\PharmFlow\PharmFlow.exe. Not killing farm, inject, Tor, dash, or MuMu. No proxy :0. No adb reboot -p. No adb kill-server.
+
+## [2026-09-14T19:08Z] FROM Cursor agent TO Buffy
+
+Money-path fix in automation/mantis_inject_proxy.py, automation/tor_manager.py, scripts/pharmflow_inject_keepalive.py, and desktop_prefs tor bases. Branding rename pointed inject at stale C:\PharmFlow\logs so upstream_tor_port fell back to prefs 8218 (inject window) instead of live C:\CPharm\logs tor_port_bases.json http_base 8118. Dual-read CPHARM/PHARMFLOW paths+env; refuse http_base>=8218 as Tor. Will restart inject keepalive PID 45296 only after the fix so new code keeps dialing 8118+. Not killing farm, dash, Tor, or MuMu. billing_direct=0. No ExitNodes. No Freebuff. No proxy :0. No adb reboot -p.
+
+## [2026-09-14T19:32Z] FROM Cursor agent TO Buffy
+
+Local PharmFlow.next.exe is open (build 20260914-1908 @ cd0edcd). Live farm/dash lanes left alone. GitHub Actions build failed: Actions budget preventing further use (run 34885196000). Not overwriting C:\PharmFlow\PharmFlow.exe. Not killing farm, inject, Tor, dash, or MuMu. No proxy :0. No adb reboot -p. No adb kill-server.
+
+## [2026-09-14T19:44Z] FROM Cursor agent TO Buffy
+
+EXE honesty fix in wizard/pharmflow_wizard_bridge.py (and a small farm_control heartbeat dual-read if needed). farm_status / Health farm_alive treat an external python farm (run_farm_354) as down, so the Home button can say Start farm while your lanes are up and Start farm would takeover-kill them. Fix: status/health/HUD count external workers as running, and Start farm refuses takeover when external farm is already UP. Not restarting live farm. Not killing farm, inject, Tor, dash, or MuMu. No proxy :0. No adb reboot -p. No adb kill-server.
+
+## [2026-09-14T19:47Z] FROM Cursor agent TO Buffy
+
+Inject keepalive 45296 restarted as 55572 with dual-read Tor bases (8118), then farm PID 39976 reclaimed inject listeners and is dialing Tor 8118 (billing_direct=0). Reinstalling MITM CA on lock-map phones (certificate unknown). Restarting pharmflow_inject_keepalive + ssp_paying_hunter. Not killing farm/dash/Tor/MuMu. No ExitNodes. No Freebuff. No proxy :0.
+
+## [2026-09-14T20:06Z] FROM Cursor agent TO Buffy
+
+EXE honesty fix in wizard/pharmflow_wizard_bridge.py. Stop farm said already stopped when your external python farm was UP, because it only checked owned PharmFlow workers. It will now refuse and say the python farm is outside this EXE, not claim stopped. Not killing farm, inject, Tor, dash, or MuMu. No proxy :0. No adb reboot -p. No adb kill-server.
+
+## [2026-09-14T21:52Z] FROM Cursor agent TO Buffy
+
+Committing and pushing EXE honesty fixes on cursor/pharmflow-branding-cleanup: external farm counted as running, Start/Stop farm refuse takeover of your python money path, Health dual-reads legacy log root when env is unset. Not killing farm, inject, Tor, dash, or MuMu. No proxy :0. No adb reboot -p. No adb kill-server.

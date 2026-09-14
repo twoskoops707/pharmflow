@@ -3536,7 +3536,8 @@ def get_farm_health() -> dict:
 
     Dump-timeout and fallback stats come from the farm log. ``farm_alive``
     does not. A log touched in the last two minutes is not a running farm —
-    the Home button already treats that as a lie. LIVE means a worker process.
+    the Home button already treats that as a lie. LIVE means a worker process,
+    including an external python farm that PharmFlow did not start.
     """
     try:
         from automation.farm_health import snapshot
@@ -3547,9 +3548,12 @@ def get_farm_health() -> dict:
     if not isinstance(out, dict):
         return {"ok": False, "error": "Farm health returned nothing."}
     try:
-        from wizard.farm_control import farm_process_alive
+        from wizard.farm_control import (
+            external_python_farm_running,
+            farm_process_alive,
+        )
 
-        alive = bool(farm_process_alive())
+        alive = bool(farm_process_alive() or external_python_farm_running())
     except Exception:  # noqa: BLE001 — the card must not guess from the log
         alive = False
     out["farm_alive"] = alive
@@ -3916,13 +3920,16 @@ def agent_status() -> dict:
     localhost port range. That either opened a second Control Panel or
     checked ports that are not this MuMu farm.
     """
-    from wizard.farm_control import farm_process_alive
-
     notes: list[str] = []
     status = _operator_status()
     listed = _status_farm_process_alive(status)
     try:
-        local = bool(farm_process_alive())
+        from wizard.farm_control import (
+            external_python_farm_running,
+            farm_process_alive,
+        )
+
+        local = bool(farm_process_alive() or external_python_farm_running())
     except Exception as exc:  # noqa: BLE001
         local = False
         notes.append(f"farm check failed: {exc}")
@@ -3992,7 +3999,13 @@ def start_farm_from_app(profile_slug: str = "", hours: float = 0) -> dict:
     ``starting`` response immediately and emits each progress/error line through
     the existing Run log callback.
     """
-    from wizard.farm_control import farm_process_alive as _alive, load_active_profile, start_farm as _sf
+    from wizard.farm_control import (
+        external_python_farm_running as _ex,
+        farm_process_alive as _alive,
+        load_active_profile,
+        operator_dashboard_listening,
+        start_farm as _sf,
+    )
 
     global _farm_start_result, _farm_starting
     with _farm_start_lock:
@@ -4003,8 +4016,6 @@ def start_farm_from_app(profile_slug: str = "", hours: float = 0) -> dict:
                 "message": "Farm startup is already in progress — watch the Run log.",
             }
         if _alive():
-            from wizard.farm_control import operator_dashboard_listening
-
             if operator_dashboard_listening():
                 return {
                     "ok": True,
@@ -4059,6 +4070,26 @@ def start_farm_from_app(profile_slug: str = "", hours: float = 0) -> dict:
                         }
 
             threading.Thread(target=bring_dash, name="pharmflow-farm-dash", daemon=True).start()
+            return dict(_farm_start_result)
+        # External python money path is already up. Start farm must not kill it
+        # with takeover=True just because PharmFlow.exe did not own the PID.
+        if _ex():
+            dash_up = operator_dashboard_listening()
+            message = (
+                "Python farm is already running. Open the dashboard. "
+                "Start farm does not take over that money path from this button."
+            )
+            _emit_log("go", "[farm] " + message + "\n")
+            _farm_start_result = {
+                "ok": False,
+                "starting": False,
+                "running": True,
+                "external": True,
+                "dashboard_ready": dash_up,
+                "error": message,
+                "message": message,
+                "dashboard": "http://127.0.0.1:8091/",
+            }
             return dict(_farm_start_result)
         _farm_starting = True
         _farm_start_result = {
@@ -4131,13 +4162,39 @@ def stop_farm_from_app() -> dict:
 
     A fresh log is not a worker. If no worker process is alive, the button
     has nothing to stop. If a worker is still alive after the stop attempt,
-    the button must not say the farm stopped.
+    the button must not say the farm stopped. An external python farm that
+    PharmFlow did not start is still a live money path — do not claim it is
+    already stopped, and do not kill it from this button.
     """
-    from wizard.farm_control import farm_process_alive as _alive, stop_farm as _stop
+    from wizard.farm_control import (
+        external_python_farm_running as _ex,
+        farm_process_alive as _alive,
+        stop_farm as _stop,
+    )
 
     global _farm_start_result
     try:
         if not _alive():
+            if _ex():
+                message = (
+                    "Python farm is running outside this EXE. "
+                    "Stop farm does not kill that money path from this button."
+                )
+                with _farm_start_lock:
+                    _farm_start_result = {
+                        "ok": False,
+                        "starting": False,
+                        "running": True,
+                        "external": True,
+                        "error": message,
+                    }
+                return {
+                    "ok": False,
+                    "stopped": False,
+                    "running": True,
+                    "external": True,
+                    "error": message,
+                }
             with _farm_start_lock:
                 _farm_start_result = {
                     "ok": True,
@@ -4152,7 +4209,7 @@ def stop_farm_from_app() -> dict:
                 "message": "Farm is already stopped.",
             }
         stopped = _stop()
-        still = _alive()
+        still = bool(_alive() or _ex())
         if still or not stopped:
             message = "Farm stop did not complete — a worker process is still running."
             with _farm_start_lock:
@@ -4375,14 +4432,17 @@ def farm_status_from_app() -> dict:
     from wizard.farm_control import farm_process_alive as _alive
 
     try:
-        running = bool(_alive())
+        owned = bool(_alive())
         external = bool(_ex())
+        # External run_farm_354 is a live money path. Reporting running=False
+        # while external=True made Home show Start farm and invited a takeover.
+        running = owned or external
         with _farm_start_lock:
             result = dict(_farm_start_result)
             starting = bool(_farm_starting)
         # A fresh farm_354.log is not a running farm. Do not erase a recorded
         # start failure just because the last session wrote the log recently.
-        if result.get("ok") is False and not starting:
+        if result.get("ok") is False and not starting and not running:
             result["running"] = False
             result["starting"] = False
         elif running:
@@ -4528,15 +4588,21 @@ def get_farm_hud() -> dict:
             if live:
                 out["phones_online"] = len(live)
     proc = _status_farm_process_alive(status)
-    if proc is None:
-        try:
-            from wizard.farm_control import farm_process_alive as _alive
+    external = False
+    try:
+        from wizard.farm_control import external_python_farm_running as _ex
+        from wizard.farm_control import farm_process_alive as _alive
 
-            proc = bool(_alive())
-        except Exception:  # noqa: BLE001 — HUD is best-effort
+        external = bool(_ex())
+        if proc is None:
+            proc = bool(_alive() or external)
+        elif not proc and external:
+            proc = True
+    except Exception:  # noqa: BLE001 — HUD is best-effort
+        if proc is None:
             proc = False
     out["running"] = bool(proc)
-    out["external"] = False
+    out["external"] = bool(external)
     out["farm"] = "run" if out["running"] else "off"
     if money is None:
         money = _mantis_today_file()

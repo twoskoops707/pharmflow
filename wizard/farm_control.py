@@ -482,21 +482,36 @@ def _farm_heartbeat_alive() -> bool | None:
     is not. Reading file freshness is microseconds; the old psutil cmdline scan
     over every process took 5–15s per call and ran on every HUD poll, which made
     the whole deck feel dead (clicks landing during a 20s get_farm_hud).
+
+    Branding moved the default log root to C:\\PharmFlow\\logs. A live farm that
+    still writes under the previous data root must not look dead here.
     """
     try:
         now = time.time()
         fresh = False
         seen = False
-        logf = _FARM_LOG_DIR / "farm_354.log"
-        if logf.is_file():
-            seen = True
-            if now - logf.stat().st_mtime < 180:
-                fresh = True
-        ovf = _FARM_LOG_DIR / "farm_runtime_overrides.json"
-        if ovf.is_file():
-            seen = True
-            if now - ovf.stat().st_mtime < 300:
-                fresh = True
+        roots = [_FARM_LOG_DIR]
+        # Only dual-read the pre-branding root when the operator did not force
+        # PHARMFLOW_LOG_DIR / PHARMFLOW_LOGS (tests and overrides stay isolated).
+        if not (os.environ.get("PHARMFLOW_LOG_DIR") or os.environ.get("PHARMFLOW_LOGS")):
+            legacy = Path(r"C:\CPharm\logs")
+            try:
+                if legacy.resolve() != _FARM_LOG_DIR.resolve():
+                    roots.append(legacy)
+            except OSError:
+                if str(legacy) != str(_FARM_LOG_DIR):
+                    roots.append(legacy)
+        for root in roots:
+            logf = root / "farm_354.log"
+            if logf.is_file():
+                seen = True
+                if now - logf.stat().st_mtime < 180:
+                    fresh = True
+            ovf = root / "farm_runtime_overrides.json"
+            if ovf.is_file():
+                seen = True
+                if now - ovf.stat().st_mtime < 300:
+                    fresh = True
         if not seen:
             return None
         return fresh

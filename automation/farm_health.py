@@ -28,6 +28,25 @@ def _logs_dir() -> str:
     )
 
 
+def _log_roots() -> list[str]:
+    """Primary log root plus the pre-branding data root when it differs.
+
+    A live farm that still writes under C:\\CPharm\\logs must not look like an
+    empty session to Health after the default root moved to C:\\PharmFlow\\logs.
+
+    When PHARMFLOW_LOG_DIR / PHARMFLOW_LOGS is set, honor that root alone so
+    tests and operator overrides do not silently pull the live legacy tree.
+    """
+    primary = os.path.normcase(os.path.abspath(_logs_dir()))
+    roots = [primary]
+    if os.environ.get("PHARMFLOW_LOG_DIR") or os.environ.get("PHARMFLOW_LOGS"):
+        return roots
+    legacy = os.path.normcase(os.path.abspath(r"C:\CPharm\logs"))
+    if legacy != primary and os.path.isdir(legacy):
+        roots.append(legacy)
+    return roots
+
+
 # Session quality lives in the farm worker log. Other farm_*.log files
 # (money monitor, watchdog, cycles) are newer often and contain no step lines.
 _SESSION_LOG = "farm_354.log"
@@ -69,18 +88,21 @@ def _read_json(path: str) -> Any:
 
 
 def newest_farm_log() -> str | None:
-    log_dir = _logs_dir()
-    primary = os.path.join(log_dir, _SESSION_LOG)
-    if os.path.isfile(primary):
-        return primary
-    logs = []
-    for path in glob.glob(os.path.join(log_dir, "farm_*.log")):
-        name = os.path.basename(path)
-        if name in _NOT_SESSION_LOGS or name.endswith(".out.log") or name.endswith(".err.log"):
-            continue
-        logs.append(path)
-    logs.sort(key=os.path.getmtime, reverse=True)
-    return logs[0] if logs else None
+    candidates: list[str] = []
+    for log_dir in _log_roots():
+        primary = os.path.join(log_dir, _SESSION_LOG)
+        if os.path.isfile(primary):
+            candidates.append(primary)
+        for path in glob.glob(os.path.join(log_dir, "farm_*.log")):
+            name = os.path.basename(path)
+            if name in _NOT_SESSION_LOGS or name.endswith(".out.log") or name.endswith(".err.log"):
+                continue
+            if path not in candidates:
+                candidates.append(path)
+    if not candidates:
+        return None
+    candidates.sort(key=os.path.getmtime, reverse=True)
+    return candidates[0]
 
 
 def _parse_line_ts(line: str) -> float | None:

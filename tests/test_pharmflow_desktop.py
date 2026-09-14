@@ -75,31 +75,53 @@ class PharmFlowAppApiTests(unittest.TestCase):
         self.assertIn("no_such_bridge_method", str(out.get("error")))
 
     def test_start_farm_bridge_refuses_external_python(self) -> None:
-        """App Start-farm must surface refuse when the python money path is UP."""
+        """App Start-farm must refuse when the python money path is already UP."""
         from wizard.pharmflow_wizard_bridge import start_farm_from_app
 
         with (
-            patch("wizard.farm_control.farm_running", return_value=False),
+            patch("wizard.farm_control.farm_process_alive", return_value=False),
             patch("wizard.farm_control.external_python_farm_running", return_value=True),
-            patch("wizard.farm_control.start_farm", return_value=False) as sf,
+            patch("wizard.farm_control.operator_dashboard_listening", return_value=True),
+            patch("wizard.farm_control.start_farm", return_value=True) as sf,
             patch("wizard.pharmflow_wizard_bridge._emit_log") as emit,
-            patch("wizard.pharmflow_wizard_bridge._farm_start_result", {}),
         ):
             out = start_farm_from_app()
-        # Background worker refuses synchronously and streams the refusal.
-        self.assertTrue(out.get("starting") or out.get("ok") is False)
-        self.assertFalse(sf.called or (not sf.called and out.get("started")))
-        self.assertTrue(emit.called or out.get("message"))
+        self.assertFalse(out.get("starting"))
+        self.assertFalse(out.get("ok"))
+        self.assertTrue(out.get("running"))
+        self.assertTrue(out.get("external"))
+        self.assertFalse(sf.called)
+        self.assertTrue(emit.called)
+        self.assertIn("does not take over", str(out.get("error") or out.get("message") or ""))
 
-    def test_farm_status_bridge_reports_refuse_state(self) -> None:
+    def test_farm_status_bridge_reports_external_as_running(self) -> None:
         from wizard.pharmflow_wizard_bridge import farm_status_from_app
 
         with (
-            patch("wizard.farm_control.farm_running", return_value=False),
+            patch("wizard.farm_control.farm_process_alive", return_value=False),
             patch("wizard.farm_control.external_python_farm_running", return_value=True),
+            patch("wizard.farm_control.operator_dashboard_listening", return_value=True),
         ):
             out = farm_status_from_app()
         self.assertEqual(out.get("external"), True)
+        self.assertTrue(out.get("running"))
+        self.assertTrue(out.get("dashboard_ready"))
+
+    def test_stop_farm_bridge_refuses_external_python(self) -> None:
+        from wizard.pharmflow_wizard_bridge import stop_farm_from_app
+
+        with (
+            patch("wizard.farm_control.farm_process_alive", return_value=False),
+            patch("wizard.farm_control.external_python_farm_running", return_value=True),
+            patch("wizard.farm_control.stop_farm", return_value=True) as stop_fn,
+        ):
+            out = stop_farm_from_app()
+        self.assertFalse(out.get("ok"))
+        self.assertFalse(out.get("stopped"))
+        self.assertTrue(out.get("running"))
+        self.assertTrue(out.get("external"))
+        self.assertFalse(stop_fn.called)
+        self.assertIn("does not kill", str(out.get("error") or ""))
 
 
 class BootAllPhonesReconnectTests(unittest.TestCase):
