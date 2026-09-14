@@ -179,6 +179,30 @@ def _is_phone_setup_process(proc) -> bool:
     return "--phone-setup" in cmd or "phone_setup_entry" in cmd
 
 
+# Farm and service processes must survive a second window opening. adb
+# kill-server drops every phone. Killing PharmFlow.exe --start-farm / the
+# control server is how a Control Panel open used to stop earnings.
+_FARM_OWNED_MARKERS = (
+    "--start-farm",
+    "--watchdog",
+    "--cloud-agent",
+    "--agent",
+    "dashboard.py",
+    "cpharm_unison_supervisor.py",
+    "run_mantis_inject",
+    "farm_watchdog.py",
+    "sequence_runner.py",
+    "tor_manager.py",
+)
+
+
+def _is_farm_owned_process(proc) -> bool:
+    cmd = _cmdline_text(proc)
+    if not cmd:
+        return False
+    return any(marker in cmd for marker in _FARM_OWNED_MARKERS)
+
+
 def _is_cpharm_exe_process(proc) -> bool:
     try:
         return _basename(proc.name()) in CPHARM_EXE_BASENAMES
@@ -264,11 +288,12 @@ def run_startup_cleanup(
     log("")
     if first_time:
         log("First-time setup — closing previous MuMu, adb, and PharmFlow processes…")
+        # Only a first phone-setup open resets adb. A later open must not drop
+        # the farm's device list.
+        _adb_kill_server(log)
+        time.sleep(0.4)
     else:
-        log("Closing stale PharmFlow / adb / setup processes (MuMu left running)…")
-
-    _adb_kill_server(log)
-    time.sleep(0.4)
+        log("Closing duplicate setup windows (MuMu, adb, and farm lanes left running)…")
 
     try:
         import psutil
@@ -298,10 +323,16 @@ def run_startup_cleanup(
                 if _is_phone_setup_process(proc):
                     skipped.append(f"phone-setup:{pid}")
                     continue
+                if _is_farm_owned_process(proc):
+                    skipped.append(f"farm:{pid}")
+                    continue
                 targets.append((proc, "cpharm"))
             elif _is_cpharm_python_process(proc):
                 if _is_phone_setup_process(proc):
                     skipped.append(f"phone-setup:{pid}")
+                    continue
+                if _is_farm_owned_process(proc):
+                    skipped.append(f"farm:{pid}")
                     continue
                 targets.append((proc, "cpharm_py"))
             elif first_time and _is_adb_process(proc):

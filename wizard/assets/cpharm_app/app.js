@@ -145,13 +145,16 @@
     finishAction();
     const el = document.getElementById("backend-error");
     if (!el) return;
-    // Dashboard mode: the farm is live via :8091 — never claim it's dead.
-    if (dashConnected) {
+    const text = String(msg || "Action failed");
+    // The HUD being up only disproves "backend not connected". It does not
+    // mean Start farm / boot / groups succeeded — those errors must stay visible.
+    const connectionMissing = /backend not connected|full app/i.test(text);
+    if (dashConnected && connectionMissing) {
       el.hidden = true;
       el.classList.remove("visible");
       return;
     }
-    el.textContent = msg;
+    el.textContent = text;
     el.hidden = false;
     el.classList.add("visible");
   }
@@ -1358,15 +1361,58 @@
     return false;
   }
 
+  async function pollServiceStart(maxMs) {
+    const start = Date.now();
+    while (Date.now() - start < maxMs) {
+      const a = api();
+      if (!a || !a.is_dashboard_ready) break;
+      try {
+        const st = await a.is_dashboard_ready();
+        if (st && st.ok === false && !st.starting) return st;
+        if (st && st.ready && !st.starting) return st;
+      } catch (_e) {
+        /* retry until the worker records a result */
+      }
+      await new Promise(function (r) { setTimeout(r, 2000); });
+    }
+    return { ok: false, error: "Service did not come up — read the Run log" };
+  }
+
+  async function pollGroupsRun() {
+    while (true) {
+      const a = api();
+      if (!a || !a.groups_run_status) {
+        return { ok: false, error: "Groups status is not available in this build" };
+      }
+      try {
+        const st = await a.groups_run_status();
+        if (!st || !st.starting) return st || { ok: false, error: "Run groups failed" };
+      } catch (e) {
+        return { ok: false, error: String(e) };
+      }
+      await new Promise(function (r) { setTimeout(r, 2000); });
+    }
+  }
+
   async function openDashboardWhenReady() {
-    const ready = await pollDashboardReady(90000);
     const a = requireApi("Dashboard");
     if (!a) return;
+    const st = a.is_dashboard_ready ? await a.is_dashboard_ready() : null;
+    if (st && st.ok === false && st.error) {
+      showBackendError(st.error);
+      return;
+    }
+    if (st && st.ready) {
+      if (!st.dashboard_opened) await a.open_dashboard();
+      showToast("Dashboard opened in your browser");
+      return;
+    }
+    const ready = await pollDashboardReady(90000);
     if (ready) {
       await a.open_dashboard();
       showToast("Dashboard opened in your browser");
     } else {
-      showToast("Service still starting. Click Open dashboard in a moment.");
+      showBackendError("Service did not come up — read the Run log");
     }
   }
 
@@ -3020,6 +3066,18 @@
             showBackendError((res && res.error) || "Start service failed");
             return;
           }
+          if (res && res.starting) {
+            showToast("Starting service — watch the Run log", true);
+            if (runStatus) runStatus.textContent = "Starting service…";
+            const st = await pollServiceStart(120000);
+            if (!st || st.error || st.ok === false || !st.ready) {
+              showBackendError((st && st.error) || "Start service failed");
+              return;
+            }
+            showToast("Service started");
+            if (!st.dashboard_opened) await openDashboardWhenReady();
+            return;
+          }
           showToast("Service started");
           await openDashboardWhenReady();
         } catch (e) {
@@ -3045,6 +3103,15 @@
           if (res && (res.error || res.ok === false)) {
             showBackendError((res && res.error) || "Run groups failed");
             return;
+          }
+          if (res && res.starting) {
+            showToast("Running groups — watch the Run log", true);
+            if (runStatus) runStatus.textContent = "Running groups…";
+            const st = await pollGroupsRun();
+            if (!st || st.error || st.ok === false || !st.started) {
+              showBackendError((st && st.error) || "Run groups failed");
+              return;
+            }
           }
           showToast("Groups started");
           stepComplete.go = true;
@@ -3135,6 +3202,15 @@
             showBackendError((res && res.error) || "Start automation failed");
             return;
           }
+          if (res && res.starting) {
+            showToast("Starting automation — watch the Run log", true);
+            if (runStatus) runStatus.textContent = "Starting automation…";
+            const st = await pollGroupsRun();
+            if (!st || st.error || st.ok === false || !st.started) {
+              showBackendError((st && st.error) || "Start automation failed");
+              return;
+            }
+          }
           showToast("Automation started");
           stepComplete.go = true;
           updateNavActive();
@@ -3192,11 +3268,11 @@
             return;
           }
           const res = await a.cloud_phone_setup(host.trim(), count);
-          if (res && res.error) {
-            showBackendError(res.error);
+          if (!res || res.error || res.ok === false) {
+            showBackendError((res && res.error) || "Cloud setup failed");
             return;
           }
-          showToast("Cloud setup started — watch the Run log");
+          showToast((res && res.message) || "Cloud setup started — watch the Run log");
           showView("go");
         } catch (_e) {
           /* banner shown */
@@ -3217,8 +3293,8 @@
             return;
           }
           const res = await a.cloud_phone_status(host.trim());
-          if (res && res.error) {
-            showBackendError(res.error);
+          if (!res || res.error || res.ok === false) {
+            showBackendError((res && res.error) || "Cloud status failed");
             return;
           }
           showToast("Cloud status — watch the Run log");

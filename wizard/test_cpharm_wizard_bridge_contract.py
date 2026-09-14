@@ -39,9 +39,15 @@ class CPharmWizardBridgeContractTests(unittest.TestCase):
         self.assertIn("already in progress", BRIDGE.split("def _boot_then_continue(")[1].split("\ndef ")[0])
 
     def test_run_all_groups_calls_boot_when_present(self):
-        block = BRIDGE.split("def run_all_groups(")[1].split("\ndef ")[0]
+        block = BRIDGE.split("def _begin_groups_run(")[1].split("\ndef ")[0]
         self.assertIn("_boot_then_continue", block)
+        self.assertIn("_wait_for_boot_worker", block)
         self.assertIn("_run_groups_on_dashboard", block)
+        start = BRIDGE.split("def start_server(")[1].split("\ndef ")[0]
+        self.assertIn("_begin_service_start", start)
+        begin = BRIDGE.split("def _begin_service_start(")[1].split("\ndef ")[0]
+        self.assertIn('"starting": True', begin)
+        self.assertNotIn("return {\"ok\": True, \"started\": True}", begin)
 
     def test_boot_all_phones_exists(self):
         self.assertIn("def boot_all_phones(", BRIDGE)
@@ -203,6 +209,43 @@ class HeadlessDeckTests(unittest.TestCase):
         self.assertTrue(out.get("ok"))
         self.assertEqual(out.get("n"), 1)
         self.assertNotIn("error", out)
+
+    def test_control_panel_open_does_not_reap_and_python_is_probed(self):
+        webview = (ROOT / "wizard" / "cpharm_app_webview.py").read_text(encoding="utf-8")
+        self.assertNotIn("run_startup_cleanup(", webview)
+        host = BRIDGE.split("def _host_python_argv(")[1].split("\ndef ")[0]
+        self.assertNotIn('return ["python"]', host)
+        self.assertIn("return [], \"\"", host)
+        deck = (ROOT / "wizard" / "assets" / "cpharm_app" / "app.js").read_text(encoding="utf-8")
+        banner = deck.split("function showBackendError")[1].split("function requireApi")[0]
+        self.assertIn("connectionMissing", banner)
+        self.assertNotIn("if (dashConnected) {\n      el.hidden = true;", banner)
+
+    def test_service_start_failure_is_visible_to_the_poll(self):
+        import time
+
+        self.mod._service_start_result.clear()
+        self.mod._service_start_result.update({"ok": True, "starting": False})
+
+        def boom() -> dict:
+            return {"ok": False, "error": "no interpreter"}
+
+        orig = self.mod._start_dashboard_headless
+        self.mod._start_dashboard_headless = boom
+        status: dict = {}
+        try:
+            out = self.mod.start_server()
+            self.assertTrue(out.get("starting"))
+            deadline = time.time() + 5
+            while time.time() < deadline:
+                status = self.mod.is_dashboard_ready()
+                if status.get("ok") is False:
+                    break
+                time.sleep(0.05)
+        finally:
+            self.mod._start_dashboard_headless = orig
+        self.assertFalse(status.get("ok"))
+        self.assertIn("no interpreter", str(status.get("error")))
 
 
 if __name__ == "__main__":

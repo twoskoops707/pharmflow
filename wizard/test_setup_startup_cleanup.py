@@ -111,6 +111,35 @@ class SetupStartupCleanupTests(unittest.TestCase):
         self.assertIn("cpharm", killed)
         self.assertNotIn("mumu", killed)
 
+    def test_repeat_open_does_not_kill_adb_or_farm(self) -> None:
+        procs = [
+            FakeProc(4001, "adb.exe"),
+            FakeProc(4002, "PharmFlow.exe", cmdline=[r"C:\PharmFlow\PharmFlow.exe", "--start-farm"]),
+            FakeProc(4003, "python.exe", cmdline=["python", "automation/dashboard.py"]),
+            FakeProc(4004, "PharmFlow.exe", cmdline=[r"C:\PharmFlow\PharmFlow.exe"]),
+        ]
+
+        import types
+
+        fake_psutil = types.ModuleType("psutil")
+        fake_psutil.process_iter = lambda attrs=None: procs  # noqa: E731
+        fake_psutil.Process = lambda pid: FakeProc(pid, "self")  # noqa: E731
+
+        with mock.patch.object(cleanup, "sys") as mock_sys:
+            mock_sys.platform = "win32"
+            with mock.patch.object(cleanup, "_adb_kill_server") as kill_server:
+                with mock.patch.object(cleanup, "_protected_pids", return_value={9999}):
+                    with mock.patch.dict(sys.modules, {"psutil": fake_psutil}):
+                        summary = cleanup.run_startup_cleanup(first_time=False, my_pid=9999)
+        kill_server.assert_not_called()
+        killed = " ".join(summary["killed"])
+        skipped = " ".join(summary["skipped"])
+        self.assertIn("4004", killed)
+        self.assertNotIn("4002", killed)
+        self.assertNotIn("4003", killed)
+        self.assertIn("farm:4002", skipped)
+        self.assertIn("farm:4003", skipped)
+
 
 if __name__ == "__main__":
     unittest.main()

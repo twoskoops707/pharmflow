@@ -96,8 +96,8 @@ def main() -> int:
 
     bridge_src = (_WIZARD / "cpharm_wizard_bridge.py").read_text(encoding="utf-8")
     webview_src = (_WIZARD / "cpharm_app_webview.py").read_text(encoding="utf-8")
-    if "run_startup_cleanup(first_time=False)" not in webview_src:
-        return _fail("main WebView must not kill MuMu on startup (first_time=False)")
+    if "run_startup_cleanup(" in webview_src:
+        return _fail("Control Panel open must not run phone-setup cleanup (adb kill-server)")
     # Deck-native path: cursor_* endpoints + headless builder/groups (no Tk page windows).
     for fn in (
         "cursor_get_sequence",

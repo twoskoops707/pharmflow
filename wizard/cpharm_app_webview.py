@@ -704,6 +704,9 @@ class CPharmAppApi:
     def is_dashboard_ready(self) -> dict:
         return self._bridge_call("is_dashboard_ready")
 
+    def groups_run_status(self) -> dict:
+        return self._bridge_call("groups_run_status")
+
     def get_launch_summary(self) -> dict:
         return self._bridge_call("get_launch_summary")
 
@@ -1100,21 +1103,10 @@ def run_cpharm_app(*, initial_view: str | None = None) -> None:
 
 
 def run_cpharm_app_or_fallback(*, initial_view: str | None = None) -> None:
-    if sys.platform == "win32":
-        try:
-            from setup_startup_cleanup import run_startup_cleanup
-
-            # PharmFlow.exe must never kill running MuMu phones — only stale PharmFlow/adb dupes.
-            run_startup_cleanup(first_time=False)
-        except Exception:
-            pass
-        try:
-            # Standing rule (OPS_NOTES): EXE kills dead/stale/unused helpers itself.
-            from automation.farm_exe_self_heal import reap_stale_processes
-
-            reap_stale_processes(apply=True)
-        except Exception:
-            pass
+    # Phone-setup startup cleanup kill-servers adb and closes other PharmFlow
+    # processes. That belongs only in phone-setup main(), never on Control
+    # Panel open — opening the deck must not drop ADB or farm lanes.
+    # Stale-helper reaping belongs on the farm self-heal tick, not here.
 
     if not is_pywebview_available():
         try:

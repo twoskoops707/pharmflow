@@ -725,27 +725,37 @@ def _run_direct(fn: Callable, *args, **kwargs) -> Any:
 
 
 _dashboard_proc: subprocess.Popen | None = None
+_dashboard_thread: threading.Thread | None = None
 _dashboard_lock = threading.Lock()
+_service_start_lock = threading.Lock()
+_service_start_result: dict[str, Any] = {"ok": True, "starting": False}
+_groups_run_lock = threading.Lock()
+_groups_run_result: dict[str, Any] = {"ok": True, "starting": False}
 
 
 def _host_python_argv() -> tuple[list[str], str]:
-    """Real CPython for dashboard.py. The frozen EXE is not an interpreter."""
+    """Real CPython for dashboard.py. Empty argv means none was found.
+
+    The frozen EXE is not an interpreter. Never return an unprobed ``python``
+    name — Windows then opens the Store stub or fails, and the deck used to
+    report the service as started anyway.
+    """
+    from farm_control import _is_frozen_app_exe, _resolve_helper_python
     from setup_wizard import _probe_python_cmd, _resolve_python_cmd, state
 
-    argv, disp = _resolve_python_cmd(state.get("python_cmd"))
-    if getattr(sys, "frozen", False) and argv:
-        try:
-            same = Path(argv[0]).resolve() == Path(sys.executable).resolve()
-        except OSError:
-            same = str(argv[0]).lower() == str(sys.executable).lower()
-        if same:
-            for cand in (["py", "-3"], ["python"], ["python3"]):
-                if _probe_python_cmd(cand):
-                    state["python_cmd"] = " ".join(cand)
-                    state["python_cmd_argv"] = list(cand)
-                    return list(cand), " ".join(cand)
-            return ["python"], "python"
-    return list(argv), disp
+    # Frozen: do not ask setup_wizard to probe sys.executable. That is this EXE,
+    # and its --version path still allocates a console before it prints.
+    if not getattr(sys, "frozen", False):
+        argv, disp = _resolve_python_cmd(state.get("python_cmd"))
+        if argv and not _is_frozen_app_exe(str(argv[0])) and _probe_python_cmd(list(argv)):
+            return list(argv), disp
+
+    helper = _resolve_helper_python(requires="websockets")
+    if helper and not _is_frozen_app_exe(helper) and _probe_python_cmd([helper]):
+        state["python_cmd"] = helper
+        state["python_cmd_argv"] = [helper]
+        return [helper], helper
+    return [], ""
 
 
 def _cpharm_dir() -> str:
@@ -825,6 +835,37 @@ def _python_imports_ok(py_argv: list[str], modules: str) -> bool:
         return False
 
 
+def _start_dashboard_inprocess() -> bool:
+    """Run the control server inside this process when no CPython exists.
+
+    A frozen PharmFlow.exe cannot ``Popen`` itself as ``python dashboard.py``.
+    The module is already in the bundle, so the same ``main()`` the script
+    runs under ``__main__`` runs on a daemon thread instead.
+    """
+    global _dashboard_thread
+    if _dashboard_thread is not None and _dashboard_thread.is_alive():
+        return True
+
+    def _target() -> None:
+        try:
+            import asyncio
+
+            from automation.dashboard import main as dashboard_main
+
+            asyncio.run(dashboard_main())
+        except Exception as exc:  # noqa: BLE001 — surfaced via the ready probe
+            _emit_log("go", f"In-process dashboard failed: {exc}\n")
+
+    _dashboard_thread = threading.Thread(
+        target=_target,
+        name="cpharm-dashboard",
+        daemon=True,
+    )
+    _dashboard_thread.start()
+    _emit_log("go", "Control server started inside PharmFlow.exe (no host Python).\n")
+    return True
+
+
 def _start_dashboard_headless() -> dict:
     """Launch automation/dashboard.py. No Tk page, no messagebox, no self.after."""
     global _dashboard_proc
@@ -835,57 +876,78 @@ def _start_dashboard_headless() -> dict:
         probe_dashboard_listen_port,
     )
 
+    proc: subprocess.Popen | None = None
     with _dashboard_lock:
         if probe_dashboard_listen_port():
-            return {"ok": True, "started": True, "already_running": True}
+            return {"ok": True, "started": True, "already_running": True, "ready": True}
         alive = _dashboard_proc is not None and _dashboard_proc.poll() is None
-        if alive:
-            return {"ok": True, "started": True, "already_running": True}
+        thread_alive = _dashboard_thread is not None and _dashboard_thread.is_alive()
+        if alive or thread_alive:
+            proc = _dashboard_proc if alive else None
+        else:
+            root = _cpharm_dir()
+            dashboard = Path(root) / "automation" / "dashboard.py"
+            if not dashboard.is_file():
+                alt = Path(r"C:\CPharm") / "automation" / "dashboard.py"
+                if alt.is_file():
+                    dashboard = alt
 
-        root = _cpharm_dir()
-        dashboard = Path(root) / "automation" / "dashboard.py"
-        if not dashboard.is_file():
-            return {"ok": False, "error": f"dashboard.py not found at {dashboard}"}
+            clear_dashboard_listen_port_cache()
+            py_argv, py_disp = _host_python_argv()
+            if not py_argv:
+                if not _start_dashboard_inprocess():
+                    return {
+                        "ok": False,
+                        "error": "No CPython found and the control server could not start inside PharmFlow.exe",
+                    }
+            else:
+                if not dashboard.is_file():
+                    return {"ok": False, "error": f"dashboard.py not found at {dashboard}"}
+                _emit_log("go", f"Using Python: {py_disp}\n")
+                dep_stmt = "import websockets, psutil"
+                if not _python_imports_ok(py_argv, dep_stmt):
+                    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if sys.platform == "win32" else 0
+                    try:
+                        pip = subprocess.run(
+                            py_argv + ["-m", "pip", "install", "--quiet", "--user", "websockets>=12.0", "psutil>=5.9.0"],
+                            capture_output=True,
+                            text=True,
+                            timeout=120,
+                            creationflags=flags,
+                        )
+                    except OSError as exc:
+                        return {"ok": False, "error": f"Cannot start dashboard: {exc}"}
+                    if pip.returncode != 0 and not _python_imports_ok(py_argv, dep_stmt):
+                        err = (pip.stderr or pip.stdout or "pip failed").strip()[-400:]
+                        return {"ok": False, "error": f"Cannot start dashboard: {err}"}
 
-        clear_dashboard_listen_port_cache()
-        py_argv, py_disp = _host_python_argv()
-        _emit_log("go", f"Using Python: {py_disp}\n")
-        dep_stmt = "import websockets, psutil"
-        if not _python_imports_ok(py_argv, dep_stmt):
-            flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if sys.platform == "win32" else 0
-            pip = subprocess.run(
-                py_argv + ["-m", "pip", "install", "--quiet", "--user", "websockets>=12.0", "psutil>=5.9.0"],
-                capture_output=True,
-                text=True,
-                timeout=120,
-                creationflags=flags,
-            )
-            if pip.returncode != 0 and not _python_imports_ok(py_argv, dep_stmt):
-                err = (pip.stderr or pip.stdout or "pip failed").strip()[-400:]
-                return {"ok": False, "error": f"Cannot start dashboard: {err}"}
-
-        launch_cmd = py_argv + [str(dashboard)]
-        _emit_log("go", f"Launch command: {' '.join(launch_cmd)}\n")
-        flags = _DASHBOARD_SPAWN_FLAGS
-        # CREATE_NO_WINDOW and DETACHED_PROCESS together are ignored by Windows
-        # and a console flashes. Hide the console; do not detach.
-        if sys.platform == "win32":
-            flags = int(getattr(subprocess, "CREATE_NO_WINDOW", 0))
-        proc = subprocess.Popen(
-            launch_cmd,
-            cwd=str(dashboard.parent),
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            creationflags=flags,
-        )
-        _dashboard_proc = proc
+                launch_cmd = py_argv + [str(dashboard)]
+                _emit_log("go", f"Launch command: {' '.join(launch_cmd)}\n")
+                flags = _DASHBOARD_SPAWN_FLAGS
+                # CREATE_NO_WINDOW and DETACHED_PROCESS together are ignored by Windows
+                # and a console flashes. Hide the console; do not detach.
+                if sys.platform == "win32":
+                    flags = int(getattr(subprocess, "CREATE_NO_WINDOW", 0))
+                try:
+                    proc = subprocess.Popen(
+                        launch_cmd,
+                        cwd=str(dashboard.parent),
+                        stdin=subprocess.DEVNULL,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        creationflags=flags,
+                    )
+                except OSError as exc:
+                    return {"ok": False, "error": f"Cannot start dashboard: {exc}"}
+                _dashboard_proc = proc
 
     ready_sec = min(90.0, float(_dashboard_ready_timeout_sec()))
     deadline = time.time() + ready_sec
     while time.time() < deadline:
-        if proc.poll() is not None:
+        if proc is not None and proc.poll() is not None:
             return {"ok": False, "error": f"Dashboard exited immediately (code {proc.returncode})"}
+        if proc is None and _dashboard_thread is not None and not _dashboard_thread.is_alive():
+            return {"ok": False, "error": "In-process dashboard exited before it answered"}
         if probe_dashboard_listen_port():
             _emit_log("go", "Dashboard is up.\n")
             return {"ok": True, "started": True, "ready": True}
@@ -2167,8 +2229,21 @@ def is_dashboard_ready() -> dict:
 
     ready = bool(probe_dashboard_listen_port())
     proc = _dashboard_proc
-    running = proc is not None and proc.poll() is None
-    return {"ok": True, "ready": ready, "server_running": running or ready}
+    thread_alive = _dashboard_thread is not None and _dashboard_thread.is_alive()
+    running = (proc is not None and proc.poll() is None) or thread_alive or ready
+    with _service_start_lock:
+        stored = dict(_service_start_result)
+    if stored.get("starting"):
+        return {"ok": True, "ready": ready, "starting": True, "server_running": running}
+    if stored.get("ok") is False and stored.get("error"):
+        return {
+            "ok": False,
+            "ready": False,
+            "starting": False,
+            "error": stored.get("error"),
+            "server_running": running,
+        }
+    return {"ok": True, "ready": ready, "starting": False, "server_running": running}
 
 
 def get_launch_summary() -> dict:
@@ -2228,36 +2303,75 @@ def get_browse_mode() -> dict:
     return _run_direct(work)
 
 
-def start_server() -> dict:
-    """Start the control server. No Tk Run window and no background Tcl pump."""
+def _begin_service_start(*, open_browser: bool) -> dict:
+    """Start the control server and remember the real result.
+
+    The deck used to toast "Service started" the instant the thread was
+    spawned. The worker owns the wait; callers poll ``is_dashboard_ready``.
+    """
+    with _service_start_lock:
+        if _service_start_result.get("starting"):
+            return {
+                "ok": True,
+                "starting": True,
+                "message": "Service start already in progress — watch the Run log.",
+            }
+        _service_start_result.clear()
+        _service_start_result.update(
+            {"ok": True, "starting": True, "message": "Starting service — watch the Run log."}
+        )
 
     def work() -> None:
-        res = _start_dashboard_headless()
-        if not res.get("ok"):
-            _emit_log("go", f"Start service failed: {res.get('error')}\n")
-        elif res.get("already_running"):
-            _emit_log("go", "Dashboard already running.\n")
+        try:
+            res = _start_dashboard_headless()
+            if not res.get("ok"):
+                err = str(res.get("error") or "Start service failed")
+                _emit_log("go", f"Start service failed: {err}\n")
+                with _service_start_lock:
+                    _service_start_result.clear()
+                    _service_start_result.update({"ok": False, "starting": False, "error": err})
+                return
+            if res.get("already_running"):
+                _emit_log("go", "Dashboard already running.\n")
+            opened = False
+            if open_browser:
+                from setup_wizard import dashboard_base_url
+
+                url = dashboard_base_url().rstrip("/") + "/"
+                _open_browser(url)
+                opened = True
+                _emit_log("go", f"Opened dashboard {url}\n")
+            with _service_start_lock:
+                _service_start_result.clear()
+                _service_start_result.update(
+                    {
+                        "ok": True,
+                        "starting": False,
+                        "ready": True,
+                        "started": True,
+                        "already_running": bool(res.get("already_running")),
+                        "dashboard_opened": opened,
+                    }
+                )
+        except Exception as exc:  # noqa: BLE001 — the poll must see the failure
+            err = f"Start service error: {exc}"
+            _emit_log("go", f"{err}\n")
+            with _service_start_lock:
+                _service_start_result.clear()
+                _service_start_result.update({"ok": False, "starting": False, "error": err})
 
     threading.Thread(target=work, name="cpharm-dashboard", daemon=True).start()
-    return {"ok": True, "started": True}
+    return {"ok": True, "starting": True, "message": "Starting service — watch the Run log."}
+
+
+def start_server() -> dict:
+    """Start the control server. No Tk Run window and no background Tcl pump."""
+    return _begin_service_start(open_browser=False)
 
 
 def start_server_and_open_dashboard() -> dict:
     """Start service, then open the dashboard in the browser once it answers."""
-
-    def work() -> None:
-        from setup_wizard import dashboard_base_url
-
-        res = _start_dashboard_headless()
-        if not res.get("ok"):
-            _emit_log("go", f"Start service failed: {res.get('error')}\n")
-            return
-        url = dashboard_base_url().rstrip("/") + "/"
-        _open_browser(url)
-        _emit_log("go", f"Opened dashboard {url}\n")
-
-    threading.Thread(target=work, name="cpharm-dashboard-open", daemon=True).start()
-    return {"ok": True, "started": True, "dashboard_opened": True}
+    return _begin_service_start(open_browser=True)
 
 
 def _run_groups_on_dashboard() -> dict:
@@ -2281,37 +2395,90 @@ def _run_groups_on_dashboard() -> dict:
     return {"ok": True, "started": True, "groups": n, "phones_targeted": pt}
 
 
-def run_all_groups() -> dict:
-    """Boot phones, then start the service and run groups. Never waits on Tcl."""
+def _wait_for_boot_worker() -> None:
+    """Groups must not be posted while Boot is still bringing phones up."""
+    thr = _boot_all_thread
+    if thr is None or not thr.is_alive() or thr is threading.current_thread():
+        return
+    _emit_log("go", "Waiting for boot to finish before running groups…\n")
+    thr.join()
+
+
+def _begin_groups_run(*, label: str) -> dict:
+    """Boot, then run groups, and keep the real result for the deck to poll.
+
+    Returning ``started: True`` before ``/api/groups/run`` answered made the
+    deck toast success when the service was down or no phones were targeted.
+    """
     boot_res = _boot_then_continue()
     if boot_res.get("ok") is False:
         return boot_res
+    with _groups_run_lock:
+        if _groups_run_result.get("starting"):
+            return {
+                "ok": True,
+                "starting": True,
+                "boot": boot_res,
+                "message": "Groups are already starting — watch the Run log.",
+            }
+        _groups_run_result.clear()
+        _groups_run_result.update(
+            {"ok": True, "starting": True, "message": f"{label} is running — watch the Run log."}
+        )
 
     def work() -> None:
-        res = _run_groups_on_dashboard()
-        if not res.get("ok"):
-            _emit_log("go", f"Run groups failed: {res.get('error')}\n")
+        try:
+            _emit_log("go", f"{label}: saving groups and starting service…\n")
+            _wait_for_boot_worker()
+            res = _run_groups_on_dashboard()
+            if not res.get("ok"):
+                err = str(res.get("error") or f"{label} failed")
+                _emit_log("go", f"{label} failed: {err}\n")
+                with _groups_run_lock:
+                    _groups_run_result.clear()
+                    _groups_run_result.update({"ok": False, "starting": False, "error": err})
+                return
+            _emit_log("go", f"{label} complete.\n")
+            with _groups_run_lock:
+                done = {
+                    "ok": True,
+                    "starting": False,
+                    "started": True,
+                    "groups": res.get("groups"),
+                    "phones_targeted": res.get("phones_targeted"),
+                }
+                _groups_run_result.clear()
+                _groups_run_result.update(done)
+        except Exception as exc:  # noqa: BLE001 — the poll must see the failure
+            err = f"{label} error: {exc}"
+            _emit_log("go", f"{err}\n")
+            with _groups_run_lock:
+                _groups_run_result.clear()
+                _groups_run_result.update({"ok": False, "starting": False, "error": err})
 
-    threading.Thread(target=work, name="cpharm-run-groups", daemon=True).start()
-    return {"ok": True, "started": True, "boot": boot_res}
+    threading.Thread(target=work, name="cpharm-groups-run", daemon=True).start()
+    return {
+        "ok": True,
+        "starting": True,
+        "boot": boot_res,
+        "message": f"{label} is running — watch the Run log.",
+    }
+
+
+def groups_run_status() -> dict:
+    """Last Run-groups / Start-automation result. ``starting`` means still working."""
+    with _groups_run_lock:
+        return dict(_groups_run_result)
+
+
+def run_all_groups() -> dict:
+    """Boot phones, then start the service and run groups. Never waits on Tcl."""
+    return _begin_groups_run(label="Run groups")
 
 
 def start_automation_one_click() -> dict:
     """Boot, start the service, load groups, run them. An in-progress boot is not a failure."""
-    boot_res = _boot_then_continue()
-    if boot_res.get("ok") is False:
-        return boot_res
-
-    def work() -> None:
-        _emit_log("go", "Start automation: saving groups and starting service…\n")
-        res = _run_groups_on_dashboard()
-        if not res.get("ok"):
-            _emit_log("go", f"Start automation failed: {res.get('error')}\n")
-            return
-        _emit_log("go", "Start automation complete.\n")
-
-    threading.Thread(target=work, name="cpharm-one-click", daemon=True).start()
-    return {"ok": True, "started": True, "boot": boot_res}
+    return _begin_groups_run(label="Start automation")
 
 
 def fix_phone_internet() -> dict:
@@ -2440,20 +2607,20 @@ def run_cloud_phone_command(command: str, host: str = "", count: int = 0, *, ver
     Output streams into the Step 9 log so the operator can watch progress.
     """
 
+    cmd = _cloud_cli_argv(command, host, count, verify=verify)
+    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if sys.platform == "win32" else 0
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            creationflags=flags,
+        )
+    except OSError as exc:
+        return {"ok": False, "error": f"Cloud {command} could not start: {exc}", "command": command}
+
     def work() -> None:
-        cmd = _cloud_cli_argv(command, host, count, verify=verify)
-        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if sys.platform == "win32" else 0
-        try:
-            proc = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                creationflags=flags,
-            )
-        except Exception as exc:
-            _emit_log("go", f"[cloud {command}] could not start: {exc}\n")
-            return
         assert proc.stdout is not None
         for line in proc.stdout:
             _emit_log("go", line)
@@ -2461,7 +2628,7 @@ def run_cloud_phone_command(command: str, host: str = "", count: int = 0, *, ver
         _emit_log("go", f"\n[cloud {command}] finished (exit {proc.returncode})\n")
 
     threading.Thread(target=work, daemon=True).start()
-    return {"ok": True, "started": True, "command": command}
+    return {"ok": True, "starting": True, "command": command, "message": f"Cloud {command} started — watch the Run log."}
 
 
 def cloud_phone_setup(host: str, count: int = 8) -> dict:
@@ -2556,6 +2723,8 @@ def _tool_argv(flag: str, rel: str, extra: list[str]) -> list[str]:
         return [str(sys.executable), flag, *extra]
     script = Path(__file__).resolve().parent.parent / rel
     py, _disp = _host_python_argv()
+    if not py:
+        py = [sys.executable]
     return [*py, str(script), *extra]
 
 

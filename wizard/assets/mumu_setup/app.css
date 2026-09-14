@@ -9,9 +9,9 @@
   --panel2: #222833;
   --line: #2e3642;
   --line2: #3a4350;
-  --text: #e7ecf2;
-  --muted: #8b97a8;
-  --dim: #5b6878;
+  --text: #f4f7fb;
+  --muted: #c5d0de;
+  --dim: #a8b6c9;
   --accent: #3d9a78;
   --accent2: #2f7d61;
   --accent-soft: rgba(61, 154, 120, 0.12);
@@ -35,7 +35,7 @@
 }
 
 html {
-  font-size: 13px;
+  font-size: 16px;
   color-scheme: dark;
   scrollbar-color: var(--accent) var(--bg);
   scrollbar-width: thin;
@@ -46,8 +46,8 @@ body {
   background: var(--bg);
   color: var(--text);
   font-family: var(--font);
-  font-size: 13px;
-  line-height: 1.45;
+  font-size: 16px;
+  line-height: 1.5;
   min-height: 100vh;
   min-height: 100dvh;
   overflow-x: hidden;
@@ -89,7 +89,7 @@ body::before {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 9px;
+  font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.12em;
   color: var(--muted);
@@ -545,7 +545,7 @@ input:focus-visible {
 .steps.compact .step-icon {
   width: 16px;
   height: 16px;
-  font-size: 9px;
+  font-size: 12px;
 }
 
 .log-terminal {
@@ -557,11 +557,12 @@ input:focus-visible {
   border: 1px solid var(--line);
   border-radius: var(--rad-sm);
   font-family: var(--mono);
-  font-size: 11px;
-  line-height: 1.45;
-  padding: 8px 10px;
+  font-size: 14px;
+  line-height: 1.5;
+  padding: 10px 12px;
   white-space: pre-wrap;
-  color: #c5d4cc;
+  word-break: break-word;
+  color: #eef6f2;
   scrollbar-color: var(--accent) var(--input);
   scrollbar-width: thin;
 }
