@@ -71,11 +71,16 @@ from automation.config import (
 )
 from automation.sequence_isolation import isolate_before_sequence, isolation_skip_allowed
 from automation.ad_slot_pick import nudge_tap_off_ads, pick_live_ad_coords
-from automation.dabflow_mantis_ad_urls import is_mantis_house_bot_click_url
+from automation.dabflow_mantis_ad_urls import (
+    has_live_click_token,
+    is_mantis_house_bot_click_url,
+    phone_viewed_click_url,
+)
 from automation.dabflow_mantis_client_patch import (
     _ingest_paying_fill_file,
     cdp_creative_tap_targets,
     click_url_for_zone,
+    paying_fill_file_fresh,
     prefetch_ssp_ads_prefer_paying,
 )
 from automation.farm_launch_guard import (
@@ -161,17 +166,42 @@ def is_paying_mantis_click_url(url: str) -> bool:
     return is_mantis_clicked_tracking_url(u) and not is_mantis_house_bot_click_url(u)
 
 
+def _fresh_paying_fill_click(zone: str) -> str:
+    """File ads only when the shared fill is fresh and the URL has a live bi+bt.
+
+    A stale fill replaces the phone's impression token and pays $0.
+    """
+    if not paying_fill_file_fresh():
+        return ""
+    z = str(zone or "")
+    try:
+        rows = _ingest_paying_fill_file() or []
+    except Exception:
+        return ""
+    for ad in rows:
+        click = str(ad.get("click_url") or "").strip()
+        if not has_live_click_token(click):
+            continue
+        ad_zone = str(ad.get("zone_id") or "").strip()
+        if z and ad_zone and ad_zone != z:
+            continue
+        return click
+    return ""
+
+
 def resolve_path3_paying_click_url(zone: str, prefer_click: str = "") -> str:
     """Return a paying SSP click_url, or empty. Never returns house/bot URLs.
 
     After cache + force_refresh still miss, burst-prefetch paying fill and retry.
+    Never returns a URL unless it has a live bi+bt token. File ads only when
+    the shared fill is inside the freshness window.
     """
     click = (prefer_click or "").strip()
-    if is_paying_mantis_click_url(click):
+    if has_live_click_token(click):
         return click
     z = str(zone or "")
     click = click_url_for_zone(z, allow_any=True, prefer_paying=True) or ""
-    if is_paying_mantis_click_url(click):
+    if has_live_click_token(click):
         return click
     click = (
         click_url_for_zone(
@@ -179,7 +209,7 @@ def resolve_path3_paying_click_url(zone: str, prefer_click: str = "") -> str:
         )
         or ""
     )
-    if is_paying_mantis_click_url(click):
+    if has_live_click_token(click):
         return click
     try:
         prefetch_ssp_ads_prefer_paying(
@@ -193,38 +223,25 @@ def resolve_path3_paying_click_url(zone: str, prefer_click: str = "") -> str:
         )
         or ""
     )
-    if is_paying_mantis_click_url(click):
+    if has_live_click_token(click):
         return click
-    return ""
+    return _fresh_paying_fill_click(z)
 
 
 def resolve_path3_click_url(zone: str, prefer_click: str = "") -> str:
-    """Jul 30: open the live ``clicked`` URL from the ad. Do not wait on house skip."""
+    """Open a token-bound ``clicked`` URL. Never a stale or synthetic wrap."""
     raw = (prefer_click or "").strip()
-    if is_paying_mantis_click_url(raw):
+    if has_live_click_token(raw):
         return raw
     z = str(zone or "")
     cached = click_url_for_zone(z, allow_any=True, prefer_paying=True) or ""
-    if is_paying_mantis_click_url(cached):
+    if has_live_click_token(cached):
         return cached
     if not _path3_require_paying():
-        if is_mantis_clicked_tracking_url(raw):
-            return raw
         any_click = click_url_for_zone(z, allow_any=True, prefer_paying=False) or ""
-        if is_mantis_clicked_tracking_url(any_click):
+        if has_live_click_token(any_click):
             return any_click
-        try:
-            for ad in _ingest_paying_fill_file() or []:
-                click = str(ad.get("click_url") or "").strip()
-                if not is_mantis_clicked_tracking_url(click):
-                    continue
-                ad_zone = str(ad.get("zone_id") or "").strip()
-                if z and ad_zone and ad_zone != z:
-                    continue
-                return click
-        except Exception:
-            pass
-        return ""
+        return _fresh_paying_fill_click(z)
     return resolve_path3_paying_click_url(zone, prefer_click)
 
 
@@ -409,7 +426,7 @@ class SequenceRunner:
                     f"Sequence '{sequence.name}' is v{sequence.sequence_version} - "
                     f"rewrite required (need v{REQUIRED_SEQUENCE_VERSION}+). "
                     "Run: py scripts/generate_dabflow_sequences.py "
-                    "(or Builder ? Regenerate all sequences in CPharm.exe)"
+                    "(or Builder → Regenerate all sequences in PharmFlow.exe)"
                 ),
             }
 
@@ -912,23 +929,35 @@ class SequenceRunner:
                         checkpoint = str(pick.get("checkpoint"))
                     zone = str(pick.get("zone") or "")
                     raw_click = str(pick.get("click_url") or "")
-                    prefer_click = resolve_path3_click_url(zone, raw_click)
-                    if not prefer_click:
-                        try:
-                            prefetch_ssp_ads_prefer_paying(
-                                attempts=14,
-                                delay_s=0.25,
-                                allow_house_fallback=True,
-                            )
-                        except Exception:
-                            pass
-                        prefer_click = resolve_path3_click_url(zone, raw_click)
+                    # Host SSP tokens do not match the impression this phone
+                    # viewed. Open only the click URL the phone itself fetched.
+                    prefer_click = ""
+                    if has_live_click_token(raw_click):
+                        prefer_click = raw_click
+                    elif int(phone_idx) > 0:
+                        for _wait in range(8):
+                            prefer_click = phone_viewed_click_url(int(phone_idx), zone)
+                            if prefer_click:
+                                break
+                            time.sleep(0.35)
                     prefer_ok = bool(prefer_click)
+                    proxy = ""
+                    try:
+                        proxy = (
+                            self.farm.adb.shell(
+                                "settings get global http_proxy", serial=serial
+                            ).stdout
+                            or ""
+                        ).strip()
+                    except Exception:
+                        proxy = ""
                     logger.info(
-                        "Path3 post-tap open_url serial=%s zone=%s prefer=%s",
+                        "Path3 click serial=%s zone=%s source=%s live_token=%s proxy=%s",
                         serial,
                         zone or "*",
-                        (prefer_click[:72] + "…") if len(prefer_click) > 72 else (prefer_click or "EMPTY"),
+                        "phone_page" if prefer_ok else "none",
+                        1 if prefer_ok else 0,
+                        proxy or "missing",
                     )
                     fb = False
                     if prefer_ok and prefer_click.startswith("http"):

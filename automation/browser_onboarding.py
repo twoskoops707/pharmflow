@@ -27,11 +27,14 @@ Two layers, both needed:
 from __future__ import annotations
 
 import base64
+import json
 import logging
 import re
 import time
+from pathlib import Path
 
 from automation.adb_wrapper import AdbWrapper
+from automation.browse_proxy import pin_guest_proxy
 from automation.browser_privacy import apply_browser_privacy
 from automation.config import BROWSER_BRAVE, BROWSER_CHROMIUM, BROWSER_DUCKDUCKGO, BROWSER_FIREFOX, BROWSER_OPERA
 
@@ -1286,27 +1289,46 @@ def _find_ssl_tap(
     return best[1] if best else None
 
 
+def _phone_idx_for_serial(serial: str) -> int | None:
+    """Absolute vm index for a live serial, from the farm lock map."""
+    try:
+        data = json.loads(
+            Path(r"C:\CPharm\logs\ADB_SERIAL_MAP.lock.json").read_text(encoding="utf-8")
+        )
+    except (OSError, json.JSONDecodeError):
+        return None
+    want = str(serial).strip()
+    for name, ser in dict(data.get("phones") or {}).items():
+        if str(ser).strip() != want:
+            continue
+        mm = re.match(r"^vm(\d+)\.", str(name))
+        if mm:
+            return int(mm.group(1))
+    return None
+
+
 def recover_ssl_mitm_dead_end(
     adb: AdbWrapper,
     serial: str,
     package: str | None = None,
 ) -> None:
-    """Clear guest MITM proxy and kill the browser so a direct reload can succeed.
+    """Never write guest http_proxy to ``:0``.
 
-    Verified live: Brave on inject shows ERR_CERT + HSTS with no Proceed control;
-    wiping proxy to ``:0`` and force-stopping lets https://getdabflow.app load.
+    ``:0`` dumps the phone onto the host route. Inject stops painting ads and
+    Mantis drops the click. Re-pin the inject port instead of clearing it.
     """
-    try:
-        adb.shell("settings put global http_proxy :0", serial=serial)
-    except Exception as exc:
-        logger.warning("SSL HSTS recovery: clear proxy failed on %s: %s", serial, exc)
-    pkg = (package or "").strip()
-    if not pkg:
+    logger.warning(
+        "SSL HSTS recovery refused proxy :0 on %s — re-pinning inject",
+        serial,
+    )
+    idx = _phone_idx_for_serial(serial)
+    if idx is None:
+        logger.warning("SSL HSTS recovery: no vm index for %s — left proxy unchanged", serial)
         return
     try:
-        adb.shell(f"am force-stop {pkg}", serial=serial)
+        pin_guest_proxy(adb, serial, idx, browser_package=package)
     except Exception as exc:
-        logger.warning("SSL HSTS recovery: force-stop %s failed on %s: %s", pkg, serial, exc)
+        logger.warning("SSL HSTS recovery re-pin failed on %s: %s", serial, exc)
 
 
 def dismiss_ssl_interstitial(

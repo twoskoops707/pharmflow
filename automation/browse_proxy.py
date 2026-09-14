@@ -117,47 +117,27 @@ def prepare_browse_session(
     force_clear_tor: bool = False,
     kick_browser: bool = True,
 ) -> dict:
-    """Clear Tor proxy before getdabflow when not in tor mode.
+    """Pin the guest to its inject port. Never clear http_proxy.
 
-    force_clear_tor: temporary ad-fill window — clear device proxy even when
-    farm mode is Tor / unique-exit (used by pause_tor_for_ads only).
-    kick_browser: when False, only clear the proxy (keep the open tab alive).
+    Scramble prefs used to delete the proxy so the page loaded on the host
+    route. That drops inject, so creatives never paint and clicks pay $0.
+    force_clear_tor and kick_browser are ignored — both wiped the ad page.
     """
     log = log_fn or (lambda _m: None)
     mode = browse_proxy_mode()
     ser = str(serial)
     idx = int(phone_idx)
-    out: dict = {"mode": mode}
-
-    # Scramble/direct/upstream: clear Tor so SSP/Mantis ads can fill (desktop_prefs
-    # recommended path). Unique-exit still applies at isolate_before_sequence
-    # (fresh IP/IMEI/fingerprint); do not keep Tor attached during DabFlow browse
-    # or creatives never appear (especially Firefox — no CDP paint).
-    if mode == "tor" and not force_clear_tor:
-        out["skipped"] = True
-        out["reason"] = "tor"
-        log(f"Browse proxy: keeping Tor (tor) serial={ser}")
+    out: dict = {"mode": mode, "force_clear_tor": False, "kick_browser": False}
+    _ = (force_clear_tor, kick_browser)
+    pinned = pin_guest_proxy(adb, ser, idx)
+    out["http_proxy"] = pinned
+    out["pinned"] = True
+    if not guest_proxy_healthy(pinned, idx):
+        out["ok"] = False
+        log(f"Browse proxy: pin failed serial={ser} proxy={pinned!r}")
         return out
-
-    from automation.tor_manager import TorManager
-
-    tor = TorManager(adb)  # type: ignore[arg-type]
-    failed = tor.clear_all_proxies_on_devices([ser])
-    if failed:
-        out["clear_proxy_failed"] = failed
-        log(f"Browse proxy: clear proxy issues on {failed}")
-    if kick_browser:
-        tor.kick_default_browser_after_proxy_teardown([ser])
-    if force_clear_tor and mode == "tor":
-        log(
-            f"Browse proxy: temporary direct for ad fill "
-            f"(mode={mode} kick={kick_browser}) serial={ser}"
-        )
-        out["force_clear_tor"] = True
-    else:
-        log(f"Browse proxy: {mode} (direct internet) serial={ser}")
-
-    if mode == "scramble" and kick_browser:
+    log(f"Browse proxy: pinned inject {pinned} (mode={mode}, not host) serial={ser}")
+    if mode == "scramble":
         try:
             from automation import emulator_ad_mode as eam
 
@@ -165,7 +145,6 @@ def prepare_browse_session(
         except Exception as exc:
             log(f"Browse proxy: scramble failed serial={ser} — {exc}")
             out["scramble_error"] = str(exc)
-
     out["ok"] = True
     return out
 
@@ -507,6 +486,30 @@ def restore_inject_after_identity(
     return pinned
 
 
+def _push_farmbrowser_proxy(adb: object, serial: str, port: int, package: str) -> None:
+    """FarmBrowser ignores a later system http_proxy until set_proxy is broadcast.
+
+    A phone left on DIRECT sends page and click traffic out the MuMu NAT
+    (host IP). Mantis then drops the click. Never send type=none / clear_proxy.
+    """
+    pkg = (package or "").strip()
+    if "farmbrowser" not in pkg and port <= 0:
+        return
+    if "farmbrowser" not in pkg:
+        return
+    try:
+        adb.shell(  # type: ignore[attr-defined]
+            "am broadcast -a com.farmbrowser.stealth.CONTROL "
+            f"-n {pkg}/com.farmbrowser.stealth.browser.FarmBrowserReceiver "
+            "--es action set_proxy --es host 127.0.0.1 "
+            f"--ei port {int(port)} --es type http --receiver-include-background",
+            serial=serial,
+            timeout=12.0,
+        )
+    except Exception as exc:
+        logger.warning("FarmBrowser set_proxy soft-fail serial=%s: %s", serial, exc)
+
+
 def pin_guest_proxy(
     adb: object,
     serial: str,
@@ -628,6 +631,7 @@ def pin_guest_proxy(
             and (last == want or last.endswith(f":{want_port}"))
             and _host_port_listens(want_port)
         ):
+            _push_farmbrowser_proxy(adb, ser, want_port, pkg)
             return last
         if attempt + 1 < tries:
             time.sleep(0.12 * (attempt + 1))
@@ -654,6 +658,7 @@ def pin_guest_proxy(
                 last_port,
             )
             return last
+        _push_farmbrowser_proxy(adb, ser, last_port, pkg)
         return last
     logger.warning(
         "pin_guest_proxy still unhealthy serial=%s phone=%d last=%r want=%s pkg=%s",

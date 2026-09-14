@@ -26,6 +26,7 @@ from typing import Callable
 from urllib.parse import urlparse
 
 from automation.config import TOR_HTTP_TUNNEL_BASE
+from automation.dabflow_mantis_ad_urls import record_phone_viewed_ads
 from automation.dabflow_mantis_client_patch import (
     PATCH_JS,
     _ssp_paint_expression,
@@ -204,6 +205,24 @@ def upstream_tor_port(phone_index: int) -> int:
         pass
     # 3) Raw constant — last resort; matches unshifted default spawns.
     return TOR_HTTP_TUNNEL_BASE + idx
+
+
+def _store_viewed_beacon(phone_index: int, body: bytes) -> None:
+    """Save click URLs the phone fetched so Path3 does not open a host token."""
+    try:
+        data = json.loads(body.decode("utf-8", "replace") or "{}")
+    except json.JSONDecodeError:
+        return
+    ads = data.get("ads") if isinstance(data, dict) else None
+    if not isinstance(ads, list):
+        return
+    try:
+        n = record_phone_viewed_ads(phone_index, ads)
+    except Exception as exc:
+        logger.warning("viewed-click store failed phone=%s: %s", phone_index, exc)
+        return
+    if n:
+        logger.info("stored phone-viewed clicks phone=%s n=%s", phone_index, n)
 
 
 def _is_dabflow_host(host: str) -> bool:
@@ -846,6 +865,14 @@ class MantisInjectProxy:
                             break
                         body += chunk
                         need -= len(chunk)
+                if method == "POST" and "__cpharm_viewed" in target:
+                    _store_viewed_beacon(self.phone_index, body)
+                    tls_client.sendall(
+                        b"HTTP/1.1 204 No Content\r\n"
+                        b"Content-Length: 0\r\n"
+                        b"Connection: keep-alive\r\n\r\n"
+                    )
+                    continue
                 # Chromium on MuMu often has no DevTools — rewrite Client Hints here.
                 hints = _client_hints_for_phone(self.phone_index)
                 if hints and _is_dabflow_host(host):

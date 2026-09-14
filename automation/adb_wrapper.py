@@ -235,7 +235,12 @@ class AdbWrapper:
         return self.shell(f"settings put global http_proxy {host}:{port}", serial=serial)
 
     def clear_http_proxy(self, serial: str | None = None) -> AdbResult:
-        return self.shell("settings put global http_proxy :0", serial=serial)
+        """Refuse ``:0``. That setting is host-IP egress and drops ads."""
+        logger.warning(
+            "clear_http_proxy refused on %s — will not write http_proxy :0",
+            serial or self.default_serial or "(default)",
+        )
+        return AdbResult(1, "", "refused: http_proxy :0 is host-IP egress")
 
     def reverse(self, remote: str, local: str, serial: str | None = None) -> AdbResult:
         """adb reverse — map guest port to host."""

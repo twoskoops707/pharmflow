@@ -15,6 +15,7 @@ from automation.config import BROWSER_CHROMIUM
 from automation.dabflow_mantis_ad_urls import (
     ad_checkpoint_to_zone,
     fallback_landing_for_checkpoint,
+    has_live_click_token,
     resolve_hardcode_ad_urls,
 )
 from automation.farm_launch_guard import (
@@ -164,23 +165,19 @@ def pause_tor_for_ads(
     if ser in _paused:
         return {"skipped": True, "reason": "already_paused"}
 
-    from automation.browse_proxy import prepare_browse_session
+    from automation.browse_proxy import pin_guest_proxy
 
-    # Under Tor + unique-exit, FORCE_DIRECT must actually clear the device proxy
-    # or Mantis creatives never paint (and Path3 taps empty slots).
-    # Default kick_browser=False so an already-open DabFlow tab is not killed.
-    force = _env_on("CPHARM_EMULATOR_AD_FORCE_DIRECT", default=False)
-    mode = browse_proxy_mode()
-    # Scramble/direct already cleared at sequence start — only force Tor clear here.
-    force_clear = force or mode == "tor"
-    out = prepare_browse_session(
-        adb,
-        ser,
-        int(phone_idx),
-        log_fn=log_fn,
-        force_clear_tor=force_clear,
-        kick_browser=kick_browser,
-    )
+    # FORCE_DIRECT used to write http_proxy :0. That is host-IP egress:
+    # inject stops painting ads and Mantis pays $0. Pin inject instead.
+    _ = kick_browser
+    pinned = pin_guest_proxy(adb, ser, int(phone_idx))
+    out = {
+        "ok": True,
+        "mode": browse_proxy_mode(),
+        "http_proxy": pinned,
+        "pinned": True,
+        "force_clear_tor": False,
+    }
     if out.get("skipped") and not out.get("ok"):
         return out
     _paused.add(ser)
@@ -262,13 +259,13 @@ def maybe_fallback_ad_open_url(
     # Path3 billing: painted slot taps do not increment Mantis clicks.
     # Always open the paying click_url even when house-fallback is off.
     if force_click_url:
+        # Never substitute a host-prefetched URL. It has a different bi/bt
+        # than the impression the phone viewed and pays $0.
         url = (prefer_click_url or "").strip()
-        if not url.startswith("http"):
-            url = (resolve_ad_fallback_url(checkpoint) or "").strip()
-        if not url.startswith("http"):
-            log(f"Ad browse: force click_url missing checkpoint={checkpoint}")
+        if not url.startswith("http") or not has_live_click_token(url):
+            log(f"Ad browse: refuse tokenless click_url checkpoint={checkpoint}")
             return False
-        log(f"Ad browse: open paying click_url → {url[:72]}…")
+        log(f"Ad browse: open paying click_url live_token=1 → {url[:72]}…")
         return bool(open_url_fn(serial, url))
     if not emulator_ad_mode_enabled(serial) or not emulator_ad_fallback_enabled():
         return False
@@ -277,8 +274,8 @@ def maybe_fallback_ad_open_url(
         log("Ad browse: tap left getdabflow — no fallback needed")
         return False
     url = resolve_ad_fallback_url(checkpoint)
-    if not url:
-        log(f"Ad browse: no fallback URL for checkpoint={checkpoint}")
+    if not url or not has_live_click_token(url):
+        log(f"Ad browse: refuse tokenless fallback checkpoint={checkpoint}")
         return False
     log(f"Ad browse: on-site ad empty — open_url fallback → {url[:72]}…")
     return open_url_fn(serial, url)

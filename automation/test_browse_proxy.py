@@ -56,23 +56,26 @@ class BrowseProxyPrefsTests(unittest.TestCase):
 
 
 class BrowseProxySessionTests(unittest.TestCase):
+    @patch.object(bp, "guest_proxy_healthy", return_value=True)
     @patch("automation.emulator_ad_mode.scramble_device_session")
-    @patch("automation.tor_manager.TorManager")
+    @patch.object(bp, "pin_guest_proxy", return_value="127.0.0.1:8257")
     @patch.object(bp, "browse_proxy_mode", return_value="scramble")
-    def test_prepare_scramble(self, _mode, tor_cls, scramble) -> None:
-        tor = tor_cls.return_value
-        tor.clear_all_proxies_on_devices.return_value = []
+    def test_prepare_scramble_pins_inject(self, _mode, pin, scramble, _healthy) -> None:
         scramble.return_value = {"ok": True}
-        out = bp.prepare_browse_session(object(), "10.0.2.108:5555", 0)
+        out = bp.prepare_browse_session(object(), "10.0.2.108:5555", 39)
         self.assertTrue(out.get("ok"))
+        self.assertEqual(out.get("http_proxy"), "127.0.0.1:8257")
+        pin.assert_called_once()
         scramble.assert_called_once()
-        tor.clear_all_proxies_on_devices.assert_called_once()
-        tor.kick_default_browser_after_proxy_teardown.assert_called_once()
 
+    @patch.object(bp, "guest_proxy_healthy", return_value=True)
+    @patch.object(bp, "pin_guest_proxy", return_value="127.0.0.1:8257")
     @patch.object(bp, "browse_proxy_mode", return_value="tor")
-    def test_prepare_tor_skips(self, _mode) -> None:
-        out = bp.prepare_browse_session(object(), "10.0.2.108:5555", 0)
-        self.assertTrue(out.get("skipped"))
+    def test_prepare_tor_pins_not_clears(self, _mode, pin, _healthy) -> None:
+        out = bp.prepare_browse_session(object(), "10.0.2.108:5555", 39, force_clear_tor=True)
+        self.assertTrue(out.get("ok"))
+        self.assertFalse(out.get("force_clear_tor"))
+        pin.assert_called_once()
 
 
 if __name__ == "__main__":

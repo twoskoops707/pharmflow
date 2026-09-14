@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import json
+import threading
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from pathlib import Path
 from typing import Any
 
 MANTIS_PROPERTY_ID = "6950d5527c56c6494f189e46"
@@ -86,6 +89,90 @@ def decode_click_landing(click_url: str) -> str:
     qs = urllib.parse.parse_qs(urllib.parse.urlparse(click_url).query)
     raw = qs.get("r", [""])[0]
     return urllib.parse.unquote(raw) if raw else ""
+
+
+def has_live_click_token(click_url: str) -> bool:
+    """True only for a token-bound paying click (bi+bt), never a synthetic wrap.
+
+    A clicked URL without the fill's bi/bt returns HTTP 200 and pays $0.
+    """
+    raw = (click_url or "").strip()
+    if "bids.mantis.marketing/clicked" not in raw.lower():
+        return False
+    if is_mantis_house_bot_click_url(raw):
+        return False
+    qs = urllib.parse.parse_qs(urllib.parse.urlparse(raw).query)
+    bi = (qs.get("bi") or [""])[0].strip().lower()
+    bt = (qs.get("bt") or [""])[0].strip()
+    if not bi or not bt:
+        return False
+    if bi in ("cpharm-fallback", "mantis-hardcode", "mantis-bot"):
+        return False
+    return True
+
+
+_VIEWED_CLICKS_PATH = Path(r"C:\CPharm\logs\phone_viewed_clicks.json")
+_VIEWED_CLICK_TTL_S = 300.0
+_viewed_lock = threading.Lock()
+
+
+def record_phone_viewed_ads(phone_index: int, ads: list) -> int:
+    """Store click URLs the phone itself fetched. Host SSP tokens do not match."""
+    now = time.time()
+    key = str(int(phone_index))
+    with _viewed_lock:
+        try:
+            data = json.loads(_VIEWED_CLICKS_PATH.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError, TypeError):
+            data = {}
+        if not isinstance(data, dict):
+            data = {}
+        bucket = dict(data.get(key) or {})
+        stored = 0
+        for ad in ads or []:
+            if not isinstance(ad, dict):
+                continue
+            zone = str(ad.get("zone_id") or "").strip()
+            url = str(ad.get("click_url") or "").strip()
+            if not zone or not has_live_click_token(url):
+                continue
+            bucket[zone] = {"url": url, "ts": now}
+            stored += 1
+        data[key] = bucket
+        _VIEWED_CLICKS_PATH.parent.mkdir(parents=True, exist_ok=True)
+        tmp = _VIEWED_CLICKS_PATH.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(data), encoding="utf-8")
+        tmp.replace(_VIEWED_CLICKS_PATH)
+    return stored
+
+
+def phone_viewed_click_url(
+    phone_index: int,
+    zone: str,
+    *,
+    max_age_s: float = _VIEWED_CLICK_TTL_S,
+) -> str:
+    """Click URL from this phone's own fill, or empty if missing/stale."""
+    want = str(zone or "").strip()
+    if not want:
+        return ""
+    try:
+        data = json.loads(_VIEWED_CLICKS_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, TypeError):
+        return ""
+    row = (data.get(str(int(phone_index))) or {}).get(want) or {}
+    if not isinstance(row, dict):
+        return ""
+    url = str(row.get("url") or "").strip()
+    try:
+        ts = float(row.get("ts") or 0)
+    except (TypeError, ValueError):
+        ts = 0.0
+    if not url or (time.time() - ts) > float(max_age_s):
+        return ""
+    if not has_live_click_token(url):
+        return ""
+    return url
 
 
 def is_mantis_house_bot_click_url(click_url: str) -> bool:

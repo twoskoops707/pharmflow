@@ -17,7 +17,10 @@ from pathlib import Path
 from typing import Any
 
 from automation.adb_wrapper import AdbWrapper
-from automation.dabflow_mantis_ad_urls import is_mantis_house_bot_click_url
+from automation.dabflow_mantis_ad_urls import (
+    has_live_click_token,
+    is_mantis_house_bot_click_url,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -774,10 +777,12 @@ PATCH_JS = r"""
     if (!ad || !ad.zone_id || !ad.creative_url) return false;
     var z = findZone(ad.zone_id);
     if (!z) return false;
-    // Do not wipe native Mantis iframes — that kills billable SDK impressions.
+    // Path1/2 must not wipe a native iframe. Path3 (cssOnly false) replaces
+    // it so the visible creative and the click token are the same fill.
     try {
-      if (z.querySelector('iframe')) return false;
-      if (z.querySelector('img[src*="mantis"], img[src*="static.mantis"]')
+      var interactive = window.__cpharmCssOnly === false;
+      if (!interactive && z.querySelector('iframe')) return false;
+      if (!interactive && z.querySelector('img[src*="mantis"], img[src*="static.mantis"]')
           && !z.querySelector('.cpharm-mantis-creative')) return false;
     } catch (eSkip) {}
     fixSlotCss();
@@ -800,6 +805,24 @@ PATCH_JS = r"""
     // NEVER scrollIntoView here — it shifts the home selection viewport so
     // Path1/2 material/heater/start taps land on the creative instead.
     return true;
+  }
+  function reportViewed(ads) {
+    try {
+      var slim = [];
+      (ads || []).forEach(function(ad) {
+        if (!ad || !ad.click_url || !ad.zone_id) return;
+        slim.push({zone_id: ad.zone_id, click_url: ad.click_url});
+      });
+      if (!slim.length) return;
+      fetch('https://getdabflow.app/__cpharm_viewed', {
+        method: 'POST',
+        headers: {'Content-Type': 'text/plain'},
+        body: JSON.stringify({ads: slim}),
+        credentials: 'omit',
+        mode: 'same-origin',
+        keepalive: true
+      }).catch(function() {});
+    } catch (e) {}
   }
   function paintFromSsp(zoneList) {
     // cssOnly blocks interactive Path1/2 taps. AllowSspPaint (MITM inject) still
@@ -832,7 +855,14 @@ PATCH_JS = r"""
         if (window.__cpharmMantisPainted && window.__cpharmMantisPainted > 0) return;
         var ads = (data && data.ads) || [];
         var painted = 0;
-        ads.forEach(function(ad) { if (paintAd(ad)) painted += 1; });
+        ads.forEach(function(ad) {
+          if (paintAd(ad)) painted += 1;
+          else {
+            firePixels(ad && ad.served_pixels);
+            firePixels(ad && ad.viewed_pixels);
+          }
+        });
+        reportViewed(ads);
         window.__cpharmMantisPainted = painted;
         fixSlotCss();
       }).catch(function() {});
@@ -1315,10 +1345,13 @@ def inject_patch(
                 raw = prefetch_ssp_ads(force=True) or []
                 ads = filter_ssp_ads_prefer_paying(raw, allow_house_fallback=False)
         if ssp_ads_paying_count(ads) > 0:
-            try:
-                fire_ssp_impression_pixels_hostside(ads, paying_only=True)
-            except Exception as exc:
-                logger.debug("CDP host pixel relay soft-fail: %s", exc)
+            # Do not fire served/viewed pixels from the host. That is host-IP
+            # egress: Mantis dedupes them and the click cannot bind. The phone
+            # must fire the pixel through its own exit.
+            logger.debug(
+                "skip host pixel relay n=%s (phone exit must fire the impression)",
+                ssp_ads_paying_count(ads),
+            )
     css_only = not interactive if paint_creatives else True
     css_flag = "true" if css_only else "false"
     last_err = "no target"
@@ -1737,6 +1770,24 @@ def paint_ssp_creatives_via_cdp(ws_url: str) -> dict[str, Any]:
         return {"ok": False, "error": str(exc), "painted": 0}
 
 
+def _fresh_paying_fill_ads() -> list[dict[str, Any]]:
+    """Shared fill only inside the freshness window. Stale file tokens pay $0."""
+    if not paying_fill_file_fresh():
+        return []
+    return _ingest_paying_fill_file() or []
+
+
+def _ads_just_prefetched() -> list[dict[str, Any]]:
+    """Ads a live fetch just stored. Never the stale ``allow_stale`` cache.
+
+    ``prefetch_ssp_ads`` / ``prefetch_ssp_ads_prefer_paying`` return
+    ``get_cached_ssp_ads(allow_stale=True)`` when the live probe misses. Those
+    bi/bt values are bound to a dead impression: HTTP 200, $0. Callers that
+    open a URL must ignore that return and read only the TTL-fresh cache.
+    """
+    return get_cached_ssp_ads(allow_stale=False) or []
+
+
 def click_url_for_zone(
     zone: str,
     *,
@@ -1746,36 +1797,29 @@ def click_url_for_zone(
 ) -> str | None:
     """Return a live Mantis SSP click_url (tracking redirect), never a landing page.
 
-    When ``prefer_paying`` is set, skip house/bot creatives (mantisadnetwork.com /
-    mantis-bot) that open as tracking redirects but do not move publisher $/clicks.
+    When ``prefer_paying`` is set, skip house/bot creatives and any clicked URL
+    without a live bi+bt token. A stale host cache or a synthetic wrap
+    (``bi=cpharm-fallback`` / no ``bt``) returns HTTP 200 and pays $0.
     """
-    _ingest_paying_fill_file()
     want = (zone or "").strip()
     ads: list[dict[str, Any]] = []
     # Token freshness: Mantis click URLs are bound to the impression tokens
-    # (bi/bt) of the fill that produced them. A click opened from a STALE fill
-    # returns HTTP 200 but its tokens match no live impression, so the click
-    # never registers ("opens climb, clicks stay flat" symptom). Only reuse
-    # cached ads inside the fill-freshness window; beyond it, force a live
-    # prefetch so the opened token is one the phone actually just painted.
+    # (bi/bt) of the fill that produced them. Never choose a URL from
+    # get_cached_ssp_ads(allow_stale=True). Past the TTL, prefetch; if that
+    # returns nothing, leave ads empty rather than replaying a dead token.
     cached_now = get_cached_ssp_ads(allow_stale=False)
     if force_refresh or not cached_now:
         try:
-            ads = prefetch_ssp_ads(force=True) or []
+            prefetch_ssp_ads(force=True)
         except Exception:
-            ads = []
-        if not ads:
-            ads = get_cached_ssp_ads(allow_stale=True)
+            pass
+        ads = _ads_just_prefetched()
     else:
         ads = cached_now
     if prefer_paying and ssp_ads_paying_count(ads) == 0:
-        file_ads = _ingest_paying_fill_file()
+        file_ads = _fresh_paying_fill_ads()
         if ssp_ads_paying_count(file_ads) > 0:
             ads = file_ads
-        else:
-            cached = get_cached_ssp_ads(allow_stale=True)
-            if ssp_ads_paying_count(cached) > 0:
-                ads = cached
 
     def _pick(from_ads: list[dict[str, Any]], *, paying_only: bool) -> str | None:
         if want:
@@ -1785,7 +1829,7 @@ def click_url_for_zone(
                 click = str(ad.get("click_url") or "").strip()
                 if not click.startswith("http"):
                     continue
-                if paying_only and is_mantis_house_bot_click_url(click):
+                if paying_only and not has_live_click_token(click):
                     continue
                 return click
         if allow_any:
@@ -1793,7 +1837,7 @@ def click_url_for_zone(
                 click = str(ad.get("click_url") or "").strip()
                 if not click.startswith("http"):
                     continue
-                if paying_only and is_mantis_house_bot_click_url(click):
+                if paying_only and not has_live_click_token(click):
                     continue
                 return click
         return None
@@ -1808,13 +1852,20 @@ def click_url_for_zone(
         # unless caller forced refresh (Path3 open always force_refresh).
         if force_refresh or not ssp_recently_house_only():
             try:
-                ads = prefetch_ssp_ads_prefer_paying(
+                prefetch_ssp_ads_prefer_paying(
                     attempts=6 if force_refresh else 3,
                     delay_s=0.3,
                     allow_house_fallback=False,
                 )
             except Exception:
-                ads = ads or []
+                pass
+            # Burst falls back to allow_stale=True when every probe misses.
+            # Do not open that return — only a live store or a fresh fill file.
+            ads = _ads_just_prefetched()
+            if ssp_ads_paying_count(ads) == 0:
+                file_ads = _fresh_paying_fill_ads()
+                if ssp_ads_paying_count(file_ads) > 0:
+                    ads = file_ads
             hit = _pick(ads, paying_only=True)
             if hit:
                 _clear_ssp_house_only()
