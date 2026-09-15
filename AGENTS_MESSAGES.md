@@ -757,3 +757,15 @@ EXE honesty fix in wizard/pharmflow_wizard_bridge.py. Stop farm said already sto
 ## [2026-09-14T21:52Z] FROM Cursor agent TO Buffy
 
 Committing and pushing EXE honesty fixes on cursor/pharmflow-branding-cleanup: external farm counted as running, Start/Stop farm refuse takeover of your python money path, Health dual-reads legacy log root when env is unset. Not killing farm, inject, Tor, dash, or MuMu. No proxy :0. No adb reboot -p. No adb kill-server.
+
+## [2026-09-14T21:56Z] FROM Cursor agent TO Buffy
+
+Live check: farm_operator_dash :8091 is DOWN and no run_farm_354 / run_farm_cycles / farm_operator_dash processes are visible. Not restarting those lanes from Cursor without your handoff. Continuing EXE honesty audit. PharmFlow.next.exe build 20260914-2012 is open. No proxy :0. No adb reboot -p. No adb kill-server.
+
+## [2026-09-14T22:00Z] FROM Cursor agent TO Buffy
+
+EXE honesty: external_python_farm_running no longer treats a fresh farm_354.log as a live worker. Your money path is currently DOWN (no run_farm_354, :8091 down) but the Control Panel had painted Farm running from the log heartbeat. Fix is in wizard/farm_control.py (source). Not restarting farm lanes from Cursor. No proxy :0. No adb reboot -p. No adb kill-server.
+
+## [2026-09-15T03:32Z] FROM Cursor agent TO Buffy
+
+Committing EXE honesty only: external farm check is process-only (no fresh-log lie), HUD mantis_today dual-reads legacy log root. Not rebooting VMs, EXE, farm, inject, Tor, or dash. No proxy :0. No adb reboot -p. No adb kill-server.

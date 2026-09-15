@@ -4507,18 +4507,42 @@ def _operator_status() -> dict[str, Any] | None:
 
 
 def _mantis_today_file() -> dict[str, Any] | None:
-    """Same file and Pacific-day guard the operator dash uses."""
-    path = Path(os.environ.get("PHARMFLOW_LOG_DIR", r"C:\PharmFlow\logs")) / "mantis_today_state.json"
-    if not path.is_file():
+    """Same Pacific-day guard the operator dash uses.
+
+    Prefer PHARMFLOW_LOG_DIR when set. Otherwise read the freshest
+    mantis_today_state.json under C:\\PharmFlow\\logs or the pre-branding
+    C:\\CPharm\\logs root so a live farm writing the legacy path does not
+    make the HUD show blank money when the dash is briefly down.
+    """
+    today = datetime.now(ZoneInfo("America/Los_Angeles")).date().isoformat()
+    roots: list[Path] = []
+    forced = os.environ.get("PHARMFLOW_LOG_DIR") or os.environ.get("PHARMFLOW_LOGS")
+    if forced:
+        roots.append(Path(forced))
+    else:
+        roots.append(Path(r"C:\PharmFlow\logs"))
+        legacy = Path(r"C:\CPharm\logs")
+        if legacy.resolve() != roots[0].resolve():
+            roots.append(legacy)
+    candidates: list[Path] = []
+    for root in roots:
+        path = root / "mantis_today_state.json"
+        if path.is_file():
+            candidates.append(path)
+    if not candidates:
         return None
-    try:
-        today = datetime.now(ZoneInfo("America/Los_Angeles")).date().isoformat()
-        raw = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError, TypeError, ValueError):
-        return None
-    if not isinstance(raw, dict) or str(raw.get("date") or "") != today:
-        return None
-    return _hud_money_from_mantis(raw, source="mantis_today_state")
+    candidates.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+    for path in candidates:
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError, TypeError, ValueError):
+            continue
+        if not isinstance(raw, dict) or str(raw.get("date") or "") != today:
+            continue
+        money = _hud_money_from_mantis(raw, source="mantis_today_state")
+        if money is not None:
+            return money
+    return None
 
 
 _FARM_WORKER_NEEDLES = ("run_farm_354", "run_farm_cycles", "pharmflow_unison_supervisor")

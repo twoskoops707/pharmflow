@@ -520,10 +520,12 @@ def _farm_heartbeat_alive() -> bool | None:
 
 
 def external_python_farm_running() -> bool:
-    """True when PharmFlow python money-path farm/cycles are already alive."""
-    # Positive heartbeat only — stale log must not short-circuit process scan.
-    if _farm_heartbeat_alive() is True:
-        return True
+    """True when a python run_farm_354 / run_farm_cycles process is alive.
+
+    A fresh farm_354.log is not a worker. The Control Panel used a positive
+    heartbeat here, then painted Farm running and refused Start farm while
+    :8091 was down and no money-path process existed. Process scan only.
+    """
     try:
         import psutil
     except ImportError:
