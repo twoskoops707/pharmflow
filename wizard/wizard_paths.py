@@ -100,8 +100,13 @@ def bundled_adb_path() -> Path:
             return p
     candidates = [
         bundled_dir() / "adb.exe",
+        Path(r"C:\CPharm\bundled\adb.exe"),
+        Path(r"C:\PharmFlow\bundled\adb.exe"),
+        bundle_root() / "bundled" / "adb.exe",
         bundle_root() / "bundled_adb" / "adb.exe",
         app_data_root() / "adb" / "adb.exe",
+        Path(r"C:\Program Files\Netease\MuMuPlayerARM\shell\adb.exe"),
+        Path(r"C:\Program Files\Netease\MuMuPlayer\shell\adb.exe"),
     ]
     for p in candidates:
         if p.is_file():

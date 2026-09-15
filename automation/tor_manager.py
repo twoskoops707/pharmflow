@@ -189,11 +189,15 @@ def _slot_index(phone_index: int) -> int:
     Tor lanes are prewarmed for slots 0..N-1 at the runtime base; dialing
     base+absolute_idx (39 -> 8157) hit nobody when the fleet is vm39+ — the
     2026-09-13 split-brain. Precedence: the farm's slot map exported at arm
-    time (PHARMFLOW_INJECT_SLOT_MAP), then the live serial map/config scan
+    time (CPHARM_/PHARMFLOW_INJECT_SLOT_MAP), then the live serial map/config scan
     (same rule as mantis_inject_proxy._fleet_slot), then the absolute idx.
     """
     idx = int(phone_index)
-    raw = os.environ.get("PHARMFLOW_INJECT_SLOT_MAP") or ""
+    raw = (
+        os.environ.get("CPHARM_INJECT_SLOT_MAP")
+        or os.environ.get("PHARMFLOW_INJECT_SLOT_MAP")
+        or ""
+    )
     if raw.strip():
         try:
             m = json.loads(raw)
@@ -203,23 +207,29 @@ def _slot_index(phone_index: int) -> int:
         except Exception:
             pass
     try:
-        from pathlib import Path
-
-        logs_dir = Path(
-            os.environ.get("PHARMFLOW_LOGS") or os.environ.get("PHARMFLOW_LOG_DIR") or r"C:\PharmFlow\logs"
-        )
         names: list[str] = []
-        try:
-            data = json.loads((logs_dir / "ADB_SERIAL_MAP.lock.json").read_text(encoding="utf-8"))
-            names = [str(k) for k, v in dict(data.get("phones") or {}).items() if str(v or "").strip()]
-        except Exception:
-            names = []
-        if not names:
+        for logs_dir in _logs_dirs_for_bases():
             try:
-                cfg = json.loads((logs_dir.parent / "pharmflow_config.json").read_text(encoding="utf-8"))
-                names = [str(x) for x in (cfg.get("phones") or [])]
+                data = json.loads((logs_dir / "ADB_SERIAL_MAP.lock.json").read_text(encoding="utf-8"))
+                names = [
+                    str(k)
+                    for k, v in dict(data.get("phones") or {}).items()
+                    if str(v or "").strip()
+                ]
             except Exception:
                 names = []
+            if names:
+                break
+            for cfg_name in ("cpharm_config.json", "pharmflow_config.json"):
+                try:
+                    cfg = json.loads((logs_dir.parent / cfg_name).read_text(encoding="utf-8"))
+                    names = [str(x) for x in (cfg.get("phones") or [])]
+                except Exception:
+                    names = []
+                if names:
+                    break
+            if names:
+                break
         idxs = sorted(int(mm.group(1)) for n in names if (mm := re.match(r"^vm(\d+)\.", n)))
         if idxs and idx in idxs:
             return idxs.index(idx)
@@ -1302,18 +1312,34 @@ def _prefs_base_value(key: str) -> Optional[int]:
 def _port_base_env(name: str, default: int) -> int:
     """Read a Tor port-base offset from env, then ``desktop_prefs.json`` (clamped).
 
-    PharmFlow and other farms on the same PC (e.g. PharmFlow) both used ``9050``/``8118``,
-    so their Tor instances fought over the same SOCKS/HTTP ports. ``PHARMFLOW_TOR_SOCKS_BASE``
-    / ``PHARMFLOW_TOR_HTTP_BASE`` (env) and ``tor_socks_base`` / ``tor_http_base``
-    (desktop_prefs.json) let PharmFlow move to its own range (e.g. 9150/8218) so per-slot
-    warmup never collides with another resident service.
+    PharmFlow and other farms on the same PC both used ``9050``/``8118``,
+    so their Tor instances fought over the same SOCKS/HTTP ports. ``PHARMFLOW_TOR_*``
+    / ``CPHARM_TOR_*`` (env) and ``tor_socks_base`` / ``tor_http_base``
+    (desktop_prefs.json) let a second stack move — but prefs still carry the old
+    evasion pair 9150/8218, which collides with mantis inject (8218+). Reject that
+    pair so inject never dials itself as Tor upstream.
     """
-    raw = os.environ.get(name, "").strip()
-    if raw.isdigit():
-        return max(1024, min(65500, int(raw)))
-    pref_key = "tor_http_base" if name == "PHARMFLOW_TOR_HTTP_BASE" else "tor_socks_base"
+    aliases = {
+        "PHARMFLOW_TOR_SOCKS_BASE": ("CPHARM_TOR_SOCKS_BASE", "PHARMFLOW_TOR_SOCKS_BASE"),
+        "PHARMFLOW_TOR_HTTP_BASE": ("CPHARM_TOR_HTTP_BASE", "PHARMFLOW_TOR_HTTP_BASE"),
+        "CPHARM_TOR_SOCKS_BASE": ("CPHARM_TOR_SOCKS_BASE", "PHARMFLOW_TOR_SOCKS_BASE"),
+        "CPHARM_TOR_HTTP_BASE": ("CPHARM_TOR_HTTP_BASE", "PHARMFLOW_TOR_HTTP_BASE"),
+    }
+    for env_name in aliases.get(name, (name,)):
+        raw = os.environ.get(env_name, "").strip()
+        if raw.isdigit():
+            return max(1024, min(65500, int(raw)))
+    pref_key = (
+        "tor_http_base"
+        if "HTTP" in name.upper()
+        else "tor_socks_base"
+    )
     v = _prefs_base_value(pref_key)
     if v is not None:
+        if pref_key == "tor_http_base" and int(v) == 8218:
+            return default
+        if pref_key == "tor_socks_base" and int(v) == 9150:
+            return default
         return v
     return default
 
@@ -1357,6 +1383,43 @@ def _free_port_base(base: int, span: int, step: int = 10) -> int:
 # mantis injectors, etc.) that has already claimed part of that window.
 _CONFIGURED_SOCKS = _port_base_env("PHARMFLOW_TOR_SOCKS_BASE", 9050)
 _CONFIGURED_HTTP = _port_base_env("PHARMFLOW_TOR_HTTP_BASE", 8118)
+# Prefs 9150/8218 are the inject-collision pair — never adopt as Tor bases.
+if _CONFIGURED_HTTP == 8218:
+    _CONFIGURED_HTTP = 8118
+    if _CONFIGURED_SOCKS == 9150:
+        _CONFIGURED_SOCKS = 9050
+
+
+def _logs_dirs_for_bases() -> list[Path]:
+    """Tor broadcast log roots.
+
+    Explicit LOGS/LOG_DIR env: first non-empty wins. Else dual-read CPharm + PharmFlow.
+    """
+    for name in (
+        "CPHARM_LOGS",
+        "PHARMFLOW_LOGS",
+        "CPHARM_LOG_DIR",
+        "PHARMFLOW_LOG_DIR",
+    ):
+        raw = os.environ.get(name)
+        if raw is not None and str(raw).strip() != "":
+            return [Path(raw)]
+    return [Path(r"C:\CPharm\logs"), Path(r"C:\PharmFlow\logs")]
+
+
+def _logs_dirs_for_bases_write() -> list[Path]:
+    out: list[Path] = []
+    seen: set[str] = set()
+    for d in list(_logs_dirs_for_bases()) + [
+        Path(r"C:\CPharm\logs"),
+        Path(r"C:\PharmFlow\logs"),
+    ]:
+        key = str(d).lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(d)
+    return out
 
 
 def _read_broadcast_bases() -> tuple[int, int] | None:
@@ -1365,23 +1428,28 @@ def _read_broadcast_bases() -> tuple[int, int] | None:
     The owning process heartbeats the file every 60s while its lanes live, so a
     fresh file (<120s) proves both the writer and its generation are alive. A
     stale file is ignored — that generation is dead and its bases are poison.
+    Prefer the freshest valid broadcast across CPharm + PharmFlow log dirs.
+    Never adopt http_base in the inject window (8218+).
     """
-    try:
-        import json
-        from pathlib import Path
-
-        state = Path(
-            os.environ.get("PHARMFLOW_LOGS") or os.environ.get("PHARMFLOW_LOG_DIR") or r"C:\PharmFlow\logs"
-        ) / "tor_port_bases.json"
-        data = json.loads(state.read_text(encoding="utf-8"))
-        age = time.time() - float(data.get("ts") or 0)
-        socks_b = int(data.get("socks_base") or 0)
-        http_b = int(data.get("http_base") or 0)
-        if age < 120 and socks_b > 0 and http_b > 0:
-            return socks_b, http_b
-    except Exception:
-        pass
-    return None
+    best: tuple[float, int, int] | None = None
+    now = time.time()
+    for logs_dir in _logs_dirs_for_bases():
+        state = logs_dir / "tor_port_bases.json"
+        try:
+            data = json.loads(state.read_text(encoding="utf-8"))
+            age = now - float(data.get("ts") or 0)
+            socks_b = int(data.get("socks_base") or 0)
+            http_b = int(data.get("http_base") or 0)
+            if age >= 120 or socks_b <= 0 or http_b <= 0 or http_b == 8218:
+                continue
+            ts = float(data.get("ts") or 0)
+            if best is None or ts > best[0]:
+                best = (ts, socks_b, http_b)
+        except Exception:
+            continue
+    if best is None:
+        return None
+    return best[1], best[2]
 
 
 def _free_base_or_adopt(configured: int, span: int, fallback_broadcast: int | None) -> int:
@@ -1405,6 +1473,11 @@ BASE_PORT = _free_base_or_adopt(
 HTTP_TUNNEL_BASE = _free_base_or_adopt(
     _CONFIGURED_HTTP, 8, _BROADCAST[1] if _BROADCAST else None
 )
+if int(HTTP_TUNNEL_BASE) == 8218:
+    # Never let Tor HTTP land on the inject listen base.
+    HTTP_TUNNEL_BASE = 8118
+    if int(BASE_PORT) == 9150:
+        BASE_PORT = 9050
 if BASE_PORT != _CONFIGURED_SOCKS or HTTP_TUNNEL_BASE != _CONFIGURED_HTTP:
     logger.info(
         "Tor port bases auto-shifted to avoid other listeners: socks %s->%s http %s->%s",
@@ -1423,29 +1496,25 @@ def _broadcast_port_bases() -> None:
     the phones as total loss of internet.
     """
     try:
-        import json
-        from pathlib import Path
-
-        state_dir = Path(
-            os.environ.get("PHARMFLOW_LOGS") or os.environ.get("PHARMFLOW_LOG_DIR") or r"C:\PharmFlow\logs"
-        )
-        state_dir.mkdir(parents=True, exist_ok=True)
         # 9150 is Tor Browser, not a farm SOCKS base. desktop_prefs still has
         # the old PharmFlow-evasion pair (9150/8218); publishing it made inject
         # dial a different HTTP lane than the farm worker.
-        if int(BASE_PORT) == 9150:
+        if int(BASE_PORT) == 9150 or int(HTTP_TUNNEL_BASE) == 8218:
             return
-        (state_dir / "tor_port_bases.json").write_text(
-            json.dumps(
-                {
-                    "ts": time.time(),
-                    "socks_base": int(BASE_PORT),
-                    "http_base": int(HTTP_TUNNEL_BASE),
-                    "pid": os.getpid(),
-                }
-            ),
-            encoding="utf-8",
+        payload = json.dumps(
+            {
+                "ts": time.time(),
+                "socks_base": int(BASE_PORT),
+                "http_base": int(HTTP_TUNNEL_BASE),
+                "pid": os.getpid(),
+            }
         )
+        for state_dir in _logs_dirs_for_bases_write():
+            try:
+                state_dir.mkdir(parents=True, exist_ok=True)
+                (state_dir / "tor_port_bases.json").write_text(payload, encoding="utf-8")
+            except OSError:
+                continue
     except Exception as exc:  # noqa: BLE001 — broadcast is best-effort
         logger.debug("tor port-base broadcast failed: %s", exc)
 
@@ -1790,9 +1859,9 @@ def align_bases_to_live_broadcast() -> tuple[int, int]:
         return BASE_PORT, HTTP_TUNNEL_BASE
     socks = int(_port_base_env("PHARMFLOW_TOR_SOCKS_BASE", 9050))
     http = int(_port_base_env("PHARMFLOW_TOR_HTTP_BASE", 8118))
-    if http >= 8218:
+    if http == 8218:
         log.warning(
-            "configured Tor HTTP base %s collides with inject (8218+) — using 8118",
+            "configured Tor HTTP base %s collides with inject (8218) — using 8118",
             http,
         )
         http = 8118

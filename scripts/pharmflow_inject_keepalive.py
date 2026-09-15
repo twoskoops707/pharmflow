@@ -26,8 +26,38 @@ from automation.adb_wrapper import AdbWrapper
 from automation.mantis_inject_proxy import ensure_inject_for_phone, start_inject_proxies
 from automation.tor_manager import restore_tor_http_for_slots
 
-LOG = Path(os.environ.get("PHARMFLOW_LOGS") or os.environ.get("PHARMFLOW_LOG_DIR") or r"C:\PharmFlow\logs")
-ADB = Path(r"C:\PharmFlow\bundled\adb.exe")
+def _logs_dirs() -> list[Path]:
+    out: list[Path] = []
+    seen: set[str] = set()
+    for name in (
+        "CPHARM_LOGS",
+        "CPHARM_LOG_DIR",
+        "PHARMFLOW_LOGS",
+        "PHARMFLOW_LOG_DIR",
+    ):
+        raw = os.environ.get(name)
+        if raw is None or str(raw).strip() == "":
+            continue
+        key = str(Path(raw)).lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(Path(raw))
+    if out:
+        return out
+    for raw in (r"C:\CPharm\logs", r"C:\PharmFlow\logs"):
+        key = str(Path(raw)).lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(Path(raw))
+    return out
+
+
+LOG = _logs_dirs()[0]
+ADB = Path(r"C:\CPharm\bundled\adb.exe")
+if not ADB.is_file():
+    ADB = Path(r"C:\PharmFlow\bundled\adb.exe")
 if not ADB.is_file():
     ADB = Path(r"C:\Program Files\Netease\MuMuPlayerARM\shell\adb.exe")
 
@@ -52,11 +82,15 @@ def _port_open(port: int) -> bool:
 
 def _load_targets() -> list[tuple[int, str, int]]:
     """(absolute_idx, serial, slot) from the live lock map. No phone-count cap."""
-    path = LOG / "ADB_SERIAL_MAP.lock.json"
-    try:
-        data = json.loads(path.read_text(encoding="utf-8-sig"))
-    except (OSError, json.JSONDecodeError, TypeError, ValueError):
-        data = {}
+    data = {}
+    for logs_dir in _logs_dirs():
+        path = logs_dir / "ADB_SERIAL_MAP.lock.json"
+        try:
+            data = json.loads(path.read_text(encoding="utf-8-sig"))
+            if data.get("phones"):
+                break
+        except (OSError, json.JSONDecodeError, TypeError, ValueError):
+            data = {}
     phones = {
         str(k): str(v).strip()
         for k, v in dict(data.get("phones") or {}).items()
@@ -70,10 +104,12 @@ def _load_targets() -> list[tuple[int, str, int]]:
         rows.append((int(m.group(1)), ser))
     rows.sort()
     targets = [(idx, ser, slot) for slot, (idx, ser) in enumerate(rows)]
-    os.environ["PHARMFLOW_INJECT_SLOT_MAP"] = json.dumps(
+    slot_map = json.dumps(
         {str(idx): slot for idx, _ser, slot in targets},
         separators=(",", ":"),
     )
+    os.environ["PHARMFLOW_INJECT_SLOT_MAP"] = slot_map
+    os.environ["CPHARM_INJECT_SLOT_MAP"] = slot_map
     return targets
 
 

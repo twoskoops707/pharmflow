@@ -59,15 +59,29 @@ _SSP_FETCH_UA = (
 )
 # Cross-process handoff: hunter runs out-of-process; in-memory _store_ssp_ads
 # never reaches farm workers. Persist paying creatives here for farm load.
-_SSP_PAYING_FILL_PATH = Path(r"C:\PharmFlow\logs\ssp_paying_fill.json")
+# Dual-root: live farm sticky state is still under C:\CPharm; branding also
+# writes C:\PharmFlow. Prefer CPharm for reads; dual-write both.
+def _ssp_logs_dirs() -> list[Path]:
+    return [Path(r"C:\CPharm\logs"), Path(r"C:\PharmFlow\logs")]
+
+
+_SSP_PAYING_FILL_PATH = _ssp_logs_dirs()[0] / "ssp_paying_fill.json"
 # Inject proxy publishes each phone's real browser fingerprint here; the host
 # SSP fetches below adopt it so Mantis serves the paying tier. Measured
 # 2026-09-11: bare urllib UA → paying=0 (bot tier) on every round, while the
 # same probe with phone client hints → paying=4. Without this the hunter's
 # bare probes saw only mantis-bot fill (utm_source=mantis-bot) for hours.
-_CLIENT_HINTS_PUBLISH_PATH = Path(r"C:\PharmFlow\logs\client_hints_by_phone.json")
+_CLIENT_HINTS_PUBLISH_PATH = _ssp_logs_dirs()[0] / "client_hints_by_phone.json"
 _CLIENT_HINTS_CACHE: tuple[float, dict[str, dict[str, str]]] = (0.0, {})
 _CLIENT_HINTS_LOCK = threading.Lock()
+
+
+def _paying_fill_paths() -> list[Path]:
+    return [d / "ssp_paying_fill.json" for d in _ssp_logs_dirs()]
+
+
+def _client_hints_paths() -> list[Path]:
+    return [d / "client_hints_by_phone.json" for d in _ssp_logs_dirs()]
 
 
 def _load_client_hints(max_age_s: float = 600.0) -> dict[str, str] | None:
@@ -83,12 +97,20 @@ def _load_client_hints(max_age_s: float = 600.0) -> dict[str, str] | None:
     now = time.time()
     if cached and now - cached_at < 30.0:
         return dict(cached)
-    try:
-        raw = _CLIENT_HINTS_PUBLISH_PATH.read_text(encoding="utf-8-sig")
-        if now - _CLIENT_HINTS_PUBLISH_PATH.stat().st_mtime > max_age_s:
-            return None
-        data = json.loads(raw)
-    except (OSError, json.JSONDecodeError, ValueError):
+    data = None
+    for path in _client_hints_paths():
+        try:
+            if not path.is_file():
+                continue
+            if now - path.stat().st_mtime > max_age_s:
+                continue
+            parsed = json.loads(path.read_text(encoding="utf-8-sig"))
+            if isinstance(parsed, dict) and parsed:
+                data = parsed
+                break
+        except (OSError, json.JSONDecodeError, ValueError):
+            continue
+    if not isinstance(data, dict):
         return None
     for row in (data or {}).values():
         if isinstance(row, dict) and str(row.get("user_agent") or ""):
@@ -216,14 +238,17 @@ def get_cached_ssp_ads(*, allow_stale: bool = True) -> list[dict[str, Any]]:
 
 def _paying_fill_file_age_s() -> float:
     """Wall age of ssp_paying_fill.json from its original ``ts`` (not mtime)."""
-    try:
-        data = json.loads(_SSP_PAYING_FILL_PATH.read_text(encoding="utf-8"))
-        ts = float((data or {}).get("ts") or 0.0)
-    except (OSError, json.JSONDecodeError, TypeError, ValueError):
-        return 1e9
-    if ts <= 0:
-        return 1e9
-    return max(0.0, time.time() - ts)
+    best = 1e9
+    for path in _paying_fill_paths():
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            ts = float((data or {}).get("ts") or 0.0)
+        except (OSError, json.JSONDecodeError, TypeError, ValueError):
+            continue
+        if ts <= 0:
+            continue
+        best = min(best, max(0.0, time.time() - ts))
+    return best
 
 
 def paying_fill_file_fresh() -> bool:
@@ -233,18 +258,21 @@ def paying_fill_file_fresh() -> bool:
 
 def clear_ssp_paying_fill_file(*, reason: str = "") -> bool:
     """Delete stale shared paying fill so farm stops replaying one creative."""
-    try:
-        if not _SSP_PAYING_FILL_PATH.is_file():
-            return False
-        _SSP_PAYING_FILL_PATH.unlink()
+    cleared = False
+    for path in _paying_fill_paths():
+        try:
+            if not path.is_file():
+                continue
+            path.unlink()
+            cleared = True
+        except OSError as exc:
+            logger.debug("clear paying fill soft-fail path=%s: %s", path, exc)
+    if cleared:
         logger.info(
             "Cleared ssp_paying_fill.json reason=%s",
             reason or "expired",
         )
-        return True
-    except OSError as exc:
-        logger.debug("clear paying fill soft-fail: %s", exc)
-        return False
+    return cleared
 
 
 def _persist_paying_fill(ads: list[dict[str, Any]]) -> None:
@@ -259,16 +287,19 @@ def _persist_paying_fill(ads: list[dict[str, Any]]) -> None:
     """
     now = time.time()
     fresh_rows: dict[str, dict[str, Any]] = {}
-    try:  # seed from the previous file so other zones survive this write
-        prev = json.loads(_SSP_PAYING_FILL_PATH.read_text(encoding="utf-8"))
-        for row in (prev or {}).get("ads") or []:
-            if (
-                isinstance(row, dict)
-                and now - float(row.get("_ts") or 0.0) <= _SSP_PAYING_FILL_MAX_AGE_S
-            ):
-                fresh_rows[str(row.get("zone_id") or "")] = row
-    except (OSError, json.JSONDecodeError, TypeError, ValueError):
-        pass
+    for path in _paying_fill_paths():
+        try:  # seed from the previous file so other zones survive this write
+            prev = json.loads(path.read_text(encoding="utf-8"))
+            for row in (prev or {}).get("ads") or []:
+                if (
+                    isinstance(row, dict)
+                    and now - float(row.get("_ts") or 0.0) <= _SSP_PAYING_FILL_MAX_AGE_S
+                ):
+                    fresh_rows[str(row.get("zone_id") or "")] = row
+            if fresh_rows:
+                break
+        except (OSError, json.JSONDecodeError, TypeError, ValueError):
+            continue
     for a in ads or []:
         if (
             isinstance(a, dict)
@@ -286,13 +317,15 @@ def _persist_paying_fill(ads: list[dict[str, Any]]) -> None:
         "paying": len(paying_rows),
         "ads": paying_rows,
     }
-    try:
-        _SSP_PAYING_FILL_PATH.parent.mkdir(parents=True, exist_ok=True)
-        tmp = _SSP_PAYING_FILL_PATH.with_suffix(".tmp")
-        tmp.write_text(json.dumps(payload), encoding="utf-8")
-        tmp.replace(_SSP_PAYING_FILL_PATH)
-    except OSError as exc:
-        logger.debug("SSP paying-fill persist soft-fail: %s", exc)
+    text = json.dumps(payload)
+    for path in _paying_fill_paths():
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = path.with_suffix(".tmp")
+            tmp.write_text(text, encoding="utf-8")
+            tmp.replace(path)
+        except OSError as exc:
+            logger.debug("SSP paying-fill persist soft-fail path=%s: %s", path, exc)
 
 
 def _ingest_paying_fill_file(*, max_age_s: float | None = None) -> list[dict[str, Any]]:
@@ -304,23 +337,33 @@ def _ingest_paying_fill_file(*, max_age_s: float | None = None) -> list[dict[str
     age_limit = (
         _SSP_PAYING_FILL_MAX_AGE_S if max_age_s is None else max(15.0, float(max_age_s))
     )
-    try:
-        raw = _SSP_PAYING_FILL_PATH.read_text(encoding="utf-8")
-        data = json.loads(raw)
-    except (OSError, json.JSONDecodeError, TypeError, ValueError):
+    best: tuple[float, list[dict[str, Any]]] | None = None
+    for path in _paying_fill_paths():
+        try:
+            raw = path.read_text(encoding="utf-8")
+            data = json.loads(raw)
+        except (OSError, json.JSONDecodeError, TypeError, ValueError):
+            continue
+        try:
+            ts = float((data or {}).get("ts") or 0.0)
+        except (TypeError, ValueError):
+            continue
+        age = time.time() - ts if ts > 0 else 1e9
+        if ts <= 0 or age > age_limit:
+            continue
+        ads = [a for a in ((data or {}).get("ads") or []) if isinstance(a, dict)]
+        if ssp_ads_paying_count(ads) <= 0:
+            continue
+        if best is None or ts > best[0]:
+            best = (ts, ads)
+    if best is None:
+        # Expire any leftover stale files once nothing fresh remains.
+        if _paying_fill_file_age_s() < 1e8 and _paying_fill_file_age_s() > age_limit:
+            clear_ssp_paying_fill_file(
+                reason=f"expired_age={_paying_fill_file_age_s():.0f}s"
+            )
         return []
-    try:
-        ts = float((data or {}).get("ts") or 0.0)
-    except (TypeError, ValueError):
-        return []
-    age = time.time() - ts if ts > 0 else 1e9
-    if ts <= 0 or age > age_limit:
-        if ts > 0 and age > age_limit:
-            clear_ssp_paying_fill_file(reason=f"expired_age={age:.0f}s")
-        return []
-    ads = [a for a in ((data or {}).get("ads") or []) if isinstance(a, dict)]
-    if ssp_ads_paying_count(ads) <= 0:
-        return []
+    ads = best[1]
     # persist=False — keep original hunter timestamp so fill can expire.
     _store_ssp_ads(ads, persist=False)
     _clear_ssp_house_only()

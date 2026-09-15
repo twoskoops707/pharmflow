@@ -35,7 +35,9 @@ from automation.dabflow_mantis_client_patch import (  # noqa: E402
 )
 from automation.tor_manager import TorManager  # noqa: E402
 
-LOG = Path(r"C:\PharmFlow\logs")
+LOG = Path(r"C:\CPharm\logs")
+# Dual-write sticky hunter state so branded PharmFlow readers stay in sync.
+_LOG_MIRRORS = (Path(r"C:\CPharm\logs"), Path(r"C:\PharmFlow\logs"))
 HB = LOG / "ssp_paying_hunter_heartbeat.txt"
 OUT = LOG / "ssp_paying_hunter.json"
 FLAG = LOG / "SSP_FORCE_REFRESH.flag"

@@ -106,12 +106,28 @@ def has_live_click_token(click_url: str) -> bool:
     bt = (qs.get("bt") or [""])[0].strip()
     if not bi or not bt:
         return False
-    if bi in ("pharmflow-fallback", "mantis-hardcode", "mantis-bot"):
+    if bi in ("pharmflow-fallback", "cpharm-fallback", "mantis-hardcode", "mantis-bot"):
         return False
     return True
 
 
-_VIEWED_CLICKS_PATH = Path(r"C:\PharmFlow\logs\phone_viewed_clicks.json")
+def _viewed_clicks_paths() -> list[Path]:
+    """Live CPharm first, branded PharmFlow second (dual-read / dual-write)."""
+    out: list[Path] = []
+    seen: set[str] = set()
+    for raw in (
+        r"C:\CPharm\logs\phone_viewed_clicks.json",
+        r"C:\PharmFlow\logs\phone_viewed_clicks.json",
+    ):
+        key = str(Path(raw)).lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(Path(raw))
+    return out
+
+
+_VIEWED_CLICKS_PATH = _viewed_clicks_paths()[0]
 # Same sequence can scroll for several minutes after the page paints.
 # 300s expired the token before Path3's tap, so the open was skipped.
 _VIEWED_CLICK_TTL_S = 900.0
@@ -123,12 +139,15 @@ def record_phone_viewed_ads(phone_index: int, ads: list) -> int:
     now = time.time()
     key = str(int(phone_index))
     with _viewed_lock:
-        try:
-            data = json.loads(_VIEWED_CLICKS_PATH.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError, TypeError):
-            data = {}
-        if not isinstance(data, dict):
-            data = {}
+        data: dict = {}
+        for path in _viewed_clicks_paths():
+            try:
+                raw = json.loads(path.read_text(encoding="utf-8"))
+                if isinstance(raw, dict) and raw:
+                    data = raw
+                    break
+            except (OSError, json.JSONDecodeError, TypeError):
+                continue
         bucket = dict(data.get(key) or {})
         stored = 0
         for ad in ads or []:
@@ -141,10 +160,15 @@ def record_phone_viewed_ads(phone_index: int, ads: list) -> int:
             bucket[zone] = {"url": url, "ts": now}
             stored += 1
         data[key] = bucket
-        _VIEWED_CLICKS_PATH.parent.mkdir(parents=True, exist_ok=True)
-        tmp = _VIEWED_CLICKS_PATH.with_suffix(".json.tmp")
-        tmp.write_text(json.dumps(data), encoding="utf-8")
-        tmp.replace(_VIEWED_CLICKS_PATH)
+        text = json.dumps(data)
+        for path in _viewed_clicks_paths():
+            try:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                tmp = path.with_suffix(".json.tmp")
+                tmp.write_text(text, encoding="utf-8")
+                tmp.replace(path)
+            except OSError:
+                continue
     return stored
 
 
@@ -158,23 +182,27 @@ def phone_viewed_click_url(
     want = str(zone or "").strip()
     if not want:
         return ""
-    try:
-        data = json.loads(_VIEWED_CLICKS_PATH.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError, TypeError):
-        return ""
-    row = (data.get(str(int(phone_index))) or {}).get(want) or {}
-    if not isinstance(row, dict):
-        return ""
-    url = str(row.get("url") or "").strip()
-    try:
-        ts = float(row.get("ts") or 0)
-    except (TypeError, ValueError):
-        ts = 0.0
-    if not url or (time.time() - ts) > float(max_age_s):
-        return ""
-    if not has_live_click_token(url):
-        return ""
-    return url
+    for path in _viewed_clicks_paths():
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError, TypeError):
+            continue
+        if not isinstance(data, dict):
+            continue
+        row = (data.get(str(int(phone_index))) or {}).get(want) or {}
+        if not isinstance(row, dict):
+            continue
+        url = str(row.get("url") or "").strip()
+        try:
+            ts = float(row.get("ts") or 0)
+        except (TypeError, ValueError):
+            ts = 0.0
+        if not url or (time.time() - ts) > float(max_age_s):
+            continue
+        if not has_live_click_token(url):
+            continue
+        return url
+    return ""
 
 
 def is_mantis_house_bot_click_url(click_url: str) -> bool:

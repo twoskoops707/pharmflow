@@ -53,12 +53,58 @@ def _ca():
 
     return ensure_ca_files, install_ca_on_device, ssl_context_for_host
 
-INJECT_BASE = int(os.environ.get("PHARMFLOW_MANTIS_INJECT_BASE", "8218") or "8218")
+def _env_first(*names: str, default: str = "") -> str:
+    """Prefer CPHARM_* (live farm) then PHARMFLOW_* (branded) then default."""
+    for name in names:
+        raw = os.environ.get(name)
+        if raw is not None and str(raw).strip() != "":
+            return str(raw)
+    return default
+
+
+def _logs_dirs() -> list[Path]:
+    """Operator log roots for reads.
+
+    Explicit LOGS/LOG_DIR env: first non-empty wins (tests + single override).
+    Otherwise dual-read live CPharm then branded PharmFlow.
+    """
+    for name in (
+        "CPHARM_LOGS",
+        "PHARMFLOW_LOGS",
+        "CPHARM_LOG_DIR",
+        "PHARMFLOW_LOG_DIR",
+    ):
+        raw = os.environ.get(name)
+        if raw is not None and str(raw).strip() != "":
+            return [Path(raw)]
+    return [Path(r"C:\CPharm\logs"), Path(r"C:\PharmFlow\logs")]
+
+
+def _logs_dirs_write() -> list[Path]:
+    """Always dual-write sticky inject state to both operator roots."""
+    out: list[Path] = []
+    seen: set[str] = set()
+    for d in list(_logs_dirs()) + [Path(r"C:\CPharm\logs"), Path(r"C:\PharmFlow\logs")]:
+        key = str(d).lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(d)
+    return out
+
+
+def _primary_logs_dir() -> Path:
+    return _logs_dirs()[0]
+
+
+INJECT_BASE = int(
+    _env_first("CPHARM_MANTIS_INJECT_BASE", "PHARMFLOW_MANTIS_INJECT_BASE", default="8218")
+    or "8218"
+)
 DABFLOW_HOSTS = ("getdabflow.app", "www.getdabflow.app")
 INJECT_MARKER = b"__pharmflowMantisPatchV1"
 # Tor exits often get house/bot SSP only (utm_source=mantis-bot) — GraphQL $/impr stay flat.
-# Route Mantis billing hosts DIRECT so native mantis.js + pixels see paying inventory.
-# Keep getdabflow.app / other browsing on Tor (identity). Default ON.
+# Billing hosts must stay on the phone exit (Tor/residential). billing_direct defaults OFF.
 _MANTIS_BILLING_HOST_SUFFIXES = (
     "ssp.mantis.marketing",
     "bids.mantis.marketing",
@@ -66,10 +112,12 @@ _MANTIS_BILLING_HOST_SUFFIXES = (
     "mantis.marketing",
     "mantisadnetwork.com",
 )
-_STATS_PATH = Path(r"C:\PharmFlow\logs\mantis_inject_stats.json")
+# Inject listen base — never adopt this as Tor HTTPTunnelPort base.
+_INJECT_HTTP_BASE = 8218
+_STATS_PATH = _primary_logs_dir() / "mantis_inject_stats.json"
 # Farm publishes scrambled UA/Client Hints; inject proxy rewrites Chromium
 # request headers when MuMu Chromium has no DevTools (CDP Emulation dead).
-_CLIENT_HINTS_PATH = Path(r"C:\PharmFlow\logs\client_hints_by_phone.json")
+_CLIENT_HINTS_PATH = _primary_logs_dir() / "client_hints_by_phone.json"
 _CLIENT_HINTS_LOCK = threading.Lock()
 _CLIENT_HINTS_CACHE: dict[str, dict] = {}
 _CLIENT_HINTS_MTIME = 0.0
@@ -92,29 +140,33 @@ def mitm_enabled() -> bool:
     """MITM HTML inject — needs trusted CA on the phone (farm arms with ca=True).
 
     Default ON so Firefox/Brave/DuckDuckGo (no CDP) still get Mantis creatives.
-    Set PHARMFLOW_MANTIS_INJECT_MITM=0 to force blind CONNECT tunnel only.
+    Set CPHARM_MANTIS_INJECT_MITM=0 / PHARMFLOW_MANTIS_INJECT_MITM=0 to force blind CONNECT.
     """
-    raw = os.environ.get("PHARMFLOW_MANTIS_INJECT_MITM", "1").strip().lower()
+    raw = _env_first("CPHARM_MANTIS_INJECT_MITM", "PHARMFLOW_MANTIS_INJECT_MITM", default="1").strip().lower()
     return raw not in ("0", "false", "no", "off")
 
 
 def inject_enabled() -> bool:
-    raw = os.environ.get("PHARMFLOW_MANTIS_INJECT_PROXY", "1").strip().lower()
+    raw = _env_first(
+        "CPHARM_MANTIS_INJECT_PROXY", "PHARMFLOW_MANTIS_INJECT_PROXY", default="1"
+    ).strip().lower()
     return raw not in ("0", "false", "no", "off")
 
 
 def upstream_mode() -> str:
-    return (os.environ.get("PHARMFLOW_MANTIS_INJECT_UPSTREAM") or "tor").strip().lower()
+    return _env_first(
+        "CPHARM_MANTIS_INJECT_UPSTREAM", "PHARMFLOW_MANTIS_INJECT_UPSTREAM", default="tor"
+    ).strip().lower()
 
 
 def _slot_from_env(phone_index: int) -> int | None:
-    """Slot map the farm owner exports at arm time (PHARMFLOW_INJECT_SLOT_MAP).
+    """Slot map the farm owner exports at arm time (CPHARM_/PHARMFLOW_INJECT_SLOT_MAP).
 
     JSON object {"<absolute idx>": <slot>}. The farm knows its live fleet, so
     this is the authoritative mapping — file-based roster scans are a fallback
     and can be re-polluted by rescans mid-flight.
     """
-    raw = os.environ.get("PHARMFLOW_INJECT_SLOT_MAP") or ""
+    raw = _env_first("CPHARM_INJECT_SLOT_MAP", "PHARMFLOW_INJECT_SLOT_MAP")
     if not raw.strip():
         return None
     try:
@@ -130,33 +182,75 @@ def _fleet_slot(phone_index: int) -> int | None:
 
     Slot = absolute index minus the fleet's minimum live index (the historical
     working scheme: vm27 = Tor base + roster slot). Sources, in order: the
-    live rows of ADB_SERIAL_MAP.lock.json, then pharmflow_config.json. Returns
-    None when the phone is not on the live roster or the roster has no vm rows.
+    live rows of ADB_SERIAL_MAP.lock.json, then pharmflow_config.json /
+    cpharm_config.json. Returns None when the phone is not on the live roster
+    or the roster has no vm rows.
     """
     idx = int(phone_index)
-    from pathlib import Path
-
-    logs_dir = Path(
-        os.environ.get("PHARMFLOW_LOGS") or os.environ.get("PHARMFLOW_LOG_DIR") or r"C:\PharmFlow\logs"
-    )
     names: list[str] = []
-    try:
-        data = json.loads((logs_dir / "ADB_SERIAL_MAP.lock.json").read_text(encoding="utf-8"))
-        names = [str(k) for k, v in dict(data.get("phones") or {}).items() if str(v or "").strip()]
-    except Exception:
-        names = []
-    if not names:
+    for logs_dir in _logs_dirs():
         try:
-            cfg = json.loads((logs_dir.parent / "pharmflow_config.json").read_text(encoding="utf-8"))
-            names = [str(x) for x in (cfg.get("phones") or [])]
+            data = json.loads((logs_dir / "ADB_SERIAL_MAP.lock.json").read_text(encoding="utf-8"))
+            names = [
+                str(k)
+                for k, v in dict(data.get("phones") or {}).items()
+                if str(v or "").strip()
+            ]
         except Exception:
             names = []
+        if names:
+            break
+        for cfg_name in ("cpharm_config.json", "pharmflow_config.json"):
+            try:
+                cfg = json.loads((logs_dir.parent / cfg_name).read_text(encoding="utf-8"))
+                names = [str(x) for x in (cfg.get("phones") or [])]
+            except Exception:
+                names = []
+            if names:
+                break
+        if names:
+            break
     if not names:
         return None
     idxs = sorted(int(m.group(1)) for n in names if (m := re.match(r"^vm(\d+)\.", n)))
     if not idxs or idx not in idxs:
         return None
     return idxs.index(idx)
+
+
+def _is_poison_tor_http_base(base: int) -> bool:
+    """True when ``base`` is the mantis inject listen base, not Tor HTTPTunnel."""
+    return int(base) == int(INJECT_BASE) or int(base) == int(_INJECT_HTTP_BASE)
+
+
+def _read_live_tor_http_base() -> int | None:
+    """Freshest tor_port_bases.json http_base that is not the inject listen base."""
+    best: tuple[float, int] | None = None
+    now = time.time()
+    for logs_dir in _logs_dirs():
+        state = logs_dir / "tor_port_bases.json"
+        try:
+            data = json.loads(state.read_text(encoding="utf-8"))
+            age = now - float(data.get("ts") or 0)
+            base = int(data.get("http_base") or 0)
+            if age >= 120 or base <= 0 or _is_poison_tor_http_base(base):
+                continue
+            ts = float(data.get("ts") or 0)
+            if best is None or ts > best[0]:
+                best = (ts, base)
+        except Exception:
+            continue
+    return None if best is None else best[1]
+
+
+def _tor_port_for_slot(base: int, phone_index: int) -> int:
+    idx = int(phone_index)
+    slot = _slot_from_env(idx)
+    if slot is None:
+        slot = _fleet_slot(idx)
+    if slot is not None:
+        return int(base) + int(slot)
+    return int(base) + idx
 
 
 def upstream_tor_port(phone_index: int) -> int:
@@ -169,39 +263,41 @@ def upstream_tor_port(phone_index: int) -> int:
     base is resolved live from the Tor owner's broadcast file; the SLOT is
     resolved from the live roster (idx - min live idx). Unmapped phones keep
     the legacy absolute behavior rather than risk sharing another lane.
+
+    Never returns a port in the inject listen window (8218+): desktop_prefs
+    still carries the old PharmFlow-evasion pair 9150/8218, and branding
+    rename briefly pointed logs at a stale PharmFlow broadcast so inject
+    fell through to ``phone_http_port`` = 8218+slot (inject dialing inject).
     """
     idx = int(phone_index)
     # 1) Broadcast file first: the Tor-owning process heartbeats it while its
     #    lanes live, and it is the only truth shared across processes. An
     #    in-process tor_manager import here would compute *this* process's own
     #    shifted base — correct only when we own the lanes.
+    base = _read_live_tor_http_base()
+    if base is not None:
+        return _tor_port_for_slot(base, idx)
+    # 2) Align in-process bases to the live broadcast (or 8118 when prefs say 8218).
     try:
-        from pathlib import Path
+        from automation.tor_manager import align_bases_to_live_broadcast, phone_http_port
 
-        state = Path(
-            os.environ.get("PHARMFLOW_LOGS") or os.environ.get("PHARMFLOW_LOG_DIR") or r"C:\PharmFlow\logs"
-        ) / "tor_port_bases.json"
-        data = json.loads(state.read_text(encoding="utf-8"))
-        if time.time() - float(data.get("ts") or 0) < 120:
-            base = int(data.get("http_base") or 0)
-            if base > 0:
-                slot = _slot_from_env(idx)
-                if slot is None:
-                    slot = _fleet_slot(idx)
-                if slot is not None:
-                    return base + slot
-                return base + idx
-    except Exception:
-        pass
-    # 2) In-process resolver — authoritative when this process spawned the lanes.
-    try:
-        from automation.tor_manager import phone_http_port
-
-        return int(phone_http_port(idx))
+        align_bases_to_live_broadcast()
+        port = int(phone_http_port(idx))
+        # Reject dialing this phone's inject listener as if it were Tor.
+        if port != phone_inject_port(idx):
+            slot = _slot_from_env(idx)
+            if slot is None:
+                slot = _fleet_slot(idx)
+            inferred_base = port - (int(slot) if slot is not None else idx)
+            if not _is_poison_tor_http_base(inferred_base):
+                return port
     except Exception:
         pass
     # 3) Raw constant — last resort; matches unshifted default spawns.
-    return TOR_HTTP_TUNNEL_BASE + idx
+    safe_base = int(TOR_HTTP_TUNNEL_BASE)
+    if _is_poison_tor_http_base(safe_base):
+        safe_base = 8118
+    return _tor_port_for_slot(safe_base, idx)
 
 
 def _store_viewed_beacon(phone_index: int, body: bytes) -> None:
@@ -230,10 +326,12 @@ def _store_viewed_beacon(phone_index: int, body: bytes) -> None:
 
 def _beacon_note(line: str) -> None:
     try:
-        path = Path(r"C:\PharmFlow\logs\inject_beacon.log")
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("a", encoding="utf-8") as fh:
-            fh.write(time.strftime("%H:%M:%S ") + line + "\n")
+        for logs_dir in _logs_dirs():
+            path = logs_dir / "inject_beacon.log"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with path.open("a", encoding="utf-8") as fh:
+                fh.write(time.strftime("%H:%M:%S ") + line + "\n")
+            break
     except OSError:
         pass
 
@@ -251,7 +349,9 @@ def billing_direct_enabled() -> bool:
     farm as single-IP bot traffic. Tor exits are the billing path; if Mantis
     406s an exit, rotate the exit — never fall back to the host IP.
     """
-    raw = os.environ.get("PHARMFLOW_MANTIS_BILLING_DIRECT", "0").strip().lower()
+    raw = _env_first(
+        "CPHARM_MANTIS_BILLING_DIRECT", "PHARMFLOW_MANTIS_BILLING_DIRECT", default="0"
+    ).strip().lower()
     return raw in ("1", "true", "yes")
 
 
@@ -275,8 +375,13 @@ def _publish_inject_stats(proxies: list) -> None:
                 "stats": dict(getattr(p, "stats", {}) or {}),
             }
         payload = {"updated": time.time(), "phones": rows}
-        _STATS_PATH.parent.mkdir(parents=True, exist_ok=True)
-        _STATS_PATH.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+        text = json.dumps(payload, indent=2) + "\n"
+        for logs_dir in _logs_dirs_write():
+            try:
+                logs_dir.mkdir(parents=True, exist_ok=True)
+                (logs_dir / "mantis_inject_stats.json").write_text(text, encoding="utf-8")
+            except OSError:
+                continue
     except OSError as exc:
         logger.debug("publish inject stats soft-fail: %s", exc)
 
@@ -328,20 +433,27 @@ def publish_client_hints_for_phone(phone_index: int, profile: object) -> None:
         "updated": time.time(),
     }
     try:
-        _CLIENT_HINTS_PATH.parent.mkdir(parents=True, exist_ok=True)
         with _CLIENT_HINTS_LOCK:
             data: dict = {}
-            if _CLIENT_HINTS_PATH.is_file():
+            for logs_dir in _logs_dirs():
+                path = logs_dir / "client_hints_by_phone.json"
+                if not path.is_file():
+                    continue
                 try:
-                    raw = json.loads(_CLIENT_HINTS_PATH.read_text(encoding="utf-8"))
+                    raw = json.loads(path.read_text(encoding="utf-8"))
                     if isinstance(raw, dict):
                         data = raw
+                        break
                 except (OSError, ValueError, TypeError):
-                    data = {}
+                    continue
             data[str(int(phone_index))] = row
-            _CLIENT_HINTS_PATH.write_text(
-                json.dumps(data, indent=2) + "\n", encoding="utf-8"
-            )
+            text = json.dumps(data, indent=2) + "\n"
+            for logs_dir in _logs_dirs_write():
+                try:
+                    logs_dir.mkdir(parents=True, exist_ok=True)
+                    (logs_dir / "client_hints_by_phone.json").write_text(text, encoding="utf-8")
+                except OSError:
+                    continue
             _CLIENT_HINTS_CACHE.clear()
             _CLIENT_HINTS_CACHE.update(
                 {str(k): v for k, v in data.items() if isinstance(v, dict)}
@@ -359,17 +471,24 @@ def _client_hints_for_phone(phone_index: int) -> dict:
     """Load published Client Hints for this inject phone (mtime-cached)."""
     global _CLIENT_HINTS_MTIME
     key = str(int(phone_index))
-    try:
-        mtime = _CLIENT_HINTS_PATH.stat().st_mtime if _CLIENT_HINTS_PATH.is_file() else 0.0
-    except OSError:
-        mtime = 0.0
+    path: Path | None = None
+    mtime = 0.0
+    for logs_dir in _logs_dirs():
+        cand = logs_dir / "client_hints_by_phone.json"
+        try:
+            if cand.is_file():
+                path = cand
+                mtime = cand.stat().st_mtime
+                break
+        except OSError:
+            continue
     with _CLIENT_HINTS_LOCK:
         if mtime and mtime == _CLIENT_HINTS_MTIME and key in _CLIENT_HINTS_CACHE:
             return dict(_CLIENT_HINTS_CACHE[key])
-        if not _CLIENT_HINTS_PATH.is_file():
+        if path is None:
             return {}
         try:
-            raw = json.loads(_CLIENT_HINTS_PATH.read_text(encoding="utf-8"))
+            raw = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, ValueError, TypeError):
             return {}
         if not isinstance(raw, dict):
