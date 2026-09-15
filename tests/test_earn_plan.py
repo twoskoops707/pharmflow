@@ -137,3 +137,44 @@ def test_random_phone_counts_sum_and_differ() -> None:
     assert sum(out) == 200
     assert len(out) == 4
     assert len(set(out)) > 1
+
+
+def test_load_earn_plan_prefers_freshest_legacy_when_env_unset(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Branding migration: a newer legacy plan must win when env is unset."""
+    import os
+
+    from automation import earn_plan as ep
+
+    pharm = tmp_path / "PharmFlow" / "logs"
+    cpharm = tmp_path / "CPharm" / "logs"
+    pharm.mkdir(parents=True)
+    cpharm.mkdir(parents=True)
+    monkeypatch.delenv("PHARMFLOW_LOG_DIR", raising=False)
+    monkeypatch.delenv("PHARMFLOW_LOGS", raising=False)
+    monkeypatch.setattr(ep, "plan_path", lambda: pharm / "earn_plan.json")
+    monkeypatch.setattr(
+        ep,
+        "_plan_candidate_paths",
+        lambda: [pharm / "earn_plan.json", cpharm / "earn_plan.json"],
+    )
+    older = {
+        "ok": True,
+        "saved": True,
+        "phones": 1,
+        "visits_per_phone": 10,
+        "visits_by_phone": [10],
+        "path3_by_phone": [0],
+        "spread_seed": 1,
+    }
+    newer = dict(older)
+    newer["visits_per_phone"] = 99
+    newer["visits_by_phone"] = [99]
+    (pharm / "earn_plan.json").write_text(json.dumps(older), encoding="utf-8")
+    (cpharm / "earn_plan.json").write_text(json.dumps(newer), encoding="utf-8")
+    os.utime(pharm / "earn_plan.json", (1_700_000_000, 1_700_000_000))
+    os.utime(cpharm / "earn_plan.json", (1_800_000_000, 1_800_000_000))
+    loaded = load_earn_plan()
+    assert loaded is not None
+    assert loaded["visits_by_phone"] == [99]

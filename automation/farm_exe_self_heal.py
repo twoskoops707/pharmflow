@@ -41,11 +41,14 @@ RELOAD_FLAG = LOG / "FARM_RELOAD_FARM.flag"
 
 _CREATE_NO_WINDOW = int(getattr(subprocess, "CREATE_NO_WINDOW", 0) or 0)
 
+# Branding split: live money install may still be C:\CPharm while Start farm
+# seeds under C:\PharmFlow. Prefer PharmFlow destinations but seed FROM CPharm
+# when the branded tree has no tor.exe (proven 2026-09-15).
 _TOR_SEED_CANDIDATES = (
     Path(r"C:\PharmFlow\automation\tor\tor.exe"),
-    Path(r"C:\PharmFlow\automation\tor\tor.exe"),
     Path(r"C:\PharmFlow\bundled\tor.exe"),
-    Path(r"C:\PharmFlow\bundled\tor.exe"),
+    Path(r"C:\CPharm\automation\tor\tor.exe"),
+    Path(r"C:\CPharm\bundled\tor.exe"),
     Path(r"C:\Tor\tor.exe"),
 )
 
@@ -57,8 +60,9 @@ def _utc() -> str:
 def _adb_bin() -> str:
     for cand in (
         Path(r"C:\PharmFlow\bundled\adb.exe"),
-        Path(r"C:\PharmFlow\bundled\adb.exe"),
+        Path(r"C:\CPharm\bundled\adb.exe"),
         Path(r"C:\Program Files\Netease\MuMuPlayerARM\shell\adb.exe"),
+        Path(r"C:\Program Files\Netease\MuMuPlayer\shell\adb.exe"),
     ):
         if cand.is_file():
             return str(cand)
@@ -137,6 +141,10 @@ def ensure_tor_binary() -> list[str]:
 
     dest = Path(TOR_DIR) / "tor.exe"
     if dest.is_file():
+        env_tor = (os.environ.get("PHARMFLOW_TOR_PATH") or "").strip()
+        if not env_tor or not Path(env_tor).is_file():
+            os.environ["PHARMFLOW_TOR_PATH"] = str(dest)
+            return ["tor_present", f"tor_path_healed={dest}"]
         return ["tor_present"]
 
     seed: Path | None = None
@@ -168,7 +176,9 @@ def ensure_tor_binary() -> list[str]:
             shutil.copy2(seed, dest)
         if dest.is_file():
             fixes.append(f"tor_seeded_from={seed}")
-            os.environ.setdefault("PHARMFLOW_TOR_PATH", str(dest))
+            # Sticky/SSOT may already point at missing C:\PharmFlow\bundled\tor.exe
+            # — overwrite that dead path, don't setdefault past it.
+            os.environ["PHARMFLOW_TOR_PATH"] = str(dest)
         else:
             fixes.append("tor_seed_copy_failed")
     except OSError as exc:

@@ -36,6 +36,30 @@ def _utc() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def resolve_tor_exe_path() -> str:
+    """Return an on-disk tor.exe, preferring PharmFlow then CPharm.
+
+    Branding left SSOT pointing at ``C:\\PharmFlow\\bundled\\tor.exe`` while the
+    live binary still lives under ``C:\\CPharm\\bundled\\tor.exe``. Start farm /
+    TorManager then fail with a missing binary even though a seed exists.
+    """
+    preferred = Path(r"C:\PharmFlow\bundled\tor.exe")
+    candidates = (
+        preferred,
+        Path(r"C:\PharmFlow\automation\tor\tor.exe"),
+        Path(r"C:\CPharm\bundled\tor.exe"),
+        Path(r"C:\CPharm\automation\tor\tor.exe"),
+        Path(r"C:\Tor\tor.exe"),
+    )
+    for cand in candidates:
+        try:
+            if cand.is_file():
+                return str(cand)
+        except OSError:
+            continue
+    return str(preferred)
+
+
 def _base_runtime() -> dict[str, str]:
     names = canonical_names_sorted()
     serials = canonical_serials_sorted()
@@ -125,7 +149,7 @@ def _base_runtime() -> dict[str, str]:
         "PHARMFLOW_NEVER_SHARE_EXIT_IP": "1",
         "PHARMFLOW_REQUIRE_FARM_BROWSERS": "0",
         "PHARMFLOW_FAST_STICKY_BOOT": "1",
-        "PHARMFLOW_TOR_PATH": r"C:\PharmFlow\bundled\tor.exe",
+        "PHARMFLOW_TOR_PATH": resolve_tor_exe_path(),
         "PHARMFLOW_SKIP_BOOT_GEO": "1",
         "PHARMFLOW_GEO_TIME_WINDOW": "1",
         "PHARMFLOW_BROWSE_PROXY_MODE": "scramble",
@@ -187,6 +211,10 @@ def apply_farm_env(env: dict[str, str] | None = None) -> dict[str, str]:
     data = get_runtime()
     for key, val in data.items():
         target[str(key)] = str(val)
+    # Never leave TOR_PATH aimed at a missing file after branding split.
+    tor = str(target.get("PHARMFLOW_TOR_PATH") or "").strip()
+    if not tor or not Path(tor).is_file():
+        target["PHARMFLOW_TOR_PATH"] = resolve_tor_exe_path()
     return target
 
 

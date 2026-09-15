@@ -19,10 +19,21 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-PROXY_LIST_PATH = Path(os.environ.get(
-    "PHARMFLOW_RESIDENTIAL_PROXY_LIST",
-    r"C:\PharmFlow\config\residential_proxies.txt",
-))
+PROXY_LIST_PATH = Path(
+    os.environ.get("CPHARM_RESIDENTIAL_PROXY_LIST")
+    or os.environ.get("PHARMFLOW_RESIDENTIAL_PROXY_LIST")
+    or ""
+)
+if not str(PROXY_LIST_PATH):
+    for cand in (
+        Path(r"C:\CPharm\config\residential_proxies.txt"),
+        Path(r"C:\PharmFlow\config\residential_proxies.txt"),
+    ):
+        if cand.is_file():
+            PROXY_LIST_PATH = cand
+            break
+    else:
+        PROXY_LIST_PATH = Path(r"C:\CPharm\config\residential_proxies.txt")
 
 # Minimum seconds between health checks for the same proxy
 HEALTH_CHECK_INTERVAL = 60.0

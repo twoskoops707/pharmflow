@@ -8,6 +8,13 @@ from unittest import mock
 import automation.farm_exe_self_heal as heal
 
 
+def test_tor_seed_candidates_include_cpharm_after_branding() -> None:
+    """Start farm must seed tor.exe from C:\\CPharm when C:\\PharmFlow lacks it."""
+    texts = [str(p).replace("/", "\\").lower() for p in heal._TOR_SEED_CANDIDATES]
+    assert any(t.endswith(r"c:\cpharm\bundled\tor.exe") for t in texts)
+    assert any(t.endswith(r"c:\pharmflow\bundled\tor.exe") for t in texts)
+
+
 def test_ensure_tor_binary_seeds_from_candidate(tmp_path: Path, monkeypatch) -> None:
     seed_dir = tmp_path / "seed"
     seed_dir.mkdir()

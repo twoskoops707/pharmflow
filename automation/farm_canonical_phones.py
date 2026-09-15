@@ -162,6 +162,15 @@ def canonical_serials_sorted() -> list[str]:
     return [_fleet().get(n, "") for n in canonical_names_sorted()]
 
 
+def disk_fleet_map() -> dict[str, str]:
+    """Full on-disk MuMu VM roster (cold + stopped), never live-only shrunk."""
+    return dict(_fleet_from_disk())
+
+
+def disk_fleet_names_sorted() -> list[str]:
+    return _sorted_names(_fleet_from_disk())
+
+
 def is_banned_serial(serial: str) -> bool:
     s = (serial or "").strip()
     if not s:

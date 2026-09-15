@@ -22,9 +22,10 @@ if str(_wizard_dir) not in sys.path:
 import mumu_farm_ops as farm  # noqa: E402
 import preflight_core as preflight  # noqa: E402
 from wizard_paths import (  # noqa: E402
+    has_automation_dashboard,
+    persist_groups_config_text,
     pharmflow_default_install_root,
     pharmflow_install_root,
-    has_automation_dashboard,
 )
 
 LogFn = Callable[[str], None]
@@ -214,15 +215,15 @@ def write_groups_config(serials: list[str], install_root: Path, *, force: bool =
         ],
     }
     out = _groups_config_path(install_root)
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(json.dumps(cfg, indent=2) + "\n", encoding="utf-8")
+    text = json.dumps(cfg, indent=2) + "\n"
+    written = persist_groups_config_text(text, primary=out)
     try:
-        stored = json.loads(out.read_text(encoding="utf-8"))
+        stored = json.loads(written.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError, TypeError, ValueError):
         return None
     if not isinstance(stored, dict) or stored.get("groups") != cfg["groups"]:
         return None
-    return out
+    return written
 
 
 def write_desktop_prefs(
@@ -279,6 +280,11 @@ def write_desktop_prefs(
 
 
 def launch_pharmflow() -> tuple[bool, str]:
+    """Open the Control Panel EXE — never a second hidden copy of this process.
+
+    CREATE_NO_WINDOW on a windowed PharmFlow.exe is what operators see as
+    \"two EXEs, one in the background\". Frozen / already-PharmFlow must no-op.
+    """
     try:
         from phone_setup_entry import is_unified_pharmflow, skip_launch_pharmflow_after_setup
 
@@ -287,10 +293,19 @@ def launch_pharmflow() -> tuple[bool, str]:
                 "This window is already PharmFlow. A second copy was not opened."
             )
     except Exception:
-        if "--phone-setup" in sys.argv:
+        if "--phone-setup" in sys.argv or getattr(sys, "frozen", False):
             return True, (
                 "This window is already PharmFlow. A second copy was not opened."
             )
+    # Same binary stem as the Control Panel — re-execing ourselves only
+    # duplicates the deck (PyInstaller onefile already has a parent+child pair).
+    try:
+        if Path(sys.executable).stem.lower() == "pharmflow":
+            return True, (
+                "This window is already PharmFlow. A second copy was not opened."
+            )
+    except OSError:
+        pass
     pharmflow = pharmflow_exe_path()
     if not pharmflow.is_file():
         return False, (
@@ -298,12 +313,18 @@ def launch_pharmflow() -> tuple[bool, str]:
             f"  {pharmflow.parent}\n"
             "Download PharmFlow.exe from the GitHub release into that folder."
         )
-    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if sys.platform == "win32" else 0
+    try:
+        if Path(pharmflow).resolve() == Path(sys.executable).resolve():
+            return True, (
+                "This window is already PharmFlow. A second copy was not opened."
+            )
+    except OSError:
+        pass
+    # Never CREATE_NO_WINDOW — that hides a second Control Panel as a "background EXE".
     subprocess.Popen(
         [str(pharmflow)],
         cwd=str(pharmflow.parent),
         env=launch_env(),
-        creationflags=flags,
     )
     return True, str(pharmflow)
 

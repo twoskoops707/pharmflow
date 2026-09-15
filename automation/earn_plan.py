@@ -53,6 +53,27 @@ def plan_path() -> Path:
     return Path(root) / PLAN_NAME
 
 
+def _plan_candidate_paths() -> list[Path]:
+    """Primary plan path, plus legacy root when env does not force a log dir.
+
+    EXE Save mix writes under C:\\PharmFlow\\logs by default. A live farm that
+    still reads C:\\CPharm\\logs must see the same mix. Forced PHARMFLOW_LOG_*
+    stays isolated for tests and operator overrides.
+    """
+    primary = plan_path()
+    out = [primary]
+    if os.environ.get("PHARMFLOW_LOGS") or os.environ.get("PHARMFLOW_LOG_DIR"):
+        return out
+    legacy = Path(r"C:\CPharm\logs") / PLAN_NAME
+    try:
+        if legacy.resolve() != primary.resolve():
+            out.append(legacy)
+    except OSError:
+        if str(legacy) != str(primary):
+            out.append(legacy)
+    return out
+
+
 def _num(value: Any) -> float | None:
     if value is None or value == "":
         return None
@@ -319,23 +340,54 @@ def save_earn_plan(params: dict[str, Any] | None, dest: Path | None = None) -> d
     path.parent.mkdir(parents=True, exist_ok=True)
     stored = dict(plan)
     stored["saved"] = True
+    payload = json.dumps(stored, indent=2) + "\n"
     tmp = path.with_suffix(".json.tmp")
-    tmp.write_text(json.dumps(stored, indent=2) + "\n", encoding="utf-8")
+    tmp.write_text(payload, encoding="utf-8")
     tmp.replace(path)
+    # Mirror to the other branding-era root so a farm still reading the
+    # legacy folder picks up the same mix. Explicit dest skips the mirror.
+    if dest is None:
+        for other in _plan_candidate_paths():
+            try:
+                if other.resolve() == path.resolve():
+                    continue
+            except OSError:
+                if str(other) == str(path):
+                    continue
+            try:
+                other.parent.mkdir(parents=True, exist_ok=True)
+                other_tmp = other.with_suffix(".json.tmp")
+                other_tmp.write_text(payload, encoding="utf-8")
+                other_tmp.replace(other)
+            except OSError:
+                continue
     stored["path"] = str(path)
     return stored
 
 
 def load_earn_plan(dest: Path | None = None) -> dict[str, Any] | None:
-    """Return a saved plan, or None. A corrupt file is left in place."""
-    path = dest or plan_path()
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError, TypeError, ValueError):
-        return None
-    if not isinstance(data, dict) or data.get("saved") is not True or data.get("ok") is not True:
-        return None
-    return data
+    """Return a saved plan, or None. A corrupt file is left in place.
+
+    When ``dest`` is omitted, prefer the freshest valid plan among the
+    primary and legacy log roots so branding migration does not drop the mix.
+    """
+    paths = [dest] if dest is not None else _plan_candidate_paths()
+    best: dict[str, Any] | None = None
+    best_mtime = -1.0
+    for path in paths:
+        if path is None:
+            continue
+        try:
+            mtime = path.stat().st_mtime
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError, TypeError, ValueError):
+            continue
+        if not isinstance(data, dict) or data.get("saved") is not True or data.get("ok") is not True:
+            continue
+        if mtime >= best_mtime:
+            best = data
+            best_mtime = mtime
+    return best
 
 
 def _plan_visits_list(plan: dict[str, Any]) -> list[int]:

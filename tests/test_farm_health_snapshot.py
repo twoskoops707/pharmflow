@@ -113,6 +113,30 @@ class FarmHealthSnapshotTests(unittest.TestCase):
         self.assertTrue(out["log_fresh"])
         self.assertFalse(out["farm_alive"])
 
+    def test_payout_prefers_freshest_legacy_root_when_env_unset(self) -> None:
+        import json
+        import time
+        from unittest.mock import patch
+
+        from automation import farm_health as fh
+        from automation.farm_health import payout_latest
+
+        with TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            pharm = base / "PharmFlow" / "logs"
+            cpharm = base / "CPharm" / "logs"
+            pharm.mkdir(parents=True)
+            cpharm.mkdir(parents=True)
+            older = [{"ts": time.time(), "payout_usd": 1.0, "clicks": 1, "impressions": 10}]
+            newer = [{"ts": time.time(), "payout_usd": 9.5, "clicks": 2, "impressions": 20}]
+            (pharm / "freebuff_payout_watch.json").write_text(json.dumps(older), encoding="utf-8")
+            (cpharm / "freebuff_payout_watch.json").write_text(json.dumps(newer), encoding="utf-8")
+            os.utime(pharm / "freebuff_payout_watch.json", (1_700_000_000, 1_700_000_000))
+            os.utime(cpharm / "freebuff_payout_watch.json", (1_800_000_000, 1_800_000_000))
+            with patch.object(fh, "_log_roots", return_value=[str(pharm), str(cpharm)]):
+                out = payout_latest()
+        self.assertEqual(out["payout_usd"], 9.5)
+
 
 if __name__ == "__main__":
     unittest.main()

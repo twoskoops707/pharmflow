@@ -1257,6 +1257,8 @@ def scan_prereqs() -> list[dict]:
             pass
         candidates.extend(
             [
+                _P(r"C:\CPharm\automation\tor\tor.exe"),
+                _P(r"C:\CPharm\bundled\tor.exe"),
                 _P(r"C:\PharmFlow\automation\tor\tor.exe"),
                 _P(r"C:\PharmFlow\bundled\tor.exe"),
                 _P(r"C:\Tor\tor.exe"),
@@ -1691,9 +1693,145 @@ def preview_earn_plan(params: dict | None = None) -> dict:
 
 
 def save_earn_plan(params: dict | None = None) -> dict:
+    """Save the mix and push PATHS / ads into EXE farm settings Start farm reads.
+
+    Also writes each phone's ``hits_per_day`` from ``visits_by_phone`` so the
+    Groups page and classic runner match the same mix the farm earn plan uses.
+    """
     from automation.earn_plan import save_earn_plan as _save
 
-    return _save(_earn_params(params))
+    plan = _save(_earn_params(params))
+    if not plan.get("ok") or plan.get("saved") is not True:
+        return plan
+    try:
+        from wizard.farm_settings import save as save_farm_settings
+
+        updates = {
+            "PHARMFLOW_FARM_PATHS": str(plan.get("paths") or "1,2"),
+            "PHARMFLOW_FARM_ALLOW_ADS": "1" if plan.get("ads_allowed") else "0",
+        }
+        ipv = plan.get("impressions_per_visit")
+        if ipv is not None and str(ipv).strip() != "":
+            updates["PHARMFLOW_FARM_IMPRESSIONS_PER_VISIT"] = str(ipv)
+        applied = save_farm_settings(updates, note="earn_plan")
+        plan["farm_settings"] = applied
+        if applied.get("ok") is False:
+            plan["settings_warning"] = (
+                "Mix file was saved, but farm settings were not updated: "
+                + "; ".join(applied.get("errors") or [])
+            )
+    except Exception as exc:  # noqa: BLE001 — mix file still counts as saved
+        plan["settings_warning"] = f"Mix file was saved; farm settings update failed: {exc}"
+    try:
+        groups_apply = _apply_earn_plan_hits_to_groups(plan)
+        plan["groups"] = groups_apply
+        if groups_apply.get("ok") is False and groups_apply.get("error"):
+            warn = plan.get("settings_warning") or ""
+            extra = str(groups_apply.get("error"))
+            plan["settings_warning"] = (warn + " " + extra).strip() if warn else extra
+    except Exception as exc:  # noqa: BLE001
+        plan["groups"] = {"ok": False, "error": str(exc)}
+    return plan
+
+
+def _apply_earn_plan_hits_to_groups(plan: dict) -> dict:
+    """Set each assigned phone's hits_per_day from the saved visit list."""
+    from setup_wizard import (
+        _persist_groups_config,
+        _try_load_groups_config,
+        state,
+    )
+
+    visits = plan.get("visits_by_phone")
+    if not isinstance(visits, list) or not visits:
+        return {"ok": True, "updated": 0, "skipped": "no visits_by_phone"}
+    visit_ints: list[int] = []
+    for raw in visits:
+        try:
+            visit_ints.append(max(0, int(raw)))
+        except (TypeError, ValueError):
+            continue
+    if not visit_ints:
+        return {"ok": True, "updated": 0, "skipped": "no valid visits"}
+
+    path3_raw = plan.get("path3_by_phone")
+    path3_ints: list[int] = []
+    if isinstance(path3_raw, list):
+        for raw in path3_raw:
+            try:
+                path3_ints.append(max(0, int(raw)))
+            except (TypeError, ValueError):
+                path3_ints.append(0)
+
+    path2_raw = plan.get("path2_by_phone")
+    path2_ints: list[int] = []
+    if isinstance(path2_raw, list):
+        for raw in path2_raw:
+            try:
+                path2_ints.append(max(0, int(raw)))
+            except (TypeError, ValueError):
+                path2_ints.append(0)
+
+    _try_load_groups_config()
+    before = _editor_snapshot()
+    phone_idx = 0
+    updated = 0
+    for group in state.get("groups") or []:
+        if not isinstance(group, dict):
+            continue
+        phones = group.get("phones")
+        if not isinstance(phones, dict):
+            continue
+        for _serial, ent in phones.items():
+            if not isinstance(ent, dict):
+                continue
+            want = visit_ints[phone_idx] if phone_idx < len(visit_ints) else visit_ints[-1]
+            want_p3 = (
+                path3_ints[phone_idx]
+                if phone_idx < len(path3_ints)
+                else (path3_ints[-1] if path3_ints else 0)
+            )
+            want_p2 = (
+                path2_ints[phone_idx]
+                if phone_idx < len(path2_ints)
+                else (path2_ints[-1] if path2_ints else 0)
+            )
+            phone_idx += 1
+            try:
+                cur = int(ent.get("hits_per_day") or 0)
+            except (TypeError, ValueError):
+                cur = -1
+            try:
+                cur_p3 = int(ent.get("path3_hits_per_day")) if "path3_hits_per_day" in ent else -1
+            except (TypeError, ValueError):
+                cur_p3 = -1
+            try:
+                cur_p2 = int(ent.get("path2_hits_per_day")) if "path2_hits_per_day" in ent else -1
+            except (TypeError, ValueError):
+                cur_p2 = -1
+            changed = False
+            if cur != want:
+                ent["hits_per_day"] = want
+                changed = True
+            if path3_ints and cur_p3 != want_p3:
+                ent["path3_hits_per_day"] = want_p3
+                changed = True
+            if path2_ints and cur_p2 != want_p2:
+                ent["path2_hits_per_day"] = want_p2
+                changed = True
+            if changed:
+                updated += 1
+    if updated == 0:
+        return {"ok": True, "updated": 0, "phones": phone_idx}
+    err = _commit_editor_state(
+        require_groups=True,
+        require_steps=False,
+        before_groups=before[0],
+        before_steps=before[1],
+    )
+    if err:
+        return {"ok": False, "updated": 0, "error": err, "phones": phone_idx}
+    return {"ok": True, "updated": updated, "phones": phone_idx}
 
 
 def _reload_persisted_wizard_state() -> None:
@@ -2485,6 +2623,7 @@ def _boot_stopped_avds(log: Callable[[str], None]) -> dict[str, Any]:
             continue
         if not boot_gate.wait_for_boot_headroom(
             label=name,
+            timeout_s=90.0,
             log_fn=lambda msg, _name=name: log(f"{_name}: {msg}"),
         ):
             failed.append(name)
@@ -2576,6 +2715,7 @@ def boot_all_phones() -> dict:
 
         from setup_wizard import (
             _find_mumu_manager,
+            _is_gui_only_manager,
             _mumu_get_instances,
             _mumu_launch,
             adb,
@@ -2589,7 +2729,16 @@ def boot_all_phones() -> dict:
             mgr = None
             try:
                 mgr = _find_mumu_manager()
-                if mgr:
+                # MuMuPlayerARM ships only the WinUI GUI manager. Enumerating
+                # through it wastes time and must never execute that binary.
+                # Force the disk-fleet + shell-launcher path instead.
+                if mgr and _is_gui_only_manager(mgr):
+                    log(
+                        "MuMu manager is GUI-only (ARM) — "
+                        "using disk fleet + shell launcher (no MuMu window spawn)."
+                    )
+                    mgr = None
+                elif mgr:
                     instances = _mumu_get_instances(mgr, log_fn=log) or []
             except Exception as exc:  # noqa: BLE001 — fall through to disk fleet
                 log(f"MuMu manager discovery failed ({exc}) — using disk fleet instead.")
@@ -2616,8 +2765,11 @@ def boot_all_phones() -> dict:
                     return
                 cli_fleet = _fcp
                 cli_launch = _msc
-                names = _fcp.canonical_names_sorted()
-                serials = dict(zip(names, _fcp.canonical_serials_sorted()))
+                # Full disk roster — NOT canonical_names_sorted() / live-only
+                # _fleet(). When any shell is already up, live-only shrinks the
+                # list to running VMs and Boot all never launches stopped siblings.
+                disk_fleet = _fcp.disk_fleet_map()
+                names = _fcp.disk_fleet_names_sorted()
                 for name in names:
                     if not name.lower().startswith("vm") or _fcp.is_banned_phone(name):
                         continue
@@ -2626,7 +2778,7 @@ def boot_all_phones() -> dict:
                         {
                             "index": idx,
                             "name": name,
-                            "adb_serial": serials.get(name, ""),
+                            "adb_serial": disk_fleet.get(name, ""),
                             "started": _msc.instance_shell_running(idx),
                         }
                     )
@@ -2689,6 +2841,9 @@ def boot_all_phones() -> dict:
             reconnected: list[str] = []
             windowless: list[str] = []
             failed: list[str] = []
+            # Full disk can list dozens of stopped VMs; once the host is
+            # starved, skip the rest immediately instead of waiting per phone.
+            headroom_exhausted = False
             for inst in instances:
                 if _boot_all_cancel.is_set():
                     log("BOOT CANCELLED — lock stolen by a newer boot request")
@@ -2741,6 +2896,9 @@ def boot_all_phones() -> dict:
                         if not _boot_serial_usable(serial):
                             serial = _resolve_boot_serial(name, idx, "", _fleet_mod)
                         if _boot_serial_usable(serial):
+                            # Always connect before shell — "device not found"
+                            # is common after HNS hiccups; shell-only never heals it.
+                            adb("connect", serial, timeout=8)
                             check = adb("shell", "echo", "ok", serial=serial, timeout=8)
                             if check.strip() == "ok":
                                 up = True
@@ -2798,11 +2956,20 @@ def boot_all_phones() -> dict:
                 # Scaling-plan gate: never launch the next VM into a starved
                 # host. Host-health gate only — no phone-count cap; if the
                 # host can absorb another phone, the boot continues.
+                if headroom_exhausted:
+                    log(f"{name}: skipped launch — host still starved after prior gate")
+                    failed.append(name)
+                    continue
                 if not boot_gate.wait_for_boot_headroom(
                     label=name,
+                    timeout_s=30.0,
                     log_fn=lambda m, _n=name: log(f"{_n}: {m}"),
                 ):
-                    log(f"{name}: skipped launch — host lacked headroom (gate timeout)")
+                    headroom_exhausted = True
+                    log(
+                        f"{name}: skipped launch — host lacked headroom; "
+                        "skipping remaining cold launches"
+                    )
                     failed.append(name)
                     continue
                 log(f"{name}: launching (instance {idx})…")
@@ -2874,7 +3041,11 @@ def boot_all_phones() -> dict:
             avds = _boot_stopped_avds(log)
             failed.extend(redroid["failed"])
             failed.extend(avds["failed"])
-            total = len(booted) + len(already)
+            visible_total = len(booted) + len(already)
+            # ADB-up windowless phones still count as usable for farm/setup.
+            # Forcing ok=False on any single ADB miss made Boot all look totally
+            # dead when most of the fleet was already up.
+            adb_up_total = visible_total + len(windowless)
             hns_note = ""
             if failed or windowless:
                 hns_note = (
@@ -2882,16 +3053,16 @@ def boot_all_phones() -> dict:
                     "HNS restart; VMs were left running."
                 )
             summary = (
-                f"Boot finished: {total} MuMu phone(s) up with a visible player, "
+                f"Boot finished: {visible_total} MuMu phone(s) up with a visible player, "
                 f"{len(reconnected)} ADB reconnected, {len(windowless)} windowless "
-                f"(not counted as a visible player), {len(redroid['started'])} redroid "
+                f"(ADB up, player hidden), {len(redroid['started'])} redroid "
                 f"started, {len(redroid['already'])} redroid already up, "
                 f"{len(avds['started'])} AVD started, {len(avds['already'])} AVD already up, "
                 f"{len(failed)} failed.{hns_note}"
             )
             log(summary)
             counts = {
-                "booted": total + len(redroid["started"]) + len(avds["started"]),
+                "booted": adb_up_total + len(redroid["started"]) + len(avds["started"]),
                 "failed": len(failed),
                 "windowless": len(windowless),
                 "reconnected": len(reconnected),
@@ -2900,8 +3071,8 @@ def boot_all_phones() -> dict:
                 "avd_started": len(avds["started"]),
                 "avd_failed": len(avds["failed"]),
             }
-            visible_up = bool(
-                total
+            usable = bool(
+                adb_up_total
                 or redroid["started"]
                 or redroid["already"]
                 or avds["started"]
@@ -2916,14 +3087,23 @@ def boot_all_phones() -> dict:
                         **counts,
                     }
                 )
-            elif failed or not visible_up:
+            elif not usable:
                 _set_boot_result(
                     {"ok": False, "starting": False, "error": summary, **counts}
                 )
             else:
-                _set_boot_result(
-                    {"ok": True, "starting": False, "message": summary, **counts}
-                )
+                payload = {
+                    "ok": True,
+                    "starting": False,
+                    "message": summary,
+                    **counts,
+                }
+                if failed:
+                    payload["partial"] = True
+                    payload["warning"] = (
+                        f"{len(failed)} phone(s) still need attention — see boot log."
+                    )
+                _set_boot_result(payload)
         except Exception as exc:  # noqa: BLE001 — never silent-fail the boot worker
             msg = f"BOOT FAILED: {exc}"
             log(msg)

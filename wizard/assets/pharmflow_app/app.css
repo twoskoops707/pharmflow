@@ -1384,6 +1384,21 @@ details.avd-details[open] > summary::before {
   color: var(--dim);
   overflow-wrap: anywhere;
 }
+.map-read-as {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border: 1px solid var(--line2);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+.map-screens-summary {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border: 1px dashed var(--line2);
+}
 .map-block {
   margin-top: 10px;
   padding-top: 10px;

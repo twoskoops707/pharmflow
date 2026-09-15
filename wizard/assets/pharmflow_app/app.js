@@ -1510,18 +1510,23 @@
         showToast(msg);
         if (bootLog) appendLog(bootLog, msg);
         showView("boot", { animate: true });
-        return;
+        // Keep polling — do not bail; prior click left a live worker.
+      } else {
+        showToast("Booting phones — watch the Test log", true);
+        showView("boot", { animate: true });
       }
-      showToast("Booting phones — watch the Test log", true);
-      showView("boot", { animate: true });
       const st = await pollBootAll();
-      const detail = (st && (st.error || st.message)) || "Boot failed";
-      if (!st || st.error || st.ok === false) {
-        showBackendError(detail);
-        if (bootLog) appendLog(bootLog, detail);
+      const detail = (st && (st.error || st.message || st.warning)) || "Boot failed";
+      if (!st || (st.ok === false && st.error)) {
+        showBackendError(st.error || detail);
+        if (bootLog) appendLog(bootLog, st.error || detail);
         return;
       }
-      showToast(detail);
+      if (st && st.partial && st.warning) {
+        showToast(st.warning);
+      } else {
+        showToast(detail, true);
+      }
       if (bootLog) appendLog(bootLog, detail);
     } catch (_e) {
       /* banner shown */
@@ -1636,17 +1641,40 @@
       el.innerHTML = "";
       return;
     }
+    const allScreens = [];
+    const seenScreen = {};
+    (mapData.pages || []).forEach(function (pg) {
+      (pg.screens || []).forEach(function (name) {
+        const key = String(name || "").toLowerCase();
+        if (!key || seenScreen[key]) return;
+        seenScreen[key] = true;
+        allScreens.push(key);
+      });
+    });
     let html =
       '<div class="map-summary">' +
       "<span><strong>" + mapData.pages_scanned + "</strong> pages</span>" +
       "<span><strong>" + mapData.total_internal_links + "</strong> internal links</span>" +
       "<span><strong>" + mapData.total_forms + "</strong> " + (mapData.total_forms === 1 ? "form" : "forms") + "</span>" +
+      (allScreens.length
+        ? "<span><strong>" + allScreens.length + "</strong> in-app screen" + (allScreens.length === 1 ? "" : "s") + "</span>"
+        : "") +
       "<span class=\"map-slow\">scanned in " +
       (Number(mapData.duration_ms) > 0
         ? (Number(mapData.duration_ms) / 1000).toFixed(1) + "s"
         : "—") +
       "</span>" +
       "</div>";
+    if (allScreens.length) {
+      html +=
+        '<div class="map-block map-screens-summary"><span class="map-block-label">In-app screens</span><div class="map-chips">' +
+        allScreens
+          .map(function (s) {
+            return "<code>" + escHtml(s) + "</code>";
+          })
+          .join(" ") +
+        "</div></div>";
+    }
     html += '<div class="map-page-grid">';
     (mapData.pages || []).forEach(function (pg) {
       const forms = (pg.forms || [])
@@ -1679,10 +1707,19 @@
           );
         })
         .join("");
+      const screens = (pg.screens || [])
+        .map(function (s) {
+          return "<code>" + escHtml(s) + "</code>";
+        })
+        .join(" ");
+      const readAs = pg.read_as ? '<span class="map-read-as">' + escHtml(pg.read_as) + "</span>" : "";
       html +=
         '<div class="map-page">' +
         '<h3 class="map-page-title">' + escHtml(pg.title || pg.url) + "</h3>" +
-        '<p class="map-page-url">' + escHtml(pg.url) + "</p>" +
+        '<p class="map-page-url">' + escHtml(pg.url) + (readAs ? " " + readAs : "") + "</p>" +
+        (screens
+          ? '<div class="map-block"><span class="map-block-label">Screens</span><div class="map-chips">' + screens + "</div></div>"
+          : "") +
         (pg.headings && pg.headings.length
           ? '<div class="map-block"><span class="map-block-label">Headings</span><ul class="map-chips">' +
             pg.headings
@@ -1760,12 +1797,35 @@
             return;
           }
           renderMapResults(res);
-          status(res.pages_scanned + " page(s) mapped, " + res.total_forms + (res.total_forms === 1 ? " form" : " forms") + " found", "ok");
+          const screenCount = (function () {
+            const seen = {};
+            let n = 0;
+            (res.pages || []).forEach(function (pg) {
+              (pg.screens || []).forEach(function (name) {
+                const key = String(name || "").toLowerCase();
+                if (!key || seen[key]) return;
+                seen[key] = true;
+                n += 1;
+              });
+            });
+            return n;
+          })();
+          status(
+            res.pages_scanned +
+              " page(s) mapped" +
+              (screenCount ? ", " + screenCount + " in-app screen" + (screenCount === 1 ? "" : "s") : "") +
+              ", " +
+              res.total_forms +
+              (res.total_forms === 1 ? " form" : " forms") +
+              " found",
+            "ok"
+          );
           logLine(
             "Mapped " +
               res.pages_scanned +
               " page(s) on " +
               res.host +
+              (screenCount ? " (" + screenCount + " in-app screens)" : "") +
               (Number(res.duration_ms) > 0
                 ? " in " + (Number(res.duration_ms) / 1000).toFixed(1) + "s"
                 : "")
@@ -1873,12 +1933,16 @@
     if (!plan || plan.ok === false) return (plan && plan.error) || "Mix was not computed.";
     const visits = Array.isArray(plan.visits_by_phone) ? plan.visits_by_phone.join(",") : String(plan.visits_per_phone);
     const ads = Array.isArray(plan.path3_by_phone) ? plan.path3_by_phone.join(",") : String(plan.path3_per_phone);
-    return (
+    let text =
       "Per phone visits: " + visits + ". Path 3: " + ads + ". " +
       "Means ~" + plan.path1_per_phone + " Path 1, " +
       plan.path2_per_phone + " Path 2, " + plan.path3_per_phone + " Path 3. " +
-      (plan.note || "")
-    );
+      (plan.note || "");
+    if (plan.settings_warning) text += " Warning: " + plan.settings_warning;
+    if (plan.groups && plan.groups.updated) {
+      text += " Updated hits/day on " + plan.groups.updated + " phone(s) in Groups.";
+    }
+    return text;
   }
 
   async function refreshEarnPlan() {
@@ -3274,7 +3338,15 @@
           }
           fillEarnForm(res);
           if (status) status.textContent = earnStatusText(res);
-          showToast("Saved mix — farm reads it while running");
+          const groupsMsg =
+            res.groups && res.groups.updated
+              ? " Updated " + res.groups.updated + " phone hit(s)/day in Groups."
+              : "";
+          showToast(
+            (res.settings_warning ? "Mix saved with a warning. " : "Saved mix. ") +
+              "Start farm uses PATHS/ads from this plan." +
+              groupsMsg
+          );
         } catch (_e) {
           /* banner shown */
         }

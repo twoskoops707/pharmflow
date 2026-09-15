@@ -33,6 +33,24 @@ _ROUTE_IN_SCRIPT = re.compile(
     r"""(?:\bpath|\bto|\bpathname)\s*:\s*['"](/[^'"?#\s]*)['"]"""
 )
 _JSON_PATH = re.compile(r'''"(?:path|pathname|href)"\s*:\s*"(/(?:[^"\\]|\\.)*)"''')
+# In-app screens (DabFlow switchScreen, data-screen nav). Not URL routes.
+_SWITCH_SCREEN = re.compile(
+    r"""(?:switchScreen|showScreen|navigateTo|openScreen)\(\s*['"]([a-zA-Z][\w-]*)['"]"""
+)
+_SKIP_SCREEN_NAMES = frozenset(
+    {
+        "app",
+        "root",
+        "main",
+        "content",
+        "wrapper",
+        "container",
+        "modal",
+        "overlay",
+        "loading",
+        "spinner",
+    }
+)
 
 
 class _SiteParser(HTMLParser):
@@ -53,6 +71,7 @@ class _SiteParser(HTMLParser):
         self.buttons: list[str] = []
         self.inputs: list[dict] = []
         self.headings: list[tuple[str, str]] = []
+        self.screens: list[str] = []
         # None when not inside <button>; [] only while collecting button text.
         self._btn_buf: list[str] | None = None
         self._h_tag: str | None = None
@@ -60,6 +79,16 @@ class _SiteParser(HTMLParser):
 
     def handle_starttag(self, tag: str, attrs) -> None:
         a = dict(attrs)
+        for key in ("data-screen", "data-nav", "data-target", "data-view"):
+            raw = (a.get(key) or "").strip()
+            if raw and re.match(r"^[a-zA-Z][\w-]*$", raw):
+                self.screens.append(raw.lower())
+        eid = (a.get("id") or "").strip()
+        low_id = eid.lower()
+        if low_id.endswith("-screen"):
+            stem = eid[: -len("-screen")]
+            if re.match(r"^[a-zA-Z][\w-]*$", stem):
+                self.screens.append(stem.lower())
         if tag == "title":
             self.in_title = True
         elif tag == "a":
@@ -267,6 +296,45 @@ def routes_from_webapp_source(text: str, base_url: str) -> list[str]:
     return found
 
 
+def screens_from_webapp_source(text: str) -> list[str]:
+    """In-app screen names from switchScreen / showScreen style calls."""
+    found: list[str] = []
+    seen: set[str] = set()
+    for match in _SWITCH_SCREEN.finditer(text or ""):
+        name = (match.group(1) or "").strip().lower()
+        if not name or name in _SKIP_SCREEN_NAMES or name in seen:
+            continue
+        seen.add(name)
+        found.append(name)
+    return found
+
+
+def normalize_screen_names(*groups: list[str]) -> list[str]:
+    """Stable unique screen names. Prefer home first when present."""
+    seen: set[str] = set()
+    out: list[str] = []
+    for group in groups:
+        for raw in group or []:
+            name = str(raw or "").strip().lower()
+            if not name or name in _SKIP_SCREEN_NAMES or name in seen:
+                continue
+            if not re.match(r"^[a-z][\w-]*$", name):
+                continue
+            seen.add(name)
+            out.append(name)
+    if "home" in seen:
+        out = ["home"] + [n for n in out if n != "home"]
+    return out
+
+
+def screen_deep_link(base_url: str, screen: str) -> str:
+    """Deep link many web apps honor via ?action=<screen> (DabFlow does)."""
+    start = normalize_url(base_url) or base_url
+    parts = urlsplit(start)
+    # Keep path; replace query with the screen action.
+    return parts._replace(query=f"action={screen}", fragment="").geturl()
+
+
 def fetch_text(url: str, timeout: int = FETCH_TIMEOUT) -> str | None:
     """GET a text body. Used for same-host script bundles, which are not HTML."""
     req = Request(
@@ -295,6 +363,7 @@ def _webapp_route_page(url: str, fetch_error: str) -> dict:
         "buttons": [],
         "inputs": [],
         "routes": [],
+        "screens": [],
         "read_as": "webapp_route",
         "fetch_error": fetch_error,
     }
@@ -309,9 +378,10 @@ def _queue_script_routes(
     declared_routes: set[str],
     errors: list[dict],
     timeout: int,
-) -> list[str]:
-    """Read same-host bundles for declared routes. Script URLs are not pages."""
+) -> tuple[list[str], list[str]]:
+    """Read same-host bundles for declared routes and switchScreen names."""
     found: list[str] = []
+    screens: list[str] = []
     seen_routes: set[str] = set()
     blobs = [html or ""]
     for src in _script_sources(html, page_url):
@@ -323,6 +393,7 @@ def _queue_script_routes(
         if body:
             blobs.append(body)
     for blob in blobs:
+        screens.extend(screens_from_webapp_source(blob))
         for route in routes_from_webapp_source(blob, start):
             if route in seen_routes:
                 continue
@@ -331,7 +402,7 @@ def _queue_script_routes(
             declared_routes.add(route)
             if route not in seen and route not in to_visit:
                 to_visit.append(route)
-    return found
+    return found, normalize_screen_names(screens)
 
 
 def _is_webapp_shell(html: str, page: dict) -> bool:
@@ -446,14 +517,17 @@ def scan_site(
             "buttons": _dedupe(p.buttons),
             "inputs": _dedupe(p.inputs),
             "routes": [],
+            "screens": [],
             "read_as": "html",
         }
         if key in declared_routes:
             page["read_as"] = "webapp_route"
         elif _is_webapp_shell(html, page):
             page["read_as"] = "webapp_shell"
+        html_screens = normalize_screen_names(list(p.screens))
+        script_screens: list[str] = []
         if _mount_present(html) and "<script" in (html or "").lower():
-            page["routes"] = _queue_script_routes(
+            routes, script_screens = _queue_script_routes(
                 html,
                 cur,
                 start,
@@ -463,19 +537,38 @@ def scan_site(
                 errors,
                 timeout,
             )
+            page["routes"] = routes
+        page["screens"] = normalize_screen_names(html_screens, script_screens)
+        if page["screens"] and page["read_as"] == "html" and not page["links"]:
+            page["read_as"] = "webapp_screens"
         pages.append(page)
+
+        # Deep-link each in-app screen once from the start host. DabFlow and
+        # similar apps honor ?action=<screen>. Do not re-queue from an action URL.
+        cur_query = urlsplit(cur).query.lower()
+        if "action=" not in cur_query:
+            for screen in page["screens"]:
+                if screen in ("home",):
+                    continue
+                deep = screen_deep_link(start, screen)
+                deep_key = urlsplit(deep)._replace(fragment="").geturl().rstrip("/")
+                if deep_key not in seen and deep not in to_visit:
+                    to_visit.append(deep)
 
     total_links = sum(int(pg.get("link_count") or len(pg["links"])) for pg in pages)
     total_forms = sum(int(pg.get("form_count") or len(pg["forms"])) for pg in pages)
     truncated = bool(to_visit)
     shell_only = bool(pages) and all(
-        pg.get("read_as") == "webapp_shell" and not pg.get("routes") for pg in pages
+        pg.get("read_as") == "webapp_shell"
+        and not pg.get("routes")
+        and not pg.get("screens")
+        for pg in pages
     )
     if not pages or shell_only:
         if shell_only:
             first = (
-                "That page is a web app shell. Same-host scripts did not declare any routes. "
-                "The empty shell was not mapped."
+                "That page is a web app shell. Same-host scripts did not declare any routes "
+                "or in-app screens. The empty shell was not mapped."
             )
         else:
             first = errors[0]["error"] if errors else "No pages could be read from that URL."
@@ -516,6 +609,9 @@ def build_starter_sequence(url: str, pages: list | None = None) -> dict:
 
     open_url + checkpoint 'loaded' mirror the shipped money sequences;
     the draft is a starting point the user refines in Steps/Builder.
+
+    In-app screens (switchScreen / data-screen) become ``?action=<screen>``
+    opens when the site exposes that deep link — same pattern DabFlow uses.
     """
     if pages is None:
         result = scan_site(url)
@@ -534,9 +630,11 @@ def build_starter_sequence(url: str, pages: list | None = None) -> dict:
         {"type": "wait", "seconds": 0.4},
     ]
     seen_urls = {target.rstrip("/")}
+    screen_names: list[str] = []
     for page in pages:
         if not isinstance(page, dict):
             continue
+        screen_names.extend(list(page.get("screens") or []))
         page_url = normalize_url(str(page.get("url") or "")) or ""
         if not page_url or page_url.rstrip("/") in seen_urls:
             continue
@@ -550,15 +648,35 @@ def build_starter_sequence(url: str, pages: list | None = None) -> dict:
             }
         )
         steps.append({"type": "wait", "seconds": 0.4})
+    for screen in normalize_screen_names(screen_names):
+        if screen == "home":
+            continue
+        deep = screen_deep_link(target, screen)
+        if deep.rstrip("/") in seen_urls:
+            continue
+        seen_urls.add(deep.rstrip("/"))
+        steps.append(
+            {
+                "type": "open_url",
+                "url": deep,
+                "post_wait_secs": 1.2,
+                "checkpoint": "loaded",
+                "note": f"webapp screen:{screen}",
+            }
+        )
+        steps.append({"type": "wait", "seconds": 0.4})
     extra = len(seen_urls) - 1
+    screens = normalize_screen_names(screen_names)
     return {
         "steps": steps,
         "note": (
             f"Starter draft opens the {len(seen_urls)} mapped page(s)"
             + (f" ({extra} beyond the start URL)" if extra else "")
+            + (f", including screens: {', '.join(screens)}" if screens else "")
             + ". Add taps and waits in Steps or Builder before running the farm."
         ),
         "pages_mapped": len(pages),
+        "screens": screens,
     }
 
 

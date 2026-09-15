@@ -22,6 +22,11 @@ from tkinter import filedialog, messagebox
 
 import webbrowser
 
+if sys.platform == "win32":
+    import ctypes
+else:  # pragma: no cover - non-Windows Control Panel path
+    ctypes = None  # type: ignore[assignment]
+
 # Frozen one-file: PyInstaller may ship wizard/*.py under _MEIPASS/wizard/
 # (datas) and/or as top-level modules. Source runs: this file's directory.
 _wizard_dir = Path(__file__).resolve().parent
@@ -1333,6 +1338,47 @@ def run_farm_cli() -> int:
         _bootlog("farm-cli: exit")
 
 
+def _control_panel_single_instance() -> bool:
+    """True when this process should open the Control Panel UI.
+
+    A second double-click of PharmFlow.exe used to start another deck (and with
+    CREATE_NO_WINDOW helpers, a hidden background EXE). Helper modes
+    (--watchdog / --agent / --start-farm / --phone-setup / …) must still run.
+    PyInstaller onefile still shows a short-lived parent+child pair — that is
+    the bootloader, not a second Control Panel.
+    """
+    if sys.platform != "win32":
+        return True
+    helper_flags = (
+        "--watchdog",
+        "--agent",
+        "--cloud-agent",
+        "--start-farm",
+        "--stop-farm",
+        "--phone-setup",
+        "--internal-tk-page",
+        "--cloud-phones-cli",
+        "--version",
+    )
+    if any(flag in sys.argv for flag in helper_flags):
+        return True
+    if ctypes is None:
+        return True
+    try:
+        kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+        kernel32.SetLastError(0)
+        handle = kernel32.CreateMutexW(None, False, "Local\\PharmFlowControlPanel")
+        if not handle:
+            return True
+        # ERROR_ALREADY_EXISTS = 183
+        if kernel32.GetLastError() == 183:
+            _bootlog("main: Control Panel already running — exiting duplicate")
+            return False
+    except Exception:
+        return True
+    return True
+
+
 def main() -> None:
     _bootlog("main: start")
     if _nested_start_farm_child():
@@ -1389,6 +1435,9 @@ def main() -> None:
         from phone_setup_entry import phone_setup_main
 
         phone_setup_main()
+        return
+
+    if not _control_panel_single_instance():
         return
 
     if _use_classic_tk_shell():

@@ -127,9 +127,12 @@ def tor_binary_path() -> Path:
             return p
     candidates = [
         bundled_dir() / "tor.exe",
+        Path(r"C:\CPharm\bundled\tor.exe"),
+        Path(r"C:\PharmFlow\bundled\tor.exe"),
+        bundle_root() / "bundled" / "tor.exe",
         bundle_root() / "tor" / "tor.exe",
         app_data_root() / "tor" / "tor.exe",
-        Path(os.environ.get("PHARMFLOW_TOR_PATH", "")),
+        Path(os.environ.get("CPHARM_TOR_PATH") or os.environ.get("PHARMFLOW_TOR_PATH") or ""),
     ]
     for p in candidates:
         if p and p.is_file():
@@ -542,6 +545,14 @@ def is_nested_recordings_path(path: Path) -> bool:
     return "recordings/automation/recordings" in str(path).replace("\\", "/").lower()
 
 
+# Branding-era install trees. A live farm may still keep groups under C:\\CPharm
+# while the EXE default data root is C:\\PharmFlow. Read/write must see both.
+_INSTALL_GROUPS_FILES: tuple[Path, ...] = (
+    Path(r"C:\PharmFlow\automation\recordings\groups_config.json"),
+    Path(r"C:\CPharm\automation\recordings\groups_config.json"),
+)
+
+
 def default_sequence_path() -> Path:
     """Operator default sequence, beside the live groups file.
 
@@ -552,27 +563,93 @@ def default_sequence_path() -> Path:
     return groups_config_path().parent / "default_sequence.json"
 
 
+def _groups_path_key(path: Path) -> str:
+    try:
+        return str(path.resolve()).lower()
+    except OSError:
+        return str(path).lower()
+
+
+def _groups_candidate_paths() -> list[Path]:
+    """Ordered unique candidates for the live groups file (not nested copies)."""
+    out: list[Path] = []
+    seen: set[str] = set()
+
+    def add(path: Path | None) -> None:
+        if path is None or is_nested_recordings_path(path):
+            return
+        key = _groups_path_key(path)
+        if key in seen:
+            return
+        seen.add(key)
+        out.append(path)
+
+    preferred = app_data_root() / "automation" / "recordings" / "groups_config.json"
+    add(preferred)
+    for install in _INSTALL_GROUPS_FILES:
+        add(install)
+    for root in _groups_search_roots():
+        add(_groups_file_for_root(root))
+    return out
+
+
 def groups_config_path() -> Path:
     """Live groups file the frozen EXE must read.
 
-    Prefer ``C:\\PharmFlow\\automation\\recordings\\groups_config.json``.
-    Never a nested ``recordings/automation/recordings`` copy, and never a
-    path built by appending ``automation/recordings`` onto a recordings dir.
+    Prefer an existing ``groups_config.json`` among the branding-era install
+    trees and search roots (freshest wins). Never a nested
+    ``recordings/automation/recordings`` copy. When none exist yet, return the
+    PharmFlow preferred write path so first save lands under C:\\PharmFlow.
     """
-    preferred = app_data_root() / "automation" / "recordings" / "groups_config.json"
-    windows = Path(r"C:\PharmFlow\automation\recordings\groups_config.json")
-    for cand in (preferred, windows):
-        if cand.is_file() and not is_nested_recordings_path(cand):
-            return cand
-    for root in _groups_search_roots():
-        cand = _groups_file_for_root(root)
-        if cand is None or is_nested_recordings_path(cand):
-            continue
+    forced = (os.environ.get("PHARMFLOW_GROUPS_CONFIG") or "").strip()
+    if forced:
+        return Path(forced)
+    existing: list[Path] = []
+    for cand in _groups_candidate_paths():
         if cand.is_file():
-            return cand
+            existing.append(cand)
+    if existing:
+        existing.sort(
+            key=lambda p: p.stat().st_mtime if p.is_file() else -1.0,
+            reverse=True,
+        )
+        return existing[0]
+    preferred = app_data_root() / "automation" / "recordings" / "groups_config.json"
     if not is_nested_recordings_path(preferred):
         return preferred
-    return windows
+    return _INSTALL_GROUPS_FILES[0]
+
+
+def persist_groups_config_text(text: str, primary: Path | None = None) -> Path:
+    """Write groups JSON to the live path and mirror across install dual roots.
+
+    An EXE Save that only updated C:\\PharmFlow left a farm still reading
+    C:\\CPharm with the old mix. Mirror only when the primary write is one of
+    the install dual paths so a repo/dev checkout write does not stomp the
+    live farm. Explicit PHARMFLOW_GROUPS_CONFIG skips the mirror.
+    """
+    path = primary or groups_config_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".json.tmp")
+    tmp.write_text(text, encoding="utf-8")
+    tmp.replace(path)
+    if (os.environ.get("PHARMFLOW_GROUPS_CONFIG") or "").strip():
+        return path
+    primary_key = _groups_path_key(path)
+    install_keys = {_groups_path_key(p) for p in _INSTALL_GROUPS_FILES}
+    if primary_key not in install_keys:
+        return path
+    for other in _INSTALL_GROUPS_FILES:
+        if _groups_path_key(other) == primary_key:
+            continue
+        try:
+            other.parent.mkdir(parents=True, exist_ok=True)
+            other_tmp = other.with_suffix(".json.tmp")
+            other_tmp.write_text(text, encoding="utf-8")
+            other_tmp.replace(other)
+        except OSError:
+            continue
+    return path
 
 
 def _groups_search_roots() -> list[Path]:
@@ -586,8 +663,10 @@ def _groups_search_roots() -> list[Path]:
         pass
     roots.append(pharmflow_default_install_root())
     roots.append(Path.home() / "PharmFlow")
+    # Pre-branding install tree — frozen EXE at C:\\PharmFlow must still find
+    # groups that a live farm keeps under C:\\CPharm.
+    roots.append(Path(r"C:\CPharm"))
     return roots
-
 
 def _groups_file_for_root(root: Path) -> Path | None:
     """Join groups_config.json without nesting recordings under recordings."""
@@ -626,6 +705,7 @@ def playlist_sequence_roots() -> list[Path]:
 
     add(app_data_root() / "sequences")
     add(Path(r"C:\PharmFlow\sequences"))
+    add(Path(r"C:\CPharm\sequences"))
     raw = (os.environ.get("PHARMFLOW_SEQUENCES_DIR") or "").strip()
     if raw:
         add(Path(raw).expanduser())

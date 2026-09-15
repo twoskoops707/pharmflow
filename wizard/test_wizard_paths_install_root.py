@@ -89,6 +89,53 @@ class TestWizardPathsInstallRoot(unittest.TestCase):
                                 root = wp.pharmflow_install_root()
             self.assertEqual(root.resolve(), (fake_home / "Downloads").resolve())
 
+    def test_groups_config_finds_legacy_cpharm_when_pharmflow_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            pharm_root = base / "PharmFlow"
+            cpharm_file = base / "CPharm" / "automation" / "recordings" / "groups_config.json"
+            pharm_file = pharm_root / "automation" / "recordings" / "groups_config.json"
+            cpharm_file.parent.mkdir(parents=True)
+            cpharm_file.write_text('{"groups":[{"name":"G","phones":{"a":{}}}]}\n', encoding="utf-8")
+            with patch.object(wp, "app_data_root", return_value=pharm_root), patch.object(
+                wp,
+                "_INSTALL_GROUPS_FILES",
+                (pharm_file, cpharm_file),
+            ), patch.object(wp, "_groups_search_roots", return_value=[base / "CPharm"]), patch.dict(
+                os.environ, {"PHARMFLOW_GROUPS_CONFIG": ""}, clear=False
+            ):
+                os.environ.pop("PHARMFLOW_GROUPS_CONFIG", None)
+                found = wp.groups_config_path()
+            self.assertEqual(found.resolve(), cpharm_file.resolve())
+
+    def test_persist_groups_mirrors_install_dual_roots(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            pharm_file = base / "PharmFlow" / "automation" / "recordings" / "groups_config.json"
+            cpharm_file = base / "CPharm" / "automation" / "recordings" / "groups_config.json"
+            payload = '{"groups":[{"name":"G","phones":{"a":{}}}]}\n'
+            with patch.object(wp, "_INSTALL_GROUPS_FILES", (pharm_file, cpharm_file)), patch.dict(
+                os.environ, {}, clear=False
+            ):
+                os.environ.pop("PHARMFLOW_GROUPS_CONFIG", None)
+                written = wp.persist_groups_config_text(payload, primary=pharm_file)
+            self.assertEqual(written.resolve(), pharm_file.resolve())
+            self.assertEqual(pharm_file.read_text(encoding="utf-8"), payload)
+            self.assertEqual(cpharm_file.read_text(encoding="utf-8"), payload)
+
+    def test_persist_groups_skips_mirror_for_non_install_primary(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            repo_file = base / "repo" / "groups_config.json"
+            cpharm_file = base / "CPharm" / "automation" / "recordings" / "groups_config.json"
+            pharm_file = base / "PharmFlow" / "automation" / "recordings" / "groups_config.json"
+            payload = '{"groups":[]}\n'
+            with patch.object(wp, "_INSTALL_GROUPS_FILES", (pharm_file, cpharm_file)):
+                wp.persist_groups_config_text(payload, primary=repo_file)
+            self.assertTrue(repo_file.is_file())
+            self.assertFalse(cpharm_file.is_file())
+            self.assertFalse(pharm_file.is_file())
+
 
 if __name__ == "__main__":
     unittest.main()

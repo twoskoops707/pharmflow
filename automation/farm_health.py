@@ -241,8 +241,34 @@ def _phones(parsed: dict) -> list[dict]:
     return rows
 
 
+def _freshest_path(name: str) -> str | None:
+    """Newest existing file named ``name`` under the active log root(s)."""
+    best: str | None = None
+    best_mtime = -1.0
+    for root in _log_roots():
+        path = os.path.join(root, name)
+        try:
+            mtime = os.path.getmtime(path)
+        except OSError:
+            continue
+        if mtime >= best_mtime:
+            best = path
+            best_mtime = mtime
+    return best
+
+
+def _freshest_json(name: str) -> Any:
+    path = _freshest_path(name)
+    return _read_json(path) if path else None
+
+
+def _freshest_text(name: str) -> str:
+    path = _freshest_path(name)
+    return _read_text(path) if path else ""
+
+
 def paying_state() -> dict:
-    hb = _read_text(os.path.join(_logs_dir(), "ssp_paying_hunter_heartbeat.txt")).strip()
+    hb = _freshest_text("ssp_paying_hunter_heartbeat.txt").strip()
     paying = None
     round_n = None
     newnym = None
@@ -266,7 +292,7 @@ def paying_state() -> dict:
         paying = None
         round_n = None
         newnym = None
-    fill = _read_json(os.path.join(_logs_dir(), "ssp_paying_fill.json")) or {}
+    fill = _freshest_json("ssp_paying_fill.json") or {}
     return {
         "paying": paying,
         "round": round_n,
@@ -282,7 +308,7 @@ def _pacific_today() -> str:
 
 
 def payout_latest() -> dict:
-    data = _read_json(os.path.join(_logs_dir(), "freebuff_payout_watch.json"))
+    data = _freshest_json("freebuff_payout_watch.json")
     empty = {"payout_usd": None, "clicks": None, "impressions": None}
     if not isinstance(data, list) or not data:
         return empty

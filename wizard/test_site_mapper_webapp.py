@@ -57,6 +57,37 @@ class SiteMapperWebappTests(unittest.TestCase):
         self.assertTrue(out["ok"])
         self.assertEqual(out["pages"][0]["read_as"], "html")
 
+    def test_switch_screen_names_become_action_deep_links(self) -> None:
+        html = (
+            "<!doctype html><html><head><title>App</title>"
+            '<script src="/app.js"></script></head>'
+            '<body><div id="root"></div>'
+            '<nav data-screen="home"></nav><nav data-screen="stats"></nav>'
+            '<div id="settings-screen"></div></body></html>'
+        )
+        bundle = "function go(){ switchScreen('stats'); switchScreen('glass'); }"
+
+        def _html(url: str, timeout: int = 12) -> str:
+            return html
+
+        with unittest.mock.patch.object(site_mapper, "fetch_html", side_effect=_html):
+            with unittest.mock.patch.object(site_mapper, "fetch_text", return_value=bundle):
+                out = site_mapper.scan_site("https://example.com")
+        self.assertTrue(out["ok"])
+        urls = {p["url"] for p in out["pages"]}
+        self.assertIn("https://example.com/?action=stats", urls)
+        self.assertIn("https://example.com/?action=glass", urls)
+        self.assertIn("https://example.com/?action=settings", urls)
+        home = next(p for p in out["pages"] if "action=" not in p["url"])
+        self.assertIn("stats", home.get("screens") or [])
+        draft = site_mapper.build_starter_sequence(
+            "https://example.com",
+            pages=list(out["pages"]),
+        )
+        step_urls = [s.get("url") for s in draft["steps"] if s.get("type") == "open_url"]
+        self.assertTrue(any("action=stats" in str(u) for u in step_urls))
+        self.assertIn("glass", draft.get("screens") or [])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -366,10 +366,21 @@ def _is_mantis_billing_host(host: str) -> bool:
 
 
 def _publish_inject_stats(proxies: list) -> None:
-    """Write live MITM counters so dash/agents can see inject rising."""
+    """Write live MITM counters so dash/agents can see inject rising.
+
+    Only owned listeners publish. Adopted zero-stat stubs from a second process
+    (farm adopting keepalive ports) used to overwrite real counters with 0.
+    """
     try:
+        owned = [
+            p
+            for p in proxies
+            if getattr(p, "owns_listener", False) and getattr(p, "_sock", None) is not None
+        ]
+        if not owned:
+            return
         rows = {}
-        for p in proxies:
+        for p in owned:
             rows[str(int(getattr(p, "phone_index", -1)))] = {
                 "listen": int(getattr(p, "listen_port", 0) or 0),
                 "stats": dict(getattr(p, "stats", {}) or {}),
@@ -809,10 +820,22 @@ class MantisInjectProxy:
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._sock: socket.socket | None = None
+        # False when another process already owns the listen port (keepalive).
+        # Adopted stubs must never enter _PROXIES — they publish connect=0 forever
+        # and wipe the owner process's live counters from disk.
+        self.owns_listener = False
         self.stats = {"connect": 0, "inject": 0, "tunnel": 0, "errors": 0}
 
-    def start(self) -> None:
+    def start(self) -> bool:
+        """Bind+serve this phone's inject port. Return True only when we own it."""
         _ca()[0]()  # ensure_ca_files — lazy: needs cryptography wheel
+        # Drop pre-AKI leaf certs so Chromium stops CERTIFICATE_UNKNOWN on MITM.
+        try:
+            from automation.mantis_inject_ca import clear_host_cert_cache
+
+            clear_host_cert_cache()
+        except Exception:
+            pass
         self._sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         # Do NOT set SO_REUSEADDR: on Windows it allows farm + watch_proxy to both
         # LISTEN on 8218+, and guest CONNECT randomly hits a dead/half peer → ads die.
@@ -828,13 +851,14 @@ class MantisInjectProxy:
             # accepting. A dead/half socket used to be treated as success and
             # the heal tick reported the phone armed.
             if inject_port_open(self.listen_port):
+                self.owns_listener = False
                 logger.info(
                     "Mantis inject proxy phone=%d port %d already bound — adopting existing listener (%s)",
                     self.phone_index,
                     self.listen_port,
                     exc,
                 )
-                return
+                return False
             raise
         self._sock.listen(64)
         self._sock.settimeout(1.0)
@@ -844,12 +868,14 @@ class MantisInjectProxy:
             daemon=True,
         )
         self._thread.start()
+        self.owns_listener = True
         logger.info(
             "Mantis inject proxy phone=%d listen=127.0.0.1:%d upstream=%s",
             self.phone_index,
             self.listen_port,
             self.upstream,
         )
+        return True
 
     def stop(self) -> None:
         self._stop.set()
@@ -1181,7 +1207,11 @@ def start_inject_proxies(phone_indices: list[int] | None = None) -> list[MantisI
     with _LOCK:
         for i in idxs:
             existing = _PROXIES.get(i)
-            if existing is not None and inject_port_open(existing.listen_port):
+            if (
+                existing is not None
+                and getattr(existing, "owns_listener", False)
+                and inject_port_open(existing.listen_port)
+            ):
                 out.append(existing)
                 continue
             if existing is not None:
@@ -1192,7 +1222,7 @@ def start_inject_proxies(phone_indices: list[int] | None = None) -> list[MantisI
                 _PROXIES.pop(i, None)
             p = MantisInjectProxy(i)
             try:
-                p.start()
+                owned = p.start()
             except OSError as exc:
                 logger.warning(
                     "inject listen failed phone=%s port=%s: %s",
@@ -1200,6 +1230,16 @@ def start_inject_proxies(phone_indices: list[int] | None = None) -> list[MantisI
                     p.listen_port,
                     exc,
                 )
+                continue
+            # Another process (keepalive) owns the port — leave _PROXIES empty
+            # so we do not publish zero counters over the owner's live stats.
+            if not owned or not getattr(p, "owns_listener", False):
+                if inject_port_open(p.listen_port):
+                    logger.info(
+                        "inject port %s owned elsewhere — not registering zero-stat stub phone=%s",
+                        p.listen_port,
+                        i,
+                    )
                 continue
             if not inject_port_open(p.listen_port):
                 logger.warning(
@@ -1268,20 +1308,36 @@ def _device_has_inject_ca(adb: object, serial: str) -> bool:
     try:
         from pathlib import Path
 
-        from automation.mantis_inject_ca import android_cacert_hash
+        from automation.mantis_inject_ca import (
+            CA_CERT,
+            android_cacert_hash,
+            ensure_ca_files,
+        )
         from cryptography import x509
 
-        cert_path = Path(r"C:\PharmFlow\certs\mantis_inject\ca.cert.pem")
+        ensure_ca_files()
+        cert_path = Path(CA_CERT)
         if not cert_path.is_file():
-            return False
+            # Dual-read legacy roots (branding rename).
+            for cand in (
+                Path(r"C:\PharmFlow\certs\mantis_inject\ca.cert.pem"),
+                Path(r"C:\CPharm\certs\mantis_inject\ca.cert.pem"),
+            ):
+                if cand.is_file():
+                    cert_path = cand
+                    break
+            else:
+                return False
         cert = x509.load_pem_x509_certificate(cert_path.read_bytes())
         name = f"{android_cacert_hash(cert)}.0"
     except Exception:
         return False
     try:
+        # Prefer apex when present (Android 14+ WebView). Group tests so a
+        # missing system file does not short-circuit the apex probe wrongly.
         verify = adb.shell(  # type: ignore[attr-defined]
-            f"test -f /system/etc/security/cacerts/{name} && echo PRESENT "
-            f"|| test -f /apex/com.android.conscrypt/cacerts/{name} && echo PRESENT",
+            f"(test -f /apex/com.android.conscrypt/cacerts/{name} && echo PRESENT) || "
+            f"(test -f /system/etc/security/cacerts/{name} && echo PRESENT)",
             serial=serial,
             timeout=8,
         )

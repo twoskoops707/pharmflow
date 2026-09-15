@@ -17,30 +17,72 @@ from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 
 logger = logging.getLogger(__name__)
 
-CA_DIR = Path(os.environ.get("PHARMFLOW_MANTIS_CA_DIR") or r"C:\PharmFlow\certs\mantis_inject")
+def _resolve_ca_dir() -> Path:
+    """Prefer explicit env, then existing CPharm/PharmFlow cert dirs (never invent a second CA)."""
+    for name in ("PHARMFLOW_MANTIS_CA_DIR", "CPHARM_MANTIS_CA_DIR"):
+        raw = os.environ.get(name)
+        if raw is not None and str(raw).strip() != "":
+            return Path(raw)
+    candidates = (
+        Path(r"C:\PharmFlow\certs\mantis_inject"),
+        Path(r"C:\CPharm\certs\mantis_inject"),
+    )
+    for cand in candidates:
+        if (cand / "ca.key.pem").is_file() and (cand / "ca.cert.pem").is_file():
+            return cand
+    return candidates[0]
+
+
+CA_DIR = _resolve_ca_dir()
 CA_KEY = CA_DIR / "ca.key.pem"
 CA_CERT = CA_DIR / "ca.cert.pem"
 _HOST_CACHE: dict[str, tuple[Path, Path]] = {}
 
 
+def _mirror_ca_files(key_bytes: bytes, cert_bytes: bytes) -> None:
+    """Keep CPharm + PharmFlow cert copies identical so branding cannot split trust."""
+    for dest_dir in (
+        Path(r"C:\PharmFlow\certs\mantis_inject"),
+        Path(r"C:\CPharm\certs\mantis_inject"),
+    ):
+        try:
+            dest_dir.mkdir(parents=True, exist_ok=True)
+            (dest_dir / "ca.key.pem").write_bytes(key_bytes)
+            (dest_dir / "ca.cert.pem").write_bytes(cert_bytes)
+        except OSError as exc:
+            logger.debug("CA mirror soft-fail %s: %s", dest_dir, exc)
+
+
 def ensure_ca_files() -> tuple[Path, Path]:
+    global CA_DIR, CA_KEY, CA_CERT
+    CA_DIR = _resolve_ca_dir()
+    CA_KEY = CA_DIR / "ca.key.pem"
+    CA_CERT = CA_DIR / "ca.cert.pem"
     CA_DIR.mkdir(parents=True, exist_ok=True)
     if CA_KEY.is_file() and CA_CERT.is_file():
+        # Keep dual roots in sync with the resolved CA (branding split-brain).
+        try:
+            _mirror_ca_files(CA_KEY.read_bytes(), CA_CERT.read_bytes())
+        except OSError:
+            pass
         return CA_KEY, CA_CERT
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    # Distinct CN/O so Android subject_hash_old is unique when we rotate CAs
+    # (same subject as a prior key left WebView trusting a stale da34b7d8.0).
     subject = issuer = x509.Name(
         [
             x509.NameAttribute(NameOID.COUNTRY_NAME, "US"),
-            x509.NameAttribute(NameOID.ORGANIZATION_NAME, "PharmFlow Mantis Inject"),
-            x509.NameAttribute(NameOID.COMMON_NAME, "PharmFlow Mantis Inject CA"),
+            x509.NameAttribute(NameOID.ORGANIZATION_NAME, "PharmFlow Mantis Inject CA v2"),
+            x509.NameAttribute(NameOID.COMMON_NAME, "PharmFlow Mantis Inject CA v2"),
         ]
     )
     now = datetime.now(timezone.utc)
+    pub = key.public_key()
     cert = (
         x509.CertificateBuilder()
         .subject_name(subject)
         .issuer_name(issuer)
-        .public_key(key.public_key())
+        .public_key(pub)
         .serial_number(x509.random_serial_number())
         .not_valid_before(now - timedelta(days=1))
         .not_valid_after(now + timedelta(days=3650))
@@ -59,16 +101,24 @@ def ensure_ca_files() -> tuple[Path, Path]:
             ),
             critical=True,
         )
+        # Chromium / modern OpenSSL reject MITM leaves without AKI when the
+        # issuing CA also lacks SKI (host probe: Missing Authority Key Identifier).
+        .add_extension(x509.SubjectKeyIdentifier.from_public_key(pub), critical=False)
+        .add_extension(
+            x509.AuthorityKeyIdentifier.from_issuer_public_key(pub),
+            critical=False,
+        )
         .sign(key, hashes.SHA256())
     )
-    CA_KEY.write_bytes(
-        key.private_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PrivateFormat.TraditionalOpenSSL,
-            encryption_algorithm=serialization.NoEncryption(),
-        )
+    key_bytes = key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.TraditionalOpenSSL,
+        encryption_algorithm=serialization.NoEncryption(),
     )
-    CA_CERT.write_bytes(cert.public_bytes(serialization.Encoding.PEM))
+    cert_bytes = cert.public_bytes(serialization.Encoding.PEM)
+    CA_KEY.write_bytes(key_bytes)
+    CA_CERT.write_bytes(cert_bytes)
+    _mirror_ca_files(key_bytes, cert_bytes)
     logger.info("wrote Mantis inject CA -> %s", CA_CERT)
     return CA_KEY, CA_CERT
 
@@ -78,6 +128,20 @@ def _load_ca() -> tuple[rsa.RSAPrivateKey, x509.Certificate]:
     key = serialization.load_pem_private_key(CA_KEY.read_bytes(), password=None)
     cert = x509.load_pem_x509_certificate(CA_CERT.read_bytes())
     return key, cert  # type: ignore[return-value]
+
+
+def clear_host_cert_cache() -> None:
+    """Drop in-memory + on-disk leaf certs so AKI/SKI fixes take effect immediately."""
+    _HOST_CACHE.clear()
+    try:
+        ensure_ca_files()
+        for path in CA_DIR.glob("host_*.pem"):
+            try:
+                path.unlink()
+            except OSError:
+                pass
+    except Exception as exc:
+        logger.debug("clear_host_cert_cache soft-fail: %s", exc)
 
 
 def issue_host_cert(hostname: str) -> tuple[Path, Path]:
@@ -92,13 +156,16 @@ def issue_host_cert(hostname: str) -> tuple[Path, Path]:
         san.append(x509.DNSName(host[4:]))
     else:
         san.append(x509.DNSName("www." + host))
-    cert = (
+    leaf_pub = key.public_key()
+    # AKI from issuer public key works even when the on-disk CA predates SKI
+    # (branding-era CAs). Chromium rejects leaves with Missing AKI.
+    builder = (
         x509.CertificateBuilder()
         .subject_name(
             x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, host)])
         )
         .issuer_name(ca_cert.subject)
-        .public_key(key.public_key())
+        .public_key(leaf_pub)
         .serial_number(x509.random_serial_number())
         .not_valid_before(now - timedelta(minutes=5))
         .not_valid_after(now + timedelta(days=825))
@@ -107,8 +174,27 @@ def issue_host_cert(hostname: str) -> tuple[Path, Path]:
             x509.ExtendedKeyUsage([ExtendedKeyUsageOID.SERVER_AUTH]),
             critical=False,
         )
-        .sign(ca_key, hashes.SHA256())
+        .add_extension(x509.SubjectKeyIdentifier.from_public_key(leaf_pub), critical=False)
+        .add_extension(
+            x509.AuthorityKeyIdentifier.from_issuer_public_key(ca_cert.public_key()),
+            critical=False,
+        )
+        .add_extension(
+            x509.KeyUsage(
+                digital_signature=True,
+                key_encipherment=True,
+                content_commitment=False,
+                data_encipherment=False,
+                key_agreement=False,
+                key_cert_sign=False,
+                crl_sign=False,
+                encipher_only=False,
+                decipher_only=False,
+            ),
+            critical=True,
+        )
     )
+    cert = builder.sign(ca_key, hashes.SHA256())
     key_path = CA_DIR / f"host_{host.replace('*', '_')}.key.pem"
     cert_path = CA_DIR / f"host_{host.replace('*', '_')}.cert.pem"
     key_path.write_bytes(

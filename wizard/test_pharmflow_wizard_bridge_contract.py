@@ -288,6 +288,8 @@ class HeadlessDeckTests(unittest.TestCase):
         fleet = types.ModuleType("farm_canonical_phones")
         fleet.canonical_names_sorted = lambda: []
         fleet.canonical_serials_sorted = lambda: []
+        fleet.disk_fleet_map = lambda: {}
+        fleet.disk_fleet_names_sorted = lambda: []
         fleet.is_banned_phone = lambda _name: False
         cli = types.ModuleType("mumu_shell_cli")
         cli.instance_shell_running = lambda _idx: False
@@ -334,6 +336,8 @@ class HeadlessDeckTests(unittest.TestCase):
         fleet = types.ModuleType("farm_canonical_phones")
         fleet.canonical_names_sorted = lambda: []
         fleet.canonical_serials_sorted = lambda: []
+        fleet.disk_fleet_map = lambda: {}
+        fleet.disk_fleet_names_sorted = lambda: []
         fleet.is_banned_phone = lambda _name: False
         cli = types.ModuleType("mumu_shell_cli")
         cli.instance_shell_running = lambda _idx: False
@@ -403,6 +407,8 @@ class HeadlessDeckTests(unittest.TestCase):
         fleet = types.ModuleType("farm_canonical_phones")
         fleet.canonical_names_sorted = lambda: []
         fleet.canonical_serials_sorted = lambda: []
+        fleet.disk_fleet_map = lambda: {}
+        fleet.disk_fleet_names_sorted = lambda: []
         fleet.is_banned_phone = lambda _name: False
         cli = types.ModuleType("mumu_shell_cli")
         cli.instance_shell_running = lambda _idx: False
@@ -1022,6 +1028,8 @@ class FarmSettingsDoNotCapTests(unittest.TestCase):
 
         with unittest.mock.patch("automation.farm_health.snapshot", fake_snapshot), unittest.mock.patch(
             "wizard.farm_control.farm_process_alive", return_value=False
+        ), unittest.mock.patch(
+            "wizard.farm_control.external_python_farm_running", return_value=False
         ):
             out = bridge.get_farm_health()
         self.assertTrue(out.get("ok"))

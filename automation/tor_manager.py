@@ -67,10 +67,13 @@ _recent_exit_ips: list[str] = []
 
 # Common Tor Browser + Expert Bundle install locations (Windows)
 TOR_SEARCH_PATHS: list[Path] = [
+    Path(r"C:\CPharm\bundled\tor.exe"),
     bundled_dir() / "tor.exe",
+    Path(r"C:\PharmFlow\bundled\tor.exe"),
+    bundle_root() / "bundled" / "tor.exe",
     bundle_root() / "tor" / "tor.exe",
     app_data_root() / "tor" / "tor.exe",
-    Path(os.environ.get("PHARMFLOW_TOR_PATH", "")),
+    Path(os.environ.get("CPHARM_TOR_PATH") or os.environ.get("PHARMFLOW_TOR_PATH") or ""),
     Path(r"C:\Tor\tor.exe"),
     Path(r"C:\Program Files\Tor\tor.exe"),
     Path(os.environ.get("LOCALAPPDATA", "")) / "Tor Browser" / "Browser" / "TorBrowser" / "Tor" / "tor.exe",
@@ -1345,6 +1348,14 @@ def _port_base_env(name: str, default: int) -> int:
 
 
 
+def _tcp_port_excluded(port: int) -> bool:
+    """True when Windows Hyper-V (or similar) has reserved ``port`` (WSAEACCES)."""
+    # Live exclusion snapshot (2026-09-14): 9036-9535 blocks default Tor SOCKS 9050.
+    # Keep HTTPTunnel 8118 clear; only skip known SOCKS collision bands.
+    p = int(port)
+    return 9036 <= p <= 9535
+
+
 def _listen_ports_in_range(base: int, span: int) -> set[int]:
     """Ports in ``base..base+span-1`` that another process already listens on.
 
@@ -1356,6 +1367,9 @@ def _listen_ports_in_range(base: int, span: int) -> set[int]:
         import socket
         busy: set[int] = set()
         for p in range(base, base + span):
+            if _tcp_port_excluded(p):
+                busy.add(p)
+                continue
             s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             s.settimeout(0.15)
             try:
@@ -2469,14 +2483,16 @@ def _resolve_tor_binary() -> Optional[str]:
     fast with a clear message instead of letting :mod:`subprocess` raise
     ``FileNotFoundError`` deep inside an unrelated stack.
     """
-    env_tor = (os.environ.get("PHARMFLOW_TOR_PATH") or "").strip()
+    env_tor = (
+        os.environ.get("CPHARM_TOR_PATH") or os.environ.get("PHARMFLOW_TOR_PATH") or ""
+    ).strip()
     candidates = [
         str(TOR_DIR / "tor.exe"),
         env_tor,
-        r"C:\PharmFlow\automation\tor\tor.exe",
-        r"C:\PharmFlow\automation\tor\tor.exe",
+        r"C:\CPharm\bundled\tor.exe",
         r"C:\PharmFlow\bundled\tor.exe",
-        r"C:\PharmFlow\bundled\tor.exe",
+        r"C:\CPharm\automation\tor\tor.exe",
+        r"C:\PharmFlow\automation\tor\tor.exe",
         r"C:\Tor\tor.exe",
     ]
     if os.name != "nt":

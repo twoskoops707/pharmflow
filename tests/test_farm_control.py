@@ -12,6 +12,8 @@ from unittest.mock import patch
 from automation.site_profile import interview_defaults
 from wizard.farm_control import (
     _HELPER_SPECS,
+    _dabflow_sequence_root,
+    _dir_has_v3_sequences,
     _farm_args,
     _resolve_helper_python,
     _set_test_phone_result,
@@ -89,6 +91,27 @@ class FarmControlTests(unittest.TestCase):
         args = _farm_args(Path("run.py"), 0.0, profile)
         self.assertEqual(args, [str(Path("run.py")), "--hours", "0.0"])
         self.assertNotIn("--phones", args)
+
+    def test_dabflow_sequence_root_prefers_cpharm_when_pharmflow_pool_missing(self) -> None:
+        """Branding left live halfway pools under C:\\CPharm — Start farm must find them."""
+        cpharm = Path(r"C:\CPharm\automation\recordings\sequences")
+        if not cpharm.is_dir():
+            self.skipTest("C:\\CPharm recordings pool not on this box")
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("PHARMFLOW_FARM_SEQUENCE_ROOT", None)
+
+            def _has(cand: Path) -> bool:
+                text = str(cand).replace("/", "\\").lower()
+                if "pharmflow" in text and "cpharm" not in text:
+                    return False
+                return _dir_has_v3_sequences(cand)
+
+            with patch("wizard.farm_control._dir_has_v3_sequences", side_effect=_has):
+                root = _dabflow_sequence_root()
+        self.assertIsNotNone(root)
+        assert root is not None
+        self.assertTrue("cpharm" in str(root).lower())
+        self.assertTrue(any(root.rglob("*halfway*.json")))
 
     def test_money_day_mitm_and_path3_defaults(self) -> None:
         keys = [
@@ -276,6 +299,14 @@ class FarmControlTests(unittest.TestCase):
     def test_external_python_farm_helper_callable(self) -> None:
         # Smoke: helper imports psutil and returns bool without raising.
         self.assertIsInstance(external_python_farm_running(), bool)
+
+    def test_external_python_farm_ignores_fresh_log_heartbeat(self) -> None:
+        """A touched farm_354.log is not a live run_farm_354 process."""
+        with (
+            patch("wizard.farm_control._farm_heartbeat_alive", return_value=True),
+            patch("psutil.process_iter", return_value=[]),
+        ):
+            self.assertFalse(external_python_farm_running())
 
     def test_operator_stack_three_unison_lanes(self) -> None:
         # Unison stack: one supervisor lane arms farm + stealth + watchdog; the

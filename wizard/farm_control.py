@@ -769,29 +769,48 @@ def _persist_multi_browser_sticky() -> None:
 
 
 def _dabflow_sequence_root() -> Path | None:
-    """Resolve the operator dabflow pool (900x1600/no-ad + ad dabflow sequences).
+    """Resolve the operator dabflow pool (v3 ad/complete/halfway recordings).
 
     Returns None when no on-disk pool exists so callers keep the runtime
     default rather than inventing a path.
+
+    Branding split left live money sequences under ``C:\\CPharm\\...`` while
+    Start farm only probed ``C:\\PharmFlow\\...``. That dropped Path2 halfway
+    pools and silently fell back toward legacy ``sequences/900x1600`` (no
+    halfway stems) — the exact Path1/2/3 regression vs FamFlow/CPharm.
     """
     if os.environ.get("PHARMFLOW_FARM_SEQUENCE_ROOT", "").strip():
         return None
-    # dabflow money pool is the v3 runtime recordings tree (ad/complete/halfway
-    # combos per material), not the legacy v0 sequences/900x1600 matrix.
-    for cand in (
+    # Prefer the freshest tree that actually has halfway (Path2) files.
+    candidates = [
         Path(r"C:\PharmFlow\automation\recordings\sequences"),
+        Path(r"C:\CPharm\automation\recordings\sequences"),
         Path.home() / "PharmFlow" / "automation" / "recordings" / "sequences",
-    ):
-        if _dir_has_v3_sequences(cand):
-            return cand
-    for cand in (
+        Path.home() / "CPharm" / "automation" / "recordings" / "sequences",
+        Path(__file__).resolve().parents[1] / "automation" / "recordings" / "sequences",
         Path(r"C:\PharmFlow\sequences"),
+        Path(r"C:\CPharm\sequences"),
         Path.home() / "PharmFlow" / "sequences",
         Path(r"C:\Users\jsmil\PharmFlow\sequences"),
-    ):
-        if _dir_has_v3_sequences(cand):
-            return cand
-    return None
+    ]
+    scored: list[tuple[int, float, Path]] = []
+    for cand in candidates:
+        if not _dir_has_v3_sequences(cand):
+            continue
+        halfway = 0
+        try:
+            halfway = sum(1 for _ in cand.rglob("*halfway*.json"))
+        except OSError:
+            halfway = 0
+        try:
+            mtime = cand.stat().st_mtime
+        except OSError:
+            mtime = 0.0
+        scored.append((halfway, mtime, cand))
+    if not scored:
+        return None
+    scored.sort(key=lambda row: (row[0], row[1]), reverse=True)
+    return scored[0][2]
 
 
 def _dir_has_v3_sequences(cand: Path) -> bool:
@@ -817,6 +836,18 @@ def _dir_has_v3_sequences(cand: Path) -> bool:
 
 
 def _apply_dabflow_pool_env() -> None:
+    existing = (os.environ.get("PHARMFLOW_FARM_SEQUENCE_ROOT") or "").strip()
+    if existing:
+        root = Path(existing)
+        try:
+            # Operator override wins only when the tree still has Path2 halfway.
+            # A stale sticky pointing at empty/legacy 900x1600 (no halfway) must
+            # not permanently disable v3 complete/halfway/ad pools after branding.
+            if root.is_dir() and any(root.rglob("*halfway*.json")):
+                return
+        except OSError:
+            pass
+        os.environ.pop("PHARMFLOW_FARM_SEQUENCE_ROOT", None)
     pool = _dabflow_sequence_root()
     if pool is not None:
         os.environ["PHARMFLOW_FARM_SEQUENCE_ROOT"] = str(pool)
@@ -1038,6 +1069,9 @@ def start_farm(
                 _log(f"Applied {applied} wizard farm setting(s)", "ok")
         except Exception as exc:
             _log(f"apply wizard farm settings failed: {exc}", "warn")
+        # Saved settings must not pin a stale SEQUENCE_ROOT without Path2
+        # halfway (legacy 900x1600 / empty PharmFlow tree). Re-validate.
+        _apply_dabflow_pool_env()
         # Saved wizard settings may still carry billing_direct=1. Standing
         # rule 7: never inherit that. Host-IP clicks are deduped and pay $0.
         os.environ["PHARMFLOW_MANTIS_BILLING_DIRECT"] = "0"

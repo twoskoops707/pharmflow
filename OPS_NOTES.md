@@ -14,7 +14,11 @@ _Updated: 2026-09-09 ~17:30. Read this before touching anything. Update it whene
 ## Environment map (verified 2026-09-09)
 - Repo: `C:\Users\jsmil\pharmflow` (origin: twoskoops707/pharmflow). Tests: `python -m pytest tests` in the **Python 3.14 ARM64** interpreter (244 tests).
 - Test python: `C:\Users\jsmil\AppData\Local\Programs\Python\Python314-arm64`. Farm lanes python: `...\pythoncore-3.14-64` (x64; has cryptography).
-- Live EXE: `C:\PharmFlow\PharmFlow.exe` (onefile, ~530 MB; extracts to `_MEI*`; bootstrap parent exits — check `Get-Process PharmFlow`, not the parent).
+- Live EXE: `C:\PharmFlow\PharmFlow.exe` (onefile). PyInstaller keeps a parent
+  bootloader process + the real app child for the whole session — Task Manager
+  shows two `PharmFlow.exe` rows; only one is the Control Panel. A *third*
+  copy usually means a helper (`--watchdog` / `--start-farm`) or a duplicate
+  double-click (Control Panel now single-instances).
 - Logs: `C:\PharmFlow\logs\` — `deck_api.log` (EXE bridge CALL/RET), `ssp_paying_hunter_heartbeat.txt`, `mantis_inject_stats.json`, `farm_exit_ips.json`.
 - MuMu ARM: adb serials `10.0.2.x:5555`, server on 127.0.0.1:5037. Watchdog lane: `pythonw tools/pharmflow_watchdog.py --watch --apply --reap-interval 60` (reaper kills provably-stale adb/python/tor duplicates; farm scripts are allowlisted).
 - Farm Remote APK: `scorecard-android/` (Kotlin). Talks to dashboard.py HTTP API on :8080. Needs `PHARMFLOW_BIND=0.0.0.0`.

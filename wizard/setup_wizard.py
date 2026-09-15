@@ -65,6 +65,7 @@ from wizard_paths import (
     groups_config_path,
     iter_group_phone_entries,
     meipass_dir,
+    persist_groups_config_text,
     phone_entry_steps,
     wizard_module_dir,
 )
@@ -1010,8 +1011,28 @@ def _split_cmd_string(cmd: str) -> list[str]:
     return s.split()
 
 
-def _probe_python_cmd(argv: list[str]) -> bool:
+def _is_frozen_app_python_candidate(argv: list[str]) -> bool:
+    """True when argv[0] is PharmFlow.exe — never treat it as CPython.
+
+    Probing ``[sys.executable, "--version"]`` while frozen re-spawns the EXE
+    (and ``-c`` would open another Control Panel). Journey scan hit this on
+    every deck open.
+    """
     if not argv:
+        return False
+    try:
+        stem = Path(str(argv[0])).stem.lower()
+    except (TypeError, ValueError, OSError):
+        return False
+    if stem == "pharmflow":
+        return True
+    if getattr(sys, "frozen", False) and Path(str(argv[0])).resolve() == Path(sys.executable).resolve():
+        return True
+    return False
+
+
+def _probe_python_cmd(argv: list[str]) -> bool:
+    if not argv or _is_frozen_app_python_candidate(argv):
         return False
     try:
         r = subprocess.run(
@@ -1055,13 +1076,19 @@ def _resolve_python_cmd(preferred: str | None = None) -> tuple[list[str], str]:
     saved = state.get("python_cmd_argv")
     if isinstance(saved, list) and saved:
         candidates.append([str(x) for x in saved])
-    candidates.extend([["py", "-3"], [sys.executable], ["python"], ["python3"], ["py"]])
+    # Never put the frozen Control Panel EXE on the Python candidate list.
+    host_exe = [sys.executable]
+    if not _is_frozen_app_python_candidate(host_exe):
+        candidates.append(host_exe)
+    candidates.extend([["py", "-3"], ["python"], ["python3"], ["py"]])
     seen: set[tuple[str, ...]] = set()
     for cand in candidates:
         key = tuple(cand)
         if key in seen:
             continue
         seen.add(key)
+        if _is_frozen_app_python_candidate(cand):
+            continue
         if _probe_python_cmd(cand):
             disp = _cmd_display(cand)
             state["python_cmd"] = disp
@@ -1574,14 +1601,15 @@ def _persist_groups_config() -> str | None:
         )
         return None
     out = groups_config_path()
-    rec = out.parent
     try:
-        rec.mkdir(parents=True, exist_ok=True)
         groups = state["groups"]
         _drop_empty_phone_serials(groups)
         payload = {"_note": "Written by PharmFlow", "groups": groups}
-        out.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-        return str(out)
+        written = persist_groups_config_text(
+            json.dumps(payload, indent=2) + "\n",
+            primary=out,
+        )
+        return str(written)
     except OSError as exc:
         print(f"[wizard] Could not persist groups config: {exc}", file=sys.stderr)
         return None
@@ -12254,6 +12282,49 @@ class LaunchPage(PageBase):
 
         def _launch():
             try:
+                # Frozen EXE is not CPython — probing/spawning it as python opens
+                # another Control Panel. Prefer a real interpreter; fall back to
+                # in-process dashboard (same path the WebView deck uses).
+                if getattr(sys, "frozen", False):
+                    try:
+                        from pharmflow_wizard_bridge import _start_dashboard_headless
+
+                        res = _start_dashboard_headless()
+                        if res.get("ok"):
+                            self.after(
+                                0,
+                                lambda: (
+                                    self._srv_lbl.config(text="Server running", fg=GREEN),
+                                    self._btn_run.config(state="normal"),
+                                    self._btn_srv_start.config(state="disabled"),
+                                    self._btn_srv_stop.config(state="normal"),
+                                    self._log(
+                                        "Control server started (frozen EXE — in-process / helper).\n"
+                                    ),
+                                ),
+                            )
+                            return
+                        err = res.get("error") or "dashboard start refused"
+                        self.after(
+                            0,
+                            lambda: (
+                                self._srv_lbl.config(text="Start failed", fg=RED),
+                                self._btn_srv_start.config(state="normal"),
+                                self._log(f"Dashboard start failed: {err}\n"),
+                            ),
+                        )
+                        return
+                    except Exception as exc:  # noqa: BLE001
+                        self.after(
+                            0,
+                            lambda: (
+                                self._srv_lbl.config(text="Start failed", fg=RED),
+                                self._btn_srv_start.config(state="normal"),
+                                self._log(f"Dashboard start failed: {exc}\n"),
+                            ),
+                        )
+                        return
+
                 py_argv, py_disp = _resolve_python_cmd(state.get("python_cmd"))
                 state["python_cmd"] = py_disp
                 state["python_cmd_argv"] = list(py_argv)
