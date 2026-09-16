@@ -58,6 +58,9 @@ class FarmControlTests(unittest.TestCase):
             "PHARMFLOW_FARM_START_STAGGER_MIN_GAP",
             "PHARMFLOW_FARM_START_STAGGER_JITTER",
             "PHARMFLOW_FARM_SEQUENCE_ROOT",
+            "PHARMFLOW_FARM_DAILY_VISITS",
+            "PHARMFLOW_FARM_DAILY_ADS",
+            "PHARMFLOW_FARM_EXPECT_PHONES",
         ]
         with (
             patch("wizard.farm_control.sequences_dir", return_value=Path("C:/seqs")),
@@ -138,8 +141,10 @@ class FarmControlTests(unittest.TestCase):
             self.assertEqual(os.environ["PHARMFLOW_MANTIS_BILLING_DIRECT"], "0")
             self.assertEqual(os.environ["PHARMFLOW_MANTIS_INJECT_PROXY"], "1")
             self.assertEqual(os.environ["PHARMFLOW_MANTIS_INJECT_MITM"], "1")
-            self.assertEqual(os.environ["PHARMFLOW_FARM_PATH3"], "1")
-            self.assertEqual(os.environ["PHARMFLOW_PATH3"], "1")
+            # Sticky SSOT is mocked off here — apply_profile itself must not invent
+            # Path3 flags (those come from apply_farm_env / earn-plan Save mix).
+            self.assertNotIn("PHARMFLOW_FARM_PATH3", os.environ)
+            self.assertNotIn("PHARMFLOW_PATH3", os.environ)
             self.assertEqual(os.environ["PHARMFLOW_FARM_UNIQUE_SEQ"], "1")
             self.assertEqual(os.environ["PHARMFLOW_FARM_CHROMIUM_ONLY"], "0")
             from automation.farm_visit_caps import MULTI_BROWSER, PATH3_BROWSERS
@@ -149,7 +154,8 @@ class FarmControlTests(unittest.TestCase):
             # Path3 sticks to CDP-capable browsers (inject). Path1/2 stay multi-browser.
             self.assertEqual(os.environ["PHARMFLOW_FARM_PATH3_BROWSERS"], PATH3_BROWSERS)
             self.assertEqual(os.environ["PHARMFLOW_SKIP_SEQUENCE_ISOLATION"], "0")
-            self.assertEqual(os.environ["PHARMFLOW_AUTOPILOT_PAUSE"], "1")
+            # Autopilot: setdefault("0") when sticky did not run.
+            self.assertEqual(os.environ["PHARMFLOW_AUTOPILOT_PAUSE"], "0")
             self.assertEqual(os.environ["PHARMFLOW_EMULATOR_AD_FALLBACK"], "0")
             self.assertEqual(os.environ["PHARMFLOW_EMULATOR_AD_FORCE_DIRECT"], "0")
 
@@ -172,10 +178,16 @@ class FarmControlTests(unittest.TestCase):
                 patch("automation.pharmflow_farm_config.LOG_DIR", Path(tmp)),
                 patch.dict(os.environ, {}, clear=False),
             ):
+                from automation.pharmflow_farm_config import reset_runtime
+
+                reset_runtime(note="test_ssot")
                 os.environ.pop("PHARMFLOW_FARM_PATH3_DAILY_CAP", None)
                 apply_profile_farm_env(None)
                 self.assertFalse(legacy.exists())  # purged by _apply_sticky_overrides
-                self.assertEqual(os.environ["PHARMFLOW_FARM_PATH3_DAILY_CAP"], "3000")
+                # Path3 daily cap tracks sum(DAILY_ADS) — not a silent 0 with PATHS=1,2,3.
+                cap = int(os.environ["PHARMFLOW_FARM_PATH3_DAILY_CAP"])
+                self.assertGreater(cap, 0)
+                self.assertEqual(os.environ["PHARMFLOW_FARM_PATH3"], "1")
                 self.assertEqual(os.environ["PHARMFLOW_FARM_UNIQUE_SEQ"], "1")
                 self.assertEqual(os.environ["PHARMFLOW_SITE_SLUG"], "dabflow")
 

@@ -209,21 +209,55 @@ def should_skip_content_tap(adb: Any, serial: str) -> str | None:
 
 
 _DABFLOW_HOME = "https://getdabflow.app/"
+_FARMBROWSER_ACTIVITY = "com.farmbrowser.stealth.browser.BrowserActivity"
 
 
-def bring_browser_foreground_dabflow(adb: Any, serial: str, package: str) -> bool:
-    """Leave Lawnchair — put browser on dabflow (safe for farm taps / hide chrome)."""
-    pkg = (package or "").strip()
-    if not pkg:
-        return False
+def bring_browser_foreground_dabflow(
+    adb: Any,
+    serial: str,
+    package: str,
+    *,
+    force_stop_fg: str | None = None,
+) -> bool:
+    """Put the money browser on dabflow and verify it actually owns FG.
+
+    Fire-and-forget ``am start -p`` left Settings/Gallery on top → Path3
+    ``foreign_fg`` FAIL. Force-stop denied FG, component-start FarmBrowser when
+    possible, then re-read ``topResumedActivity``.
+    """
+    pkg = (package or "").strip() or "com.farmbrowser.stealth.debug"
     try:
-        adb.shell(
-            f'am start -a android.intent.action.VIEW -d "{_DABFLOW_HOME}" -p {pkg}',
-            serial=serial,
+        if force_stop_fg and (
+            is_denied_launch_package(force_stop_fg) or is_launcher_package(force_stop_fg)
+        ):
+            adb.shell(f"am force-stop {force_stop_fg}", serial=serial, timeout=6.0)
+            time.sleep(0.45)
+        if "farmbrowser" in pkg.lower():
+            adb.shell(
+                f'am start -a android.intent.action.VIEW -d "{_DABFLOW_HOME}" '
+                f"-n {pkg}/{_FARMBROWSER_ACTIVITY}",
+                serial=serial,
+                timeout=10.0,
+            )
+        else:
+            adb.shell(
+                f'am start -a android.intent.action.VIEW -d "{_DABFLOW_HOME}" -p {pkg}',
+                serial=serial,
+                timeout=10.0,
+            )
+        time.sleep(0.85)
+        fg = foreground_package(adb, serial)
+        ok = bool(fg) and (
+            is_farm_browser_package(fg) or fg == pkg or skip_tap_reason_for_fg(fg) is None
         )
-        time.sleep(0.6)
-        logger.info("FG dabflow serial=%s pkg=%s", serial, pkg)
-        return True
+        logger.info(
+            "FG dabflow serial=%s pkg=%s fg=%s ok=%s",
+            serial,
+            pkg,
+            fg or "-",
+            ok,
+        )
+        return ok
     except Exception as exc:
         logger.warning("FG dabflow soft-fail serial=%s pkg=%s: %s", serial, pkg, exc)
         return False

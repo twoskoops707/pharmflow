@@ -95,6 +95,8 @@ from automation.dabflow_mantis_client_patch import (
 from automation.farm_launch_guard import (
     bring_browser_foreground_dabflow,
     foreground_package,
+    is_denied_launch_package,
+    is_launcher_package,
     should_skip_content_tap,
 )
 from automation.human_ad_click import human_path3_ad_engage, human_scroll_ad_landing
@@ -893,15 +895,31 @@ class SequenceRunner:
                         pkg = (
                             (sequence.preferred_browser or "").strip()
                             or (br.package if br else "")
-                            or "org.chromium.chrome"
+                            or "com.farmbrowser.stealth.debug"
                         )
                     except Exception:
-                        pkg = (sequence.preferred_browser or "").strip() or "org.chromium.chrome"
-                if skip_fg and (is_ad_tap or is_age_gate):
-                    # Lawnchair often steals FG mid-Path3; recover browser then recheck.
+                        pkg = (
+                            (sequence.preferred_browser or "").strip()
+                            or "com.farmbrowser.stealth.debug"
+                        )
+                    # Gallery/Settings/Lawnchair steal FG mid-Path3. Recover on
+                    # EVERY content tap (not only ad/age) — remediator already
+                    # force-stops denylisted strays; the runner must too.
                     try:
                         was_fg = skip_fg
-                        bring_browser_foreground_dabflow(self.farm.adb, serial, pkg)
+                        if is_denied_launch_package(skip_fg) or is_launcher_package(
+                            skip_fg
+                        ):
+                            self.farm.adb.shell(
+                                f"am force-stop {skip_fg}", serial=serial
+                            )
+                            time.sleep(0.5)
+                        bring_browser_foreground_dabflow(
+                            self.farm.adb,
+                            serial,
+                            pkg,
+                            force_stop_fg=was_fg,
+                        )
                         time.sleep(0.35)
                         skip_fg = should_skip_content_tap(self.farm.adb, serial)
                         if not skip_fg:
@@ -919,23 +937,6 @@ class SequenceRunner:
                             step.description[:40],
                             exc,
                         )
-                if skip_fg:
-                    # Aggressive recovery: force-stop the launcher, wait, recheck.
-                    try:
-                        if "lawnchair" in skip_fg or "launcher" in skip_fg:
-                            self.farm.adb.shell(
-                                f"am force-stop {skip_fg}", serial=serial
-                            )
-                            time.sleep(0.8)
-                            bring_browser_foreground_dabflow(
-                                self.farm.adb, serial, pkg
-                            )
-                            time.sleep(0.4)
-                            skip_fg = should_skip_content_tap(
-                                self.farm.adb, serial
-                            )
-                    except Exception:
-                        pass
                 if skip_fg:
                     logger.warning(
                         "skip tap on foreign FG (%s) serial=%s desc=%s",

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import copy
+import importlib
 import json
 import os
 import platform
@@ -426,11 +427,37 @@ def _show_tk_window(win: Any) -> None:
 def _groups_detail_from_state() -> dict:
     from setup_wizard import state
 
-    connected = {
-        (p.get("serial") or "").strip()
-        for p in (state.get("phones") or [])
-        if isinstance(p, dict) and (p.get("serial") or "").strip()
-    }
+    # Live ADB is authority for "connected" — wizard memory alone stays empty
+    # until Boot/editor runs, which painted Groups as 0 phones while the farm
+    # had 8 devices online.
+    connected: set[str] = set()
+    try:
+        from automation.farm_exe_self_heal import adb_live_serials
+
+        connected = {
+            str(s).strip()
+            for s in (adb_live_serials(timeout=4.0) or [])
+            if str(s).strip()
+        }
+    except Exception:
+        connected = set()
+    if not connected:
+        connected = {
+            (p.get("serial") or "").strip()
+            for p in (state.get("phones") or [])
+            if isinstance(p, dict) and (p.get("serial") or "").strip()
+        }
+    # Keep wizard state in sync so later pages see the same live roster.
+    if connected:
+        by_serial = {
+            (p.get("serial") or "").strip(): p
+            for p in (state.get("phones") or [])
+            if isinstance(p, dict) and (p.get("serial") or "").strip()
+        }
+        state["phones"] = [
+            by_serial.get(s) or {"serial": s, "name": s}
+            for s in sorted(connected)
+        ]
     groups_out: list[dict] = []
     for g in state.get("groups") or []:
         if not isinstance(g, dict):
@@ -1707,14 +1734,31 @@ def save_earn_plan(params: dict | None = None) -> dict:
         from wizard.farm_settings import save as save_farm_settings
 
         updates = {
-            "PHARMFLOW_FARM_PATHS": str(plan.get("paths") or "1,2"),
+            "PHARMFLOW_FARM_PATHS": str(plan.get("paths") or ("1,2,3" if plan.get("ads_allowed") else "1,2")),
             "PHARMFLOW_FARM_ALLOW_ADS": "1" if plan.get("ads_allowed") else "0",
         }
+        path3_by = plan.get("path3_by_phone") or plan.get("ads_by_phone") or []
+        if isinstance(path3_by, list) and path3_by:
+            try:
+                cap = sum(max(0, int(x)) for x in path3_by)
+            except (TypeError, ValueError):
+                cap = 0
+            if cap > 0:
+                updates["PHARMFLOW_FARM_PATH3_DAILY_CAP"] = str(cap)
+                updates["PHARMFLOW_PATH3_DAILY_CAP"] = str(cap)
+                updates["PHARMFLOW_FARM_PATH3"] = "1"
+                updates["PHARMFLOW_PATH3_ALLOW"] = "1"
         ipv = plan.get("impressions_per_visit")
         if ipv is not None and str(ipv).strip() != "":
             updates["PHARMFLOW_FARM_IMPRESSIONS_PER_VISIT"] = str(ipv)
         applied = save_farm_settings(updates, note="earn_plan")
         plan["farm_settings"] = applied
+        try:
+            from automation.pharmflow_farm_config import merge_runtime
+
+            merge_runtime(updates, note="earn_plan_save")
+        except Exception:
+            pass
         if applied.get("ok") is False:
             plan["settings_warning"] = (
                 "Mix file was saved, but farm settings were not updated: "
@@ -2756,8 +2800,11 @@ def boot_all_phones() -> dict:
                 # harvest from running shells + bare --VmIndex fallback), the
                 # same mechanism that farmed vm10 successfully.
                 try:
-                    from automation import farm_canonical_phones as _fcp
-                    from automation import mumu_shell_cli as _msc
+                    # importlib.import_module honors sys.modules (tests patch the
+                    # fleet helpers). ``from automation import …`` can keep a
+                    # stale package attribute after the real modules loaded.
+                    _fcp = importlib.import_module("automation.farm_canonical_phones")
+                    _msc = importlib.import_module("automation.mumu_shell_cli")
                 except Exception as exc:
                     msg = f"BOOT FAILED: no MuMu manager and fleet helpers unavailable: {exc}"
                     log(msg)
@@ -2823,7 +2870,7 @@ def boot_all_phones() -> dict:
             _fleet_mod = cli_fleet
             if _fleet_mod is None:
                 try:
-                    from automation import farm_canonical_phones as _fleet_mod
+                    _fleet_mod = importlib.import_module("automation.farm_canonical_phones")
                 except Exception as exc:
                     log(
                         f"disk-fleet serial overlay unavailable ({exc}) — "
@@ -2831,7 +2878,7 @@ def boot_all_phones() -> dict:
                     )
                     _fleet_mod = None
             try:
-                from automation import mumu_shell_cli as _player
+                _player = importlib.import_module("automation.mumu_shell_cli")
             except Exception as exc:
                 _player = cli_launch
                 if _player is None:
@@ -4118,7 +4165,8 @@ def agent_status() -> dict:
     try:
         from automation.farm_exe_self_heal import adb_live_serials
 
-        live = [str(s) for s in (adb_live_serials() or [])]
+        # Deck Check must not wait on a wedged adb server (25s default).
+        live = [str(s) for s in (adb_live_serials(timeout=5.0) or [])]
     except Exception as exc:  # noqa: BLE001
         notes.append(f"adb check failed: {exc}")
     dash = False
@@ -4338,17 +4386,16 @@ def start_farm_from_app(profile_slug: str = "", hours: float = 0) -> dict:
 
 
 def stop_farm_from_app() -> dict:
-    """Stop the unison money farm started by :func:`start_farm_from_app`.
+    """Stop the unison money farm — EXE-owned or external python money path.
 
-    A fresh log is not a worker. If no worker process is alive, the button
-    has nothing to stop. If a worker is still alive after the stop attempt,
-    the button must not say the farm stopped. An external python farm that
-    PharmFlow did not start is still a live money path — do not claim it is
-    already stopped, and do not kill it from this button.
+    Start farm already takeovers an external ``run_farm_354``. Stop must match
+    that policy so the Control Panel does not paint Farm running while Stop is
+    a no-op. A fresh log alone is not a worker.
     """
     from wizard.farm_control import (
         external_python_farm_running as _ex,
         farm_process_alive as _alive,
+        stop_external_python_farm as _stop_ex,
         stop_farm as _stop,
     )
 
@@ -4356,24 +4403,47 @@ def stop_farm_from_app() -> dict:
     try:
         if not _alive():
             if _ex():
-                message = (
-                    "Python farm is running outside this EXE. "
-                    "Stop farm does not kill that money path from this button."
-                )
-                with _farm_start_lock:
-                    _farm_start_result = {
+                killed = _stop_ex(log=lambda msg, _lvl="ok": _emit_log("go", msg + "\n"))
+                still = bool(_ex() or _alive())
+                if still:
+                    message = (
+                        "External python farm stop did not complete — "
+                        "a worker process is still running."
+                    )
+                    with _farm_start_lock:
+                        _farm_start_result = {
+                            "ok": False,
+                            "starting": False,
+                            "running": True,
+                            "external": True,
+                            "error": message,
+                        }
+                    return {
                         "ok": False,
-                        "starting": False,
+                        "stopped": False,
                         "running": True,
                         "external": True,
                         "error": message,
                     }
+                message = (
+                    f"External python farm stopped (pids={killed})."
+                    if killed
+                    else "External python farm stopped."
+                )
+                with _farm_start_lock:
+                    _farm_start_result = {
+                        "ok": True,
+                        "starting": False,
+                        "running": False,
+                        "external": False,
+                        "message": message,
+                    }
                 return {
-                    "ok": False,
-                    "stopped": False,
-                    "running": True,
-                    "external": True,
-                    "error": message,
+                    "ok": True,
+                    "stopped": True,
+                    "running": False,
+                    "external": False,
+                    "message": message,
                 }
             with _farm_start_lock:
                 _farm_start_result = {
@@ -4815,22 +4885,10 @@ def get_farm_hud() -> dict:
         out["money_ok"] = True
 
     try:
-        from wizard.wizard_paths import bundled_adb_path
+        from automation.farm_exe_self_heal import adb_live_serials
 
-        exe = str(bundled_adb_path())
-        r = subprocess.run(
-            [exe, "devices"],
-            capture_output=True,
-            text=True,
-            timeout=6,
-            errors="replace",
-        )
-        n = 0
-        for line in (r.stdout or "").splitlines()[1:]:
-            parts = line.split()
-            if len(parts) >= 2 and parts[1] == "device":
-                n += 1
-        # Bundled adb returning 0 must not wipe a live serial count from the dash.
+        n = len(adb_live_serials(timeout=3.0) or [])
+        # Shared resolver returning 0 must not wipe a live serial count from the dash.
         if n:
             out["phones_online"] = n
     except Exception:  # noqa: BLE001

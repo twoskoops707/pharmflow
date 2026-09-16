@@ -59,7 +59,7 @@ def ensure_ca_files() -> tuple[Path, Path]:
     CA_KEY = CA_DIR / "ca.key.pem"
     CA_CERT = CA_DIR / "ca.cert.pem"
     CA_DIR.mkdir(parents=True, exist_ok=True)
-    if CA_KEY.is_file() and CA_CERT.is_file():
+    if CA_KEY.is_file() and CA_CERT.is_file() and CA_KEY.stat().st_size > 100 and CA_CERT.stat().st_size > 100:
         # Keep dual roots in sync with the resolved CA (branding split-brain).
         try:
             _mirror_ca_files(CA_KEY.read_bytes(), CA_CERT.read_bytes())
@@ -140,6 +140,11 @@ def clear_host_cert_cache() -> None:
                 path.unlink()
             except OSError:
                 pass
+        for path in CA_DIR.glob("host_*.fullchain.pem"):
+            try:
+                path.unlink()
+            except OSError:
+                pass
     except Exception as exc:
         logger.debug("clear_host_cert_cache soft-fail: %s", exc)
 
@@ -210,6 +215,14 @@ def issue_host_cert(hostname: str) -> tuple[Path, Path]:
 
 
 def ssl_context_for_host(hostname: str) -> ssl.SSLContext:
+    """Serve the MITM leaf only.
+
+    The PharmFlow CA is installed into the guest system/user trust stores.
+    Presenting leaf+CA fullchain made Android curl reject the handshake with
+    ``self signed certificate in certificate chain`` and did not help
+    FarmBrowser (CERTIFICATE_UNKNOWN is a trust-store / NSC problem, not a
+    missing-intermediate problem).
+    """
     key_path, cert_path = issue_host_cert(hostname)
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     ctx.load_cert_chain(certfile=str(cert_path), keyfile=str(key_path))
@@ -226,52 +239,84 @@ def android_cacert_hash(cert: x509.Certificate) -> str:
 
 
 def install_ca_on_device(adb: object, serial: str) -> bool:
-    """Install CA as system trust on rooted MuMu. Returns True on success."""
+    """Install MITM CA into every guest trust store that exists.
+
+    FarmBrowser NSC trusts ``system`` + ``user``. Returning after the first
+    system copy left user empty and Conscrypt often ignored a freshly copied
+    system file → CERTIFICATE_UNKNOWN while ``test -f`` still looked green.
+    Apex is optional on MuMu (often missing); user store is the hot-reload path.
+    """
     ensure_ca_files()
     cert = x509.load_pem_x509_certificate(CA_CERT.read_bytes())
     h = android_cacert_hash(cert)
     remote_name = f"{h}.0"
     pem_bytes = cert.public_bytes(serialization.Encoding.PEM)
     with tempfile.NamedTemporaryFile(delete=False, suffix=".0") as tmp:
-        # Android /system/etc/security/cacerts expects PEM, not DER.
+        # Android cacerts hash files expect PEM, not DER.
         tmp.write(pem_bytes)
         local = tmp.name
     remote_tmp = f"/data/local/tmp/{remote_name}"
+    user_dest = "/data/misc/user/0/cacerts-added"
+    system_dests = (
+        "/apex/com.android.conscrypt/cacerts",
+        "/system/etc/security/cacerts",
+    )
+    installed: list[str] = []
     try:
         push = adb.run("push", local, remote_tmp, serial=serial, timeout=30.0)  # type: ignore[attr-defined]
         if not getattr(push, "ok", True):
             logger.warning("CA push failed serial=%s", serial)
             return False
-        # Fast path: when adbd is already root (MuMu ARM guests boot root), a
-        # plain cp lands without su/remount/overlay — and every su -c variant
-        # can hang 10-30s each on slow guests, stacking into minutes. Probe
-        # once; if root, install directly into every store that exists.
         id_res = adb.shell("id", serial=serial, timeout=8.0)  # type: ignore[union-attr]
         adbd_root = "uid=0(root)" in (id_res.stdout or "")
-        for dest in (
-            "/apex/com.android.conscrypt/cacerts",
-            "/system/etc/security/cacerts",
-        ):
-            if adbd_root:
+
+        def _copy_to(dest: str, *, mkdir: bool = False) -> bool:
+            if mkdir:
+                prep = (
+                    f"mkdir -p {dest} && cp {remote_tmp} {dest}/{remote_name} "
+                    f"&& chmod 644 {dest}/{remote_name} && echo OK"
+                )
+            else:
                 probe = adb.shell(  # type: ignore[union-attr]
                     f"test -d {dest} && echo YES",
                     serial=serial,
                     timeout=8.0,
                 )
                 if "YES" not in (probe.stdout or ""):
-                    continue
-                copy = adb.shell(  # type: ignore[union-attr]
-                    f"cp {remote_tmp} {dest}/{remote_name} && chmod 644 {dest}/{remote_name} && echo OK",
-                    serial=serial,
-                    timeout=15.0,
+                    return False
+                prep = (
+                    f"cp {remote_tmp} {dest}/{remote_name} "
+                    f"&& chmod 644 {dest}/{remote_name} && echo OK"
                 )
+            cmds = [prep]
+            if not adbd_root:
+                cmds.append(f"su -c '{prep}'")
+            for cmd in cmds:
+                copy = adb.shell(cmd, serial=serial, timeout=20.0)  # type: ignore[union-attr]
                 if "OK" in (copy.stdout or ""):
-                    logger.info("installed Mantis CA (root fast path) on %s -> %s/%s", serial, dest, remote_name)
                     return True
+            return False
+
+        # User store first — no remount, NSC src="user" picks it up after app restart.
+        if _copy_to(user_dest, mkdir=True):
+            installed.append(user_dest)
+            logger.info(
+                "installed Mantis CA (user store) on %s -> %s/%s",
+                serial,
+                user_dest,
+                remote_name,
+            )
+
+        for dest in system_dests:
+            if adbd_root and _copy_to(dest):
+                installed.append(dest)
+                logger.info(
+                    "installed Mantis CA (root fast path) on %s -> %s/%s",
+                    serial,
+                    dest,
+                    remote_name,
+                )
                 continue
-            # Prefer plain test first - some MuMu builds return empty/non-YES
-            # from `su -c test -d` even when the dir is present (broke CA install
-            # -> Chromium MITM inject untrusted -> Mantis stayed at 0 impr).
             check = adb.shell(  # type: ignore[union-attr]
                 f"test -d {dest} && echo YES",
                 serial=serial,
@@ -285,65 +330,48 @@ def install_ca_on_device(adb: object, serial: str) -> bool:
                 )
             if "YES" not in (check.stdout or ""):
                 continue
-            # MuMu ARM adbd is often already root while `su` is broken - try
-            # direct remount/cp first, then fall back to su -c.
-            remount_cmds = (
+            for rc in (
                 "mount -o remount,rw /system || mount -o remount,rw / || true",
                 "su -c 'mount -o remount,rw /system || true'",
-            )
-            for rc in remount_cmds:
+            ):
                 adb.shell(rc, serial=serial, timeout=15.0)  # type: ignore[union-attr]
-            copy_cmds = (
-                f"cp {remote_tmp} {dest}/{remote_name} && chmod 644 {dest}/{remote_name} && echo OK",
-                f"su -c 'cp {remote_tmp} {dest}/{remote_name} && chmod 644 {dest}/{remote_name} && echo OK'",
+            if _copy_to(dest):
+                installed.append(dest)
+                logger.info(
+                    "installed Mantis CA on %s -> %s/%s",
+                    serial,
+                    dest,
+                    remote_name,
+                )
+                continue
+            # /system often RO on MuMu ARM — tmpfs/bind overlay.
+            overlay = (
+                f"STORE=/data/local/tmp/cacerts_store; TMP=/data/local/tmp/cacerts_overlay_{h}; "
+                f"mkdir -p \"$STORE\" \"$TMP\"; "
+                f"cp {dest}/* \"$TMP\"/ 2>/dev/null; "
+                f"cp {remote_tmp} \"$TMP\"/{remote_name}; "
+                f"cp \"$TMP\"/* \"$STORE\"/; "
+                f"cp {remote_tmp} \"$STORE\"/{remote_name}; "
+                f"chmod 644 \"$STORE\"/*; "
+                f"mount | grep -q \" {dest} \" || mount --bind \"$STORE\" {dest} || mount -t tmpfs tmpfs {dest}; "
+                f"cp \"$STORE\"/* {dest}/ 2>/dev/null; chmod 644 {dest}/*; "
+                f"test -f {dest}/{remote_name} && echo OK"
             )
-            copied = False
-            for cc in copy_cmds:
-                copy = adb.shell(cc, serial=serial, timeout=20.0)  # type: ignore[union-attr]
+            for oc in (overlay, f"su -c '{overlay}'"):
+                copy = adb.shell(oc, serial=serial, timeout=30.0)  # type: ignore[union-attr]
                 if "OK" in (copy.stdout or ""):
-                    copied = True
+                    installed.append(dest)
+                    logger.info(
+                        "installed Mantis CA via tmpfs overlay on %s -> %s",
+                        serial,
+                        dest,
+                    )
                     break
-            if not copied:
-                # /system often RO on MuMu ARM (blockdev stays read-only). Overlay
-                # cacerts with tmpfs so MITM CA still lands without remount.
-                overlay = (
-                    f"STORE=/data/local/tmp/cacerts_store; TMP=/data/local/tmp/cacerts_overlay_{h}; "
-                    f"mkdir -p \"$STORE\" \"$TMP\"; "
-                    f"cp {dest}/* \"$TMP\"/ 2>/dev/null; "
-                    f"cp {remote_tmp} \"$TMP\"/{remote_name}; "
-                    f"cp \"$TMP\"/* \"$STORE\"/; "
-                    f"cp {remote_tmp} \"$STORE\"/{remote_name}; "
-                    f"chmod 644 \"$STORE\"/*; "
-                    f"mount | grep -q \" {dest} \" || mount --bind \"$STORE\" {dest} || mount -t tmpfs tmpfs {dest}; "
-                    f"cp \"$STORE\"/* {dest}/ 2>/dev/null; chmod 644 {dest}/*; "
-                    f"test -f {dest}/{remote_name} && echo OK"
-                )
-                for oc in (overlay, f"su -c '{overlay}'"):
-                    copy = adb.shell(oc, serial=serial, timeout=30.0)  # type: ignore[union-attr]
-                    if "OK" in (copy.stdout or ""):
-                        copied = True
-                        logger.info(
-                            "installed Mantis CA via tmpfs overlay on %s -> %s",
-                            serial,
-                            dest,
-                        )
-                        break
-                if not copied:
-                    continue
-            verify = adb.shell(  # type: ignore[union-attr]
-                f"test -f {dest}/{remote_name} && echo PRESENT",
-                serial=serial,
-                timeout=10.0,
-            )
-            if "PRESENT" not in (verify.stdout or ""):
-                verify = adb.shell(  # type: ignore[union-attr]
-                    f"su -c 'test -f {dest}/{remote_name} && echo PRESENT'",
-                    serial=serial,
-                    timeout=10.0,
-                )
-            if "PRESENT" in (verify.stdout or ""):
-                logger.info("installed Mantis CA on %s -> %s/%s", serial, dest, remote_name)
-                return True
+
+        if not installed:
+            logger.warning("CA install could not land on any store serial=%s", serial)
+            return False
+        return True
     except Exception as exc:
         logger.warning("CA install error serial=%s: %s", serial, exc)
         return False
@@ -352,5 +380,3 @@ def install_ca_on_device(adb: object, serial: str) -> bool:
             os.unlink(local)
         except OSError:
             pass
-    logger.warning("CA install could not find cacerts dir on %s", serial)
-    return False

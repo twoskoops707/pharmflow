@@ -1291,19 +1291,21 @@ def _find_ssl_tap(
 
 def _phone_idx_for_serial(serial: str) -> int | None:
     """Absolute vm index for a live serial, from the farm lock map."""
-    try:
-        data = json.loads(
-            Path(r"C:\PharmFlow\logs\ADB_SERIAL_MAP.lock.json").read_text(encoding="utf-8")
-        )
-    except (OSError, json.JSONDecodeError):
-        return None
     want = str(serial).strip()
-    for name, ser in dict(data.get("phones") or {}).items():
-        if str(ser).strip() != want:
+    for lock in (
+        Path(r"C:\PharmFlow\logs\ADB_SERIAL_MAP.lock.json"),
+        Path(r"C:\CPharm\logs\ADB_SERIAL_MAP.lock.json"),
+    ):
+        try:
+            data = json.loads(lock.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
             continue
-        mm = re.match(r"^vm(\d+)\.", str(name))
-        if mm:
-            return int(mm.group(1))
+        for name, ser in dict(data.get("phones") or {}).items():
+            if str(ser).strip() != want:
+                continue
+            mm = re.match(r"^vm(\d+)\.", str(name))
+            if mm:
+                return int(mm.group(1))
     return None
 
 
@@ -1343,7 +1345,8 @@ def dismiss_ssl_interstitial(
     """Bypass Chromium/Brave cert warning so getdabflow can load (MITM CA miss).
 
     Returns True if the interstitial was cleared (or never shown after a tap).
-    Returns False on HSTS lockout (no Proceed) â€” caller should reload on ``:0``.
+    Returns False on HSTS lockout (no Proceed) — caller must re-pin inject
+    via ``recover_ssl_mitm_dead_end`` (never clear http_proxy to ``:0``).
     """
     dismissed = False
     for round_idx in range(max_rounds):

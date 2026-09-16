@@ -68,10 +68,15 @@ def app_data_root() -> Path:
     return root
 
 
-def bundled_dir() -> Path:
-    """C:\\PharmFlow\\bundled — ADB, ChromePublic.apk, etc."""
+def bundled_dir(*, create: bool = True) -> Path:
+    """C:\\PharmFlow\\bundled — ADB, ChromePublic.apk, etc.
+
+    Callers that only *look* for an existing binary must pass ``create=False``
+    so an empty PharmFlow tree is not mistaken for an installed bundle.
+    """
     d = app_data_root() / "bundled"
-    d.mkdir(parents=True, exist_ok=True)
+    if create:
+        d.mkdir(parents=True, exist_ok=True)
     return d
 
 
@@ -99,7 +104,7 @@ def bundled_adb_path() -> Path:
         if p.is_file():
             return p
     candidates = [
-        bundled_dir() / "adb.exe",
+        bundled_dir(create=False) / "adb.exe",
         Path(r"C:\CPharm\bundled\adb.exe"),
         Path(r"C:\PharmFlow\bundled\adb.exe"),
         bundle_root() / "bundled" / "adb.exe",
@@ -111,7 +116,8 @@ def bundled_adb_path() -> Path:
     for p in candidates:
         if p.is_file():
             return p
-    return candidates[0]
+    # Prefer a real fallback path for callers that install into the branded tree.
+    return Path(r"C:\PharmFlow\bundled\adb.exe")
 
 
 def chrome_apk_path() -> Path:

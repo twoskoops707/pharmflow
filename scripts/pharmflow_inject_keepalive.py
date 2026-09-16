@@ -23,7 +23,12 @@ os.chdir(ROOT)
 import automation.no_window  # noqa: F401
 
 from automation.adb_wrapper import AdbWrapper
-from automation.mantis_inject_proxy import ensure_inject_for_phone, start_inject_proxies
+from automation.mantis_inject_proxy import (
+    ensure_inject_for_phone,
+    phone_inject_port,
+    point_phone_at_inject,
+    start_inject_proxies,
+)
 from automation.tor_manager import restore_tor_http_for_slots
 
 def _logs_dirs() -> list[Path]:
@@ -152,24 +157,13 @@ def arm() -> None:
         except Exception as exc:
             print(f"tor_restore_err {exc}", flush=True)
     for idx, ser, _slot in targets:
-        port = 8218 + idx
+        port = phone_inject_port(idx)
         try:
-            _adb(["-s", ser, "reverse", f"tcp:{port}", f"tcp:{port}"])
-            _adb(
-                [
-                    "-s",
-                    ser,
-                    "shell",
-                    "settings",
-                    "put",
-                    "global",
-                    "http_proxy",
-                    f"127.0.0.1:{port}",
-                ]
-            )
+            _adb(["-s", ser, "reverse", "--remove-all"])
+            point_phone_at_inject(adb, ser, idx)
         except Exception:
             pass
-    up = sum(1 for idx, _ser, _slot in targets if _port_open(8218 + idx))
+    up = sum(1 for idx, _ser, _slot in targets if _port_open(phone_inject_port(idx)))
     print(f"arm inject_up={up}/{len(targets)} pid={os.getpid()}", flush=True)
 
 
@@ -180,13 +174,19 @@ def main() -> int:
     while True:
         time.sleep(20)
         targets = _load_targets()
-        dead = [8218 + idx for idx, _ser, _slot in targets if not _port_open(8218 + idx)]
+        dead = [
+            phone_inject_port(idx)
+            for idx, _ser, _slot in targets
+            if not _port_open(phone_inject_port(idx))
+        ]
         if dead or not targets:
             print(f"re-arm dead={dead}", flush=True)
             arm()
             continue
+        adb_tick = AdbWrapper()
         for idx, ser, _slot in targets:
-            port = 8218 + idx
+            port = phone_inject_port(idx)
+            want = f"127.0.0.1:{port}"
             try:
                 r = subprocess.run(
                     [str(ADB), "-s", ser, "shell", "settings", "get", "global", "http_proxy"],
@@ -196,22 +196,21 @@ def main() -> int:
                     creationflags=int(getattr(subprocess, "CREATE_NO_WINDOW", 0) or 0),
                 )
                 cur = (r.stdout or "").strip().splitlines()[-1] if r.stdout else ""
-                want = f"127.0.0.1:{port}"
-                if cur != want:
-                    print(f"re-pin {ser} {cur} -> {want}", flush=True)
-                    _adb(["-s", ser, "reverse", f"tcp:{port}", f"tcp:{port}"])
-                    _adb(
-                        [
-                            "-s",
-                            ser,
-                            "shell",
-                            "settings",
-                            "put",
-                            "global",
-                            "http_proxy",
-                            want,
-                        ]
+                rev = subprocess.run(
+                    [str(ADB), "-s", ser, "reverse", "--list"],
+                    capture_output=True,
+                    text=True,
+                    timeout=8,
+                    creationflags=int(getattr(subprocess, "CREATE_NO_WINDOW", 0) or 0),
+                )
+                rev_lines = [ln for ln in (rev.stdout or "").splitlines() if "tcp:" in ln]
+                if cur != want or len(rev_lines) != 1 or f"tcp:{port}" not in (rev.stdout or ""):
+                    print(
+                        f"re-pin {ser} proxy={cur} revs={len(rev_lines)} -> {want}",
+                        flush=True,
                     )
+                    _adb(["-s", ser, "reverse", "--remove-all"])
+                    point_phone_at_inject(adb_tick, ser, idx)
             except Exception:
                 pass
 

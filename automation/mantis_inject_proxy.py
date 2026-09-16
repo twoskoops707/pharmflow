@@ -1304,21 +1304,23 @@ def point_phone_at_inject(adb: object, serial: str, phone_index: int) -> str:
     return f"127.0.0.1:{port}"
 
 def _device_has_inject_ca(adb: object, serial: str) -> bool:
-    """True when the guest already trusts the inject CA (fast probe, no reinstall)."""
+    """True when the MITM CA hash file exists in any guest trust store.
+
+    Presence alone is not trust — ``ensure_inject_for_phone`` also runs
+    ``_device_trusts_inject_ca`` after the guest proxy is pinned.
+    """
     try:
-        from pathlib import Path
+        from cryptography import x509
 
         from automation.mantis_inject_ca import (
             CA_CERT,
             android_cacert_hash,
             ensure_ca_files,
         )
-        from cryptography import x509
 
         ensure_ca_files()
         cert_path = Path(CA_CERT)
         if not cert_path.is_file():
-            # Dual-read legacy roots (branding rename).
             for cand in (
                 Path(r"C:\PharmFlow\certs\mantis_inject\ca.cert.pem"),
                 Path(r"C:\CPharm\certs\mantis_inject\ca.cert.pem"),
@@ -1333,17 +1335,79 @@ def _device_has_inject_ca(adb: object, serial: str) -> bool:
     except Exception:
         return False
     try:
-        # Prefer apex when present (Android 14+ WebView). Group tests so a
-        # missing system file does not short-circuit the apex probe wrongly.
         verify = adb.shell(  # type: ignore[attr-defined]
             f"(test -f /apex/com.android.conscrypt/cacerts/{name} && echo PRESENT) || "
-            f"(test -f /system/etc/security/cacerts/{name} && echo PRESENT)",
+            f"(test -f /system/etc/security/cacerts/{name} && echo PRESENT) || "
+            f"(test -f /data/misc/user/0/cacerts-added/{name} && echo PRESENT)",
             serial=serial,
             timeout=8,
         )
         return "PRESENT" in (getattr(verify, "stdout", "") or "")
     except Exception:
         return False
+
+
+def _device_trusts_inject_ca(adb: object, serial: str, inject_port: int) -> bool:
+    """Functional TLS verify: guest curl --cacert through the MITM inject port."""
+    try:
+        from cryptography import x509
+
+        from automation.mantis_inject_ca import (
+            CA_CERT,
+            android_cacert_hash,
+            ensure_ca_files,
+        )
+
+        ensure_ca_files()
+        cert_path = Path(CA_CERT)
+        if not cert_path.is_file():
+            for cand in (
+                Path(r"C:\PharmFlow\certs\mantis_inject\ca.cert.pem"),
+                Path(r"C:\CPharm\certs\mantis_inject\ca.cert.pem"),
+            ):
+                if cand.is_file():
+                    cert_path = cand
+                    break
+            else:
+                return False
+        cert = x509.load_pem_x509_certificate(cert_path.read_bytes())
+        name = f"{android_cacert_hash(cert)}.0"
+    except Exception:
+        return False
+    for ca_file in (
+        f"/system/etc/security/cacerts/{name}",
+        f"/data/misc/user/0/cacerts-added/{name}",
+        f"/apex/com.android.conscrypt/cacerts/{name}",
+    ):
+        try:
+            probe = adb.shell(  # type: ignore[attr-defined]
+                f"test -f {ca_file} || exit 9; "
+                f"curl -sS -m 10 --cacert {ca_file} -x http://127.0.0.1:{int(inject_port)} "
+                f"-o /dev/null -w '%{{http_code}}' https://getdabflow.app/",
+                serial=serial,
+                timeout=18,
+            )
+            text = (getattr(probe, "stdout", "") or "") + (getattr(probe, "stderr", "") or "")
+            code = "".join(ch for ch in text.strip().splitlines()[-1] if ch.isdigit())[:3]
+            if code.startswith(("2", "3")):
+                return True
+        except Exception:
+            continue
+    return False
+
+
+def _force_stop_money_browsers(adb: object, serial: str) -> None:
+    """Drop FarmBrowser/Chromium so they reload trust stores after CA install."""
+    for pkg in (
+        "com.farmbrowser.stealth.debug",
+        "com.farmbrowser.stealth",
+        "org.chromium.chrome",
+        "com.android.chrome",
+    ):
+        try:
+            adb.shell(f"am force-stop {pkg}", serial=serial, timeout=6)  # type: ignore[attr-defined]
+        except Exception:
+            pass
 
 
 def ensure_inject_for_phone(
@@ -1356,8 +1420,7 @@ def ensure_inject_for_phone(
     """Bind the inject listener, pin the guest, and (by default) install the CA.
 
     ``ok`` is True only when the listener accepts and, if ``install_ca``, the
-    CA is on the guest. A swallowed exception used to return ``ok: True`` with
-    a dead port — the heal tick then thought the phone was armed.
+    guest functionally trusts the MITM CA (curl --cacert through inject).
     ``install_ca`` stays True by default (CERTIFICATE_UNKNOWN root cause).
     """
     port = phone_inject_port(phone_index)
@@ -1385,11 +1448,9 @@ def ensure_inject_for_phone(
     listening = inject_port_open(port)
     ca_ok = True
     if install_ca:
-        if _device_has_inject_ca(adb, serial):
-            ca_ok = True
-        else:
+        if not _device_has_inject_ca(adb, serial):
             try:
-                ca_ok = bool(_ca()[1](adb, serial))  # install_ca_on_device — lazy import
+                ca_ok = bool(_ca()[1](adb, serial))  # install_ca_on_device
             except Exception as exc:
                 logger.warning("CA install failed serial=%s: %s", serial, exc)
                 ca_ok = False
@@ -1412,17 +1473,32 @@ def ensure_inject_for_phone(
             "port": port,
             "error": f"pin:{exc}",
         }
-    if install_ca and not ca_ok:
-        return {
-            "ok": False,
-            "endpoint": endpoint,
-            "ca_installed": False,
-            "port": port,
-            "error": "ca_install_failed",
-        }
+    if install_ca:
+        trusts = _device_trusts_inject_ca(adb, serial, port)
+        if not trusts:
+            try:
+                ca_ok = bool(_ca()[1](adb, serial))
+            except Exception as exc:
+                logger.warning("CA reinstall failed serial=%s: %s", serial, exc)
+                ca_ok = False
+            _force_stop_money_browsers(adb, serial)
+            try:
+                endpoint = point_phone_at_inject(adb, serial, phone_index)
+            except Exception:
+                pass
+            trusts = _device_trusts_inject_ca(adb, serial, port)
+        ca_ok = bool(ca_ok and trusts)
+        if not ca_ok:
+            return {
+                "ok": False,
+                "endpoint": endpoint,
+                "ca_installed": False,
+                "port": port,
+                "error": "ca_trust_probe_failed",
+            }
     return {
         "ok": True,
         "endpoint": endpoint,
-        "ca_installed": ca_ok,
+        "ca_installed": ca_ok if install_ca else False,
         "port": port,
     }

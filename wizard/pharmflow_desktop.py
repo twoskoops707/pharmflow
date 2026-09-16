@@ -1162,6 +1162,7 @@ def _in_cli_mode() -> bool:
             "--internal-tk-page",
             "--start-farm",
             "--stop-farm",
+            "--deck-self-test",
         )
     )
 
@@ -1291,6 +1292,81 @@ def _nested_start_farm_child() -> bool:
     return _owner_pid_alive(owner_pid)
 
 
+def run_deck_self_test() -> int:
+    """Non-interactive Control Panel bridge checks — safe inside frozen EXE."""
+    import json
+    from pathlib import Path
+
+    os.environ.setdefault("PHARMFLOW_AUTOPILOT_PAUSE", "1")
+    results: list[dict] = []
+
+    def check(name: str, ok: bool, detail: object = "") -> None:
+        results.append({"name": name, "ok": bool(ok), "detail": str(detail)[:400]})
+        print("PASS" if ok else "FAIL", name, str(detail)[:120], flush=True)
+
+    try:
+        from automation.pharmflow_farm_config import apply_farm_env, reset_runtime
+
+        reset_runtime(note="deck-self-test")
+        env: dict[str, str] = {}
+        apply_farm_env(env)
+        socks = int(float(env.get("PHARMFLOW_TOR_SOCKS_BASE") or 0))
+        cap = int(float(env.get("PHARMFLOW_FARM_PATH3_DAILY_CAP") or 0))
+        paths = str(env.get("PHARMFLOW_FARM_PATHS") or "")
+        check("billing_direct_0", env.get("PHARMFLOW_MANTIS_BILLING_DIRECT") == "0", env.get("PHARMFLOW_MANTIS_BILLING_DIRECT"))
+        check("path3_cap", cap > 0 and "3" in paths, f"cap={cap} paths={paths}")
+        check("tor_socks", socks != 9050 or socks == 0, socks)
+    except Exception as exc:  # noqa: BLE001
+        check("ssot", False, exc)
+
+    try:
+        import inspect
+
+        from automation.farm_exe_self_heal import adb_live_serials
+        from wizard.pharmflow_wizard_bridge import get_farm_hud, get_groups_detail, stop_farm_from_app
+
+        live = list(adb_live_serials(timeout=5.0) or [])
+        groups = get_groups_detail()
+        hud = get_farm_hud()
+        check(
+            "groups_adb",
+            int(groups.get("connected_phones") or 0) == len(live),
+            f"g={groups.get('connected_phones')} adb={len(live)}",
+        )
+        if live:
+            check(
+                "hud_phones",
+                int(hud.get("phones_online") or 0) >= len(live),
+                f"hud={hud.get('phones_online')}",
+            )
+        src = inspect.getsource(stop_farm_from_app)
+        check(
+            "stop_external",
+            "stop_external_python_farm" in src and "does not kill that money path" not in src,
+            "policy",
+        )
+    except Exception as exc:  # noqa: BLE001
+        check("bridge", False, exc)
+
+    try:
+        from wizard.farm_control import apply_profile_farm_env
+
+        os.environ.pop("PHARMFLOW_FARM_SEQUENCE_ROOT", None)
+        apply_profile_farm_env(None)
+        root = os.environ.get("PHARMFLOW_FARM_SEQUENCE_ROOT", "")
+        hw = sum(1 for _ in Path(root).rglob("*halfway*.json")) if root else 0
+        check("sequence_halfway", hw > 0, f"{root} hw={hw}")
+    except Exception as exc:  # noqa: BLE001
+        check("sequence_root", False, exc)
+
+    out = Path(r"C:\PharmFlow\logs\exe_deck_self_test.json")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(results, indent=2), encoding="utf-8")
+    failed = [r for r in results if not r["ok"]]
+    print(f"--- TOTAL {len(results)} FAIL {len(failed)} -> {out}", flush=True)
+    return 1 if failed else 0
+
+
 def run_farm_cli() -> int:
     """Start or stop the unison money farm from the EXE itself.
 
@@ -1359,6 +1435,7 @@ def _control_panel_single_instance() -> bool:
         "--internal-tk-page",
         "--cloud-phones-cli",
         "--version",
+        "--deck-self-test",
     )
     if any(flag in sys.argv for flag in helper_flags):
         return True
@@ -1393,6 +1470,8 @@ def main() -> None:
         import pharmflow_version as ver
         print(ver.display_version())
         return
+    if "--deck-self-test" in sys.argv:
+        raise SystemExit(run_deck_self_test())
     _bootlog("main: version/combined checks done")
 
     # Combined-mode entrypoints: one PharmFlow.exe is the Control Panel,

@@ -122,6 +122,42 @@ class HeadlessDeckTests(unittest.TestCase):
         cls.mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(cls.mod)
 
+    def setUp(self) -> None:
+        self._reset_boot_worker()
+
+    def tearDown(self) -> None:
+        self._reset_boot_worker()
+
+    def _reset_boot_worker(self) -> None:
+        """Boot tests must not leave the process-wide boot lock held."""
+        mod = self.mod
+        thr = getattr(mod, "_boot_all_thread", None)
+        if thr is not None and thr.is_alive():
+            try:
+                mod._boot_all_cancel.set()
+            except Exception:
+                pass
+            thr.join(5)
+        mod._boot_all_thread = None
+        mod._boot_all_started_mono = None
+        lock = mod._boot_all_lock
+        # Drain a stuck lock so the next test can acquire cleanly.
+        if not lock.acquire(blocking=False):
+            try:
+                lock.release()
+            except RuntimeError:
+                pass
+            if not lock.acquire(blocking=False):
+                return
+        try:
+            lock.release()
+        except RuntimeError:
+            pass
+        try:
+            mod._boot_all_cancel.clear()
+        except Exception:
+            pass
+
     def test_arm_guest_is_mumu_only_when_state_json_published_it(self):
         kind = self.mod._adb_phone_kind
         guests = self.mod._mumu_guest_serials({"vm0": "10.0.2.15:5555", "vm1": "127.0.0.1:16384"})
@@ -611,7 +647,10 @@ class FarmHudSourceTests(unittest.TestCase):
         self.assertIn("_mantis_today_file()", block)
         self.assertIn("_status_farm_process_alive", block)
         self.assertNotIn("_live_farm_facts", block)
-        self.assertNotIn("farm_running", block)
+        # Do not call the display-only farm_running() shortcut from the HUD.
+        # Substring "farm_running" also appears inside external_python_farm_running.
+        self.assertNotIn("farm_running(", block)
+        self.assertNotIn("import farm_running", block)
         self.assertNotIn('status.get("farm_alive")', block)
 
     def test_hud_running_requires_a_worker_process(self):
@@ -754,7 +793,7 @@ class CheckAndHumanizeHonestyTests(unittest.TestCase):
         block = js.split("async function openFarmDash()")[1].split("if (btnStartHome")[0]
         self.assertNotIn("if (res) showToast", block)
         self.assertIn("res.opened !== true", block)
-        self.assertIn("Dashboard did not open in the browser", block)
+        self.assertIn("did not open in the browser", block)
 
     def test_deck_copy_does_not_say_the_exe_never_starts_phones(self):
         html = (ROOT / "wizard" / "assets" / "pharmflow_app" / "index.html").read_text(encoding="utf-8")
@@ -818,6 +857,7 @@ class CheckAndHumanizeHonestyTests(unittest.TestCase):
             patch.object(bridge, "_operator_status", return_value=status),
             patch.object(bridge, "_emit_log"),
             patch("wizard.farm_control.farm_process_alive", return_value=False),
+            patch("wizard.farm_control.external_python_farm_running", return_value=False),
             patch("automation.farm_exe_self_heal.adb_live_serials", return_value=[]),
             patch("setup_wizard.probe_dashboard_listen_port", return_value=False),
             patch("urllib.request.urlopen", side_effect=OSError("down")),
@@ -841,6 +881,7 @@ class StopFarmProcessTests(unittest.TestCase):
 
         with (
             patch("wizard.farm_control.farm_process_alive", return_value=False),
+            patch("wizard.farm_control.external_python_farm_running", return_value=False),
             patch("wizard.farm_control.stop_farm") as stop,
             patch("wizard.farm_control.farm_running", return_value=True),
         ):

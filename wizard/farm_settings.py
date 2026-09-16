@@ -126,8 +126,8 @@ CATALOG: list[dict[str, Any]] = [
         "key": "PHARMFLOW_FARM_ALLOW_ADS",
         "step": "steps",
         "kind": "toggle",
-        "label": "Allow ads (Path 3)",
-        "hint": "Master switch for the ad path. Off = Path 1/2 visits only.",
+        "label": "Allow bottom-ad pools (Path 1/2)",
+        "hint": "Enables Path 1/2 ad impression pools. Path 3 is controlled by Active paths (include 3).",
     },
     {
         "key": "PHARMFLOW_FARM_UNIQUE_SEQ",
@@ -206,28 +206,81 @@ def user_settings_path() -> Path:
         return Path(r"C:\PharmFlow\wizard_farm_settings.json")
 
 
-def load_saved() -> dict[str, str]:
-    path = user_settings_path()
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError, TypeError, ValueError):
-        return {}
-    if not isinstance(data, dict):
-        return {}
-    out: dict[str, str] = {}
-    for key, val in data.items():
-        if isinstance(key, str) and key.startswith("PHARMFLOW_") and val is not None:
-            out[key] = str(val)
+def _settings_candidate_paths() -> list[Path]:
+    paths = [
+        user_settings_path(),
+        Path(r"C:\PharmFlow\wizard_farm_settings.json"),
+        Path(r"C:\CPharm\wizard_farm_settings.json"),
+    ]
+    # Dedupe while preserving order.
+    out: list[Path] = []
+    seen: set[str] = set()
+    for p in paths:
+        key = str(p).replace("/", "\\").lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(p)
     return out
 
 
+def _normalize_settings_key(key: str) -> str | None:
+    """Accept PHARMFLOW_* and migrate legacy CPHARM_* branding keys."""
+    k = str(key or "").strip()
+    if not k:
+        return None
+    if k.startswith("PHARMFLOW_"):
+        return k
+    if k.startswith("CPHARM_"):
+        return "PHARMFLOW_" + k[len("CPHARM_") :]
+    return None
+
+
+def load_saved() -> dict[str, str]:
+    """Load farm settings from the freshest PharmFlow/CPharm settings file."""
+    newest: tuple[float, dict[str, str]] | None = None
+    for path in _settings_candidate_paths():
+        try:
+            if not path.is_file():
+                continue
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError, TypeError, ValueError):
+            continue
+        if not isinstance(data, dict):
+            continue
+        out: dict[str, str] = {}
+        for key, val in data.items():
+            nk = _normalize_settings_key(str(key))
+            if nk is None or val is None:
+                continue
+            out[nk] = str(val)
+        if not out:
+            continue
+        try:
+            mtime = path.stat().st_mtime
+        except OSError:
+            mtime = 0.0
+        if newest is None or mtime >= newest[0]:
+            newest = (mtime, out)
+    return dict(newest[1]) if newest else {}
+
+
 def _write_saved(data: dict[str, str]) -> None:
-    path = user_settings_path()
-    try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-    except OSError as exc:  # pragma: no cover - filesystem edge
-        raise RuntimeError(f"cannot persist farm settings: {exc}") from exc
+    """Persist to PharmFlow and mirror to CPharm so branding cannot split."""
+    payload = json.dumps(data, indent=2) + "\n"
+    errors: list[str] = []
+    for path in (
+        user_settings_path(),
+        Path(r"C:\PharmFlow\wizard_farm_settings.json"),
+        Path(r"C:\CPharm\wizard_farm_settings.json"),
+    ):
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(payload, encoding="utf-8")
+        except OSError as exc:
+            errors.append(f"{path}: {exc}")
+    if errors and not user_settings_path().is_file():
+        raise RuntimeError("cannot persist farm settings: " + "; ".join(errors))
 
 
 def _runtime_defaults() -> dict[str, str]:

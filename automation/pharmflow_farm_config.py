@@ -5,6 +5,7 @@ All ``PHARMFLOW_*`` money-path env comes from this module.
 """
 from __future__ import annotations
 
+import json
 import os
 import threading
 from copy import deepcopy
@@ -60,6 +61,33 @@ def resolve_tor_exe_path() -> str:
     return str(preferred)
 
 
+def _resolve_tor_socks_base() -> int:
+    """Prefer the freshest live Tor base broadcast over a hardcoded 9050."""
+    newest: tuple[float, int] | None = None
+    for path in (
+        Path(r"C:\PharmFlow\logs\tor_port_bases.json"),
+        Path(r"C:\CPharm\logs\tor_port_bases.json"),
+    ):
+        try:
+            if not path.is_file():
+                continue
+            data = json.loads(path.read_text(encoding="utf-8-sig"))
+            socks = int(float(str(data.get("socks_base") or 0)))
+            if socks <= 0:
+                continue
+            mtime = path.stat().st_mtime
+            if newest is None or mtime > newest[0]:
+                newest = (mtime, socks)
+        except (OSError, json.JSONDecodeError, TypeError, ValueError):
+            continue
+    if newest is not None:
+        return newest[1]
+    env = (os.environ.get("PHARMFLOW_TOR_SOCKS_BASE") or "").strip()
+    if env.isdigit() and int(env) > 0:
+        return int(env)
+    return 9550
+
+
 def _base_runtime() -> dict[str, str]:
     names = canonical_names_sorted()
     serials = canonical_serials_sorted()
@@ -68,9 +96,12 @@ def _base_runtime() -> dict[str, str]:
     # FARM_OPERATIONS_MANUAL + 2026-08-21 money session contract:
     #   - Uneven per-phone visits/ads is the under-radar requirement (equal
     #     clone CSVs get flagged); remediator flattening to equal was a bug.
-    #   - Clicks are the revenue driver (~$0.50 each) and only register with
-    #     billing_direct=True (Tor exits get HTTP 406 from Mantis).
-    #   - While behind the $100/day goal, Path3 pushes at 18/hr, gap 0.
+    #   - Clicks are the revenue driver; billing must leave through each
+    #     phone's own exit (PHARMFLOW_MANTIS_BILLING_DIRECT=0). Host-IP
+    #     billing_direct=1 is forbidden — Mantis dedupes it to $0.
+    #   - PATHS=1,2,3 + Allow-ads ON means Path3 daily cap must be real
+    #     (sum of DAILY_ADS). Cap 0 with PATHS including 3 is split-brain
+    #     that logs "count=N/0" and starves clicks while impressions roll.
     _w = [1.0, 0.82, 0.93, 0.74, 1.05, 0.87, 0.97, 0.78, 1.02, 0.8, 0.9, 0.76]
     visit_parts = [max(1, int(999 * _w[i % len(_w)])) for i in range(max(n, 1))]
     ad_parts = [max(1, int(320 * _w[i % len(_w)])) for i in range(max(n, 1))]
@@ -88,15 +119,15 @@ def _base_runtime() -> dict[str, str]:
         "PHARMFLOW_FARM_PHONES": ",".join(names),
         "PHARMFLOW_ADB_SERIALS": ",".join(serials),
         "PHARMFLOW_FARM_BAN_SERIALS": ban_serials_csv(),
-        # Path3 / Allow-ads: OFF by default. Dash + wizard_farm_settings.json are
-        # authority (operator standing rule — never force Path3 on every phone).
-        # When the operator enables Path3 in the EXE, apply_saved_to_env /
-        # merge_runtime raise these; unison re-applies saved after apply_farm_env.
-        "PHARMFLOW_FARM_PATH3_DAILY_CAP": "0",
-        "PHARMFLOW_PATH3_DAILY_CAP": "0",
-        "PHARMFLOW_FARM_PATH3_PER_HOUR": "0",
-        "PHARMFLOW_PATH3_PER_HOUR": "0",
-        "PHARMFLOW_PATH3_CAP": "0",
+        # Allow-ads ON (bottom-ad inject / Path1-2 ad pools). Path3 click ceiling
+        # matches sum(DAILY_ADS) so PATHS=1,2,3 is not a split-brain lie that
+        # logs "Path3 farm-wide guard: count=N/0" and starves clicks at $0.
+        # Operator / earn-plan Save mix may still raise or lower via merge_runtime.
+        "PHARMFLOW_FARM_PATH3_DAILY_CAP": str(sum(ad_parts)),
+        "PHARMFLOW_PATH3_DAILY_CAP": str(sum(ad_parts)),
+        "PHARMFLOW_FARM_PATH3_PER_HOUR": "4",
+        "PHARMFLOW_PATH3_PER_HOUR": "4",
+        "PHARMFLOW_PATH3_CAP": str(sum(ad_parts)),
         "PHARMFLOW_FARM_PATH3_PREEMPT_MIN": "2",
         "PHARMFLOW_FARM_PATH3_GLOBAL_GAP_MIN": "0",
         "PHARMFLOW_PATH3_GAP_MIN": "0",
@@ -106,12 +137,12 @@ def _base_runtime() -> dict[str, str]:
         "PHARMFLOW_PREFER_PAYING": "1",
         "PHARMFLOW_SSP_PREFER_PAYING": "1",
         "PHARMFLOW_PATH3_REQUIRE_PAYING": "0",
-        "PHARMFLOW_FARM_ALLOW_ADS": "0",
-        "PHARMFLOW_ALLOW_ADS": "0",
-        "PHARMFLOW_FARM_PATHS": "1,2",
-        "PHARMFLOW_FARM_PATH3": "0",
-        "PHARMFLOW_PATH3": "0",
-        "PHARMFLOW_PATH3_ALLOW": "0",
+        "PHARMFLOW_FARM_ALLOW_ADS": "1",
+        "PHARMFLOW_ALLOW_ADS": "1",
+        "PHARMFLOW_FARM_PATHS": "1,2,3",
+        "PHARMFLOW_FARM_PATH3": "1",
+        "PHARMFLOW_PATH3": "1",
+        "PHARMFLOW_PATH3_ALLOW": "1",
         "PHARMFLOW_FARM_UNIQUE_SEQ": "1",
         "PHARMFLOW_FARM_IMMEDIATE_START": "1",
         "PHARMFLOW_AUTOPILOT_PAUSE": "1",
@@ -154,7 +185,9 @@ def _base_runtime() -> dict[str, str]:
         "PHARMFLOW_GEO_TIME_WINDOW": "1",
         "PHARMFLOW_BROWSE_PROXY_MODE": "scramble",
         "PHARMFLOW_TOR_HTTP_BASE": "8118",
-        "PHARMFLOW_TOR_SOCKS_BASE": "9050",
+        # Prefer live broadcast when present (apply_farm_env heals from
+        # tor_port_bases.json). Hard 9050 fights Hyper-V exclusions → WSAEACCES.
+        "PHARMFLOW_TOR_SOCKS_BASE": str(_resolve_tor_socks_base()),
         "PHARMFLOW_TOR_CONTROL_BASE": "9151",
         "PHARMFLOW_FARM_MIN_SEQ_SPACING_S": "45",
         "PHARMFLOW_ALLOW_SEQUENCE_RUNS": "1",
@@ -215,6 +248,9 @@ def apply_farm_env(env: dict[str, str] | None = None) -> dict[str, str]:
     tor = str(target.get("PHARMFLOW_TOR_PATH") or "").strip()
     if not tor or not Path(tor).is_file():
         target["PHARMFLOW_TOR_PATH"] = resolve_tor_exe_path()
+    # Never stomp a live Tor SOCKS base with a dead Hyper-V-blocked default.
+    live_socks = _resolve_tor_socks_base()
+    target["PHARMFLOW_TOR_SOCKS_BASE"] = str(live_socks)
     return target
 
 

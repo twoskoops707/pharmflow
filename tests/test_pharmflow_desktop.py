@@ -107,21 +107,29 @@ class PharmFlowAppApiTests(unittest.TestCase):
         self.assertTrue(out.get("running"))
         self.assertTrue(out.get("dashboard_ready"))
 
-    def test_stop_farm_bridge_refuses_external_python(self) -> None:
+    def test_stop_farm_bridge_stops_external_python(self) -> None:
         from wizard.pharmflow_wizard_bridge import stop_farm_from_app
 
         with (
             patch("wizard.farm_control.farm_process_alive", return_value=False),
-            patch("wizard.farm_control.external_python_farm_running", return_value=True),
+            patch(
+                "wizard.farm_control.external_python_farm_running",
+                side_effect=[True, False],
+            ),
+            patch(
+                "wizard.farm_control.stop_external_python_farm",
+                return_value=[4242],
+            ) as stop_ex,
             patch("wizard.farm_control.stop_farm", return_value=True) as stop_fn,
         ):
             out = stop_farm_from_app()
-        self.assertFalse(out.get("ok"))
-        self.assertFalse(out.get("stopped"))
-        self.assertTrue(out.get("running"))
-        self.assertTrue(out.get("external"))
+        self.assertTrue(out.get("ok"))
+        self.assertTrue(out.get("stopped"))
+        self.assertFalse(out.get("running"))
+        self.assertFalse(out.get("external"))
+        self.assertTrue(stop_ex.called)
         self.assertFalse(stop_fn.called)
-        self.assertIn("does not kill", str(out.get("error") or ""))
+        self.assertIn("External python farm stopped", str(out.get("message") or ""))
 
 
 class BootAllPhonesReconnectTests(unittest.TestCase):

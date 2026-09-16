@@ -107,8 +107,13 @@ def _write_json(path: Path, data: dict[str, Any]) -> None:
     path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
 
 
-def adb_live_serials() -> list[str]:
-    code, out = _run([_adb_bin(), "devices"], timeout=25.0)
+def adb_live_serials(*, timeout: float = 25.0) -> list[str]:
+    """List ``adb devices`` serials that are currently ``device``.
+
+    ``timeout`` defaults high for heal/start-farm. Deck status buttons must
+    pass a short timeout so a wedged adb server cannot freeze the Control Panel.
+    """
+    code, out = _run([_adb_bin(), "devices"], timeout=float(timeout))
     if code != 0 and not out:
         return []
     live: list[str] = []
@@ -116,7 +121,11 @@ def adb_live_serials() -> list[str]:
         if "\tdevice" not in ln:
             continue
         serial = ln.split()[0].strip()
-        if not serial or serial.startswith("127.0.0.1:"):
+        if not serial:
+            continue
+        # Keep redroid/classic ``127.0.0.1:PORT`` transports. Only drop the
+        # known-bad empty/ghost serials — not every loopback publish.
+        if serial in {"127.0.0.1", "localhost", "emulator-5554"}:
             continue
         live.append(serial)
     return live
