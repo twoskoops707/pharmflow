@@ -206,16 +206,19 @@ def _env_or_sticky_float(name: str, default: float) -> float:
 
 def _ssp_ttl() -> float:
     # Re-read sticky/env each call so money-day TTL knobs apply without process recycle.
-    return max(15.0, min(600.0, _env_or_sticky_float("PHARMFLOW_SSP_CACHE_TTL", 90.0)))
+    # No hardcoded min/max range — repo rule forbids artificial caps. Only guard
+    # against a literally negative duration; any positive operator value stands.
+    return max(0.0, _env_or_sticky_float("PHARMFLOW_SSP_CACHE_TTL", 90.0))
 
 
 def _ssp_refresh_s() -> float:
-    return max(8.0, min(300.0, _env_or_sticky_float("PHARMFLOW_SSP_CACHE_REFRESH", 45.0)))
+    return max(0.0, _env_or_sticky_float("PHARMFLOW_SSP_CACHE_REFRESH", 45.0))
 
 
 def _ssp_house_only_ttl() -> float:
-    # Floor 1s — money-day sticky may set 4s so house TTL does not block paying return.
-    return max(1.0, min(300.0, _env_or_sticky_float("PHARMFLOW_SSP_HOUSE_ONLY_TTL", 45.0)))
+    # money-day sticky may set this low (e.g. 4s) so house TTL does not block
+    # paying return — no floor imposed here beyond non-negative.
+    return max(0.0, _env_or_sticky_float("PHARMFLOW_SSP_HOUSE_ONLY_TTL", 45.0))
 
 
 def ssp_cache_age_s() -> float:
