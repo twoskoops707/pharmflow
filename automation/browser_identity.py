@@ -306,7 +306,13 @@ def build_chromium_command_line(profile: BrowserSessionProfile, *, phone_index: 
     )
     # MuMu RO /system often cannot persist MITM CA into Zygote trust; allow Chromium
     # to accept inject MITM certs when Mantis MITM is armed (still needs system CA when possible).
-    if (os.environ.get('PHARMFLOW_MANTIS_INJECT_MITM') or '1').strip().lower() not in ('0','false','no','off'):
+    # Same CPHARM_*-then-PHARMFLOW_* precedence as mantis_inject_proxy._env_first,
+    # so an existing deployment's legacy CPHARM_MANTIS_INJECT_MITM=0 opt-out is
+    # still honored here, not just in the inject proxy itself.
+    _mitm_raw = os.environ.get('CPHARM_MANTIS_INJECT_MITM')
+    if _mitm_raw is None or str(_mitm_raw).strip() == '':
+        _mitm_raw = os.environ.get('PHARMFLOW_MANTIS_INJECT_MITM') or '1'
+    if str(_mitm_raw).strip().lower() not in ('0','false','no','off'):
         if '--ignore-certificate-errors' not in base:
             base += ' --ignore-certificate-errors'
     # Telemetry/crash/sync hardening (see automation.browser_privacy limitations).

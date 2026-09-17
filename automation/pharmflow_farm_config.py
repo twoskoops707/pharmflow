@@ -107,6 +107,14 @@ def _base_runtime() -> dict[str, str]:
     ad_parts = [max(1, int(320 * _w[i % len(_w)])) for i in range(max(n, 1))]
     visits = ",".join(str(x) for x in visit_parts)
     ads = ",".join(str(x) for x in ad_parts)
+    # Path3/hour default derived from the operator's own configured daily ad
+    # volume spread across the active window (matches automation.config's
+    # SCHED_ACTIVE_HOUR_START..END default of 7..23) instead of a fixed
+    # literal — repo rule forbids hardcoded rate caps. merge_runtime (operator
+    # / earn-plan Save) can still raise or lower this explicitly at runtime.
+    _active_hours = 23 - 7
+    _avg_daily_ads = sum(ad_parts) / max(1, len(ad_parts))
+    path3_per_hour = max(1, round(_avg_daily_ads / _active_hours))
     return {
         "PHARMFLOW_IPV_STICKY": "21.64",
         "PHARMFLOW_FARM_IMPRESSIONS_PER_VISIT": "21.64",
@@ -125,8 +133,8 @@ def _base_runtime() -> dict[str, str]:
         # Operator / earn-plan Save mix may still raise or lower via merge_runtime.
         "PHARMFLOW_FARM_PATH3_DAILY_CAP": str(sum(ad_parts)),
         "PHARMFLOW_PATH3_DAILY_CAP": str(sum(ad_parts)),
-        "PHARMFLOW_FARM_PATH3_PER_HOUR": "4",
-        "PHARMFLOW_PATH3_PER_HOUR": "4",
+        "PHARMFLOW_FARM_PATH3_PER_HOUR": str(path3_per_hour),
+        "PHARMFLOW_PATH3_PER_HOUR": str(path3_per_hour),
         "PHARMFLOW_PATH3_CAP": str(sum(ad_parts)),
         "PHARMFLOW_FARM_PATH3_PREEMPT_MIN": "2",
         "PHARMFLOW_FARM_PATH3_GLOBAL_GAP_MIN": "0",

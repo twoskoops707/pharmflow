@@ -8,6 +8,7 @@ $EnvFile = Join-Path $Tools "ollama.env"
 $StateFile = Join-Path $Tools "ollama-cursor-agent.json"
 $LogFile = Join-Path $Tools "ollama-cursor-agent.log"
 $OllamaExe = "C:\Users\jsmil\AppData\Local\Programs\Ollama\ollama.exe"
+$AuthProxyScript = Join-Path $Tools "ollama_auth_proxy.py"
 
 function Write-Log([string]$Message) {
   $line = "{0} {1}" -f (Get-Date -Format "yyyy-MM-ddTHH:mm:ssK"), $Message
@@ -105,12 +106,14 @@ function Start-Tunnel([int]$ListenPort) {
   }
 }
 
-function Test-Gateway([string]$BaseUrl, [int]$Retries = 12) {
+function Test-Gateway([string]$BaseUrl, [int]$Retries = 12, [string]$Token = "") {
   $uri = ($BaseUrl.TrimEnd("/") + "/models")
+  $headers = @{}
+  if ($Token) { $headers["Authorization"] = "Bearer $Token" }
   $lastError = $null
   for ($i = 1; $i -le $Retries; $i++) {
     try {
-      $resp = Invoke-RestMethod -Uri $uri -TimeoutSec 30
+      $resp = Invoke-RestMethod -Uri $uri -Headers $headers -TimeoutSec 30
       $count = @($resp.data).Count
       if ($count -lt 1) { throw "Gateway /v1/models returned no models" }
       if ($i -gt 1) { Write-Log "Gateway probe succeeded on attempt $i" }
@@ -126,9 +129,45 @@ function Test-Gateway([string]$BaseUrl, [int]$Retries = 12) {
   throw $lastError
 }
 
+function Stop-StaleAuthProxy {
+  Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+    Where-Object { $_.CommandLine -and $_.CommandLine -match 'ollama_auth_proxy\.py' } |
+    ForEach-Object {
+      Write-Log "Stopping stale ollama_auth_proxy PID $($_.ProcessId)"
+      Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Start-AuthProxy([int]$ListenPort, [int]$UpstreamPort, [string]$Token) {
+  $python = (Get-Command python -ErrorAction SilentlyContinue).Source
+  if (-not $python) { throw "python not found on PATH -- needed for ollama_auth_proxy.py" }
+  Stop-StaleAuthProxy
+  $stdout = Join-Path $Tools "ollama-auth-proxy.out.log"
+  $stderr = Join-Path $Tools "ollama-auth-proxy.err.log"
+  Start-Process -FilePath $python -ArgumentList @(
+    $AuthProxyScript,
+    "--listen-port", $ListenPort,
+    "--upstream-port", $UpstreamPort,
+    "--token", $Token
+  ) -RedirectStandardOutput $stdout -RedirectStandardError $stderr -WindowStyle Hidden
+  if (-not (Wait-Listening $ListenPort -TimeoutSec 15)) {
+    throw "ollama_auth_proxy did not start listening on 127.0.0.1:$ListenPort"
+  }
+}
+
 $envMap = Read-EnvMap $EnvFile
 $port = if ($envMap["OLLAMA_PORT"]) { [int]$envMap["OLLAMA_PORT"] } else { 11434 }
 $model = if ($envMap["OLLAMA_MODEL"]) { $envMap["OLLAMA_MODEL"] } else { "qwen2.5-coder:7b-instruct" }
+$proxyPort = if ($envMap["OLLAMA_PROXY_PORT"]) { [int]$envMap["OLLAMA_PROXY_PORT"] } else { $port + 1 }
+# Persist the token across re-runs so only the tunnel URL (not the Cursor API
+# key too) needs updating when the trycloudflare URL rotates.
+$token = $envMap["OLLAMA_TUNNEL_TOKEN"]
+if (-not $token) {
+  $bytes = New-Object byte[] 24
+  $rng = [System.Security.Cryptography.RNGCryptoServiceProvider]::new()
+  try { $rng.GetBytes($bytes) } finally { $rng.Dispose() }
+  $token = [Convert]::ToBase64String($bytes) -replace '[/+=]', ''
+}
 
 if (-not (Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue)) {
   Write-Log "Starting Ollama server..."
@@ -141,9 +180,15 @@ if (-not (Wait-Listening $port)) {
 $localCount = Test-Gateway "http://127.0.0.1:$port/v1"
 Write-Log "Local Ollama OK ($localCount models)"
 
-$tunnel = Start-Tunnel $port
+# Tunnel targets the auth proxy's port, never Ollama's raw port directly --
+# the public trycloudflare URL must never expose Ollama's unauthenticated
+# chat/model-management API to anyone who obtains it.
+Start-AuthProxy -ListenPort $proxyPort -UpstreamPort $port -Token $token
+Write-Log "Auth proxy up on 127.0.0.1:$proxyPort (token-gated) -> upstream 127.0.0.1:$port"
+
+$tunnel = Start-Tunnel $proxyPort
 $publicBase = ($tunnel.publicUrl.TrimEnd("/") + "/v1")
-$publicCount = Test-Gateway $publicBase
+$publicCount = Test-Gateway $publicBase -Token $token
 Write-Log "Public tunnel OK ($publicCount models) -> $publicBase"
 
 $state = @{
@@ -154,7 +199,7 @@ $state = @{
   model = $model
   cursor = @{
     overrideOpenAiBaseUrl = $publicBase
-    openAiApiKey = "any non-empty value works, Ollama does not check it"
+    openAiApiKey = $token
     model = $model
   }
 }
@@ -165,6 +210,8 @@ $lines = if (Test-Path $EnvFile) { Get-Content $EnvFile } else { @() }
 $updates = @{
   OLLAMA_PUBLIC_URL = $tunnel.publicUrl
   OPENAI_BASE_URL = $publicBase
+  OLLAMA_PROXY_PORT = $proxyPort
+  OLLAMA_TUNNEL_TOKEN = $token
 }
 $newLines = New-Object System.Collections.Generic.List[string]
 $seen = @{}
@@ -189,7 +236,9 @@ Write-Log "Cursor agent ready."
 Write-Host ""
 Write-Host "=== Cursor Settings -> Models ==="
 Write-Host "Override OpenAI Base URL: $publicBase"
-Write-Host "OpenAI API Key: (any non-empty value, e.g. ollama-local)"
+Write-Host "OpenAI API Key: $token"
+Write-Host "  (this token is required -- the public URL is proxied through a"
+Write-Host "   bearer-token gate in front of Ollama, not Ollama's raw port)"
 Write-Host "Model: $model"
 Write-Host ""
 Write-Host "State: $StateFile"

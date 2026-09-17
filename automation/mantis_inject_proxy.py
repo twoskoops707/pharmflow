@@ -1316,11 +1316,14 @@ def point_phone_at_inject(adb: object, serial: str, phone_index: int) -> str:
         except Exception:
             pass
         n = _reverse_line_count(adb, serial)
-        if n not in (0, -1):
-            logger.warning(
-                "reverse strip still incomplete serial=%s nrev=%d -- guest may bypass MITM via a stale tunnel",
-                serial,
-                n,
+        if n != 0:
+            # Nonzero or unverifiable (-1): do not proceed to arm inject on top
+            # of a reverse state that might still carry a live Tor mapping --
+            # that is exactly the "guest bypasses MITM" condition this function
+            # exists to prevent. Fail loudly; every caller already wraps this
+            # call in try/except and treats an exception as pin failure.
+            raise RuntimeError(
+                f"reverse strip unverified serial={serial} nrev={n} -- refusing to arm inject"
             )
     # Always (re)establish reverse tunnel -- ADB server restarts destroy them.
     adb.run("reverse", f"tcp:{port}", f"tcp:{port}", serial=serial, timeout=10.0)  # type: ignore[attr-defined]
@@ -1330,18 +1333,17 @@ def point_phone_at_inject(adb: object, serial: str, phone_index: int) -> str:
         time.sleep(1.0)
         adb.run("reverse", f"tcp:{port}", f"tcp:{port}", serial=serial, timeout=10.0)  # type: ignore[attr-defined]
         if not verify_reverse_tunnel(adb, serial, port):
-            logger.warning(
-                "reverse tunnel still missing after retry port=%d serial=%s",
-                port,
-                serial,
+            raise RuntimeError(
+                f"reverse tunnel missing after retry port={port} serial={serial}"
             )
     nrev = _reverse_line_count(adb, serial)
-    if nrev not in (1, -1):
-        logger.warning(
-            "unexpected reverse count after setup port=%d serial=%s nrev=%d -- possible stacked tunnel (MITM bypass risk)",
-            port,
-            serial,
-            nrev,
+    if nrev != 1:
+        # Nonzero-beyond-one or unverifiable (-1): the desired port is present
+        # (verify_reverse_tunnel passed above) but something else is stacked
+        # beside it, or we can't prove otherwise -- same MITM-bypass risk.
+        raise RuntimeError(
+            f"unexpected reverse count after setup port={port} serial={serial} nrev={nrev} "
+            "-- possible stacked tunnel (MITM bypass risk)"
         )
     adb.set_http_proxy("127.0.0.1", port, serial=serial)  # type: ignore[attr-defined]
     return f"127.0.0.1:{port}"

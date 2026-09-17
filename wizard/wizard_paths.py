@@ -976,7 +976,13 @@ def remap_groups_phones_to_live(
         return 0
     live_set = set(live)
     live_sorted = sorted(live, key=_slot_sort_key)
-    remapped = 0
+
+    # Groups whose keys are already entirely live need no remap and keep their
+    # serials as-is -- but those serials must not also be handed to a stale
+    # group below, or two groups would end up sharing the same live phone.
+    # Reserve them out of the shared pool before assigning anything.
+    stale_groups: list[dict[str, Any]] = []
+    reserved: set[str] = set()
     for group in groups:
         if not isinstance(group, dict):
             continue
@@ -987,26 +993,37 @@ def remap_groups_phones_to_live(
         if not keys:
             continue
         if all(k in live_set for k in keys):
+            reserved.update(keys)
             continue
+        stale_groups.append(group)
+
+    # Shared, globally-advancing pool: each live serial is handed to exactly
+    # one group across this whole call, never reused across groups.
+    pool = [s for s in live_sorted if s not in reserved]
+    pool_idx = 0
+    remapped = 0
+    for group in stale_groups:
+        pmap = group["phones"]
+        keys = [str(k).strip() for k in pmap.keys() if str(k).strip()]
         cfg_sorted = sorted(
             ((k, pmap[k]) for k in keys),
             key=lambda item: _slot_sort_key(item[0]),
         )
-        n = min(len(cfg_sorted), len(live_sorted))
         new_map: dict[str, Any] = {}
-        for i in range(n):
-            ent = cfg_sorted[i][1]
-            new_map[live_sorted[i]] = ent if isinstance(ent, dict) else {}
-        # live_sorted can be shorter than cfg_sorted (fewer ADB-reachable phones
-        # than configured slots — routine during boot churn/offline phones per
-        # OPS_NOTES). Keep the excess entries under their original key instead
-        # of dropping them, so a transient dip in live count never deletes a
-        # phone's playlist/schedule config. They re-map on the next call once
-        # that phone is back on ADB.
-        for i in range(n, len(cfg_sorted)):
-            key, ent = cfg_sorted[i]
-            if key not in new_map:
-                new_map[key] = ent if isinstance(ent, dict) else {}
+        for key, ent in cfg_sorted:
+            if pool_idx < len(pool):
+                new_map[pool[pool_idx]] = ent if isinstance(ent, dict) else {}
+                pool_idx += 1
+            else:
+                # Pool exhausted (fewer ADB-reachable phones than configured
+                # slots across all groups combined -- routine during boot
+                # churn/offline phones per OPS_NOTES). Keep the excess entry
+                # under its original key instead of dropping it, so a
+                # transient dip in live count never deletes a phone's
+                # playlist/schedule config. It re-maps on the next call once
+                # a phone is back on ADB.
+                if key not in new_map:
+                    new_map[key] = ent if isinstance(ent, dict) else {}
         group["phones"] = new_map
         remapped += 1
     return remapped

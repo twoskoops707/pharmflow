@@ -228,6 +228,61 @@ class TestRemapGroupsPhonesToLive(unittest.TestCase):
         # The excess entry survives under its original (now-stale) key.
         self.assertEqual(phones["10.0.2.30:5555"]["sequence_playlist"], ["c.json"])
 
+    def test_two_stale_groups_never_share_a_live_phone(self) -> None:
+        """Regression: two independently-stale groups must not both claim the
+        same live serial. Each live phone belongs to exactly one group."""
+        groups = [
+            {
+                "name": "A",
+                "phones": {
+                    "10.0.2.10:5555": {"sequence_playlist": ["a1.json"]},
+                    "10.0.2.11:5555": {"sequence_playlist": ["a2.json"]},
+                },
+            },
+            {
+                "name": "B",
+                "phones": {
+                    "10.0.2.20:5555": {"sequence_playlist": ["b1.json"]},
+                    "10.0.2.21:5555": {"sequence_playlist": ["b2.json"]},
+                },
+            },
+        ]
+        live = ["10.0.2.1:5555", "10.0.2.2:5555", "10.0.2.3:5555", "10.0.2.4:5555"]
+        n = wp.remap_groups_phones_to_live(groups, live)
+        self.assertEqual(n, 2)
+        a_keys = set(groups[0]["phones"])
+        b_keys = set(groups[1]["phones"])
+        # No live serial assigned to both groups.
+        self.assertEqual(a_keys & b_keys & set(live), set())
+        # All 4 live serials were actually handed out (4 configured entries,
+        # 4 live phones -- none left unclaimed).
+        self.assertEqual(a_keys | b_keys, set(live))
+
+    def test_group_already_fully_live_reserves_its_serials(self) -> None:
+        """A group whose keys are all already live keeps them untouched, and
+        those serials must not be handed to a second, stale group."""
+        groups = [
+            {
+                "name": "Already live",
+                "phones": {"10.0.2.1:5555": {"sequence_playlist": ["keep.json"]}},
+            },
+            {
+                "name": "Stale",
+                "phones": {"10.0.2.99:5555": {"sequence_playlist": ["stale.json"]}},
+            },
+        ]
+        live = ["10.0.2.1:5555", "10.0.2.2:5555"]
+        n = wp.remap_groups_phones_to_live(groups, live)
+        self.assertEqual(n, 1)
+        # Untouched group keeps its serial and playlist exactly.
+        self.assertEqual(
+            groups[0]["phones"], {"10.0.2.1:5555": {"sequence_playlist": ["keep.json"]}}
+        )
+        # Stale group gets the *other* live serial, not the reserved one.
+        self.assertEqual(
+            groups[1]["phones"], {"10.0.2.2:5555": {"sequence_playlist": ["stale.json"]}}
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
