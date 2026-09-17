@@ -120,7 +120,8 @@ class SequencePlaylistPathTests(unittest.TestCase):
                 }
                 steps, note = sp.resolve_steps(ent, 0, "127.0.0.1:16384", [])
                 self.assertEqual(note, "900x1600/no-ad/one.json")
-                types = [s.get("type") for s in steps]
+                # load_steps_from_filename renames a loaded step's "type" to "action".
+                types = [s.get("action") for s in steps]
                 self.assertEqual(types, ["wait"])
             finally:
                 sp.SEQUENCES_DIR = old
@@ -129,7 +130,9 @@ class SequencePlaylistPathTests(unittest.TestCase):
             root = Path(tmp)
             nested = root / "900x1600" / "no-ad"
             nested.mkdir(parents=True)
-            payload = [{"type": "wait", "seconds": 1.0}]
+            # Wrapped with sequence_version so discover_sequence_files' fallback search
+            # (used by load_steps_from_filename below) recognizes it as canonical v3+.
+            payload = {"sequence_version": 3, "steps": [{"type": "wait", "seconds": 1.0}]}
             (nested / "starter.json").write_text(json.dumps(payload), encoding="utf-8")
             old = sp.SEQUENCES_DIR
             try:
@@ -137,7 +140,10 @@ class SequencePlaylistPathTests(unittest.TestCase):
                 found = sp.resolve_sequence_file("starter.json", "900x1600")
                 self.assertIsNotNone(found)
                 self.assertEqual(found.name, "starter.json")
-                steps = sp.load_steps_from_filename("starter.json", "900x1600")
+                # load_steps_from_filename's 2nd arg is a directory Path (unlike
+                # resolve_sequence_file's profile_key string above) — pass SEQUENCES_DIR
+                # so the lookup honors this test's monkeypatched sequences root.
+                steps = sp.load_steps_from_filename("starter.json", sp.SEQUENCES_DIR)
                 self.assertEqual(len(steps or []), 1)
             finally:
                 sp.SEQUENCES_DIR = old

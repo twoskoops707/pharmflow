@@ -30,6 +30,25 @@ SEQUENCES_DIR = _resolve_sequences_dir()
 
 SHUFFLE_MODES = frozenset({"none", "set_a", "set_b", "both_sets_separately", "combined"})
 
+# sequence_playlist_mode values accepted by resolve_step_chunks / playlist_cycle_length.
+# Referenced but never defined (same class of bug as SEQUENCES_DIR above) — every call
+# into resolve_step_chunks/playlist_cycle_length/_strip_trailing_ip_id_tail crashed with
+# NameError. "ordered"/"random"/"series" mirror resolve_steps' own validation; "folder"
+# and "folder_random" are the two folder-backed modes handled by folder_json_refs.
+PLAYLIST_MODES = frozenset({"ordered", "random", "series", "folder", "folder_random"})
+FOLDER_MODES = frozenset({"folder", "folder_random"})
+
+# Ad/no-ad flow subdirectories under SEQUENCES_DIR/<profile_key>/ — same pair used
+# throughout generate_dabflow_gold_matrix.py, verify_sequence_matrix_counts.py, and
+# path_mix_calculator.py. Also referenced but never defined; resolve_sequence_file's
+# profile_key fallback search crashed with NameError on every call.
+_FLOW_SUBDIRS = ("ad", "no-ad")
+
+# The three-step identity-rotation tail appended by _enforce_ip_id_tail: rotate_identity,
+# wait, full_reset. _combo_tail_present / _strip_trailing_ip_id_tail compare against this
+# exact tuple (and — with a leading "close_app" — against its four-step variant).
+_COMBO_REQUIRED_TAIL_TYPES = ("rotate_identity", "wait", "full_reset")
+
 
 def _normalize_shuffle(raw: Any) -> str:
     s = (str(raw or "none")).strip().lower()
@@ -244,7 +263,7 @@ def load_steps_from_filename(name: str, directory: Path | None = None) -> list[d
     except (OSError, json.JSONDecodeError) as exc:
         log.warning("sequence playlist bad JSON %s: %s", path, exc)
         return None
-    steps = data.get("steps")
+    steps = data if isinstance(data, list) else data.get("steps")
     if not isinstance(steps, list):
         return None
     # Normalize prior PharmFlow "type" field to PharmFlow "action".
@@ -267,6 +286,7 @@ def resolve_steps(
     directory: Path | None = None,
 ) -> tuple[list[dict[str, Any]], str | None]:
     """Return (steps_to_run, playlist_note). Falls back to inline steps."""
+    directory = directory or SEQUENCES_DIR
     primary = _playlist_basenames(ent.get("sequence_playlist"))
     secondary = _playlist_basenames(ent.get("sequence_playlist_secondary"))
     mode = (ent.get("sequence_playlist_mode") or "ordered").strip().lower()
@@ -295,6 +315,7 @@ def resolve_steps(
             loaded = load_steps_from_filename(name, directory)
             if not loaded:
                 continue
+            loaded = _strip_trailing_ip_id_tail(loaded)
             if synth_path2:
                 loaded = _synthesize_path2_halfway(
                     loaded, serial=serial, iteration=iteration
@@ -314,6 +335,7 @@ def resolve_steps(
             continue
         loaded = load_steps_from_filename(fn, directory)
         if loaded:
+            loaded = _strip_trailing_ip_id_tail(loaded)
             if synth_path2 and fn == fn_a:
                 loaded = _synthesize_path2_halfway(
                     loaded, serial=serial, iteration=iteration
@@ -480,11 +502,18 @@ def is_playlist_cycle_end(ent: dict, iteration: int) -> bool:
 
 
 
+def _step_action(step: dict) -> str | None:
+    # load_steps_from_filename renames a loaded step's "type" key to "action" (see its
+    # own normalization comment); hand-built step dicts elsewhere in this codebase still
+    # use "type". Check both, same as group_runner.py's own action/type fallback.
+    return step.get("action") or step.get("type")
+
+
 def _combo_tail_present(steps: list) -> bool:
     if not isinstance(steps, list):
         return False
     tail_types = [
-        step.get("type") for step in steps if isinstance(step, dict) and step.get("type")
+        _step_action(step) for step in steps if isinstance(step, dict) and _step_action(step)
     ]
     if len(tail_types) < len(_COMBO_REQUIRED_TAIL_TYPES):
         return False
@@ -496,7 +525,7 @@ def _strip_trailing_ip_id_tail(steps: list) -> list:
     """Remove canonical identity tail from the end of one playlist file's steps."""
     out = list(steps or [])
     types = [
-        step.get("type") for step in out if isinstance(step, dict) and step.get("type")
+        _step_action(step) for step in out if isinstance(step, dict) and _step_action(step)
     ]
     if len(types) >= 4 and tuple(types[-4:]) == ("close_app",) + _COMBO_REQUIRED_TAIL_TYPES:
         return out[: len(out) - 4]
@@ -528,7 +557,6 @@ def resolve_step_chunks(
     Like :func:`resolve_steps` but ``series`` mode returns one chunk per playlist file
     so callers can insert human gaps between sequence launches.
     """
-    profile_key = _profile_key_from_ent(ent)
     mode = (ent.get("sequence_playlist_mode") or "ordered").strip().lower()
     if mode not in PLAYLIST_MODES:
         mode = "ordered"
@@ -540,7 +568,7 @@ def resolve_step_chunks(
             return [(inline, None)] if inline else []
         chunks: list[tuple[list, str | None]] = []
         for name in folder_refs:
-            loaded = load_steps_from_filename(name, profile_key)
+            loaded = load_steps_from_filename(name, SEQUENCES_DIR)
             if loaded is None or len(loaded) == 0:
                 if loaded is not None and len(loaded) == 0:
                     log.warning("sequence playlist empty array in %s — skipping", name)
@@ -571,7 +599,7 @@ def resolve_step_chunks(
 
     chunks: list[tuple[list, str | None]] = []
     for name in primary + secondary:
-        loaded = load_steps_from_filename(name, profile_key)
+        loaded = load_steps_from_filename(name, SEQUENCES_DIR)
         if loaded is None or len(loaded) == 0:
             if loaded is not None and len(loaded) == 0:
                 log.warning("sequence playlist empty array in %s — skipping", name)

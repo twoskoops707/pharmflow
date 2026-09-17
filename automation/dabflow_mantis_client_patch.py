@@ -1139,6 +1139,17 @@ def cdp_abstract_sockets(browser_package: str | None = None) -> tuple[str, ...]:
     return ("chrome_devtools_remote", "com.opera.browser.devtools", "brave_devtools_remote")
 
 
+def _device_forward_targets(browser_package: str | None = None) -> list[str]:
+    """Default ``adb forward`` target order: abstract DevTools sockets first, then the
+    device tcp:DEVICE_CDP_PORT fallback. Modern Chrome binds DevTools to the abstract
+    socket, not tcp:9222 — see ensure_adb_forward, which applies this same ordering but
+    reprioritizes by what's actually live on the device via /proc/net/unix.
+    """
+    targets = [f"localabstract:{name}" for name in cdp_abstract_sockets(browser_package)]
+    targets.append(f"tcp:{DEVICE_CDP_PORT}")
+    return targets
+
+
 def _list_unix_devtools_sockets(adb: AdbWrapper, serial: str) -> list[str]:
     """Live ``@…devtools…`` abstract names from /proc/net/unix (pid-scoped too)."""
     try:

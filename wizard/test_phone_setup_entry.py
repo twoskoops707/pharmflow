@@ -25,9 +25,9 @@ class PhoneSetupEntryTests(unittest.TestCase):
 
     def test_legacy_mumu_setup_stem(self) -> None:
         with mock.patch.object(sys, "frozen", True, create=True):
-            with mock.patch.object(sys, "executable", r"C:\PharmFlow\PharmFlow.exe"):
-                self.assertTrue(entry.is_phone_setup_mode(["PharmFlow.exe"]))
-                self.assertFalse(entry.is_unified_pharmflow(["PharmFlow.exe"]))
+            with mock.patch.object(sys, "executable", r"C:\PharmFlow\PharmFlowMuMuSetup.exe"):
+                self.assertTrue(entry.is_phone_setup_mode(["PharmFlowMuMuSetup.exe"]))
+                self.assertFalse(entry.is_unified_pharmflow(["PharmFlowMuMuSetup.exe"]))
 
 
 if __name__ == "__main__":
