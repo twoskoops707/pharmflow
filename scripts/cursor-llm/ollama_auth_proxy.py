@@ -12,6 +12,7 @@ Usage: python ollama_auth_proxy.py --listen-port 11435 --upstream-port 11434 --t
 from __future__ import annotations
 
 import argparse
+import hmac
 import http.client
 import http.server
 import sys
@@ -26,7 +27,11 @@ class _Handler(http.server.BaseHTTPRequestHandler):
 
     def _authorized(self) -> bool:
         auth = self.headers.get("Authorization", "")
-        return auth == f"Bearer {self.token}"
+        expected = f"Bearer {self.token}"
+        # Constant-time compare -- a plain == leaks timing info about how many
+        # leading characters matched, letting an attacker recover the token
+        # byte-by-byte over many requests.
+        return hmac.compare_digest(auth.encode("utf-8"), expected.encode("utf-8"))
 
     def _proxy(self) -> None:
         if not self._authorized():

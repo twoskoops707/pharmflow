@@ -128,4 +128,11 @@ LOCAL_MEMORY.md
 # are embedded into the EXE by CI, never committed to the repo (~400 MB).
 /wizard/bundled/
 /bundled/apks/
+
+# Local Ollama/FreeLLMAPI cursor-agent bridge runtime state — per-machine
+# tunnel URLs, bearer tokens, and logs. Never committed (defense in depth;
+# these are also just per-run generated state, not source).
+scripts/cursor-llm/*.env
+scripts/cursor-llm/*.json
+scripts/cursor-llm/*.log
 wizard/assets/build_info.json
