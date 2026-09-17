@@ -6,7 +6,7 @@ not Ollama's own port directly -- so the public URL requires
 Ollama's entire unauthenticated API (chat, model management, etc.) to
 anyone who obtains the trycloudflare URL.
 
-Usage: python ollama_auth_proxy.py --listen-port 11435 --upstream-port 11434 --token <token>
+Usage: OLLAMA_TUNNEL_TOKEN=<token> python ollama_auth_proxy.py --listen-port 11435 --upstream-port 11434
 """
 
 from __future__ import annotations
@@ -15,6 +15,7 @@ import argparse
 import hmac
 import http.client
 import http.server
+import os
 import sys
 
 
@@ -97,11 +98,20 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--listen-port", type=int, required=True)
     ap.add_argument("--upstream-port", type=int, required=True)
-    ap.add_argument("--token", required=True)
     args = ap.parse_args()
 
+    # Token comes from the environment, never argv -- a command-line arg is
+    # visible to any other process on the box for as long as this one runs
+    # (WMI/Get-CimInstance Win32_Process, Task Manager's command-line column,
+    # /proc on Linux, etc). start-ollama-cursor-agent.ps1 sets this on the
+    # child's inherited environment right before spawning.
+    token = os.environ.get("OLLAMA_TUNNEL_TOKEN", "")
+    if not token:
+        print("OLLAMA_TUNNEL_TOKEN not set in environment", file=sys.stderr)
+        return 1
+
     _Handler.upstream_port = args.upstream_port
-    _Handler.token = args.token
+    _Handler.token = token
     server = http.server.ThreadingHTTPServer(("127.0.0.1", args.listen_port), _Handler)
     print(f"ollama_auth_proxy listening on 127.0.0.1:{args.listen_port} -> upstream 127.0.0.1:{args.upstream_port}", flush=True)
     server.serve_forever()

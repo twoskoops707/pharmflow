@@ -144,12 +144,24 @@ function Start-AuthProxy([int]$ListenPort, [int]$UpstreamPort, [string]$Token) {
   Stop-StaleAuthProxy
   $stdout = Join-Path $Tools "ollama-auth-proxy.out.log"
   $stderr = Join-Path $Tools "ollama-auth-proxy.err.log"
-  Start-Process -FilePath $python -ArgumentList @(
-    $AuthProxyScript,
-    "--listen-port", $ListenPort,
-    "--upstream-port", $UpstreamPort,
-    "--token", $Token
-  ) -RedirectStandardOutput $stdout -RedirectStandardError $stderr -WindowStyle Hidden
+  # Pass the token via env, never argv -- a plain command-line arg is visible
+  # to any other process on the box via WMI/Get-CimInstance/Task Manager's
+  # command-line column for as long as the proxy runs. Windows PowerShell 5.1's
+  # Start-Process has no -Environment parameter, so set it on this process;
+  # Start-Process's child inherits the parent environment at spawn time, then
+  # restore/clear it immediately so it doesn't linger in this script's own env.
+  $prevToken = $env:OLLAMA_TUNNEL_TOKEN
+  $env:OLLAMA_TUNNEL_TOKEN = $Token
+  try {
+    Start-Process -FilePath $python -ArgumentList @(
+      $AuthProxyScript,
+      "--listen-port", $ListenPort,
+      "--upstream-port", $UpstreamPort
+    ) -RedirectStandardOutput $stdout -RedirectStandardError $stderr -WindowStyle Hidden
+  } finally {
+    if ($null -eq $prevToken) { Remove-Item Env:\OLLAMA_TUNNEL_TOKEN -ErrorAction SilentlyContinue }
+    else { $env:OLLAMA_TUNNEL_TOKEN = $prevToken }
+  }
   if (-not (Wait-Listening $ListenPort -TimeoutSec 15)) {
     throw "ollama_auth_proxy did not start listening on 127.0.0.1:$ListenPort"
   }
