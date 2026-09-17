@@ -21,6 +21,13 @@ class PharmFlowWizardBridgeContractTests(unittest.TestCase):
         for name in ("cursor_add_group", "cursor_remove_group", "cursor_rename_group"):
             self.assertIn(f"def {name}(", BRIDGE)
 
+    def test_groups_detail_remaps_stale_serials_to_live_adb(self):
+        """E06: Groups must adopt live ADB like dashboard run-all-groups, not exact ∩ only."""
+        block = BRIDGE.split("def _groups_detail_from_state(")[1].split("\ndef ")[0]
+        self.assertIn("remap_groups_phones_to_live", block)
+        self.assertIn("_persist_groups_config", block)
+        self.assertIn("from wizard_paths import remap_groups_phones_to_live", BRIDGE)
+
     def test_deck_builder_and_groups_are_headless(self):
         for fn in ("open_sequence_builder", "open_groups_manager"):
             block = BRIDGE.split("def %s(" % fn)[1].split("\ndef ")[0]

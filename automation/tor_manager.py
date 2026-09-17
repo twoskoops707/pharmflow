@@ -783,7 +783,9 @@ class TorManager:
         Map host Tor HTTPTunnelPort into the emulator guest.
 
         Default: adb reverse tcp:<port> tcp:<port> then http_proxy 127.0.0.1:<port>
-        When Mantis inject proxy is enabled: phone → inject(8218+) → Tor(8118+).
+        When Mantis inject proxy is enabled: phone → inject(8218+) only → host
+        Tor(8118+slot). Never stack a guest Tor reverse beside inject — that
+        lets Chromium bypass MITM (no bottom-ad paint / CERTIFICATE_UNKNOWN).
         Legacy: http_proxy 10.0.2.2:<port> (PHARMFLOW_PROXY_LEGACY_GATEWAY=1)
         """
         # 10.0.2.2 is the host from the guest. Never write that proxy.
@@ -795,49 +797,49 @@ class TorManager:
             logger.warning("refusing guest proxy on %s — port %s is not a loopback exit", serial, port)
             return
 
-        self.adb.reverse(str(port_i), str(port_i), serial=serial)
-
         guest_port = port
         # Only arm inject when the caller named the phone. Deriving the index
         # as port - HTTP base treats a slot port as an absolute VM index and
         # arms the wrong listener. install_ca stays True — False was the
         # CERTIFICATE_UNKNOWN root cause on fresh ARM guests.
-        if phone_index is None:
-            self._set_device_proxy(serial, guest_port)
-            return
-        try:
-            from automation.mantis_inject_proxy import (
-                ensure_inject_for_phone,
-                inject_enabled,
-                phone_inject_port,
-            )
-
-            idx = int(phone_index)
-            if inject_enabled() and idx >= 0:
-                info = ensure_inject_for_phone(
-                    self.adb, serial, idx, install_ca=True
+        if phone_index is not None:
+            try:
+                from automation.mantis_inject_proxy import (
+                    ensure_inject_for_phone,
+                    inject_enabled,
+                    phone_inject_port,
                 )
-                if not info.get("ok"):
-                    raise RuntimeError(
-                        "inject not restored phone=%s err=%s ca=%s"
-                        % (idx, info.get("error"), info.get("ca_installed"))
+
+                idx = int(phone_index)
+                if inject_enabled() and idx >= 0:
+                    info = ensure_inject_for_phone(
+                        self.adb, serial, idx, install_ca=True
                     )
-                guest_port = int(info.get("port") or phone_inject_port(idx))
-                logger.info(
-                    "Mantis inject proxy armed phone=%d tor=%d inject=%d ca=%s serial=%s",
-                    idx,
-                    port,
-                    guest_port,
-                    info.get("ca_installed"),
-                    serial,
-                )
-        except Exception as exc:
-            logger.warning("Mantis inject proxy not restored: %s", exc)
-            # Pin the Tor tunnel (not :0) so a failed inject is not host-IP
-            # egress, then refuse to look restored.
-            self._set_device_proxy(serial, port)
-            raise
+                    if not info.get("ok"):
+                        raise RuntimeError(
+                            "inject not restored phone=%s err=%s ca=%s"
+                            % (idx, info.get("error"), info.get("ca_installed"))
+                        )
+                    guest_port = int(info.get("port") or phone_inject_port(idx))
+                    logger.info(
+                        "Mantis inject-only pin phone=%d host_tor=%d inject=%d ca=%s serial=%s (no guest Tor reverse)",
+                        idx,
+                        port,
+                        guest_port,
+                        info.get("ca_installed"),
+                        serial,
+                    )
+                    # ensure_inject already set http_proxy + inject reverse only.
+                    return
+            except Exception as exc:
+                logger.warning("Mantis inject proxy not restored: %s", exc)
+                # Pin the Tor tunnel (not :0) so a failed inject is not host-IP
+                # egress, then refuse to look restored.
+                self.adb.reverse(str(port_i), str(port_i), serial=serial)
+                self._set_device_proxy(serial, port)
+                raise
 
+        self.adb.reverse(str(port_i), str(port_i), serial=serial)
         self._set_device_proxy(serial, guest_port)
         logger.info(
             "adb reverse tcp:%d + guest http_proxy %s:%d on %s",

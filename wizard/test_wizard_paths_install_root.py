@@ -137,5 +137,97 @@ class TestWizardPathsInstallRoot(unittest.TestCase):
             self.assertFalse(pharm_file.is_file())
 
 
+class TestRemapGroupsPhonesToLive(unittest.TestCase):
+    def test_remaps_stale_serials_by_slot_order(self) -> None:
+        """E06: 8 saved dead IPs + 8 live ADB → adopt all live, keep playlists."""
+        groups = [
+            {
+                "name": "Group 1",
+                "phones": {
+                    "10.0.2.103:5555": {"sequence_playlist": ["a.json"]},
+                    "10.0.2.174:5555": {"sequence_playlist": ["b.json"]},
+                    "10.0.2.189:5555": {"sequence_playlist": ["c.json"]},
+                },
+            }
+        ]
+        live = ["10.0.2.189:5555", "10.0.2.62:5555", "10.0.2.106:5555"]
+        n = wp.remap_groups_phones_to_live(groups, live)
+        self.assertEqual(n, 1)
+        phones = groups[0]["phones"]
+        self.assertEqual(
+            set(phones),
+            {"10.0.2.62:5555", "10.0.2.106:5555", "10.0.2.189:5555"},
+        )
+        # Slot order: 62, 106, 189 ← playlists from 103, 174, 189
+        self.assertEqual(phones["10.0.2.62:5555"]["sequence_playlist"], ["a.json"])
+        self.assertEqual(phones["10.0.2.106:5555"]["sequence_playlist"], ["b.json"])
+        self.assertEqual(phones["10.0.2.189:5555"]["sequence_playlist"], ["c.json"])
+
+    def test_noop_when_all_serials_already_live(self) -> None:
+        groups = [
+            {
+                "name": "Group 1",
+                "phones": {
+                    "10.0.2.62:5555": {"hits_per_day": 1},
+                    "10.0.2.106:5555": {"hits_per_day": 2},
+                },
+            }
+        ]
+        live = ["10.0.2.106:5555", "10.0.2.62:5555"]
+        before = dict(groups[0]["phones"])
+        n = wp.remap_groups_phones_to_live(groups, live)
+        self.assertEqual(n, 0)
+        self.assertEqual(groups[0]["phones"], before)
+
+    def test_empty_adb_does_not_wipe_groups(self) -> None:
+        groups = [{"name": "G", "phones": {"10.0.2.1:5555": {"steps": []}}}]
+        n = wp.remap_groups_phones_to_live(groups, [])
+        self.assertEqual(n, 0)
+        self.assertEqual(list(groups[0]["phones"]), ["10.0.2.1:5555"])
+
+    def test_does_not_invent_beyond_live_or_configured(self) -> None:
+        groups = [
+            {
+                "name": "G",
+                "phones": {
+                    "10.0.2.10:5555": {"id": "slot0"},
+                    "10.0.2.20:5555": {"id": "slot1"},
+                },
+            }
+        ]
+        live = ["10.0.2.1:5555", "10.0.2.2:5555", "10.0.2.3:5555"]
+        wp.remap_groups_phones_to_live(groups, live)
+        self.assertEqual(len(groups[0]["phones"]), 2)
+        self.assertEqual(set(groups[0]["phones"]), {"10.0.2.1:5555", "10.0.2.2:5555"})
+
+    def test_fewer_live_than_configured_keeps_excess_entry_not_dropped(self) -> None:
+        """Regression: live count dipping below configured count (routine boot
+        churn/offline phones per OPS_NOTES) must never delete a phone's playlist —
+        the excess entry stays under its original key instead of being dropped."""
+        groups = [
+            {
+                "name": "G",
+                "phones": {
+                    "10.0.2.10:5555": {"sequence_playlist": ["a.json"]},
+                    "10.0.2.20:5555": {"sequence_playlist": ["b.json"]},
+                    "10.0.2.30:5555": {"sequence_playlist": ["c.json"]},
+                },
+            }
+        ]
+        live = ["10.0.2.1:5555", "10.0.2.2:5555"]
+        n = wp.remap_groups_phones_to_live(groups, live)
+        self.assertEqual(n, 1)
+        phones = groups[0]["phones"]
+        # All 3 playlists must still exist somewhere — none silently dropped.
+        self.assertEqual(len(phones), 3)
+        all_playlists = {tuple(v.get("sequence_playlist", [])) for v in phones.values()}
+        self.assertEqual(all_playlists, {("a.json",), ("b.json",), ("c.json",)})
+        # The two live serials got the two lowest-slot configured entries.
+        self.assertEqual(phones["10.0.2.1:5555"]["sequence_playlist"], ["a.json"])
+        self.assertEqual(phones["10.0.2.2:5555"]["sequence_playlist"], ["b.json"])
+        # The excess entry survives under its original (now-stale) key.
+        self.assertEqual(phones["10.0.2.30:5555"]["sequence_playlist"], ["c.json"])
+
+
 if __name__ == "__main__":
     unittest.main()

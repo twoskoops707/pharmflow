@@ -443,6 +443,13 @@
     rotate_identity: [],
   };
 
+  function formatSecs(v) {
+    const n = Number(v);
+    if (!Number.isFinite(n)) return String(v);
+    if (Math.abs(n - Math.round(n)) < 1e-9) return String(Math.round(n));
+    return n.toFixed(2).replace(/\.?0+$/, "");
+  }
+
   function stepSummaryLine(step) {
     if (!step || typeof step !== "object") return "(invalid)";
     const t = step.type || "?";
@@ -450,7 +457,7 @@
     if (t === "open_url" && step.url) bits.push(String(step.url).slice(0, 48));
     else if (t === "launch_app" && step.package) bits.push(String(step.package));
     else if (t === "tap") bits.push((step.x != null ? step.x : "?") + "," + (step.y != null ? step.y : "?"));
-    else if (t === "wait" && step.seconds != null) bits.push(String(step.seconds) + "s");
+    else if (t === "wait" && step.seconds != null) bits.push(formatSecs(step.seconds) + "s");
     else if (t === "swipe")
       bits.push(
         (step.x1 != null ? step.x1 : "?") +
@@ -464,7 +471,8 @@
     else if (t === "keyevent" && step.key) bits.push(String(step.key));
     else if (t === "close_app" && step.package) bits.push(String(step.package));
     else if (t === "type_text" && step.text) bits.push(JSON.stringify(String(step.text).slice(0, 32)));
-    if (step.post_wait_secs != null && step.post_wait_secs !== "") bits.push("+" + step.post_wait_secs + "s");
+    if (step.post_wait_secs != null && step.post_wait_secs !== "")
+      bits.push("+" + formatSecs(step.post_wait_secs) + "s");
     return bits.join(" · ");
   }
 

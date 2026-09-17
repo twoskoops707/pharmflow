@@ -21,6 +21,7 @@ from zoneinfo import ZoneInfo
 from typing import Any, Callable
 
 from setup_wizard import PharmFlowWizard
+from wizard_paths import remap_groups_phones_to_live
 from wizard_theme import _style_scrollbars
 
 # Boot-order host gates (scaling plan): CPU/RAM headroom before each VM launch.
@@ -425,7 +426,7 @@ def _show_tk_window(win: Any) -> None:
 
 
 def _groups_detail_from_state() -> dict:
-    from setup_wizard import state
+    from setup_wizard import _persist_groups_config, state
 
     # Live ADB is authority for "connected" — wizard memory alone stays empty
     # until Boot/editor runs, which painted Groups as 0 phones while the farm
@@ -458,6 +459,21 @@ def _groups_detail_from_state() -> dict:
             by_serial.get(s) or {"serial": s, "name": s}
             for s in sorted(connected)
         ]
+    # MuMu guest IPs churn: saved groups_config serials go stale while ADB still
+    # shows a full fleet. Money-path contract (dashboard run-all-groups) remaps
+    # playlist slots onto live serials by farm-slot order — Groups UI must do the
+    # same so "phones in groups" matches ADB ∩ adopted roster, not exact-string
+    # intersection against dead IPs (E06: 8 saved / 1 connected / 8 ADB).
+    remapped = 0
+    if connected:
+        groups = state.get("groups") or []
+        if isinstance(groups, list) and groups:
+            remapped = remap_groups_phones_to_live(groups, connected)
+            if remapped:
+                try:
+                    _persist_groups_config()
+                except Exception:
+                    pass
     groups_out: list[dict] = []
     for g in state.get("groups") or []:
         if not isinstance(g, dict):
@@ -478,6 +494,7 @@ def _groups_detail_from_state() -> dict:
         "group_count": len(groups_out),
         "phone_count": sum(x["phone_count"] for x in groups_out),
         "groups": groups_out,
+        "remapped_groups": remapped,
     }
 
 
@@ -3730,32 +3747,32 @@ def open_farm_dashboard() -> dict:
 
     The Home and Groups buttons are labeled as the operator dashboard. Opening
     the wizard control server on another port and returning opened=True made
-    that label a lie. If :8091 is down, say so. Do not substitute the control
-    dashboard.
+    that label a lie. If :8091 is down while the farm worker is already up,
+    start the operator dash, then open the browser — do not substitute the
+    control dashboard on :8080.
     """
-    import urllib.request
+    from wizard.farm_control import open_operator_dashboard
 
     farm_dash = "http://127.0.0.1:8091/"
-    try:
-        with urllib.request.urlopen(farm_dash, timeout=2.5):  # noqa: S310 — loopback
-            if not _open_browser(farm_dash):
-                return {
-                    "ok": False,
-                    "opened": False,
-                    "error": f"Farm dashboard is up at {farm_dash} but the browser did not open.",
-                    "dashboard": farm_dash,
-                }
-            return {"ok": True, "opened": True, "dashboard": farm_dash}
-    except Exception:
+    up = bool(
+        open_operator_dashboard(
+            log=lambda msg, _lvl="ok": _emit_log("go", msg + "\n"),
+            wait_s=45.0,
+            open_browser=True,
+        )
+    )
+    if not up:
         return {
             "ok": False,
             "opened": False,
             "error": (
-                "Farm dashboard is not up at http://127.0.0.1:8091/ — start the farm first. "
+                "Farm dashboard is not up at http://127.0.0.1:8091/ — "
+                "could not start the operator dash. Start farm first, then retry. "
                 "This button does not open the control dashboard."
             ),
             "dashboard": farm_dash,
         }
+    return {"ok": True, "opened": True, "dashboard": farm_dash}
 
 
 def get_farm_health() -> dict:

@@ -950,6 +950,68 @@ def bind_live_phone_entries(
     return [(live_sorted[i], cfg_sorted[i][1], cfg_sorted[i][0]) for i in range(n)]
 
 
+def remap_groups_phones_to_live(
+    groups: list[Any],
+    live_serials: list[str] | set[str] | tuple[str, ...],
+) -> int:
+    """Re-key each group's ``phones`` map to live ADB serials by farm slot.
+
+    Money-path contract (same idea as dashboard ``_remap_group_serials_to_live``):
+    MuMu guest IPs churn across reboots, so a saved ``groups_config.json`` quickly
+    points at dead serials. Keep each configured playlist entry and pair it with
+    the matching live serial in farm-slot order. Mutates ``groups`` in place.
+
+    Returns how many groups were remapped. Does not invent phones beyond the live
+    ADB list or the configured slot count. An empty ADB list leaves groups alone.
+    """
+    live: list[str] = []
+    seen: set[str] = set()
+    for raw in live_serials:
+        serial = str(raw or "").strip()
+        if not serial or serial in seen:
+            continue
+        seen.add(serial)
+        live.append(serial)
+    if not live:
+        return 0
+    live_set = set(live)
+    live_sorted = sorted(live, key=_slot_sort_key)
+    remapped = 0
+    for group in groups:
+        if not isinstance(group, dict):
+            continue
+        pmap = group.get("phones")
+        if not isinstance(pmap, dict) or not pmap:
+            continue
+        keys = [str(k).strip() for k in pmap.keys() if str(k).strip()]
+        if not keys:
+            continue
+        if all(k in live_set for k in keys):
+            continue
+        cfg_sorted = sorted(
+            ((k, pmap[k]) for k in keys),
+            key=lambda item: _slot_sort_key(item[0]),
+        )
+        n = min(len(cfg_sorted), len(live_sorted))
+        new_map: dict[str, Any] = {}
+        for i in range(n):
+            ent = cfg_sorted[i][1]
+            new_map[live_sorted[i]] = ent if isinstance(ent, dict) else {}
+        # live_sorted can be shorter than cfg_sorted (fewer ADB-reachable phones
+        # than configured slots — routine during boot churn/offline phones per
+        # OPS_NOTES). Keep the excess entries under their original key instead
+        # of dropping them, so a transient dip in live count never deletes a
+        # phone's playlist/schedule config. They re-map on the next call once
+        # that phone is back on ADB.
+        for i in range(n, len(cfg_sorted)):
+            key, ent = cfg_sorted[i]
+            if key not in new_map:
+                new_map[key] = ent if isinstance(ent, dict) else {}
+        group["phones"] = new_map
+        remapped += 1
+    return remapped
+
+
 def iter_group_phone_entries(groups: list[Any]) -> list[tuple[str, dict[str, Any]]]:
     """Non-empty serials from ``group['phones']``. First group wins. No invented phones."""
     out: list[tuple[str, dict[str, Any]]] = []

@@ -1284,9 +1284,44 @@ def verify_reverse_tunnel(adb: object, serial: str, port: int) -> bool:
     return False
 
 
+def _reverse_line_count(adb: object, serial: str) -> int:
+    """Count live ``adb reverse`` entries for this serial. Best-effort; -1 on error."""
+    try:
+        result = adb.run("reverse", "--list", serial=serial, timeout=8.0)  # type: ignore[attr-defined]
+        return len([ln for ln in (result.stdout or "").splitlines() if "tcp:" in ln])
+    except Exception:
+        return -1
+
+
 def point_phone_at_inject(adb: object, serial: str, phone_index: int) -> str:
-    """adb reverse + http_proxy -> inject port.  Verifies tunnel exists."""
+    """adb reverse + http_proxy -> inject port.  Verifies tunnel exists.
+
+    Strip every existing reverse first. Tor/isolation used to stack
+    ``tcp:81xx`` beside inject; guest traffic then bypassed MITM and bottom
+    ads died (CERTIFICATE_UNKNOWN / empty Sponsored slot). ``--remove-all``
+    is fire-and-forget (times out silently on a slow/wedged ADB transport —
+    see OPS_NOTES), so a stray reverse can survive it; verify the strip
+    actually landed (nrev==0) before adding the inject reverse back, same
+    check as farm_money_monitor.repin_all_inject's nrev==1 post-check.
+    """
     port = phone_inject_port(phone_index)
+    try:
+        adb.run("reverse", "--remove-all", serial=serial, timeout=10.0)  # type: ignore[attr-defined]
+    except Exception:
+        pass
+    if _reverse_line_count(adb, serial) != 0:
+        logger.warning("stale reverse survived remove-all serial=%s -- retrying strip", serial)
+        try:
+            adb.run("reverse", "--remove-all", serial=serial, timeout=10.0)  # type: ignore[attr-defined]
+        except Exception:
+            pass
+        n = _reverse_line_count(adb, serial)
+        if n not in (0, -1):
+            logger.warning(
+                "reverse strip still incomplete serial=%s nrev=%d -- guest may bypass MITM via a stale tunnel",
+                serial,
+                n,
+            )
     # Always (re)establish reverse tunnel -- ADB server restarts destroy them.
     adb.run("reverse", f"tcp:{port}", f"tcp:{port}", serial=serial, timeout=10.0)  # type: ignore[attr-defined]
     # Verify it actually landed -- if not, retry once after a brief pause.
@@ -1300,6 +1335,14 @@ def point_phone_at_inject(adb: object, serial: str, phone_index: int) -> str:
                 port,
                 serial,
             )
+    nrev = _reverse_line_count(adb, serial)
+    if nrev not in (1, -1):
+        logger.warning(
+            "unexpected reverse count after setup port=%d serial=%s nrev=%d -- possible stacked tunnel (MITM bypass risk)",
+            port,
+            serial,
+            nrev,
+        )
     adb.set_http_proxy("127.0.0.1", port, serial=serial)  # type: ignore[attr-defined]
     return f"127.0.0.1:{port}"
 

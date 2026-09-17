@@ -1395,8 +1395,9 @@ def spin_up_test_phone(*, log: Callable[[str, str], None] | None = None) -> dict
             )
             if not offline:
                 msg = (
-                    "Every phone that can start is already online. "
-                    "Nothing was spun up. This button does not reboot a phone that is already on ADB."
+                    "Every MuMu phone on this box is already on ADB — nothing left to "
+                    "spin up. Create another phone in MuMu Manager first (ARM has no "
+                    "CLI create), then press this button again."
                 )
                 _log(msg, "warn")
                 _set_test_phone_result({"ok": True, "starting": False, "message": msg})
@@ -1416,12 +1417,39 @@ def spin_up_test_phone(*, log: Callable[[str, str], None] | None = None) -> dict
                 _log(msg, "ok")
                 _set_test_phone_result({"ok": True, "starting": False, "message": msg})
             else:
-                msg = (
-                    f"{pick.name} launch started but ADB is not up yet — wait a few "
-                    "minutes, then press Open site on phones."
+                # Empty AdbHost after launch_timeout usually means HCS/MuMu UI wedge
+                # (see OPS_NOTES) — not "wait a bit". Be honest so Boot is not a lie.
+                from automation.mumu_shell_cli import (
+                    instance_shell_running,
+                    phone_vm_index,
                 )
-                _log(msg, "warn")
-                _set_test_phone_result({"ok": False, "starting": False, "error": msg})
+
+                idx = phone_vm_index(pick.name, getattr(pick, "index", 0) or 0)
+                shell_up = False
+                try:
+                    shell_up = bool(instance_shell_running(idx))
+                except Exception:
+                    shell_up = False
+                if shell_up:
+                    msg = (
+                        f"{pick.name} shell is up but ADB is not ready yet — wait a few "
+                        "minutes, then press Open site on phones."
+                    )
+                    _log(msg, "warn")
+                    _set_test_phone_result(
+                        {"ok": False, "starting": False, "error": msg}
+                    )
+                else:
+                    msg = (
+                        f"{pick.name} did not start (MuMu shell never stuck). On MuMu "
+                        "ARM that usually means the VM needs a Manager UI launch — "
+                        "open MuMu Manager, start that phone, then press this again. "
+                        "Do not use adb reboot -p."
+                    )
+                    _log(msg, "err")
+                    _set_test_phone_result(
+                        {"ok": False, "starting": False, "error": msg}
+                    )
         except Exception as exc:  # noqa: BLE001
             msg = f"Test phone spin-up error: {exc}"
             _log(msg, "err")

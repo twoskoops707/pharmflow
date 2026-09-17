@@ -205,40 +205,24 @@ def _stagger_ok() -> tuple[bool, str]:
 
 
 def _repin_proxy(serial: str, port: int) -> str:
-    """adb reverse inject(+tor) then pin guest http_proxy. Reverse mismatch → ERR_PROXY.
+    """Inject-only adb reverse + guest http_proxy. No guest Tor reverse.
 
-    Farm (old EXE) sometimes pins packed ADB_SERIALS order (e.g. vm3→8219). We force
-    MuMu-index ports (vm3→8220, vm11→8219) and ensure reverse exists so MITM works
-    even during a brief farm race.
+    Tor is host-side upstream of inject. Stacking ``tcp:81xx`` beside inject
+    bypasses MITM → no bottom ads / CERTIFICATE_UNKNOWN.
     """
     want = f"127.0.0.1:{port}"
-    tor = 8118 + (port - 8218)
     cur = _proxy(serial)
-    cur_port = None
-    mcur = re.search(r"127\.0\.0\.1:(\d+)", cur or "")
-    if mcur:
-        cur_port = int(mcur.group(1))
-    listing = _adb(serial, "reverse", "--list", timeout=6.0)
-    # Keep sticky reverse; also keep current farm port reverse if it differs.
-    keep = {port}
-    if cur_port and 8218 <= cur_port <= 8222:
-        keep.add(cur_port)
-    for m in re.finditer(r"tcp:(\d+)\s+tcp:\d+", listing or ""):
-        g = int(m.group(1))
-        if 8218 <= g <= 8222 and g not in keep:
-            _adb(serial, "reverse", "--remove", f"tcp:{g}", timeout=5.0)
+    _adb(serial, "reverse", "--remove-all", timeout=8.0)
     _adb(serial, "reverse", f"tcp:{port}", f"tcp:{port}", timeout=8.0)
-    _adb(serial, "reverse", f"tcp:{tor}", f"tcp:{tor}", timeout=6.0)
-    if cur_port and cur_port != port and 8218 <= cur_port <= 8222:
-        _adb(serial, "reverse", f"tcp:{cur_port}", f"tcp:{cur_port}", timeout=6.0)
     _adb(serial, "shell", "settings", "put", "global", "http_proxy", want)
     # Re-assert once — farm isolate often clears to :0 in the same second.
     time.sleep(0.2)
     _adb(serial, "shell", "settings", "put", "global", "http_proxy", want)
     got = _proxy(serial)
     listing2 = _adb(serial, "reverse", "--list", timeout=6.0)
-    rev_ok = f"tcp:{port}" in (listing2 or "")
-    return f"repin {serial}->{want} got={got} reverse_ok={rev_ok} had={cur}"
+    nrev = len([ln for ln in (listing2 or "").splitlines() if "tcp:" in ln])
+    rev_ok = f"tcp:{port}" in (listing2 or "") and nrev == 1
+    return f"repin {serial}->{want} got={got} reverse_ok={rev_ok} nrev={nrev} had={cur}"
 
 
 def _dismiss_age_gate(serial: str) -> str:

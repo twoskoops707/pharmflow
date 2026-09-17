@@ -281,5 +281,6 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon=str(Path("icons") / "app_icon.ico") if (Path("icons") / "app_icon.ico").is_file() else None,
 )
 

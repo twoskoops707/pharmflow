@@ -250,16 +250,22 @@ def probe_dashboard_listen_port() -> bool:
     resolved: int | None = None
     with _cf.ThreadPoolExecutor(max_workers=min(8, max(1, len(candidates)))) as ex:
         futs = {ex.submit(_probe_port, p): p for p in candidates}
-        for fut in _cf.as_completed(futs, timeout=max(0.1, deadline - time.monotonic())):
-            port = futs[fut]
-            try:
-                hp_i = fut.result()
-            except Exception:
-                hp_i = None
-            if hp_i is not None and resolved is None:
-                resolved = hp_i
-            if resolved is not None and port >= resolved:
-                break
+        try:
+            for fut in _cf.as_completed(futs, timeout=max(0.1, deadline - time.monotonic())):
+                port = futs[fut]
+                try:
+                    hp_i = fut.result()
+                except Exception:
+                    hp_i = None
+                if hp_i is not None and resolved is None:
+                    resolved = hp_i
+                if resolved is not None and port >= resolved:
+                    break
+        except _cf.TimeoutError:
+            # Closed-loopback ports can blackhole until per-request timeout.
+            # A partial scan must return False (control service down), not raise
+            # "N (of M) futures unfinished" into the Control Panel toast.
+            pass
     if resolved is not None:
         _DASHBOARD_LISTEN_HTTP_PORT_CACHE = resolved
         return True
