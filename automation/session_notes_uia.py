@@ -9,7 +9,10 @@ import time
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-from adb_paths import adb_executable
+try:
+    from automation.adb_paths import adb_executable
+except ImportError:  # running with automation/ itself on sys.path
+    from adb_paths import adb_executable
 
 _SKIP_PATTERNS = (
     r'text="Skip"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"',

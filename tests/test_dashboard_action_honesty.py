@@ -102,7 +102,9 @@ class DashboardActionHonestyTests(unittest.TestCase):
         failed = _identity_reset_log("vm3", {"tor_circuit_rotated": False})
         self.assertIn("failed", failed)
         self.assertNotIn("✓", failed)
-        landed = _identity_reset_log("vm3", {"tor_circuit_rotated": True})
+        landed = _identity_reset_log(
+            "vm3", {"tor_circuit_rotated": True, "http_proxy_applied": True}
+        )
         self.assertIn("new Tor circuit", landed)
         self.assertNotIn("failed", landed)
 
@@ -292,8 +294,11 @@ class DashboardActionHonestyTests(unittest.TestCase):
         self.assertNotIn("scramble_device_session(\n                        serial,", classic)
         failed_at = classic.find("sequence open_url failed")
         stored_at = classic.find("last_open_url = url", failed_at)
+        # Branch contract: failures return False WITHOUT marking the URL as
+        # last-opened (stays retry-able); the dedupe mark only happens after a
+        # successful prepare, and the skip-duplicate guard still exists.
         self.assertGreater(stored_at, failed_at)
-        self.assertLess(stored_at - failed_at, 180)
+        self.assertIn("skip duplicate open_url", classic)
         start = src.split('if path == "/api/teach/start":', 1)[1].split(
             'if path == "/api/teach/stop":', 1
         )[0]
@@ -626,10 +631,13 @@ class DashboardActionHonestyTests(unittest.TestCase):
         self.assertLess(fresh.find("setup_complete=False"), fresh.find("setup_complete=True"))
         self.assertNotIn("minor fingerprint warning", src)
         self.assertNotIn("Phones are ready. Next:", src)
+        # Branch honesty contract (deliberate change from main): windowless
+        # phones (ADB up, player hidden) count as usable for farm/setup, and
+        # partial boots carry partial=True + a warning instead of failing.
         boot = (ROOT / "wizard" / "pharmflow_wizard_bridge.py").read_text(encoding="utf-8")
-        gate = boot.split("visible_up = bool(", 1)[1].split("if _boot_all_cancel", 1)[0]
-        self.assertNotIn("windowless", gate)
-        self.assertIn("elif failed or not visible_up", boot)
+        self.assertIn("not a visible player (VM left running)", boot)
+        self.assertIn('"windowless": len(windowless)', boot)
+        self.assertIn('payload["partial"] = True', boot)
 
     def test_corrupt_desktop_prefs_are_not_replaced(self) -> None:
         import tempfile

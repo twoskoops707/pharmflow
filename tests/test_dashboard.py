@@ -74,7 +74,9 @@ class DashboardApiTests(unittest.TestCase):
 
     def test_post_connect_calls_adb_and_pushes(self) -> None:
         with (
-            patch.object(dashboard, "_adb_global", return_value=MagicMock(text="connected", returncode=0)) as adb,
+            # Real adb prints "connected to <addr>" on success — the handler's
+            # _adb_connect_landed requires that exact phrase (not bare "connected").
+            patch.object(dashboard, "_adb_global", return_value=MagicMock(text="connected to 127.0.0.1:16384", returncode=0)) as adb,
             patch.object(dashboard, "push_phones", new=MagicMock()) as push_mock,
         ):
             # push_phones is awaited — wrap as coroutine.

@@ -77,6 +77,12 @@ _CLIENT_HINTS_LOCK = threading.Lock()
 
 
 def _paying_fill_paths() -> list[Path]:
+    # Dual-root convention (CPharm + PharmFlow) by default; an explicit
+    # override of _SSP_PAYING_FILL_PATH (tests, operator pinning) wins so the
+    # module attribute stays the single source of truth it was before.
+    override = Path(_SSP_PAYING_FILL_PATH)
+    if override != _ssp_logs_dirs()[0] / override.name:
+        return [override]
     return [d / "ssp_paying_fill.json" for d in _ssp_logs_dirs()]
 
 

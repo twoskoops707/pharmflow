@@ -17,6 +17,8 @@ import os
 import sys
 from pathlib import Path
 
+import pytest
+
 _WIZARD_DIR = Path(__file__).resolve().parents[1] / "wizard"
 if str(_WIZARD_DIR) not in sys.path:
     sys.path.insert(0, str(_WIZARD_DIR))
@@ -25,3 +27,18 @@ if str(_WIZARD_DIR) not in sys.path:
 _KEEP = {"PHARMFLOW_ALLOW_SEQUENCE_RUNS", "PHARMFLOW_PORT", "PHARMFLOW_HOST"}
 for _key in [k for k in os.environ if k.startswith("PHARMFLOW_") and k not in _KEEP]:
     del os.environ[_key]
+
+
+@pytest.fixture(autouse=True)
+def _isolate_env_per_test():
+    """Snapshot/restore os.environ around every test.
+
+    The scrub above only runs once per session — a single test that mutates the
+    environment (e.g. the real start_farm writing PHARMFLOW_UNISON_MODE) would
+    otherwise poison every later test in the process (the sequence-isolation
+    skip veto leaked exactly that way).
+    """
+    snapshot = dict(os.environ)
+    yield
+    os.environ.clear()
+    os.environ.update(snapshot)

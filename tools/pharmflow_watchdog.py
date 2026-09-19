@@ -72,7 +72,7 @@ VERSION = "1.4.3"
 _PHARMFLOW = Path(r"C:\Users\jsmil\PharmFlow")
 
 _HTTP_PORT = int(os.environ.get("PHARMFLOW_PORT", "8080").strip() or "8080")
-PHARMFLOW_EXE_NAMES = ("PharmFlow.exe", "PharmFlow.exe", "PharmFlow.exe")
+PHARMFLOW_EXE_NAMES = ("PharmFlow.exe", "CPharm.exe", "PharmFlowMuMuSetup.exe")
 
 
 def _redirect_stdout_when_hidden() -> None:

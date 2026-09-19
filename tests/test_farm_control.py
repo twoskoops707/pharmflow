@@ -237,6 +237,10 @@ class FarmControlTests(unittest.TestCase):
             patch("wizard.farm_control._resolve_helper_python", return_value=None),
             patch("wizard.farm_control._start_digest", return_value=None),
             patch("wizard.farm_control.open_operator_dashboard", return_value=None),
+            # start_farm writes PHARMFLOW_UNISON_MODE / PHARMFLOW_FARM_STOP into
+            # os.environ directly — snapshot & restore so later tests are not
+            # poisoned (isolation-skip veto leaked into test_sequence_isolation).
+            patch.dict(os.environ),
         ):
             ok = start_farm(log=lambda m, _lvl="ok": msgs.append(m), takeover=True)
             self.assertTrue(ok)  # Unison stack armed after takeover
@@ -636,7 +640,7 @@ class FarmControlTests(unittest.TestCase):
                     break
                 time.sleep(0.05)
         self.assertTrue(status.get("ok"), status)
-        self.assertIn("Nothing was spun up", str(status.get("message")))
+        self.assertIn("already on ADB", str(status.get("message")))
         docker.assert_not_called()
         farm.start_phone.assert_not_called()
         flag_deadline = time.time() + 2

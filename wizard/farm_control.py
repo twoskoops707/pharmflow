@@ -193,14 +193,16 @@ def _resolve_helper_python(*, requires: str = "psutil") -> str | None:
 
 
 def _is_frozen_app_exe(path: str) -> bool:
-    """True when *path* is this PharmFlow/PharmFlow EXE — never a helper interpreter."""
+    """True when *path* is this PharmFlow/CPharm EXE — never a helper interpreter."""
     text = (path or "").strip()
     if not text:
         return False
     stem = Path(text).stem.lower()
-    if stem in {"pharmflow", "pharmflow"}:
+    if stem in {"pharmflow", "cpharm"}:
         return True
-    if "pharmflow" in text.lower() and text.lower().endswith(".exe"):
+    if (
+        "pharmflow" in text.lower() or "cpharm" in text.lower()
+    ) and text.lower().endswith(".exe"):
         return True
     if not getattr(sys, "frozen", False):
         return False

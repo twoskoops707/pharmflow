@@ -192,15 +192,18 @@ class RestoreInjectAfterIdentityTests(unittest.TestCase):
         adb.set_http_proxy = MagicMock()
         with patch.object(bp, "browse_proxy_mode", return_value="scramble"):
             with patch.object(bp, "expected_guest_proxy", return_value="127.0.0.1:8119"):
-                with patch.object(bp, "_host_port_listens", return_value=True):
-                    with patch.dict("os.environ", {"PHARMFLOW_MANTIS_INJECT_PROXY": "1"}):
-                        got = bp.restore_inject_after_identity(
-                            adb,
-                            "10.0.2.70:5555",
-                            1,
-                            browser_package="org.mozilla.firefox",
-                            attempts=1,
-                        )
+                # Hermetic: the health check re-derives expected ports from the
+                # host's live serial map — pin it to the tor lane under test.
+                with patch.object(bp, "expected_guest_proxy_ports", return_value={8119}):
+                    with patch.object(bp, "_host_port_listens", return_value=True):
+                        with patch.dict("os.environ", {"PHARMFLOW_MANTIS_INJECT_PROXY": "1"}):
+                            got = bp.restore_inject_after_identity(
+                                adb,
+                                "10.0.2.70:5555",
+                                1,
+                                browser_package="org.mozilla.firefox",
+                                attempts=1,
+                            )
         self.assertEqual(got, "127.0.0.1:8119")
         joined = " ".join(str(c) for c in adb.shell.call_args_list)
         self.assertNotIn("http_proxy :0", joined)

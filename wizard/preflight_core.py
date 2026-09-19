@@ -130,10 +130,10 @@ def pharmflow_exe_beside_setup() -> tuple[bool, Path]:
     if getattr(sys, "frozen", False):
         exe = Path(sys.executable).resolve()
         stem = exe.stem.lower()
-        if stem in ("pharmflow", "pharmflow"):
+        if stem in ("pharmflow", "cpharm"):
             return True, exe
         # Legacy standalone helper exe: look for the main app beside it.
-        for name in ("PharmFlow.exe", "PharmFlow.exe"):
+        for name in ("PharmFlow.exe", "CPharm.exe"):
             sibling = exe.parent / name
             if sibling.is_file():
                 return True, sibling

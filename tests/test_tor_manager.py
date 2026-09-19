@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -28,10 +30,23 @@ class TorManagerTests(unittest.TestCase):
         from automation import tor_manager as tm
 
         base = int(tm.HTTP_TUNNEL_BASE)
-        self.assertEqual(phone_http_port(0), base)
-        self.assertEqual(phone_http_port(1), base + 1)
-        self.assertEqual(phone_http_port(2), base + 2)
-        self.assertEqual(guest_proxy_endpoint(1), f"127.0.0.1:{base + 1}")
+        # Hermetic: slot resolution would otherwise read the HOST's live
+        # ADB_SERIAL_MAP.lock.json (absolute vm indices map to dense slots).
+        # Pin the identity slot map — the documented first-precedence input.
+        with tempfile.TemporaryDirectory() as tmp:
+            map_path = Path(tmp) / "ADB_SERIAL_MAP.lock.json"
+            map_path.write_text(
+                json.dumps({"phones": {"vm0.x": "10.0.2.1:5555", "vm1.x": "10.0.2.2:5555", "vm2.x": "10.0.2.3:5555"}}),
+                encoding="utf-8",
+            )
+            with patch.dict(
+                os.environ,
+                {"CPHARM_LOGS": tmp, "PHARMFLOW_LOGS": tmp},
+            ):
+                self.assertEqual(phone_http_port(0), base)
+                self.assertEqual(phone_http_port(1), base + 1)
+                self.assertEqual(phone_http_port(2), base + 2)
+                self.assertEqual(guest_proxy_endpoint(1), f"127.0.0.1:{base + 1}")
 
     def test_write_torrc_enables_http_tunnel_port(self) -> None:
         from automation import tor_manager as tm
