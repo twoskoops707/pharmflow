@@ -183,5 +183,47 @@ class RosterCountHonestyTests(unittest.TestCase):
         self.assertNotIn("phones_default\", 4)", src)
 
 
+class PortTryCountTests(unittest.TestCase):
+    """dashboard._port_try_count must match the wizard probe's window (both
+    honor PHARMFLOW_PORT_TRY_COUNT with no ceiling), or a count that fit one
+    side let the server bind where the wizard never looked."""
+
+    def test_no_hardcoded_ceiling(self) -> None:
+        with patch.dict("os.environ", {"PHARMFLOW_PORT_TRY_COUNT": "300"}):
+            self.assertEqual(dashboard._port_try_count(), 300)  # was clamped to 256
+
+    def test_default_and_bad_values(self) -> None:
+        with patch.dict("os.environ", {}, clear=False):
+            import os as _os
+
+            _os.environ.pop("PHARMFLOW_PORT_TRY_COUNT", None)
+            self.assertEqual(dashboard._port_try_count(), 20)
+        with patch.dict("os.environ", {"PHARMFLOW_PORT_TRY_COUNT": "junk"}):
+            self.assertEqual(dashboard._port_try_count(), 20)
+        with patch.dict("os.environ", {"PHARMFLOW_PORT_TRY_COUNT": "0"}):
+            self.assertEqual(dashboard._port_try_count(), 1)
+
+    def test_bind_fallback_is_still_bounded_by_the_port_space(self) -> None:
+        """The natural bound that replaces the magic cap: a huge count near the
+        top of the port range still stops at 65535 instead of wrapping."""
+
+        async def _go() -> int:
+            attempts = 0
+
+            async def _counting(*_a, **_k):
+                nonlocal attempts
+                attempts += 1
+                raise OSError(dashboard.errno.EADDRINUSE, "in use")
+
+            with patch.object(dashboard.asyncio, "start_server", _counting):
+                with self.assertRaises(OSError):
+                    await dashboard._start_http_server_with_port_fallback(
+                        "127.0.0.1", 65530, 1_000_000
+                    )
+            return attempts
+
+        self.assertEqual(_run(_go()), 6)  # 65530..65535 inclusive, no more
+
+
 if __name__ == "__main__":
     unittest.main()

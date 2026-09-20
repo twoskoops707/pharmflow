@@ -138,5 +138,101 @@ class TorManagerTests(unittest.TestCase):
         adb.set_http_proxy.assert_called_once_with("127.0.0.1", 8118, serial="127.0.0.1:16384")
 
 
+class TorWarmupHasNoPhoneCountCeilingTests(unittest.TestCase):
+    """Repo rule: no hardcoded phone-count ceilings. High-index fleets (vm39+)
+    must warm their own Tor lane, and the prewarm default follows the fleet."""
+
+    def test_explicit_high_index_is_not_clamped_to_31(self) -> None:
+        from automation import tor_manager as tm
+
+        # Was silently remapped to 31 -> warmed the wrong (nonexistent) lane.
+        self.assertEqual(tm._resolve_warm_phone_index(39), 39)
+        self.assertEqual(tm._resolve_warm_phone_index(100), 100)
+
+    def test_negative_index_is_still_guarded(self) -> None:
+        from automation import tor_manager as tm
+
+        self.assertEqual(tm._resolve_warm_phone_index(-5), 0)
+
+    def test_env_warm_index_above_31_passes_through(self) -> None:
+        from automation import tor_manager as tm
+
+        with patch.dict(os.environ, {"PHARMFLOW_TOR_WARM_PHONE_INDEX": "44"}):
+            self.assertEqual(tm._resolve_warm_phone_index(None), 44)
+
+    def test_prewarm_env_above_31_passes_through(self) -> None:
+        from automation import tor_manager as tm
+
+        with patch.dict(os.environ, {"PHARMFLOW_TOR_PREWARM_MAX_IDX": "40"}):
+            self.assertEqual(tm._tor_prewarm_max_idx(), 40)
+
+    def test_prewarm_default_follows_live_fleet_size(self) -> None:
+        from automation import tor_manager as tm
+
+        env = {k: v for k, v in os.environ.items() if k != "PHARMFLOW_TOR_PREWARM_MAX_IDX"}
+        with patch.dict(os.environ, env, clear=True):
+            # A 40-phone fleet prewarms 40 lanes, not a fixed 8.
+            with patch.object(tm, "live_fleet_indices", return_value=list(range(40, 80))):
+                self.assertEqual(tm._tor_prewarm_max_idx(), 39)
+            # A 3-phone fleet does not spin up 8 Tor processes it will never use.
+            with patch.object(tm, "live_fleet_indices", return_value=[1, 2, 3]):
+                self.assertEqual(tm._tor_prewarm_max_idx(), 2)
+            # No discoverable roster: warm only lane 0; others start on demand.
+            with patch.object(tm, "live_fleet_indices", return_value=[]):
+                self.assertEqual(tm._tor_prewarm_max_idx(), 0)
+
+    def test_bootstrap_background_does_not_reclamp_max_idx(self) -> None:
+        """start_tor_host_bootstrap_background used to re-clamp to 31 after the
+        resolver, which would silently undo an un-clamped max."""
+        from automation import tor_manager as tm
+
+        seen: list[int] = []
+
+        class _FakeThread:
+            def __init__(self, target=None, args=(), **_kw):
+                seen.extend(args)
+
+            def start(self) -> None:
+                pass
+
+            def is_alive(self) -> bool:
+                return False
+
+        with patch.object(tm, "_tor_skip_wait_env", return_value=False), \
+                patch.object(tm, "tor_proxy_preflight", return_value={"ok": True}), \
+                patch.object(tm.threading, "Thread", _FakeThread), \
+                patch.object(tm, "_tor_prewarm_thread", None):
+            tm.start_tor_host_bootstrap_background(max_phone_idx=57)
+        self.assertEqual(seen, [57])
+
+    def test_listening_lanes_walk_up_from_the_base_and_stop_at_the_first_gap(self) -> None:
+        from automation import tor_manager as tm
+
+        base = int(tm.HTTP_TUNNEL_BASE)
+        up = {base, base + 1, base + 2, base + 4}  # base+3 is down: lanes are contiguous
+        with patch.object(tm, "_tcp_open", side_effect=lambda p, timeout=0.4: p in up):
+            self.assertEqual(tm.listening_tor_http_lane_ports(), [base, base + 1, base + 2])
+
+    def test_listening_lanes_none_up_is_empty(self) -> None:
+        from automation import tor_manager as tm
+
+        with patch.object(tm, "_tcp_open", return_value=False):
+            self.assertEqual(tm.listening_tor_http_lane_ports(), [])
+
+    def test_listening_lanes_are_not_cut_at_eight(self) -> None:
+        from automation import tor_manager as tm
+
+        base = int(tm.HTTP_TUNNEL_BASE)
+        up = set(range(base, base + 45))
+        with patch.object(tm, "_tcp_open", side_effect=lambda p, timeout=0.4: p in up):
+            self.assertEqual(len(tm.listening_tor_http_lane_ports()), 45)
+
+    def test_listening_lanes_stop_at_the_end_of_the_port_space(self) -> None:
+        from automation import tor_manager as tm
+
+        with patch.object(tm, "HTTP_TUNNEL_BASE", 65533), patch.object(tm, "_tcp_open", return_value=True):
+            self.assertEqual(tm.listening_tor_http_lane_ports(), [65533, 65534, 65535])
+
+
 if __name__ == "__main__":
     unittest.main()

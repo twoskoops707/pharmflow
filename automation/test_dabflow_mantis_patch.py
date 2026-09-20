@@ -81,5 +81,62 @@ class MantisAdUrlPublisherTests(unittest.TestCase):
         self.assertIn("utm_content=64f73c1d76e98a0023574ea6", out)
 
 
+class LiveTorPortsHaveNoFixedFleetSizeTests(unittest.TestCase):
+    """The paying-inventory Tor leg probes the real fleet's lanes. When the live
+    lock is unreadable it must ask the fleet-discovery the Tor layer already
+    uses (then the lanes actually listening) -- never a guessed roster of eight
+    (repo rule: no hardcoded phone-count ceilings)."""
+
+    @staticmethod
+    def _lane(idx: int) -> int:
+        return 8100 + int(idx)
+
+    def _run(self, *, lock_phones, fleet, listening=()):
+        import json
+        import os
+        import tempfile
+        from unittest import mock
+
+        with tempfile.TemporaryDirectory() as tmp:
+            if lock_phones is not None:
+                (Path(tmp) / "ADB_SERIAL_MAP.lock.json").write_text(
+                    json.dumps({"phones": lock_phones}), encoding="utf-8"
+                )
+            with mock.patch.dict(os.environ, {"PHARMFLOW_LOGS": tmp}), \
+                    mock.patch("automation.mantis_inject_proxy.upstream_tor_port", self._lane), \
+                    mock.patch("automation.tor_manager.live_fleet_indices", return_value=list(fleet)), \
+                    mock.patch(
+                        "automation.tor_manager.listening_tor_http_lane_ports",
+                        return_value=list(listening),
+                    ):
+                return patch._live_tor_http_ports()
+
+    def test_live_lock_is_used_first_even_for_high_indexes(self) -> None:
+        phones = {f"vm{i}.gmadoa": f"10.0.2.{i}:5555" for i in (39, 40, 41)}
+        self.assertEqual(self._run(lock_phones=phones, fleet=[1, 2]), [8139, 8140, 8141])
+
+    def test_a_large_fleet_is_not_cut_to_eight_lanes(self) -> None:
+        phones = {f"vm{i}.gmadoa": "x" for i in range(60)}
+        self.assertEqual(len(self._run(lock_phones=phones, fleet=[])), 60)
+
+    def test_unreadable_lock_falls_back_to_tor_fleet_discovery_not_range_8(self) -> None:
+        ports = self._run(lock_phones=None, fleet=[3, 4, 5])
+        self.assertEqual(ports, [8103, 8104, 8105])
+        self.assertFalse(set(ports) & {8100, 8101, 8102, 8106, 8107})  # old range(8) guess
+
+    def test_no_roster_anywhere_probes_only_listening_lanes(self) -> None:
+        ports = self._run(lock_phones=None, fleet=[], listening=[9001, 9002, 9003])
+        self.assertEqual(ports, [9001, 9002, 9003])
+
+    def test_no_roster_and_nothing_listening_yields_no_tor_leg(self) -> None:
+        self.assertEqual(self._run(lock_phones=None, fleet=[], listening=[]), [])
+
+    def test_source_has_no_fixed_eight_lane_guess(self) -> None:
+        import inspect
+
+        self.assertNotIn("range(8)", inspect.getsource(patch._live_tor_http_ports))
+        self.assertNotIn("range(8)", inspect.getsource(patch.prefetch_ssp_ads_prefer_paying))
+
+
 if __name__ == "__main__":
     unittest.main()

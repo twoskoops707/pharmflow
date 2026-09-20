@@ -176,11 +176,17 @@ def _env_dashboard_http_port() -> int:
 
 
 def _dashboard_port_try_count() -> int:
+    """How many consecutive ports to probe. Mirrors ``dashboard._port_try_count``.
+
+    No ceiling: the window is bounded by the port space (see
+    ``_dashboard_candidate_ports``) and probing is bounded by time, not count.
+    The server honors the same value, so a larger operator setting is found.
+    """
     raw = (os.environ.get("PHARMFLOW_PORT_TRY_COUNT") or "").strip()
     if not raw:
         return 20
     try:
-        return max(1, min(int(raw), 128))
+        return max(1, int(raw))
     except (TypeError, ValueError):
         return 20
 
@@ -248,7 +254,15 @@ def probe_dashboard_listen_port() -> bool:
     candidates = _dashboard_candidate_ports()
     deadline = time.monotonic() + 3.5
     resolved: int | None = None
-    with _cf.ThreadPoolExecutor(max_workers=min(8, max(1, len(candidates)))) as ex:
+    # Explicit executor, not ``with``: leaving a ``with`` block waits for every
+    # queued probe, so the 3.5s deadline only bounded the result loop and a
+    # large PORT_TRY_COUNT still froze the caller for
+    # ``ceil(N / workers) * per-request-timeout``. That wait is what the old
+    # hardcoded 128-port cap was papering over; dropping stragglers at the
+    # deadline bounds latency by time, so the scan width can follow the
+    # operator's setting (and the server's bind fallback) without a magic cap.
+    ex = _cf.ThreadPoolExecutor(max_workers=min(8, max(1, len(candidates))))
+    try:
         futs = {ex.submit(_probe_port, p): p for p in candidates}
         try:
             for fut in _cf.as_completed(futs, timeout=max(0.1, deadline - time.monotonic())):
@@ -266,6 +280,8 @@ def probe_dashboard_listen_port() -> bool:
             # A partial scan must return False (control service down), not raise
             # "N (of M) futures unfinished" into the Control Panel toast.
             pass
+    finally:
+        ex.shutdown(wait=False, cancel_futures=True)
     if resolved is not None:
         _DASHBOARD_LISTEN_HTTP_PORT_CACHE = resolved
         return True

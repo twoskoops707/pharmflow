@@ -184,5 +184,81 @@ class FarmSchedulingTests(unittest.TestCase):
                 self.assertGreater(farm._phone_visits_cap(5), 0)
 
 
+class DailyBudgetAssumesNoFleetSizeTests(unittest.TestCase):
+    """The daily budget state must not invent a fleet: rows are created on demand
+    for whatever phone indexes actually record visits (repo rule: no hardcoded
+    phone-count ceilings; cf. test_up_without_count_does_not_invent_eight)."""
+
+    def _with_budget_file(self, payload: dict | None):
+        import json as _json
+        import tempfile as _tf
+
+        tmp = _tf.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        path = Path(tmp.name) / "farm_daily_budget_state.json"
+        if payload is not None:
+            path.write_text(_json.dumps(payload), encoding="utf-8")
+        patcher = unittest.mock.patch.object(farm, "_daily_budget_path", return_value=path)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        return path
+
+    @staticmethod
+    def _today() -> str:
+        from datetime import datetime
+
+        return datetime.now().astimezone().date().isoformat()
+
+    def test_new_day_starts_with_no_invented_rows(self) -> None:
+        self._with_budget_file({"date": "1999-01-01", "phones": {"0": {"visits": 5, "ads": 2}}})
+        state = farm._load_daily_budget()
+        self.assertEqual(state["date"], self._today())
+        self.assertEqual(state["phones"], {})  # was 8 seeded rows (range(8))
+
+    def test_high_index_phone_records_and_survives_reload(self) -> None:
+        self._with_budget_file({"date": "1999-01-01", "phones": {}})
+        row = farm._record_phone_visit(39, path3=True)
+        self.assertEqual(row, {"visits": 1, "ads": 1})
+        farm._record_phone_visit(39, path3=False)
+        reloaded = farm._load_daily_budget()["phones"]
+        self.assertEqual(reloaded["39"], {"visits": 2, "ads": 1})
+
+    def test_same_day_carries_over_exactly_the_recorded_phones(self) -> None:
+        self._with_budget_file(
+            {
+                "date": self._today(),
+                "phones": {"3": {"visits": 4, "ads": 1}, "41": {"visits": 9, "ads": 3}},
+            }
+        )
+        phones = farm._load_daily_budget()["phones"]
+        # Exactly what was recorded -- no dense 0..max fill for phones that don't exist.
+        self.assertEqual(set(phones), {"3", "41"})
+        self.assertEqual(phones["41"], {"visits": 9, "ads": 3})
+
+    def test_junk_and_malformed_rows_are_tolerated(self) -> None:
+        self._with_budget_file(
+            {
+                "date": self._today(),
+                "phones": {"abc": {"visits": 1}, "7": "not-a-row", "8": {"visits": -3, "ads": 2}},
+            }
+        )
+        phones = farm._load_daily_budget()["phones"]
+        self.assertNotIn("abc", phones)
+        self.assertEqual(phones["7"], {"visits": 0, "ads": 0})
+        self.assertEqual(phones["8"], {"visits": 0, "ads": 2})  # negatives clamp to 0
+
+    def test_missing_row_reads_as_empty_not_an_error(self) -> None:
+        self._with_budget_file(None)
+        state = farm._load_daily_budget()
+        self.assertEqual(farm._phone_budget_row(state, 57), {"visits": 0, "ads": 0})
+
+    def test_loader_source_has_no_fixed_fleet_literals(self) -> None:
+        import inspect
+
+        src = inspect.getsource(farm._load_daily_budget)
+        self.assertNotIn("range(8)", src)
+        self.assertNotIn("max_idx = 5", src)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -1216,26 +1216,28 @@ def _load_daily_budget() -> dict[str, object]:
         raw = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError, TypeError):
         raw = {}
+    # No fleet size is assumed here. Rows are created on demand by
+    # _record_phone_visit and a missing row reads as empty (_phone_budget_row),
+    # so a new day starts with no rows and a phone of ANY index gets one the
+    # moment it records a visit. (Pre-seeding a fixed eight-row roster, with a
+    # floor of six, was a fixed-fleet-size literal; the other readers of this
+    # file -- the operator dash and autopilot -- already treat an empty map as
+    # "nothing used yet".)
     if str(raw.get("date") or "") != today:
-        return {"date": today, "phones": {str(i): _empty_phone_budget() for i in range(8)}}
+        return {"date": today, "phones": {}}
     phones_raw = raw.get("phones") if isinstance(raw.get("phones"), dict) else {}
     phones: dict[str, dict[str, int]] = {}
-    # Preserve every phone index on disk (8+ phone farms used to lose idx>=6
-    # every load, resetting visit/ad counters mid-day).
-    max_idx = 5
-    if isinstance(phones_raw, dict):
-        for key in phones_raw:
-            try:
-                max_idx = max(max_idx, int(str(key)))
-            except (TypeError, ValueError):
-                continue
-    for i in range(max_idx + 1):
-        key = str(i)
-        row = phones_raw.get(key) if isinstance(phones_raw, dict) else None
+    # Preserve every phone index on disk, whatever it is (8+ phone farms used to
+    # lose idx>=6 every load, resetting visit/ad counters mid-day).
+    for key, row in phones_raw.items():
+        try:
+            idx_key = str(int(str(key)))
+        except (TypeError, ValueError):
+            continue
         if not isinstance(row, dict):
-            phones[key] = _empty_phone_budget()
+            phones[idx_key] = _empty_phone_budget()
         else:
-            phones[key] = {
+            phones[idx_key] = {
                 "visits": max(0, int(row.get("visits") or 0)),
                 "ads": max(0, int(row.get("ads") or 0)),
             }

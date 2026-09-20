@@ -620,6 +620,58 @@ def prefetch_ssp_ads(*, force: bool = False) -> list[dict[str, Any]]:
         return get_cached_ssp_ads(allow_stale=True) or _ingest_paying_fill_file()
 
 
+def _live_tor_http_ports() -> list[int]:
+    """Tor HTTP-tunnel ports of the live phone lanes to probe for paying inventory.
+
+    Never a fixed fleet size (repo rule: no hardcoded phone-count ceilings; and
+    a guessed roster probes dead lanes on any other fleet). Sources, in order:
+
+    1. the live serial map (``ADB_SERIAL_MAP.lock.json``);
+    2. ``tor_manager.live_fleet_indices`` -- the roster Tor lane assignment
+       itself uses (serial map across every log root, then the farm config), so
+       an unreadable lock in one place does not blind this path;
+    3. whichever Tor lanes are actually listening.
+
+    Raises on import failure; the caller treats any exception as "no Tor leg".
+    """
+    lock = Path(
+        os.environ.get("PHARMFLOW_LOGS")
+        or os.environ.get("PHARMFLOW_LOG_DIR")
+        or r"C:\PharmFlow\logs"
+    ) / "ADB_SERIAL_MAP.lock.json"
+    live_idxs: list[int] = []
+    try:
+        phones = json.loads(lock.read_text(encoding="utf-8")).get("phones") or {}
+        for name in phones:
+            m = re.match(r"^vm(\d+)\.", str(name))
+            if m:
+                live_idxs.append(int(m.group(1)))
+    except Exception:
+        live_idxs = []
+    if not live_idxs:
+        try:
+            from automation.tor_manager import live_fleet_indices
+
+            live_idxs = list(live_fleet_indices())
+        except Exception:
+            live_idxs = []
+    if not live_idxs:
+        from automation.tor_manager import listening_tor_http_lane_ports
+
+        return list(listening_tor_http_lane_ports())
+    from automation.mantis_inject_proxy import upstream_tor_port
+
+    ports: list[int] = []
+    seen: set[int] = set()
+    for idx in sorted(set(live_idxs)):
+        port = int(upstream_tor_port(idx))
+        if port in seen:
+            continue
+        seen.add(port)
+        ports.append(port)
+    return ports
+
+
 def prefetch_ssp_ads_prefer_paying(
     *,
     attempts: int = 8,
@@ -648,33 +700,8 @@ def prefetch_ssp_ads_prefer_paying(
         # upstream_tor_port(22) with vm38-47 live returns base+22 (nobody
         # listening), so the Tor leg never ran and host-IP paying fills were
         # locked. Opening those after a phone house impression pays $0.
-        tor_ports: list[int] = []
         try:
-            from automation.mantis_inject_proxy import upstream_tor_port
-
-            lock = Path(
-                os.environ.get("PHARMFLOW_LOGS")
-                or os.environ.get("PHARMFLOW_LOG_DIR")
-                or r"C:\PharmFlow\logs"
-            ) / "ADB_SERIAL_MAP.lock.json"
-            live_idxs: list[int] = []
-            try:
-                phones = json.loads(lock.read_text(encoding="utf-8")).get("phones") or {}
-                for name in phones:
-                    m = re.match(r"^vm(\d+)\.", str(name))
-                    if m:
-                        live_idxs.append(int(m.group(1)))
-            except Exception:
-                live_idxs = []
-            if not live_idxs:
-                live_idxs = list(range(8))
-            seen_ports: set[int] = set()
-            for idx in sorted(set(live_idxs)):
-                port = int(upstream_tor_port(idx))
-                if port in seen_ports:
-                    continue
-                seen_ports.add(port)
-                tor_ports.append(port)
+            tor_ports = _live_tor_http_ports()
         except Exception:
             tor_ports = []
         # Prefer phone-exit inventory. Host-direct paying tokens must not win —

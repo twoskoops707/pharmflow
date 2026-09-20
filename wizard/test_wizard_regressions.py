@@ -472,6 +472,51 @@ class DashboardListenPortTests(unittest.TestCase):
         os.environ["PHARMFLOW_PORT_TRY_COUNT"] = "3"
         self.assertEqual(sw._dashboard_candidate_ports(), [9000, 9001, 9002])
 
+    def test_candidate_ports_not_capped_by_a_hardcoded_ceiling(self) -> None:
+        # Was clamped to 128 here (and 256 in dashboard.py), so a count in
+        # between let the server bind where the wizard never looked.
+        os.environ["PHARMFLOW_PORT"] = "9000"
+        os.environ["PHARMFLOW_PORT_TRY_COUNT"] = "200"
+        ports = sw._dashboard_candidate_ports()
+        self.assertEqual(len(ports), 200)
+        self.assertEqual(ports[-1], 9199)
+
+    def test_candidate_ports_stop_at_the_end_of_the_port_space(self) -> None:
+        # The natural bound replacing the magic cap: never past 65535.
+        os.environ["PHARMFLOW_PORT"] = "65530"
+        os.environ["PHARMFLOW_PORT_TRY_COUNT"] = "100000"
+        self.assertEqual(sw._dashboard_candidate_ports(), list(range(65530, 65536)))
+
+    def test_bad_try_count_falls_back_to_default(self) -> None:
+        os.environ["PHARMFLOW_PORT_TRY_COUNT"] = "not-a-number"
+        self.assertEqual(sw._dashboard_port_try_count(), 20)
+        os.environ["PHARMFLOW_PORT_TRY_COUNT"] = "0"
+        self.assertEqual(sw._dashboard_port_try_count(), 1)
+
+    @unittest.mock.patch.object(sw.urllib.request, "urlopen")
+    def test_large_scan_does_not_block_past_the_deadline(self, mock_open: unittest.mock.MagicMock) -> None:
+        """Root cause the old 128 cap papered over: leaving the executor block
+        waited for every queued probe, so a wide scan froze the caller far past
+        the 3.5s budget. Stragglers must be dropped at the deadline."""
+        import time as _t
+
+        os.environ["PHARMFLOW_PORT"] = "8080"
+        os.environ["PHARMFLOW_PORT_TRY_COUNT"] = "400"
+
+        def _slow_refuse(req, timeout=None):  # noqa: ARG001
+            _t.sleep(0.6)  # a blackholed loopback port, scaled down
+            raise urllib.error.URLError("refused")
+
+        mock_open.side_effect = _slow_refuse
+        t0 = _t.monotonic()
+        found = sw.probe_dashboard_listen_port()
+        elapsed = _t.monotonic() - t0
+        self.assertFalse(found)
+        # Old code (count clamped to 128, executor waited on every probe):
+        # ceil(128/8) * 0.6s = ~9.6s. New: returns at the ~3.5s deadline, however
+        # wide the scan is.
+        self.assertLess(elapsed, 6.5, f"scan blocked {elapsed:.1f}s past its deadline")
+
     @unittest.mock.patch.object(sw.urllib.request, "urlopen")
     def test_probe_sets_cache_from_api_config(self, mock_open: unittest.mock.MagicMock) -> None:
         os.environ["PHARMFLOW_PORT"] = "8080"

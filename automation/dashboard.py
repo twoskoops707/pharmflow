@@ -5075,9 +5075,13 @@ async def auto_refresh():
 
 
 def _port_try_count() -> int:
+    # No ceiling: the bind loops below are bounded by the port space (65535)
+    # and stop at the first successful bind, so a large value costs nothing.
+    # Capping here (256) while the wizard probe capped at 128 meant a count in
+    # between could bind where the wizard never looked.
     try:
         v = int(os.environ.get("PHARMFLOW_PORT_TRY_COUNT", "20"))
-        return max(1, min(256, v))
+        return max(1, v)
     except (TypeError, ValueError):
         return 20
 
