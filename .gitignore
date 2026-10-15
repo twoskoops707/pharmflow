@@ -129,3 +129,14 @@ LOCAL_MEMORY.md
 /wizard/bundled/
 /bundled/apks/
 wizard/assets/build_info.json
+
+# graft's local graph cache — regenerable, not committed (run `graft build`).
+/graft/
+
+# Ruflo / claude-flow scaffolding (local agent state, not committed).
+/.claude-flow/
+/.swarm/
+/.ignore
+agentdb.rvf
+agentdb.rvf.lock
+ruvector.db
