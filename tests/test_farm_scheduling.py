@@ -260,5 +260,77 @@ class DailyBudgetAssumesNoFleetSizeTests(unittest.TestCase):
         self.assertNotIn("max_idx = 5", src)
 
 
+class Path3DailyCapHasNoFixedCeilingTests(unittest.TestCase):
+    """Repo rule: no hardcoded rate caps. With no earn plan and no operator
+    setting, the Path3 daily cap must track the configured per-hour rate
+    across the real fleet -- never a fixed 9,999 (or any other magic number)
+    independent of that configuration."""
+
+    def setUp(self) -> None:
+        self._env_patch = unittest.mock.patch.dict(
+            os.environ,
+            {
+                k: v
+                for k, v in {
+                    "PHARMFLOW_FARM_PATH3_DAILY_CAP": "",
+                    "PHARMFLOW_FARM_PATH3_PER_HOUR": "",
+                    "PHARMFLOW_LOGS": "",
+                }.items()
+            },
+            clear=False,
+        )
+        self._env_patch.start()
+        for key in ("PHARMFLOW_FARM_PATH3_DAILY_CAP", "PHARMFLOW_FARM_PATH3_PER_HOUR", "PHARMFLOW_LOGS"):
+            os.environ.pop(key, None)
+        self._plan_patch = unittest.mock.patch.object(farm, "applied_path3_farm_cap", return_value=None)
+        self._plan_patch.start()
+        self.addCleanup(self._env_patch.stop)
+        self.addCleanup(self._plan_patch.stop)
+
+    def test_no_plan_no_operator_setting_derives_from_rate_and_fleet(self) -> None:
+        with unittest.mock.patch.object(farm, "canonical_expect_phones", return_value=5), \
+                unittest.mock.patch.dict(os.environ, {"PHARMFLOW_FARM_PATH3_PER_HOUR": "3"}):
+            self.assertEqual(farm._path3_farm_daily_cap(), 3 * 24 * 5)
+
+    def test_no_plan_no_rate_no_fleet_is_zero_not_9999(self) -> None:
+        with unittest.mock.patch.object(farm, "canonical_expect_phones", return_value=0):
+            self.assertEqual(farm._path3_farm_daily_cap(), 0)
+
+    def test_explicit_zero_operator_setting_is_honored_not_overridden(self) -> None:
+        with unittest.mock.patch.object(farm, "canonical_expect_phones", return_value=50), \
+                unittest.mock.patch.dict(
+                    os.environ,
+                    {"PHARMFLOW_FARM_PATH3_DAILY_CAP": "0", "PHARMFLOW_FARM_PATH3_PER_HOUR": "9"},
+                ):
+            self.assertEqual(farm._path3_farm_daily_cap(), 0)
+
+    def test_explicit_operator_setting_above_derived_default_is_honored(self) -> None:
+        with unittest.mock.patch.object(farm, "canonical_expect_phones", return_value=1), \
+                unittest.mock.patch.dict(os.environ, {"PHARMFLOW_FARM_PATH3_DAILY_CAP": "500000"}):
+            self.assertEqual(farm._path3_farm_daily_cap(), 500000)
+
+    def test_sticky_override_can_still_raise_the_derived_default(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            Path(tmp, "farm_runtime_overrides.json").write_text(
+                '{"PHARMFLOW_FARM_PATH3_DAILY_CAP": "777"}', encoding="utf-8"
+            )
+            with unittest.mock.patch.object(farm, "canonical_expect_phones", return_value=1), \
+                    unittest.mock.patch.dict(os.environ, {"PHARMFLOW_LOGS": tmp}):
+                self.assertEqual(farm._path3_farm_daily_cap(), 777)
+
+    def test_module_default_matches_the_same_derivation_not_a_duplicated_9999(self) -> None:
+        import inspect
+
+        # The module-level PATH3_DAILY_CAP and the function both route through
+        # _path3_daily_cap_env_default() -- no separate hardcoded "9999" default
+        # duplicated between them (the bug the review comment flagged).
+        for src in (
+            inspect.getsource(farm._path3_farm_daily_cap),
+            inspect.getsource(farm._path3_daily_cap_env_default),
+            inspect.getsource(farm._path3_fallback_daily_cap),
+        ):
+            self.assertNotIn("9999", src)
+
+
 if __name__ == "__main__":
     unittest.main()

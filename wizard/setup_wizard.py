@@ -250,10 +250,12 @@ def probe_dashboard_listen_port() -> bool:
     # can take ~25s (freezing the deck's dashboard poll). Probing in parallel
     # bounds the whole scan to roughly one request timeout instead.
     import concurrent.futures as _cf
+    import itertools
 
     candidates = _dashboard_candidate_ports()
     deadline = time.monotonic() + 3.5
     resolved: int | None = None
+    workers = min(8, max(1, len(candidates)))
     # Explicit executor, not ``with``: leaving a ``with`` block waits for every
     # queued probe, so the 3.5s deadline only bounded the result loop and a
     # large PORT_TRY_COUNT still froze the caller for
@@ -261,25 +263,38 @@ def probe_dashboard_listen_port() -> bool:
     # hardcoded 128-port cap was papering over; dropping stragglers at the
     # deadline bounds latency by time, so the scan width can follow the
     # operator's setting (and the server's bind fallback) without a magic cap.
-    ex = _cf.ThreadPoolExecutor(max_workers=min(8, max(1, len(candidates))))
+    #
+    # Only ``workers`` probes are ever in flight: submitting every candidate up
+    # front (one future per port) would allocate and retain a future per
+    # candidate -- tens of thousands of them for a large operator setting --
+    # before the deadline logic gets a chance to matter. A finished probe is
+    # replaced by the next unqueued candidate, one at a time.
+    ex = _cf.ThreadPoolExecutor(max_workers=workers)
     try:
-        futs = {ex.submit(_probe_port, p): p for p in candidates}
-        try:
-            for fut in _cf.as_completed(futs, timeout=max(0.1, deadline - time.monotonic())):
-                port = futs[fut]
+        remaining_candidates = iter(candidates)
+        pending: dict[_cf.Future, int] = {
+            ex.submit(_probe_port, p): p for p in itertools.islice(remaining_candidates, workers)
+        }
+        while pending and resolved is None:
+            budget = deadline - time.monotonic()
+            if budget <= 0:
+                break
+            done, _ = _cf.wait(pending, timeout=budget, return_when=_cf.FIRST_COMPLETED)
+            if not done:
+                # Closed-loopback ports can blackhole until per-request timeout;
+                # nothing finished inside the remaining budget.
+                break
+            for fut in done:
+                pending.pop(fut)
                 try:
                     hp_i = fut.result()
                 except Exception:
                     hp_i = None
                 if hp_i is not None and resolved is None:
                     resolved = hp_i
-                if resolved is not None and port >= resolved:
-                    break
-        except _cf.TimeoutError:
-            # Closed-loopback ports can blackhole until per-request timeout.
-            # A partial scan must return False (control service down), not raise
-            # "N (of M) futures unfinished" into the Control Panel toast.
-            pass
+            if resolved is None:
+                for p in itertools.islice(remaining_candidates, len(done)):
+                    pending[ex.submit(_probe_port, p)] = p
     finally:
         ex.shutdown(wait=False, cancel_futures=True)
     if resolved is not None:

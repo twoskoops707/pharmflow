@@ -201,17 +201,41 @@ def _path3_per_hour(phone_idx: int = 0) -> int:
     return max(0, _env_int("PHARMFLOW_FARM_PATH3_PER_HOUR", "0"))
 
 
+def _path3_fallback_daily_cap() -> int:
+    """Daily Path3 volume implied by the configured per-hour rate.
+
+    Used only when there is no earn plan and the operator never set
+    ``PHARMFLOW_FARM_PATH3_DAILY_CAP`` -- the cap then simply tracks what the
+    per-hour rate would produce over a day on the expected fleet, never an
+    invented ceiling independent of real configuration.
+    """
+    per_hour = max(0, _env_int("PHARMFLOW_FARM_PATH3_PER_HOUR", "0"))
+    phones = max(0, canonical_expect_phones())
+    return per_hour * 24 * phones
+
+
+def _path3_daily_cap_env_default() -> int:
+    """``PHARMFLOW_FARM_PATH3_DAILY_CAP`` if the operator set it explicitly
+    (including an explicit "0"), else :func:`_path3_fallback_daily_cap`.
+    """
+    raw = os.environ.get("PHARMFLOW_FARM_PATH3_DAILY_CAP")
+    if raw is not None and raw.strip():
+        return max(0, _env_int("PHARMFLOW_FARM_PATH3_DAILY_CAP", "0"))
+    return _path3_fallback_daily_cap()
+
+
 def _path3_farm_daily_cap() -> int:
     """Live Path3 ceiling.
 
     A saved earn plan sets the cap to path3-per-phone times the larger of the
     planned phone count and the live expect. More phones raise it. A missing
-    plan keeps max(env, sticky) so a sticky bump still applies.
+    plan falls back to :func:`_path3_daily_cap_env_default`, and a sticky
+    override can still raise it.
     """
     planned = applied_path3_farm_cap(canonical_expect_phones())
     if planned is not None:
         return planned
-    cap = max(0, _env_int("PHARMFLOW_FARM_PATH3_DAILY_CAP", "9999"))
+    cap = _path3_daily_cap_env_default()
     try:
         log_dir = Path(
             os.environ.get("PHARMFLOW_LOGS")
@@ -247,7 +271,7 @@ def _path3_slot_spacing_min() -> int:
 EVENING_SEQS_PER_HOUR = max(0, _env_int("PHARMFLOW_FARM_EVENING_SEQS_PER_HOUR", "0"))
 EVENING_UNTIL = (os.environ.get("PHARMFLOW_FARM_EVENING_UNTIL") or "").strip()
 # Farm-wide Path3 ceiling — re-read via _path3_farm_daily_cap() (sticky can change).
-PATH3_DAILY_CAP = max(0, _env_int("PHARMFLOW_FARM_PATH3_DAILY_CAP", "9999"))
+PATH3_DAILY_CAP = _path3_daily_cap_env_default()
 PATH3_PER_HOUR = max(0, _env_int("PHARMFLOW_FARM_PATH3_PER_HOUR", "0"))
 PATH3_GLOBAL_MIN_GAP_MIN = max(0, _env_int("PHARMFLOW_FARM_PATH3_GLOBAL_GAP_MIN", "0"))
 # Never schedule Path3 in the past (restart / late-hour flood), and require a short lead.

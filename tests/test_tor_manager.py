@@ -206,13 +206,16 @@ class TorWarmupHasNoPhoneCountCeilingTests(unittest.TestCase):
             tm.start_tor_host_bootstrap_background(max_phone_idx=57)
         self.assertEqual(seen, [57])
 
-    def test_listening_lanes_walk_up_from_the_base_and_stop_at_the_first_gap(self) -> None:
+    def test_listening_lanes_are_found_past_a_gap(self) -> None:
+        """A lane that failed to warm must not hide healthy higher lanes."""
         from automation import tor_manager as tm
 
         base = int(tm.HTTP_TUNNEL_BASE)
-        up = {base, base + 1, base + 2, base + 4}  # base+3 is down: lanes are contiguous
+        up = {base, base + 1, base + 2, base + 4}  # base+3 down, base+4 still up
         with patch.object(tm, "_tcp_open", side_effect=lambda p, timeout=0.4: p in up):
-            self.assertEqual(tm.listening_tor_http_lane_ports(), [base, base + 1, base + 2])
+            self.assertEqual(
+                tm.listening_tor_http_lane_ports(), [base, base + 1, base + 2, base + 4]
+            )
 
     def test_listening_lanes_none_up_is_empty(self) -> None:
         from automation import tor_manager as tm

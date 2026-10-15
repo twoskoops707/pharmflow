@@ -256,18 +256,39 @@ def live_fleet_indices() -> list[int]:
 def listening_tor_http_lane_ports() -> list[int]:
     """HTTP-tunnel ports of the Tor lanes that are actually accepting connections.
 
-    For callers with no roster to go on. Lanes are contiguous slots from the
-    runtime base (prewarm brings up ``0..N-1``), so walk up from slot 0 and stop
-    at the first port that is not listening. Bounded by the port space and by
-    what is really up -- no fleet size is assumed.
+    For callers with no roster to go on. Lanes are NOT guaranteed contiguous --
+    one lane can fail to warm while a higher one starts fine -- so every
+    candidate port from the runtime base to the top of the port space is
+    probed; the scan never stops at the first gap. Probes run with a bounded
+    number of sockets in flight at once (not one future per candidate port),
+    so scanning the full range stays fast without piling up tens of thousands
+    of pending futures.
     """
+    import concurrent.futures as _cf
+
     base = int(globals().get("HTTP_TUNNEL_BASE", TOR_HTTP_TUNNEL_BASE))
-    ports: list[int] = []
-    port = base
-    while port <= 65535 and _tcp_open(port):
-        ports.append(port)
-        port += 1
-    return ports
+    last_port = 65535
+    found: list[int] = []
+    workers = 128
+    next_port = base
+    with _cf.ThreadPoolExecutor(max_workers=workers) as ex:
+        pending: dict[_cf.Future, int] = {}
+        while next_port <= last_port and len(pending) < workers:
+            pending[ex.submit(_tcp_open, next_port)] = next_port
+            next_port += 1
+        while pending:
+            done, _ = _cf.wait(pending, return_when=_cf.FIRST_COMPLETED)
+            for fut in done:
+                p = pending.pop(fut)
+                try:
+                    if fut.result():
+                        found.append(p)
+                except Exception:
+                    pass
+                if next_port <= last_port:
+                    pending[ex.submit(_tcp_open, next_port)] = next_port
+                    next_port += 1
+    return sorted(found)
 
 
 def phone_http_port(phone_index: int) -> int:

@@ -520,6 +520,36 @@ class DashboardListenPortTests(unittest.TestCase):
         self.assertLess(elapsed, 6.5, f"scan blocked {elapsed:.1f}s past its deadline")
 
     @unittest.mock.patch.object(sw.urllib.request, "urlopen")
+    def test_probe_never_holds_more_than_worker_count_futures_in_flight(
+        self, mock_open: unittest.mock.MagicMock
+    ) -> None:
+        """Submitting one future per candidate up front was the same
+        anti-pattern flagged for this scan: tens of thousands of futures
+        allocated and retained before any throttling kicks in. At most the
+        worker count may be in flight at once, however large PORT_TRY_COUNT is."""
+        import threading as _th
+        import time as _t
+
+        os.environ["PHARMFLOW_PORT"] = "8080"
+        os.environ["PHARMFLOW_PORT_TRY_COUNT"] = "5000"
+
+        lock = _th.Lock()
+        state = {"active": 0, "peak": 0}
+
+        def _tracked(req, timeout=None):  # noqa: ARG001
+            with lock:
+                state["active"] += 1
+                state["peak"] = max(state["peak"], state["active"])
+            _t.sleep(0.01)
+            with lock:
+                state["active"] -= 1
+            raise urllib.error.URLError("refused")
+
+        mock_open.side_effect = _tracked
+        sw.probe_dashboard_listen_port()
+        self.assertLessEqual(state["peak"], 8)
+
+    @unittest.mock.patch.object(sw.urllib.request, "urlopen")
     def test_probe_sets_cache_from_api_config(self, mock_open: unittest.mock.MagicMock) -> None:
         os.environ["PHARMFLOW_PORT"] = "8080"
 
