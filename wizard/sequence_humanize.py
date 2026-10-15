@@ -149,9 +149,12 @@ def humanize_steps(
         bag: dict[str, Any] = step["params"] if use_params else step
 
         if t == "wait":
-            base = _as_float(bag.get("seconds", 1), 1.0)
-            lo, hi = 1.0 - w_spread, 1.0 + w_spread
-            bag["seconds"] = min(_WAIT_CAP, max(0.0, base * r.uniform(lo, hi)))
+            if bag.get("checkpoint"):
+                pass
+            else:
+                base = _as_float(bag.get("seconds", 1), 1.0)
+                lo, hi = 1.0 - w_spread, 1.0 + w_spread
+                bag["seconds"] = min(_WAIT_CAP, max(0.0, base * r.uniform(lo, hi)))
         elif t in ("open_url", "launch_app"):
             if "post_wait_secs" in bag:
                 base = _as_float(bag.get("post_wait_secs", 0), 0.0)

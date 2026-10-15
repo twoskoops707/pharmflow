@@ -82,7 +82,7 @@ def test_canonical_workset_lists_serials_when_online_empty() -> None:
         "automation.farm_canonical_phones._fleet",
         return_value={"vm24.gmadoa": "10.0.2.30:5555", "vm25.gmadoa": "10.0.2.188:5555"},
     ):
-        rows = canonical_workset()
+        rows = canonical_workset(online_serials={"10.0.2.30:5555", "10.0.2.188:5555"})
     serials = [s for _n, s, _p in rows]
     assert "10.0.2.30:5555" in serials
     assert "10.0.2.188:5555" in serials

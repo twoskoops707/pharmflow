@@ -27,6 +27,8 @@ class IsolationSkipTests(unittest.TestCase):
         env = {
             "CPHARM_SKIP_SEQUENCE_ISOLATION": "1",
             "CPHARM_ALLOW_SEQUENCE_RUNS": "0",
+            "CPHARM_EXE_OWNED_FARM": "0",
+            "CPHARM_UNISON_MODE": "0",
         }
         with patch.dict(os.environ, env, clear=False):
             self.assertTrue(isolation_skip_allowed())

@@ -412,8 +412,8 @@ class OpenUrlAttemptsOemBeforeGenericTests(unittest.TestCase):
     def test_oem_package_before_generic_view_when_serial_provided(self):
         oem_pkg = "com.sec.android.app.sbrowser"
         with mock.patch.object(
-            dashboard,
-            "packages_for_view_url_attempts",
+            browser_adb,
+            "packages_for_dabflow_view_url_attempts",
             return_value=[oem_pkg],
         ):
             attempts = dashboard._open_url_attempts("https://getdabflow.app", {}, serial="serial-1")

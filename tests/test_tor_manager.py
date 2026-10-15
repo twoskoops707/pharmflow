@@ -118,7 +118,8 @@ class TorManagerTests(unittest.TestCase):
         adb.reverse.return_value = MagicMock(ok=True)
         adb.set_http_proxy.return_value = MagicMock(ok=True)
         mgr = TorManager(adb=adb)
-        mgr._setup_reverse("127.0.0.1:16384", 8118)
+        with patch.dict("os.environ", {"CPHARM_MANTIS_INJECT_PROXY": "0"}):
+            mgr._setup_reverse("127.0.0.1:16384", 8118)
         adb.reverse.assert_called_once_with("8118", "8118", serial="127.0.0.1:16384")
         adb.set_http_proxy.assert_called_once_with("127.0.0.1", 8118, serial="127.0.0.1:16384")
 

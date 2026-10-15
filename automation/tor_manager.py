@@ -22,6 +22,7 @@ from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional
 
+from adb_paths import adb_executable
 from automation.adb_wrapper import AdbWrapper
 from automation.browser_adb import browser_pkg_for_clear
 from automation.config import (
@@ -44,6 +45,8 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 log = logger
+
+_SUBPROC_FLAGS = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
 
 GUEST_PROXY_HOST = "127.0.0.1"
 _IP_CHECK_URLS = (

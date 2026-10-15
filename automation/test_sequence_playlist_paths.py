@@ -121,7 +121,7 @@ class SequencePlaylistPathTests(unittest.TestCase):
                 steps, note = sp.resolve_steps(ent, 0, "127.0.0.1:16384", [])
                 self.assertEqual(note, "900x1600/no-ad/one.json")
                 types = [s.get("type") for s in steps]
-                self.assertEqual(types, ["wait"])
+                self.assertEqual(types, ["wait", "rotate_identity", "wait", "full_reset"])
             finally:
                 sp.SEQUENCES_DIR = old
 

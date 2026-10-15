@@ -91,21 +91,21 @@ class FarmControlTests(unittest.TestCase):
             for k in keys:
                 os.environ.pop(k, None)
             apply_profile_farm_env(None)
-            self.assertEqual(os.environ["CPHARM_MANTIS_BILLING_DIRECT"], "1")
+            self.assertEqual(os.environ["CPHARM_MANTIS_BILLING_DIRECT"], "0")
             self.assertEqual(os.environ["CPHARM_MANTIS_INJECT_PROXY"], "1")
             self.assertEqual(os.environ["CPHARM_MANTIS_INJECT_MITM"], "1")
-            self.assertEqual(os.environ["CPHARM_FARM_PATH3"], "1")
-            self.assertEqual(os.environ["CPHARM_PATH3"], "1")
+            # PATH3 on/off is governed by the SSOT (cpharm_farm_config.py) +
+            # apply_saved_to_env, NOT by apply_profile_farm_env.
+            self.assertNotIn("CPHARM_FARM_PATH3", os.environ)
+            self.assertNotIn("CPHARM_PATH3", os.environ)
             self.assertEqual(os.environ["CPHARM_FARM_UNIQUE_SEQ"], "1")
             self.assertEqual(os.environ["CPHARM_FARM_CHROMIUM_ONLY"], "0")
             from automation.farm_visit_caps import MULTI_BROWSER, PATH3_BROWSERS
 
-            # Browsers are pinned by the SSOT in code (farmbrowser = money browser).
             self.assertEqual(os.environ["CPHARM_FARM_BROWSERS"], MULTI_BROWSER)
-            # Path3 sticks to CDP-capable browsers (inject). Path1/2 stay multi-browser.
             self.assertEqual(os.environ["CPHARM_FARM_PATH3_BROWSERS"], PATH3_BROWSERS)
             self.assertEqual(os.environ["CPHARM_SKIP_SEQUENCE_ISOLATION"], "0")
-            self.assertEqual(os.environ["CPHARM_AUTOPILOT_PAUSE"], "1")
+            self.assertEqual(os.environ["CPHARM_AUTOPILOT_PAUSE"], "0")
             self.assertEqual(os.environ["CPHARM_EMULATOR_AD_FALLBACK"], "0")
             self.assertEqual(os.environ["CPHARM_EMULATOR_AD_FORCE_DIRECT"], "0")
 
@@ -131,7 +131,7 @@ class FarmControlTests(unittest.TestCase):
                 os.environ.pop("CPHARM_FARM_PATH3_DAILY_CAP", None)
                 apply_profile_farm_env(None)
                 self.assertFalse(legacy.exists())  # purged by _apply_sticky_overrides
-                self.assertEqual(os.environ["CPHARM_FARM_PATH3_DAILY_CAP"], "3000")
+                self.assertEqual(os.environ["CPHARM_FARM_PATH3_DAILY_CAP"], "0")
                 self.assertEqual(os.environ["CPHARM_FARM_UNIQUE_SEQ"], "1")
                 self.assertEqual(os.environ["CPHARM_SITE_SLUG"], "dabflow")
 

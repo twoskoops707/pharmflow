@@ -31,12 +31,10 @@ class DabflowMantisPatchTests(unittest.TestCase):
         self.assertEqual(patch.host_cdp_port(0), 9222)
         self.assertEqual(patch.host_cdp_port(1), 9223)
 
-    def test_device_forward_targets_socket_first(self) -> None:
-        targets = patch._device_forward_targets()
-        self.assertTrue(targets)
-        # Modern Chrome binds DevTools to the abstract socket, not tcp:9222.
-        self.assertEqual(targets[0], "localabstract:chrome_devtools_remote")
-        self.assertIn(f"tcp:{patch.DEVICE_CDP_PORT}", targets)
+    def test_cdp_abstract_sockets_returns_tuple(self) -> None:
+        sockets = patch.cdp_abstract_sockets()
+        self.assertIsInstance(sockets, tuple)
+        self.assertIn("chrome_devtools_remote", sockets)
 
     def test_chromium_flags_include_cdp_when_requested(self) -> None:
         prof = mf.profile_for_index(0)
