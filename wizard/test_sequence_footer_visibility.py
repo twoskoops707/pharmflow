@@ -6,13 +6,13 @@ import tempfile
 import unittest
 from pathlib import Path
 
-import tkinter as tk
-
-import wizard_theme as _wizard_theme
-
 _wizard_dir = Path(__file__).resolve().parent
 if str(_wizard_dir) not in sys.path:
     sys.path.insert(0, str(_wizard_dir))
+
+import tkinter as tk  # noqa: E402
+
+import wizard_theme as _wizard_theme  # noqa: E402
 
 import setup_wizard as sw  # noqa: E402
 from setup_wizard import (  # noqa: E402

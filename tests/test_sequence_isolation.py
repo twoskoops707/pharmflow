@@ -28,6 +28,9 @@ class IsolationSkipTests(unittest.TestCase):
         env = {
             "PHARMFLOW_SKIP_SEQUENCE_ISOLATION": "1",
             "PHARMFLOW_ALLOW_SEQUENCE_RUNS": "0",
+            # Defensive: a prior test in the same session can leave these set.
+            "PHARMFLOW_EXE_OWNED_FARM": "0",
+            "PHARMFLOW_UNISON_MODE": "0",
         }
         with patch.dict(os.environ, env, clear=False):
             self.assertTrue(isolation_skip_allowed())

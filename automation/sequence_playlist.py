@@ -28,6 +28,10 @@ def _resolve_sequences_dir() -> Path:
 
 SEQUENCES_DIR = _resolve_sequences_dir()
 
+FOLDER_MODES = {"folder", "folder_sorted", "folder_random"}
+PLAYLIST_MODES = {"ordered", "random", "series"} | FOLDER_MODES
+_COMBO_REQUIRED_TAIL_TYPES = ("rotate_identity", "wait", "full_reset")
+
 SHUFFLE_MODES = frozenset({"none", "set_a", "set_b", "both_sets_separately", "combined"})
 
 # sequence_playlist_mode values accepted by resolve_step_chunks / playlist_cycle_length.
@@ -242,28 +246,43 @@ def pick_rotating_filename(
     return names[iteration % len(names)]
 
 
-def load_steps_from_filename(name: str, directory: Path | None = None) -> list[dict[str, Any]] | None:
-    """Load steps from a sequence JSON (basename or relative id)."""
-    root = directory or sequences_dir()
-    direct = Path(name)
-    if direct.is_file():
-        path = direct
-    else:
-        candidate = root / name
-        if candidate.is_file():
-            path = candidate
+def load_steps_from_filename(name: str, directory: Path | str | None = None) -> list[dict[str, Any]] | None:
+    """Load steps from a sequence JSON (basename or relative id).
+
+    ``directory`` may be a :class:`Path` (used as root directly) or a string
+    profile key (resolved via :func:`resolve_sequence_file`).
+    """
+    if isinstance(directory, str):
+        resolved = resolve_sequence_file(name, profile_key=directory)
+        if resolved is not None:
+            path = resolved
         else:
-            try:
-                path = resolve_sequence_path(root, name)
-            except FileNotFoundError:
-                log.warning("sequence playlist file missing: %s", name)
-                return None
+            log.warning("sequence playlist file missing: %s", name)
+            return None
+    else:
+        root = directory or SEQUENCES_DIR
+        direct = Path(name)
+        if direct.is_file():
+            path = direct
+        else:
+            candidate = root / name
+            if candidate.is_file():
+                path = candidate
+            else:
+                try:
+                    path = resolve_sequence_path(root, name)
+                except FileNotFoundError:
+                    log.warning("sequence playlist file missing: %s", name)
+                    return None
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         log.warning("sequence playlist bad JSON %s: %s", path, exc)
         return None
-    steps = data if isinstance(data, list) else data.get("steps")
+    if isinstance(data, list):
+        steps = data
+    else:
+        steps = data.get("steps")
     if not isinstance(steps, list):
         return None
     # Normalize prior PharmFlow "type" field to PharmFlow "action".
@@ -273,7 +292,7 @@ def load_steps_from_filename(name: str, directory: Path | None = None) -> list[d
             continue
         item = dict(step)
         if "action" not in item and "type" in item:
-            item["action"] = item.pop("type")
+            item["action"] = item["type"]
         out.append(item)
     return out
 
@@ -411,10 +430,11 @@ def resolve_sequence_file(name: str, profile_key: str | None = None) -> Path | N
     base = Path(ref).name
     pk = (profile_key or "").strip()
     if pk:
-        for sub in _FLOW_SUBDIRS:
-            cand = SEQUENCES_DIR / pk / sub / base
-            if cand.is_file():
-                return cand
+        pk_dir = SEQUENCES_DIR / pk
+        if pk_dir.is_dir():
+            for cand in pk_dir.rglob(base):
+                if cand.is_file():
+                    return cand
     flat = SEQUENCES_DIR / base
     if flat.is_file():
         return flat

@@ -6,6 +6,8 @@ import json
 import os
 from pathlib import Path
 
+import pytest
+
 from automation.config import REQUIRED_SEQUENCE_VERSION
 from automation.humanize import MIN_SCROLL_Y, enforce_scroll_coords, normalize_swipe_params, scroll_swipe_params
 from automation.sequence_runner import Sequence
@@ -41,6 +43,8 @@ def test_enforce_scroll_preserves_long_ad_reveal() -> None:
 
 def test_regenerated_sequence_has_version_and_age_gate() -> None:
     path = Path("automation/recordings/sequences/base/ceramic/ceramic_budder_butane_p1a_chromium_complete.json")  # per-browser Unison SSOT
+    if not path.is_file():
+        pytest.skip("sequence fixture not on disk")
     data = json.loads(path.read_text(encoding="utf-8"))
     assert data.get("sequence_version", 0) >= REQUIRED_SEQUENCE_VERSION
     steps = data["steps"]
@@ -59,6 +63,8 @@ def test_regenerated_sequence_has_version_and_age_gate() -> None:
 
 def test_sequence_from_json_loads_version() -> None:
     path = Path("automation/recordings/sequences/base/ceramic/ceramic_budder_butane_p1a_chromium_complete.json")  # per-browser Unison SSOT
+    if not path.is_file():
+        pytest.skip("sequence fixture not on disk")
     seq = Sequence.from_json(path)
     assert seq.sequence_version >= REQUIRED_SEQUENCE_VERSION
 

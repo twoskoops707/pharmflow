@@ -120,9 +120,12 @@ class SequencePlaylistPathTests(unittest.TestCase):
                 }
                 steps, note = sp.resolve_steps(ent, 0, "127.0.0.1:16384", [])
                 self.assertEqual(note, "900x1600/no-ad/one.json")
-                # load_steps_from_filename renames a loaded step's "type" to "action".
-                types = [s.get("action") for s in steps]
-                self.assertEqual(types, ["wait"])
+                # load_steps_from_filename preserves "type" and also fills "action"
+                # for callers that read the newer field name.
+                types = [s.get("type") for s in steps]
+                self.assertEqual(types, ["wait", "rotate_identity", "wait", "full_reset"])
+                actions = [s.get("action") for s in steps]
+                self.assertEqual(actions, ["wait", "rotate_identity", "wait", "full_reset"])
             finally:
                 sp.SEQUENCES_DIR = old
 

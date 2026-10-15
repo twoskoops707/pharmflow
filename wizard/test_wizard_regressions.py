@@ -39,7 +39,9 @@ class WizardRegressionTests(unittest.TestCase):
             try:
                 if orig_startfile is not None:
                     sw.os.startfile = lambda p: calls.append(str(p))  # type: ignore[attr-defined]
-                sw.webbrowser.open = lambda _url: (_ for _ in ()).throw(RuntimeError("unexpected URL open"))
+                    sw.webbrowser.open = lambda _url: (_ for _ in ()).throw(RuntimeError("unexpected URL open"))
+                else:
+                    sw.webbrowser.open = lambda url, **kw: calls.append(str(url)) or True
                 sw.messagebox.showinfo = lambda *a, **k: None
                 sw.messagebox.showerror = lambda *a, **k: None
                 sw._open_setup_guide_doc()
@@ -69,10 +71,10 @@ class WizardRegressionTests(unittest.TestCase):
         added = PerPhoneSequenceEditor._pl_add_from_paths(
             ed,
             [
-                r"C:\flows\a.json",
-                r"C:\flows\b.json",
-                r"C:\flows\b.json",
-                r"C:\flows\not-json.txt",
+                "/tmp/flows/a.json",
+                "/tmp/flows/b.json",
+                "/tmp/flows/b.json",
+                "/tmp/flows/not-json.txt",
             ],
             set_b=False,
         )

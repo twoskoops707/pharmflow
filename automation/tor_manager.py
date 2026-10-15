@@ -47,6 +47,8 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 log = logger
 
+_SUBPROC_FLAGS = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
+
 GUEST_PROXY_HOST = "127.0.0.1"
 _IP_CHECK_URLS = (
     "https://checkip.amazonaws.com/",
