@@ -14246,7 +14246,9 @@ class SequenceGeneratorPage(PageBase):
         return {"type": "wait", "seconds": round(random.uniform(lo, hi), 2)}
 
     def _human_arm_jitter_next_tap(self) -> None:
-        self._tap_jitter_boost_next = int(getattr(self, "_tap_jitter_boost_next", 0)) + 14
+        # 100 is the max jitter the tap engine will ever apply; cap the boost
+        # there so repeated arming does not keep stacking past the ceiling.
+        self._tap_jitter_boost_next = min(100, int(getattr(self, "_tap_jitter_boost_next", 0)) + 14)
         self._save_status_var.set(
             f"The next tap will use extra randomness ({self._tap_jitter_boost_next} pixels). "
             "Record in the preview, add an action, or use Record from desktop browser."
