@@ -5,11 +5,30 @@ from __future__ import annotations
 
 import os
 import sys
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 _wizard_dir = Path(__file__).resolve().parent
 if str(_wizard_dir) not in sys.path:
     sys.path.insert(0, str(_wizard_dir))
+
+
+def _exe_stem() -> str:
+    """Executable stem computed the same way on every platform.
+
+    ``Path.stem`` treats backslash as a literal character on POSIX, so a
+    Windows path such as ``C:\\PharmFlow\\PharmFlow.exe`` yielded
+    ``c:\\pharmflow\\pharmflow`` instead of ``pharmflow`` and every frozen
+    check silently returned False on Linux. PureWindowsPath parses Windows
+    separators regardless of host OS, so the stem matches what the exe sees
+    on Windows.
+    """
+    raw = str(getattr(sys, "executable", "") or "")
+    if not raw:
+        return ""
+    try:
+        return PureWindowsPath(raw).stem.lower()
+    except Exception:
+        return Path(raw).stem.lower()
 
 
 def is_unified_pharmflow(argv: list[str] | None = None) -> bool:
@@ -23,7 +42,7 @@ def is_unified_pharmflow(argv: list[str] | None = None) -> bool:
     args = list(argv if argv is not None else sys.argv)
     if "--phone-setup" in args:
         return True
-    return Path(sys.executable).stem.lower() in ("pharmflow", "cpharm")
+    return _exe_stem() in ("pharmflow", "cpharm")
 
 
 def is_phone_setup_mode(argv: list[str] | None = None) -> bool:
@@ -31,8 +50,7 @@ def is_phone_setup_mode(argv: list[str] | None = None) -> bool:
     if "--phone-setup" in args:
         return True
     if getattr(sys, "frozen", False):
-        stem = Path(sys.executable).stem.lower()
-        if stem == "pharmflowmumusetup":
+        if _exe_stem() == "pharmflowmumusetup":
             return True
     return False
 
