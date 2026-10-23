@@ -1,8 +1,8 @@
 """
 PharmFlow UI tokens + Tk helpers (`wizard/setup_wizard.py`).
 
-**Farm Control Deck:** flat ink/panel surfaces + amber accent (matches ``assets/cpharm_app/app.css``)
-+ left sidebar rail (see ``CPharmWizard``). Canvas vs cards: BG / BG2 / BG3.
+**Farm Control Deck:** flat ink/panel surfaces + amber accent (matches ``assets/pharmflow_app/app.css``)
++ left sidebar rail (see ``PharmFlowWizard``). Canvas vs cards: BG / BG2 / BG3.
 
 PyInstaller one-file: bundle assets next to the frozen module, e.g. from ``wizard/``:
   ``--add-data "assets;assets"``
@@ -40,7 +40,7 @@ BORDER = "#2e3642"
 BORDER_STRONG = "#3a4350"
 BORDER_FOCUS = "#4a9ec8"
 
-# Accent — signal green "PharmFlow console" (matches assets/cpharm_app/app.css --green).
+# Accent — signal green "PharmFlow console" (matches assets/pharmflow_app/app.css --green).
 ACCENT = "#3d9a78"
 ACCENT_DIM = "#2f7d61"
 ACCENT_GLOW = "#5fbf9b"
@@ -172,12 +172,12 @@ RADIUS = {"sm": 6, "md": 10, "lg": 14, "xl": 18}
 # Typography scale (Segoe UI — Tk on Windows)
 FONT_DISPLAY = ("Segoe UI", 22, "bold")  # hero / window identity
 FONT_PAGE_TITLE = ("Segoe UI", 18, "bold")
-FONT_SECTION = ("Segoe UI", 11, "bold")
-FONT_BODY = ("Segoe UI", 11)
-FONT_UI = ("Segoe UI", 12)
-FONT_CAPTION = ("Segoe UI", 10)
-FONT_EYEBROW = ("Segoe UI", 8, "bold")
-FONT_MONO = ("Consolas", 11)
+FONT_SECTION = ("Segoe UI", 14, "bold")
+FONT_BODY = ("Segoe UI", 13)
+FONT_UI = ("Segoe UI", 14)
+FONT_CAPTION = ("Segoe UI", 13)
+FONT_EYEBROW = ("Segoe UI", 12, "bold")
+FONT_MONO = ("Consolas", 13)
 
 # Back-compat names used across setup_wizard
 FONT_HERO = ("Segoe UI", 24, "bold")
@@ -190,7 +190,7 @@ FB = FONT_UI
 FG = ("Segoe UI", 13)
 FM = FONT_MONO
 
-CPharm_TSCROLL = "CPharm.Vertical.TScrollbar"
+PharmFlow_TSCROLL = "PharmFlow.Vertical.TScrollbar"
 
 # Scroll architecture — bottom spacer prevents last controls sitting under scrollbar thumb.
 SCROLL_BOTTOM_PAD = 56
@@ -211,13 +211,13 @@ _icon_cache: dict[tuple[str, int], tk.PhotoImage] = {}
 
 
 def themed_vertical_scrollbar(parent: tk.Misc, *, command) -> ttk.Scrollbar:
-    """Vertical scrollbar using clam + ``CPharm_TSCROLL`` (reliable dark trough on Windows)."""
+    """Vertical scrollbar using clam + ``PharmFlow_TSCROLL`` (reliable dark trough on Windows)."""
     _style_scrollbars(parent.winfo_toplevel())
     return ttk.Scrollbar(
         parent,
         orient="vertical",
         command=command,
-        style=CPharm_TSCROLL,
+        style=PharmFlow_TSCROLL,
         takefocus=False,
     )
 
@@ -273,7 +273,7 @@ def load_icon(name: str, master: tk.Misc) -> tk.PhotoImage | None:
 
 
 def style_success_button(w: tk.Button) -> None:
-    """Green primary — matches CPharmMuMuSetup GO button."""
+    """Green primary — matches PharmFlowMuMuSetup GO button."""
     w.configure(
         bg=GREEN,
         fg=ON_ACCENT,
@@ -294,11 +294,11 @@ def accent_top_strip(parent: tk.Misc, *, height: int = 3) -> tk.Frame:
 
 
 def mumu_setup_callout(parent: tk.Misc) -> tk.Frame:
-    """MuMu users: Phone Setup is the first tab in CPharm."""
+    """MuMu users: Phone Setup is the first tab in PharmFlow."""
     outer, body = operator_callout(parent, title="MuMu users — do this first")
     callout_copy(
         body,
-        "1. In CPharm, open the Phone Setup tab (same glass UI as this guide).\n"
+        "1. In PharmFlow, open the Phone Setup tab (same glass UI as this guide).\n"
         "2. Follow the checklist → click GO.\n"
         "3. Cold-boot MuMu phones if GO asks, then GO again.\n"
         "4. Use Install and Go & Run tabs, or Advanced wizard for teams/builder.",
@@ -553,7 +553,7 @@ def _style_scrollbars(root: tk.Misc) -> None:
         )
 
     # Custom class + default ttk names so unstylized scrollbars still match the dark theme.
-    _apply_vertical(CPharm_TSCROLL)
+    _apply_vertical(PharmFlow_TSCROLL)
     _apply_vertical("Vertical.TScrollbar")
     _apply_horizontal("Horizontal.TScrollbar")
 

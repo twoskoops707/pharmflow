@@ -1,14 +1,14 @@
 """
-Normalize automation step lists for CPharm.
+Normalize automation step lists for PharmFlow.
 
 MuMu Player ARM keeps ``default_sequence*.json`` under the install ``manager\\``
-folder. Those files use the same ``type`` values as CPharm (``open_url``, ``tap``,
+folder. Those files use the same ``type`` values as PharmFlow (``open_url``, ``tap``,
 ``wait``, ``swipe``, ``close_app``, ``rotate_identity``, …). MuMu often stores
 ``wait.seconds`` as a string (``"3.5"``, ``".75"``); the runtime already coerces
 via ``float()``, but normalizing produces stable JSON when saving from the wizard
 or API.
 
-CPharm-only optional fields on ``tap`` (``retries``, ``jitter``, ``pre_wait_ms``)
+PharmFlow-only optional fields on ``tap`` (``retries``, ``jitter``, ``pre_wait_ms``)
 may be absent in MuMu exports — ``dashboard.run_sequence_step`` applies defaults.
 Optional ``base_w`` / ``base_h`` on ``tap`` / ``swipe`` select the resolution those
 coordinates were authored for (default ``sequence_geometry.SEQUENCE_BASE_W/H``,
@@ -123,24 +123,38 @@ def _step_dedupe_signature(step: dict) -> tuple | None:
     return None
 
 
-def merge_wait_into_previous(prev: dict, step: dict, *, max_seconds: float = 300.0) -> None:
-    """Sum ``seconds`` from ``step`` into ``prev``; preserve ``timer_complete`` and other flags."""
-    total = min(
-        max_seconds,
-        max(0.0, _as_float(prev.get("seconds", 0.0), 0.0))
-        + max(0.0, _as_float(step.get("seconds", 0.0), 0.0)),
+def merge_wait_into_previous(
+    prev: dict,
+    step: dict,
+    *,
+    max_seconds: float | None = None,
+) -> None:
+    """Sum ``seconds`` from ``step`` into ``prev``; preserve ``timer_complete`` and other flags.
+
+    A caller may pass ``max_seconds`` for a generated schema. The save and load
+    path does not. A merged wait is the sum the operator wrote.
+    """
+    total = max(0.0, _as_float(prev.get("seconds", 0.0), 0.0)) + max(
+        0.0, _as_float(step.get("seconds", 0.0), 0.0)
     )
+    if max_seconds is not None:
+        total = min(float(max_seconds), total)
     prev["seconds"] = round(total, 3)
     if step_is_timer_complete_wait(prev) or step_is_timer_complete_wait(step):
         prev["checkpoint"] = "timer_complete"
     elif step.get("checkpoint") and not prev.get("checkpoint"):
         prev["checkpoint"] = step.get("checkpoint")
-    for key in ("phase", "ad_read", "until_session_notes_gone"):
+    for key in ("phase", "ad_read", "until_session_notes_gone", "verify_dismiss"):
         if step.get(key) is not None and prev.get(key) is None:
             prev[key] = step[key]
 
 
-def merge_adjacent_wait_step(prev: dict, step: dict, *, max_seconds: float = 300.0) -> bool:
+def merge_adjacent_wait_step(
+    prev: dict,
+    step: dict,
+    *,
+    max_seconds: float | None = None,
+) -> bool:
     """If both steps are ``wait``, merge into ``prev``. Return True when merged."""
     if prev.get("type") != "wait" or step.get("type") != "wait":
         return False
@@ -212,22 +226,22 @@ def normalize_automation_steps(steps: list) -> list:
         step = deepcopy(raw)
         t = step.get("type", "")
         if t == "wait":
-            step["seconds"] = min(max(0.0, _as_float(step.get("seconds", 1), 1.0)), 300.0)
+            step["seconds"] = max(0.0, _as_float(step.get("seconds", 1), 1.0))
         elif t == "tap":
             step["x"] = max(0, _as_int(step.get("x", 0), 0))
             step["y"] = max(0, _as_int(step.get("y", 0), 0))
             normalize_step_baseline(step)
             if "retries" in step:
-                step["retries"] = max(1, min(8, _as_int(step.get("retries", 1), 1)))
+                step["retries"] = max(1, _as_int(step.get("retries", 1), 1))
             if "jitter" in step:
-                step["jitter"] = max(0, min(120, _as_int(step.get("jitter", 0), 0)))
+                step["jitter"] = max(0, _as_int(step.get("jitter", 0), 0))
             if "pre_wait_ms" in step:
-                step["pre_wait_ms"] = min(max(0.0, _as_float(step.get("pre_wait_ms", 0), 0.0)), 10000.0)
+                step["pre_wait_ms"] = max(0.0, _as_float(step.get("pre_wait_ms", 0), 0.0))
         elif t == "swipe":
             for k in ("x1", "y1", "x2", "y2"):
                 step[k] = max(0, _as_int(step.get(k, 0), 0))
             normalize_step_baseline(step)
-            step["ms"] = max(1, min(5000, _as_int(step.get("ms", 400), 400)))
+            step["ms"] = max(1, _as_int(step.get("ms", 400), 400))
         elif t == "open_url":
             bc_raw = step.get("browser_component")
             pkg = str(step.get("package", "")).strip()
@@ -249,9 +263,7 @@ def normalize_automation_steps(steps: list) -> list:
                 else:
                     step["new_tab"] = str(ntab).strip().lower() in ("1", "true", "yes", "on")
             if "post_wait_secs" in step:
-                step["post_wait_secs"] = min(
-                    120.0, max(0.0, _as_float(step.get("post_wait_secs", 0), 0.0))
-                )
+                step["post_wait_secs"] = max(0.0, _as_float(step.get("post_wait_secs", 0), 0.0))
         elif t == "launch_app":
             pkg = str(step.get("package", "")).strip()
             if pkg and re.match(r"^[a-zA-Z][a-zA-Z0-9_.]*$", pkg):
@@ -259,13 +271,11 @@ def normalize_automation_steps(steps: list) -> list:
             else:
                 step.pop("package", None)
             if "post_wait_secs" in step:
-                step["post_wait_secs"] = min(
-                    120.0, max(0.0, _as_float(step.get("post_wait_secs", 0), 0.0))
-                )
+                step["post_wait_secs"] = max(0.0, _as_float(step.get("post_wait_secs", 0), 0.0))
         out.append(step)
     out = _merge_consecutive_waits(out)
     out = _collapse_consecutive_identical_steps(out)
-    if os.environ.get("CPHARM_SEQUENCE_STRIP_CHROME") == "1":
+    if os.environ.get("PHARMFLOW_SEQUENCE_STRIP_CHROME") == "1":
         from fix_sequences_strip_chrome import strip_chrome_steps_list_in_place
 
         strip_chrome_steps_list_in_place(out)
@@ -274,7 +284,7 @@ def normalize_automation_steps(steps: list) -> list:
 
 def _main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(
-        description="Normalize a MuMu/CPharm JSON sequence file (array of step objects)."
+        description="Normalize a MuMu/PharmFlow JSON sequence file (array of step objects)."
     )
     p.add_argument("input", type=Path, help="Source JSON file")
     p.add_argument(

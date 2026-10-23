@@ -1,4 +1,4 @@
-"""Path management for CPharm wizard — bundled resources, sys.path, and MuMu detection."""
+"""Path management for PharmFlow wizard — bundled resources, sys.path, and MuMu detection."""
 
 from __future__ import annotations
 
@@ -7,17 +7,23 @@ import logging
 import os
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 logger = logging.getLogger(__name__)
 
+# wizard_paths is imported from wizard/ before automation/ is on sys.path.
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+from automation.config import REQUIRED_SEQUENCE_VERSION  # noqa: E402
+
 # Windows install root
-CPHARM_WINDOWS_ROOT = Path(r"C:\CPharm")
+PHARMFLOW_WINDOWS_ROOT = Path(r"C:\PharmFlow")
 
 MUMU_SEARCH_PATHS: list[Path] = [
     Path(p)
     for p in (
-        os.environ.get("CPHARM_MUMU_ROOT", "").strip(),
+        os.environ.get("PHARMFLOW_MUMU_ROOT", "").strip(),
         r"C:\Program Files\Netease\MuMuPlayer",
         r"C:\Program Files\Netease\MuMuPlayerGlobal",
         r"C:\Program Files (x86)\Netease\MuMuPlayer",
@@ -51,21 +57,26 @@ def ensure_sys_path() -> None:
 
 
 def app_data_root() -> Path:
-    """Writable data dir — C:\\CPharm on Windows, else project data/."""
+    """Writable data dir — C:\\PharmFlow on Windows, else project data/."""
     if os.name == "nt":
-        root = Path(os.environ.get("CPHARM_ROOT", str(CPHARM_WINDOWS_ROOT)))
+        root = Path(os.environ.get("PHARMFLOW_ROOT", str(PHARMFLOW_WINDOWS_ROOT)))
     elif is_frozen():
-        root = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "CPharm"
+        root = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "PharmFlow"
     else:
         root = bundle_root() / "data"
     root.mkdir(parents=True, exist_ok=True)
     return root
 
 
-def bundled_dir() -> Path:
-    """C:\\CPharm\\bundled — ADB, ChromePublic.apk, etc."""
+def bundled_dir(*, create: bool = True) -> Path:
+    """C:\\PharmFlow\\bundled — ADB, ChromePublic.apk, etc.
+
+    Callers that only *look* for an existing binary must pass ``create=False``
+    so an empty PharmFlow tree is not mistaken for an installed bundle.
+    """
     d = app_data_root() / "bundled"
-    d.mkdir(parents=True, exist_ok=True)
+    if create:
+        d.mkdir(parents=True, exist_ok=True)
     return d
 
 
@@ -77,7 +88,7 @@ def automation_dir() -> Path:
 
 
 def config_file() -> Path:
-    return app_data_root() / "cpharm_config.json"
+    return app_data_root() / "pharmflow_config.json"
 
 
 def desktop_prefs_file() -> Path:
@@ -93,14 +104,20 @@ def bundled_adb_path() -> Path:
         if p.is_file():
             return p
     candidates = [
-        bundled_dir() / "adb.exe",
+        bundled_dir(create=False) / "adb.exe",
+        Path(r"C:\CPharm\bundled\adb.exe"),
+        Path(r"C:\PharmFlow\bundled\adb.exe"),
+        bundle_root() / "bundled" / "adb.exe",
         bundle_root() / "bundled_adb" / "adb.exe",
         app_data_root() / "adb" / "adb.exe",
+        Path(r"C:\Program Files\Netease\MuMuPlayerARM\shell\adb.exe"),
+        Path(r"C:\Program Files\Netease\MuMuPlayer\shell\adb.exe"),
     ]
     for p in candidates:
         if p.is_file():
             return p
-    return candidates[0]
+    # Prefer a real fallback path for callers that install into the branded tree.
+    return Path(r"C:\PharmFlow\bundled\adb.exe")
 
 
 def chrome_apk_path() -> Path:
@@ -116,9 +133,12 @@ def tor_binary_path() -> Path:
             return p
     candidates = [
         bundled_dir() / "tor.exe",
+        Path(r"C:\CPharm\bundled\tor.exe"),
+        Path(r"C:\PharmFlow\bundled\tor.exe"),
+        bundle_root() / "bundled" / "tor.exe",
         bundle_root() / "tor" / "tor.exe",
         app_data_root() / "tor" / "tor.exe",
-        Path(os.environ.get("CPHARM_TOR_PATH", "")),
+        Path(os.environ.get("CPHARM_TOR_PATH") or os.environ.get("PHARMFLOW_TOR_PATH") or ""),
     ]
     for p in candidates:
         if p and p.is_file():
@@ -302,7 +322,7 @@ def logs_dir() -> Path:
 ensure_sys_path()
 
 
-# ==== merged from cpharm wizard_paths.py (frozen EXE install-root/asset helpers) ====
+# ==== merged from pharmflow wizard_paths.py (frozen EXE install-root/asset helpers) ====
 
 def has_automation_dashboard(root: Path) -> bool:
     try:
@@ -343,7 +363,7 @@ def first_existing_subdir(roots: list[Path], *parts: str) -> Path | None:
     return None
 
 
-def frozen_cpharm_tree_candidate_dirs() -> list[Path]:
+def frozen_pharmflow_tree_candidate_dirs() -> list[Path]:
     """Dirs to probe for ``automation/dashboard.py`` when running a PyInstaller one-file exe."""
     exe_dir = Path(sys.executable).resolve().parent
     out: list[Path] = [exe_dir]
@@ -353,10 +373,10 @@ def frozen_cpharm_tree_candidate_dirs() -> list[Path]:
     home = Path.home()
     out.extend(
         [
-            home / "CPharm",
-            home / "CPharm" / "cpharm-clone",
-            home / "source" / "repos" / "cpharm-clone",
-            home / "source" / "repos" / "cpharm",
+            home / "PharmFlow",
+            home / "PharmFlow" / "pharmflow-clone",
+            home / "source" / "repos" / "pharmflow-clone",
+            home / "source" / "repos" / "pharmflow",
         ]
     )
     seen: set[str] = set()
@@ -373,12 +393,12 @@ def frozen_cpharm_tree_candidate_dirs() -> list[Path]:
     return uniq
 
 
-def cpharm_search_roots_ordered(preferred: Path | str | None = None) -> list[Path]:
+def pharmflow_search_roots_ordered(preferred: Path | str | None = None) -> list[Path]:
     """Distinct roots to probe for ``automation/`` (dialogs, sequence-path fallbacks).
 
-    Order: optional ``preferred`` (e.g. ``state['cpharm_dir']``), then
-    :func:`cpharm_install_root`, then (PyInstaller one-file only) other entries from
-    :func:`frozen_cpharm_tree_candidate_dirs` that contain ``automation/dashboard.py``.
+    Order: optional ``preferred`` (e.g. ``state['pharmflow_dir']``), then
+    :func:`pharmflow_install_root`, then (PyInstaller one-file only) other entries from
+    :func:`frozen_pharmflow_tree_candidate_dirs` that contain ``automation/dashboard.py``.
     This mirrors install-root resolution for the primary tree while still listing other
     valid clone locations for ``File`` dialogs.
     """
@@ -396,15 +416,15 @@ def cpharm_search_roots_ordered(preferred: Path | str | None = None) -> list[Pat
             except Exception:
                 pass
     try:
-        p2 = cpharm_install_root().resolve()
+        p2 = pharmflow_install_root().resolve()
     except Exception:
-        p2 = cpharm_install_root()
+        p2 = pharmflow_install_root()
     k2 = str(p2).lower()
     if k2 not in seen:
         seen.add(k2)
         roots.append(p2)
     if getattr(sys, "frozen", False):
-        for cand in frozen_cpharm_tree_candidate_dirs():
+        for cand in frozen_pharmflow_tree_candidate_dirs():
             try:
                 r = cand.expanduser().resolve()
             except Exception:
@@ -421,15 +441,15 @@ def cpharm_search_roots_ordered(preferred: Path | str | None = None) -> list[Pat
     return roots
 
 
-def cpharm_install_root() -> Path:
+def pharmflow_install_root() -> Path:
     """
     Root directory that contains ``automation/dashboard.py`` (checkout or install tree).
 
-    Order: ``CPHARM_HOME`` if valid, then (when frozen) exe dir, bundle dir, and common
-    Windows clone paths such as ``%USERPROFILE%\\CPharm`` and nested ``cpharm-clone``,
-    then :func:`cpharm_default_install_root` (folder next to the exe, or repo root in dev).
+    Order: ``PHARMFLOW_HOME`` if valid, then (when frozen) exe dir, bundle dir, and common
+    Windows clone paths such as ``%USERPROFILE%\\PharmFlow`` and nested ``pharmflow-clone``,
+    then :func:`pharmflow_default_install_root` (folder next to the exe, or repo root in dev).
     """
-    env = (os.environ.get("CPHARM_HOME") or "").strip()
+    env = (os.environ.get("PHARMFLOW_HOME") or "").strip()
     if env:
         try:
             p = Path(env).expanduser().resolve()
@@ -439,7 +459,7 @@ def cpharm_install_root() -> Path:
             return p
 
     if getattr(sys, "frozen", False):
-        for cand in frozen_cpharm_tree_candidate_dirs():
+        for cand in frozen_pharmflow_tree_candidate_dirs():
             try:
                 r = cand.expanduser().resolve()
             except OSError:
@@ -450,7 +470,7 @@ def cpharm_install_root() -> Path:
             if has_automation_dashboard(r):
                 return r
 
-    return cpharm_default_install_root()
+    return pharmflow_default_install_root()
 
 
 def wizard_module_dir() -> Path:
@@ -479,7 +499,7 @@ def wizard_assets_dir() -> Path:
     return wizard_module_dir() / "assets"
 
 
-def cpharm_default_install_root() -> Path:
+def pharmflow_default_install_root() -> Path:
     """
     When frozen, the folder containing the ``.exe`` (portable / “next to the binary” tree).
 
@@ -497,11 +517,11 @@ def automation_on_sys_path() -> Path:
     if m is not None:
         candidates.append(m / "automation")
     try:
-        candidates.append(cpharm_install_root() / "automation")
+        candidates.append(pharmflow_install_root() / "automation")
     except Exception:
         pass
-    candidates.append(cpharm_default_install_root() / "automation")
-    candidates.append(Path.home() / "CPharm" / "automation")
+    candidates.append(pharmflow_default_install_root() / "automation")
+    candidates.append(Path.home() / "PharmFlow" / "automation")
     if not getattr(sys, "frozen", False):
         candidates.append(wizard_module_dir().parent / "automation")
 
@@ -519,32 +539,549 @@ def automation_on_sys_path() -> Path:
             chosen = auto
             break
     if chosen is None:
-        chosen = cpharm_default_install_root() / "automation"
+        chosen = pharmflow_default_install_root() / "automation"
     ap = str(chosen)
     if ap not in sys.path:
         sys.path.insert(0, ap)
     return chosen
 
 
+def is_nested_recordings_path(path: Path) -> bool:
+    """True for the mistaken ``recordings/automation/recordings`` copy."""
+    return "recordings/automation/recordings" in str(path).replace("\\", "/").lower()
+
+
+# Branding-era install trees. A live farm may still keep groups under C:\\CPharm
+# while the EXE default data root is C:\\PharmFlow. Read/write must see both.
+_INSTALL_GROUPS_FILES: tuple[Path, ...] = (
+    Path(r"C:\PharmFlow\automation\recordings\groups_config.json"),
+    Path(r"C:\CPharm\automation\recordings\groups_config.json"),
+)
+
+
+def default_sequence_path() -> Path:
+    """Operator default sequence, beside the live groups file.
+
+    Must not live inside ``groups_config.json``. Dashboard and phone-setup
+    writers replace that file with a groups-only payload, which drops any
+    extra key. The Sequence page then reloads the first phone's steps.
+    """
+    return groups_config_path().parent / "default_sequence.json"
+
+
+def _groups_path_key(path: Path) -> str:
+    try:
+        return str(path.resolve()).lower()
+    except OSError:
+        return str(path).lower()
+
+
+def _groups_candidate_paths() -> list[Path]:
+    """Ordered unique candidates for the live groups file (not nested copies)."""
+    out: list[Path] = []
+    seen: set[str] = set()
+
+    def add(path: Path | None) -> None:
+        if path is None or is_nested_recordings_path(path):
+            return
+        key = _groups_path_key(path)
+        if key in seen:
+            return
+        seen.add(key)
+        out.append(path)
+
+    preferred = app_data_root() / "automation" / "recordings" / "groups_config.json"
+    add(preferred)
+    for install in _INSTALL_GROUPS_FILES:
+        add(install)
+    for root in _groups_search_roots():
+        add(_groups_file_for_root(root))
+    return out
+
+
+def groups_config_path() -> Path:
+    """Live groups file the frozen EXE must read.
+
+    Prefer an existing ``groups_config.json`` among the branding-era install
+    trees and search roots (freshest wins). Never a nested
+    ``recordings/automation/recordings`` copy. When none exist yet, return the
+    PharmFlow preferred write path so first save lands under C:\\PharmFlow.
+    """
+    forced = (os.environ.get("PHARMFLOW_GROUPS_CONFIG") or "").strip()
+    if forced:
+        return Path(forced)
+    existing: list[Path] = []
+    for cand in _groups_candidate_paths():
+        if cand.is_file():
+            existing.append(cand)
+    if existing:
+        existing.sort(
+            key=lambda p: p.stat().st_mtime if p.is_file() else -1.0,
+            reverse=True,
+        )
+        return existing[0]
+    preferred = app_data_root() / "automation" / "recordings" / "groups_config.json"
+    if not is_nested_recordings_path(preferred):
+        return preferred
+    return _INSTALL_GROUPS_FILES[0]
+
+
+def persist_groups_config_text(text: str, primary: Path | None = None) -> Path:
+    """Write groups JSON to the live path and mirror across install dual roots.
+
+    An EXE Save that only updated C:\\PharmFlow left a farm still reading
+    C:\\CPharm with the old mix. Mirror only when the primary write is one of
+    the install dual paths so a repo/dev checkout write does not stomp the
+    live farm. Explicit PHARMFLOW_GROUPS_CONFIG skips the mirror.
+    """
+    path = primary or groups_config_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".json.tmp")
+    tmp.write_text(text, encoding="utf-8")
+    tmp.replace(path)
+    if (os.environ.get("PHARMFLOW_GROUPS_CONFIG") or "").strip():
+        return path
+    primary_key = _groups_path_key(path)
+    install_keys = {_groups_path_key(p) for p in _INSTALL_GROUPS_FILES}
+    if primary_key not in install_keys:
+        return path
+    for other in _INSTALL_GROUPS_FILES:
+        if _groups_path_key(other) == primary_key:
+            continue
+        try:
+            other.parent.mkdir(parents=True, exist_ok=True)
+            other_tmp = other.with_suffix(".json.tmp")
+            other_tmp.write_text(text, encoding="utf-8")
+            other_tmp.replace(other)
+        except OSError:
+            continue
+    return path
+
+
+def _groups_search_roots() -> list[Path]:
+    roots: list[Path] = []
+    env = (os.environ.get("PHARMFLOW_HOME") or os.environ.get("PHARMFLOW_ROOT") or "").strip()
+    if env:
+        roots.append(Path(env).expanduser())
+    try:
+        roots.append(pharmflow_install_root())
+    except Exception:
+        pass
+    roots.append(pharmflow_default_install_root())
+    roots.append(Path.home() / "PharmFlow")
+    # Pre-branding install tree — frozen EXE at C:\\PharmFlow must still find
+    # groups that a live farm keeps under C:\\CPharm.
+    roots.append(Path(r"C:\CPharm"))
+    return roots
+
+def _groups_file_for_root(root: Path) -> Path | None:
+    """Join groups_config.json without nesting recordings under recordings."""
+    try:
+        root = root.expanduser()
+    except OSError:
+        return None
+    name = root.name.lower()
+    if name == "recordings":
+        return root / "groups_config.json"
+    if name == "automation":
+        return root / "recordings" / "groups_config.json"
+    return root / "automation" / "recordings" / "groups_config.json"
+
+
+def playlist_sequence_roots() -> list[Path]:
+    """Dirs that hold playlist JSON referenced from groups_config.
+
+    Playlist refs like ``900x1600/no-ad/...json`` live under
+    ``C:\\PharmFlow\\sequences``, not only under the v3 recordings tree.
+    """
+    roots: list[Path] = []
+    seen: set[str] = set()
+
+    def add(path: Path) -> None:
+        if is_nested_recordings_path(path):
+            return
+        try:
+            key = str(path.resolve()).lower()
+        except OSError:
+            key = str(path).lower()
+        if key in seen:
+            return
+        seen.add(key)
+        roots.append(path)
+
+    add(app_data_root() / "sequences")
+    add(Path(r"C:\PharmFlow\sequences"))
+    add(Path(r"C:\CPharm\sequences"))
+    raw = (os.environ.get("PHARMFLOW_SEQUENCES_DIR") or "").strip()
+    if raw:
+        add(Path(raw).expanduser())
+    add(Path.home() / "PharmFlow" / "sequences")
+    try:
+        add(sequences_dir())
+    except Exception:
+        pass
+    return roots
+
+
+def sequence_version_error(path: Path) -> str | None:
+    """Same version gate ``run_farm_354._preflight`` uses. None means the file passes it."""
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return f"unreadable: {exc}"
+    if not isinstance(data, dict):
+        return "unreadable: not an object"
+    try:
+        version = int(data.get("sequence_version") or 0)
+    except (TypeError, ValueError):
+        version = 0
+    if version < REQUIRED_SEQUENCE_VERSION:
+        return "bad sequence_version"
+    return None
+
+
+def _direct_playlist_file(rel: str) -> Path | None:
+    for root in playlist_sequence_roots():
+        cand = root / rel
+        if is_nested_recordings_path(cand):
+            continue
+        try:
+            if cand.is_file():
+                return cand
+        except OSError:
+            continue
+    return None
+
+
+def v3_pool_root() -> Path:
+    """Existing v3 sequence tree (``recordings/sequences``), never a nested copy."""
+    runtime = sequences_dir()
+    if (runtime / "base").is_dir() and not is_nested_recordings_path(runtime):
+        return runtime
+    live = Path(r"C:\PharmFlow\automation\recordings\sequences")
+    if (live / "base").is_dir():
+        return live
+    return runtime
+
+
+_PLAYLIST_MATERIALS = {
+    "mat-quartz": "quartz",
+    "mat-titanium": "titanium",
+    "mat-ceramic": "ceramic",
+}
+_PLAYLIST_CONCENTRATES = {
+    "conc-live-resin": "live_resin",
+    "conc-shatter": "shatter",
+    "conc-diamonds": "diamonds",
+    "conc-budder": "budder",
+    "conc-rosin": "rosin",
+    "conc-wax": "wax",
+}
+_PLAYLIST_HEATS = {
+    "heat-butane": "butane",
+    "heat-propane": "propane",
+}
+
+
+def _playlist_kind(rel: str) -> str:
+    text = rel.replace("\\", "/").lower()
+    if "/no-ad/" in text or "__no_ads__" in text or "__no-ad__" in text:
+        return "no-ad"
+    if "/ad/" in text or "__ad__" in text:
+        return "ad"
+    return "no-ad"
+
+
+def _token(text: str, table: dict[str, str]) -> str:
+    for raw, name in table.items():
+        if raw in text:
+            return name
+    return ""
+
+
+def playlist_v3_candidates(ref: str) -> list[Path]:
+    """Existing v3 pool files for a groups playlist ref. No stubs."""
+    rel = str(ref or "").strip().replace("\\", "/").lstrip("/").lower()
+    kind = _playlist_kind(rel)
+    mat = _token(rel, _PLAYLIST_MATERIALS)
+    conc = _token(rel, _PLAYLIST_CONCENTRATES)
+    heat = _token(rel, _PLAYLIST_HEATS)
+    if not (mat and conc and heat):
+        # Demo refs have no combo. Stable pool files that already exist.
+        if kind == "ad":
+            mat, conc, heat = "ceramic", "shatter", "butane"
+        else:
+            mat, conc, heat = "quartz", "shatter", "butane"
+    folder = v3_pool_root() / "base" / mat
+    if kind == "ad":
+        names = [
+            f"{mat}_{conc}_{heat}_p3a_homead0_ad.json",
+            f"{mat}_{conc}_{heat}_p3a_homead1_ad.json",
+        ]
+        pattern = f"{mat}_{conc}_{heat}_*_ad.json"
+    else:
+        names = [
+            f"{mat}_{conc}_{heat}_p1a_{browser}_complete.json"
+            for browser in ("brave", "chromium", "firefox", "duckduckgo")
+        ]
+        pattern = f"{mat}_{conc}_{heat}_*_complete.json"
+    found: list[Path] = []
+    seen: set[str] = set()
+
+    def add(path: Path) -> None:
+        if is_nested_recordings_path(path):
+            return
+        try:
+            if not path.is_file():
+                return
+            key = str(path.resolve()).lower()
+        except OSError:
+            return
+        if key in seen:
+            return
+        seen.add(key)
+        found.append(path)
+
+    for name in names:
+        add(folder / name)
+    if not found and folder.is_dir():
+        for path in sorted(folder.glob(pattern)):
+            add(path)
+    return found
+
+
+def resolve_playlist_ref(
+    ref: str,
+    accept: Callable[[Path], bool] | None = None,
+) -> Path | None:
+    """Resolve a playlist ref to a file the farm version gate accepts.
+
+    A direct hit is used only when it already passes the v3 version check.
+    Pre-v3 groups refs fall through to the existing v3 pool. Never a stub.
+    """
+    rel = str(ref or "").strip().replace("\\", "/").lstrip("/")
+    if not rel or ".." in rel.split("/"):
+        return None
+    gate = accept or (lambda path: sequence_version_error(path) is None)
+    direct = _direct_playlist_file(rel)
+    if direct is not None and gate(direct):
+        return direct
+    for cand in playlist_v3_candidates(rel):
+        if gate(cand):
+            return cand
+    return None
+
+
+def phone_entry_steps(ent: dict[str, Any], serial: str) -> list[Any]:
+    """Steps for one phone. Empty serial is not a phone. Playlist files fill empty steps."""
+    if not str(serial or "").strip() or not isinstance(ent, dict):
+        return []
+    inline = ent.get("steps")
+    if isinstance(inline, list) and inline:
+        return list(inline)
+    refs: list[str] = []
+    for key in ("sequence_playlist", "sequence_playlist_secondary"):
+        raw = ent.get(key)
+        if not isinstance(raw, list):
+            continue
+        refs.extend(str(item).strip() for item in raw if str(item).strip())
+    loaded: list[Any] = []
+    mode = str(ent.get("sequence_playlist_mode") or "ordered").strip().lower()
+    for ref in refs:
+        path = resolve_playlist_ref(ref)
+        if path is None:
+            continue
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError, UnicodeError):
+            continue
+        file_steps = data.get("steps") if isinstance(data, dict) else None
+        if not isinstance(file_steps, list) or not file_steps:
+            continue
+        loaded.extend(file_steps)
+        if mode != "series":
+            break
+    return loaded
+
+
+def _slot_sort_key(serial: str) -> tuple[int, int, str]:
+    """Farm-slot order for MuMu guest serials (``10.0.2.N:5555``)."""
+    text = str(serial or "").strip()
+    if text.startswith("10.0.2.") and ":" in text:
+        octet = text.split(":", 1)[0].rsplit(".", 1)[-1]
+        try:
+            return (0, int(octet), text)
+        except ValueError:
+            pass
+    if text.startswith("emulator-"):
+        try:
+            return (1, int(text.split("-", 1)[1]), text)
+        except ValueError:
+            pass
+    return (2, 0, text)
+
+
+def bind_live_phone_entries(
+    groups: list[Any],
+    live_serials: list[str],
+) -> list[tuple[str, dict[str, Any], str]]:
+    """Pair live ADB serials to configured playlists.
+
+    Exact serial match wins. If guest IPs churned, pair by farm-slot order.
+    Empty serials are skipped. An empty ADB list returns nothing — no invented phones.
+    """
+    live: list[str] = []
+    seen: set[str] = set()
+    for raw in live_serials:
+        serial = str(raw or "").strip()
+        if not serial or serial in seen:
+            continue
+        seen.add(serial)
+        live.append(serial)
+    if not live:
+        return []
+    configured = iter_group_phone_entries(groups)
+    by_serial = {serial: ent for serial, ent in configured}
+    if all(serial in by_serial for serial in live):
+        return [(serial, by_serial[serial], serial) for serial in live]
+    live_sorted = sorted(live, key=_slot_sort_key)
+    cfg_sorted = sorted(configured, key=lambda item: _slot_sort_key(item[0]))
+    n = min(len(live_sorted), len(cfg_sorted))
+    return [(live_sorted[i], cfg_sorted[i][1], cfg_sorted[i][0]) for i in range(n)]
+
+
+def remap_groups_phones_to_live(
+    groups: list[Any],
+    live_serials: list[str] | set[str] | tuple[str, ...],
+) -> int:
+    """Re-key each group's ``phones`` map to live ADB serials by farm slot.
+
+    Money-path contract (same idea as dashboard ``_remap_group_serials_to_live``):
+    MuMu guest IPs churn across reboots, so a saved ``groups_config.json`` quickly
+    points at dead serials. Keep each configured playlist entry and pair it with
+    the matching live serial in farm-slot order. Mutates ``groups`` in place.
+
+    Returns how many groups were remapped. Does not invent phones beyond the live
+    ADB list or the configured slot count. An empty ADB list leaves groups alone.
+    """
+    live: list[str] = []
+    seen: set[str] = set()
+    for raw in live_serials:
+        serial = str(raw or "").strip()
+        if not serial or serial in seen:
+            continue
+        seen.add(serial)
+        live.append(serial)
+    if not live:
+        return 0
+    live_set = set(live)
+    live_sorted = sorted(live, key=_slot_sort_key)
+
+    # Groups whose keys are already entirely live need no remap and keep their
+    # serials as-is -- but those serials must not also be handed to a stale
+    # group below, or two groups would end up sharing the same live phone.
+    # Reserve them out of the shared pool before assigning anything.
+    stale_groups: list[dict[str, Any]] = []
+    reserved: set[str] = set()
+    for group in groups:
+        if not isinstance(group, dict):
+            continue
+        pmap = group.get("phones")
+        if not isinstance(pmap, dict) or not pmap:
+            continue
+        keys = [str(k).strip() for k in pmap.keys() if str(k).strip()]
+        if not keys:
+            continue
+        if all(k in live_set for k in keys):
+            reserved.update(keys)
+            continue
+        stale_groups.append(group)
+
+    # Shared, globally-advancing pool: each live serial is handed to exactly
+    # one group across this whole call, never reused across groups.
+    pool = [s for s in live_sorted if s not in reserved]
+    pool_idx = 0
+    remapped = 0
+    for group in stale_groups:
+        pmap = group["phones"]
+        keys = [str(k).strip() for k in pmap.keys() if str(k).strip()]
+        cfg_sorted = sorted(
+            ((k, pmap[k]) for k in keys),
+            key=lambda item: _slot_sort_key(item[0]),
+        )
+        new_map: dict[str, Any] = {}
+        for key, ent in cfg_sorted:
+            if pool_idx < len(pool):
+                new_map[pool[pool_idx]] = ent if isinstance(ent, dict) else {}
+                pool_idx += 1
+            else:
+                # Pool exhausted (fewer ADB-reachable phones than configured
+                # slots across all groups combined -- routine during boot
+                # churn/offline phones per OPS_NOTES). Keep the excess entry
+                # under its original key instead of dropping it, so a
+                # transient dip in live count never deletes a phone's
+                # playlist/schedule config. It re-maps on the next call once
+                # a phone is back on ADB.
+                if key not in new_map:
+                    new_map[key] = ent if isinstance(ent, dict) else {}
+        group["phones"] = new_map
+        remapped += 1
+    return remapped
+
+
+def iter_group_phone_entries(groups: list[Any]) -> list[tuple[str, dict[str, Any]]]:
+    """Non-empty serials from ``group['phones']``. First group wins. No invented phones."""
+    out: list[tuple[str, dict[str, Any]]] = []
+    seen: set[str] = set()
+    for group in groups:
+        if not isinstance(group, dict):
+            continue
+        phones = group.get("phones")
+        if not isinstance(phones, dict):
+            continue
+        for raw, ent in phones.items():
+            serial = str(raw or "").strip()
+            if not serial or not isinstance(ent, dict) or serial in seen:
+                continue
+            seen.add(serial)
+            out.append((serial, ent))
+    return out
+
+
+def load_groups_list(path: Path | None = None) -> tuple[Path, list[Any]]:
+    """Read the groups list from the live groups file. Empty list if unreadable."""
+    cfg = path or groups_config_path()
+    if is_nested_recordings_path(cfg) or not cfg.is_file():
+        return cfg, []
+    try:
+        raw = json.loads(cfg.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, UnicodeError, TypeError, ValueError):
+        return cfg, []
+    groups = raw.get("groups") if isinstance(raw, dict) else None
+    if not isinstance(groups, list):
+        return cfg, []
+    return cfg, groups
+
+
 def automation_data_dir() -> Path:
     """Writable ``automation/`` tree (``recordings/``, ``tor/``) — prefer install over bundle."""
     candidates: list[Path] = []
-    env = (os.environ.get("CPHARM_HOME") or "").strip()
+    env = (os.environ.get("PHARMFLOW_HOME") or "").strip()
     if env:
         candidates.append(Path(env).expanduser() / "automation")
     try:
-        candidates.append(cpharm_install_root() / "automation")
+        candidates.append(pharmflow_install_root() / "automation")
     except Exception:
         pass
-    candidates.append(cpharm_default_install_root() / "automation")
-    candidates.append(Path.home() / "CPharm" / "automation")
+    candidates.append(pharmflow_default_install_root() / "automation")
+    candidates.append(Path.home() / "PharmFlow" / "automation")
     for auto in candidates:
         try:
             if (auto / "dashboard.py").is_file() or (auto / "recordings").is_dir():
                 return auto
         except OSError:
             continue
-    auto = cpharm_default_install_root() / "automation"
+    auto = pharmflow_default_install_root() / "automation"
     try:
         (auto / "recordings").mkdir(parents=True, exist_ok=True)
     except OSError:

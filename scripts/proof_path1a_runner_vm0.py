@@ -11,18 +11,18 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-os.environ.setdefault("CPHARM_ALLOW_SEQUENCE_RUNS", "1")
-os.environ["CPHARM_SKIP_MANTIS_PATCH"] = "1"
-os.environ.setdefault("CPHARM_BROWSE_PROXY_MODE", "scramble")
-os.environ["CPHARM_EMULATOR_AD_FILL_WAIT"] = "0"
+os.environ.setdefault("PHARMFLOW_ALLOW_SEQUENCE_RUNS", "1")
+os.environ["PHARMFLOW_SKIP_MANTIS_PATCH"] = "1"
+os.environ.setdefault("PHARMFLOW_BROWSE_PROXY_MODE", "scramble")
+os.environ["PHARMFLOW_EMULATOR_AD_FILL_WAIT"] = "0"
 
 from automation.sequence_runner import Sequence, SequenceRunner
 from wizard.mumu_farm_ops import MuMuFarmOps
 
-OUT = Path(r"C:\CPharm\logs\proof_fix")
-ADB_BIN = os.environ.get("CPHARM_ADB") or r"C:\CPharm\bundled\adb.exe"
+OUT = Path(r"C:\PharmFlow\logs\proof_fix")
+ADB_BIN = os.environ.get("PHARMFLOW_ADB") or r"C:\PharmFlow\bundled\adb.exe"
 SEQ = Path(
-    r"C:\CPharm\automation\recordings\sequences\base\ceramic\ceramic_budder_butane_p1a_complete.json"
+    r"C:\PharmFlow\automation\recordings\sequences\base\ceramic\ceramic_budder_butane_p1a_complete.json"
 )
 
 
@@ -77,8 +77,8 @@ def main() -> int:
     local = OUT / "07_seq_runner_after_start.png"
     farm.adb.shell(f"screencap -p {remote}", serial=ser)
     subprocess.run([ADB_BIN, "-s", ser, "pull", remote, str(local)], check=False, capture_output=True)
-    farm.adb.shell("uiautomator dump /sdcard/cpharm_ui.xml", serial=ser)
-    xml = farm.adb.shell("cat /sdcard/cpharm_ui.xml", serial=ser).stdout or ""
+    farm.adb.shell("uiautomator dump /sdcard/pharmflow_ui.xml", serial=ser)
+    xml = farm.adb.shell("cat /sdcard/pharmflow_ui.xml", serial=ser).stdout or ""
     (OUT / "07_seq_runner_after_start.xml").write_text(xml, encoding="utf-8", errors="replace")
     timer_ok = any(t in xml for t in ("HEAT YOUR BANGER", "Pause", "PAUSE"))
     print(f"SHOT bytes={local.stat().st_size if local.exists() else 0} TIMER_OK={timer_ok}", flush=True)

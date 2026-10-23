@@ -1,6 +1,6 @@
 # Sequence IP+ID Tail Enforcement (Generated)
 
-This document records how combo-sequence flows are forced to end with per-phone IP + device-identity refresh using existing CPharm operations only.
+This document records how combo-sequence flows are forced to end with per-phone IP + device-identity refresh using existing PharmFlow operations only.
 
 ## Enforced tail mechanism
 

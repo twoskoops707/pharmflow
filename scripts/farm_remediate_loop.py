@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Continuous remediating farm monitor — every ~60s. CPharm owns farm; no dual start.
+"""Continuous remediating farm monitor — every ~60s. PharmFlow owns farm; no dual start.
 
 Owns: FIXES + PROFIT math + phone COORDINATION + DASH keep-alive (:8091).
-Writes authoritative C:\\CPharm\\logs\\FARM_HONEST_NOW.txt and farm_remediator_profit.json.
+Writes authoritative C:\\PharmFlow\\logs\\FARM_HONEST_NOW.txt and farm_remediator_profit.json.
 
 Never cull farm_operator_dash. If :8091 is down, restart it immediately every cycle.
 """
@@ -21,7 +21,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-LOG = Path(r"C:\CPharm\logs")
+LOG = Path(r"C:\PharmFlow\logs")
 HONEST = LOG / "FARM_HONEST_NOW.txt"
 TICK_LOG = LOG / "farm_remediate_loop.jsonl"
 PROFIT_JSON = LOG / "farm_remediator_profit.json"
@@ -33,7 +33,7 @@ ADS_WATCH = LOG / "ads_watch_state.json"
 DASH_URL = "http://127.0.0.1:8091"
 DASH_PORT = 8091
 
-ADB = r"C:\CPharm\bundled\adb.exe"
+ADB = r"C:\PharmFlow\bundled\adb.exe"
 if not Path(ADB).is_file():
     ADB = "adb"
 
@@ -49,14 +49,14 @@ _FALLBACK_PHONES: tuple[tuple[str, str, str], ...] = (
     ("vm8", "10.0.2.179:5555", "127.0.0.1:8226"),
     ("vm9", "10.0.2.124:5555", "127.0.0.1:8227"),
 )
-TABLET_SERIAL = os.environ.get("CPHARM_TABLET_SERIAL", "10.0.2.155:5555").strip()
+TABLET_SERIAL = os.environ.get("PHARMFLOW_TABLET_SERIAL", "10.0.2.155:5555").strip()
 
 # Operator money rails — remediator calculates against these every cycle.
 TARGET_FLOOR_USD = 40.0
 TARGET_STRONG_USD = 55.0
 TARGET_STRETCH_USD = 100.0
 
-INTERVAL_S = float(os.environ.get("CPHARM_REMEDIATE_INTERVAL_S", "60"))
+INTERVAL_S = float(os.environ.get("PHARMFLOW_REMEDIATE_INTERVAL_S", "60"))
 ROOT = Path(__file__).resolve().parents[1]
 DASH_SCRIPT = ROOT / "scripts" / "farm_operator_dash.py"
 _FAIL_REVIEW_MOD = None
@@ -158,7 +158,7 @@ def _dash_port_ok() -> bool:
 def ensure_farm_reload_if_flagged() -> list[str]:
     """Operator/agent can drop FARM_RELOAD_FARM.flag to respawn run_farm_354 with new sticky.
 
-    Soft-reload is allowed even when CPharm.exe owns the farm — we only recycle
+    Soft-reload is allowed even when PharmFlow.exe owns the farm — we only recycle
     the run_farm_354 worker with current overrides (not ensure_farm takeover).
     Skipping spawn here left Path3 stuck on a stale env cap (e.g. 192 vs 324).
     """
@@ -178,7 +178,7 @@ def ensure_farm_reload_if_flagged() -> list[str]:
         flag.unlink(missing_ok=True)
     except OSError:
         pass
-    from automation.cpharm_exe_owned import exe_owns_farm
+    from automation.pharmflow_exe_owned import exe_owns_farm
 
     if exe_owns_farm():
         fixes.append("exe_owned_soft_reload_worker")
@@ -209,15 +209,15 @@ def ensure_farm_reload_if_flagged() -> list[str]:
         ov = json.loads((LOG / "farm_runtime_overrides.json").read_text(encoding="utf-8-sig"))
         if isinstance(ov, dict):
             for k, v in ov.items():
-                if str(k).startswith("CPHARM_") and v is not None:
+                if str(k).startswith("PHARMFLOW_") and v is not None:
                     env[str(k)] = str(v)
     except Exception:
         pass
-    env["CPHARM_FARM_CHROMIUM_ONLY"] = "0"
-    env["CPHARM_FARM_BROWSERS"] = "chromium,firefox,brave"
-    env["CPHARM_FARM_PATH3_BROWSERS"] = "chromium"
-    env["CPHARM_FARM_STOP"] = "0"
-    env["CPHARM_FARM_UNIQUE_SEQ"] = "1"
+    env["PHARMFLOW_FARM_CHROMIUM_ONLY"] = "0"
+    env["PHARMFLOW_FARM_BROWSERS"] = "chromium,firefox,brave"
+    env["PHARMFLOW_FARM_PATH3_BROWSERS"] = "chromium"
+    env["PHARMFLOW_FARM_STOP"] = "0"
+    env["PHARMFLOW_FARM_UNIQUE_SEQ"] = "1"
     try:
         proc = subprocess.Popen(
             [pyw, "-u", str(farm_script), "--hours", "0.0"],
@@ -427,14 +427,14 @@ def _lock_money_sticky() -> list[str]:
         pass
     # Operator: every online phone farms (including former tablet vm4).
     tablet_farms = str(
-        os.environ.get("CPHARM_TABLET_FARM")
+        os.environ.get("PHARMFLOW_TABLET_FARM")
         or ""
     ).strip().lower() in {"1", "true", "yes", "on"}
     try:
-        from automation.cpharm_farm_config import get_runtime
+        from automation.pharmflow_farm_config import get_runtime
 
         peek = get_runtime()
-        if str(peek.get("CPHARM_TABLET_FARM") or "").strip().lower() in {
+        if str(peek.get("PHARMFLOW_TABLET_FARM") or "").strip().lower() in {
             "1",
             "true",
             "yes",
@@ -444,22 +444,22 @@ def _lock_money_sticky() -> list[str]:
     except Exception:
         pass
     want = {
-        "CPHARM_FARM_PHONES": money_phones,
-        "CPHARM_FARM_PHONE_COUNT": n,
-        "CPHARM_FARM_EXPECT_PHONES": n,
-        "CPHARM_ADB_SERIALS": money_serials,
-        "CPHARM_FARM_BAN_SERIALS": ban_serials_csv(),
+        "PHARMFLOW_FARM_PHONES": money_phones,
+        "PHARMFLOW_FARM_PHONE_COUNT": n,
+        "PHARMFLOW_FARM_EXPECT_PHONES": n,
+        "PHARMFLOW_ADB_SERIALS": money_serials,
+        "PHARMFLOW_FARM_BAN_SERIALS": ban_serials_csv(),
     }
     if tablet_farms:
-        want["CPHARM_TABLET_FARM"] = "1"
-        want["CPHARM_TABLET_PHONE"] = ""
-        want["CPHARM_TABLET_SERIAL"] = ""
+        want["PHARMFLOW_TABLET_FARM"] = "1"
+        want["PHARMFLOW_TABLET_PHONE"] = ""
+        want["PHARMFLOW_TABLET_SERIAL"] = ""
     else:
-        want["CPHARM_TABLET_PHONE"] = "vm4.gmadoa"
-        want["CPHARM_TABLET_SERIAL"] = TABLET_SERIAL
+        want["PHARMFLOW_TABLET_PHONE"] = "vm4.gmadoa"
+        want["PHARMFLOW_TABLET_SERIAL"] = TABLET_SERIAL
     ov_path = LOG / "farm_runtime_overrides.json"
     try:
-        from automation.cpharm_farm_config import get_runtime, merge_runtime, write_adb_serial_lock
+        from automation.pharmflow_farm_config import get_runtime, merge_runtime, write_adb_serial_lock
 
         data = get_runtime()
         changed = False
@@ -492,11 +492,11 @@ def _lock_money_sticky() -> list[str]:
                 want_visits = _scale_csv(rails["visits"], max(4, len(phones)))
                 want_ads = _scale_csv(rails["ads"], max(4, len(phones)), min_val=16, step=0)
                 if (
-                    str(caps.get("CPHARM_FARM_SEQS_PER_HOUR") or "") != rails["seqs"]
-                    or str(caps.get("CPHARM_FARM_DAILY_VISITS") or "") != want_visits
+                    str(caps.get("PHARMFLOW_FARM_SEQS_PER_HOUR") or "") != rails["seqs"]
+                    or str(caps.get("PHARMFLOW_FARM_DAILY_VISITS") or "") != want_visits
                 ):
-                    caps["CPHARM_FARM_SEQS_PER_HOUR"] = rails["seqs"]
-                    caps["CPHARM_FARM_DAILY_VISITS"] = want_visits
+                    caps["PHARMFLOW_FARM_SEQS_PER_HOUR"] = rails["seqs"]
+                    caps["PHARMFLOW_FARM_DAILY_VISITS"] = want_visits
                     caps["note"] = "remediator_rails_heat"
                     caps["updated"] = _utc()
                     caps_path.write_text(json.dumps(caps, indent=2) + "\n", encoding="utf-8")
@@ -531,7 +531,7 @@ def _lock_money_sticky() -> list[str]:
                 peek = json.loads(ov_peek.read_text(encoding="utf-8-sig"))
                 expect = max(
                     expect,
-                    int(str(peek.get("CPHARM_FARM_EXPECT_PHONES") or canonical_expect_phones()) or canonical_expect_phones()),
+                    int(str(peek.get("PHARMFLOW_FARM_EXPECT_PHONES") or canonical_expect_phones()) or canonical_expect_phones()),
                 )
         except (OSError, json.JSONDecodeError, TypeError, ValueError):
             pass
@@ -987,11 +987,11 @@ def cycle() -> dict:
         if stamp.is_file():
             try:
                 age = time.time() - stamp.stat().st_mtime
-                due = age >= float(os.environ.get("CPHARM_GPU_REASSERT_S", "600"))
+                due = age >= float(os.environ.get("PHARMFLOW_GPU_REASSERT_S", "600"))
             except OSError:
                 due = True
         if due:
-            vms_env = (os.environ.get("CPHARM_MUMU_VMS") or "").strip()
+            vms_env = (os.environ.get("PHARMFLOW_MUMU_VMS") or "").strip()
             if vms_env:
                 vms = Path(vms_env)
             else:
@@ -1154,7 +1154,7 @@ def cycle() -> dict:
     except OSError:
         pass
     if do_pull:
-        os.environ["CPHARM_MANTIS_ALLOW_HEADED"] = "0"
+        os.environ["PHARMFLOW_MANTIS_ALLOW_HEADED"] = "0"
         pull_mantis_soft()
         stamp.write_text(_utc(), encoding="utf-8")
         fixes.append("mantis_pull")

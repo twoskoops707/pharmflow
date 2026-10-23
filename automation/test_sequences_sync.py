@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for shipped-sequence sync into ~/CPharm/sequences."""
+"""Tests for shipped-sequence sync into ~/PharmFlow/sequences."""
 from __future__ import annotations
 
 import json
@@ -49,7 +49,7 @@ class SequencesSyncTests(unittest.TestCase):
             self.assertGreater(first["copied"], 0)
             self.assertGreaterEqual(second["skipped"], first["copied"])
 
-    def test_sync_honors_cpharm_sequences_source_env(self) -> None:
+    def test_sync_honors_pharmflow_sequences_source_env(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             custom = Path(tmp) / "custom_sequences"
             nested = custom / "900x1600" / "no-ad"
@@ -58,16 +58,16 @@ class SequencesSyncTests(unittest.TestCase):
             (nested / "dabflow__demo__ONE.json").write_text(
                 json.dumps(payload), encoding="utf-8"
             )
-            old = os.environ.get("CPHARM_SEQUENCES_SOURCE")
+            old = os.environ.get("PHARMFLOW_SEQUENCES_SOURCE")
             try:
-                os.environ["CPHARM_SEQUENCES_SOURCE"] = str(custom)
+                os.environ["PHARMFLOW_SEQUENCES_SOURCE"] = str(custom)
                 found = ss.find_shipped_sequences_source()
                 self.assertEqual(found, custom.resolve())
             finally:
                 if old is None:
-                    os.environ.pop("CPHARM_SEQUENCES_SOURCE", None)
+                    os.environ.pop("PHARMFLOW_SEQUENCES_SOURCE", None)
                 else:
-                    os.environ["CPHARM_SEQUENCES_SOURCE"] = old
+                    os.environ["PHARMFLOW_SEQUENCES_SOURCE"] = old
 
     def test_verify_playlist_refs_detects_missing(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

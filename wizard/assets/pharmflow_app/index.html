@@ -1,0 +1,706 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PharmFlow — Farm Control Deck</title>
+    <link rel="stylesheet" href="app.css?v=20260908-2" />
+  </head>
+  <body>
+    <div class="deck">
+      <header class="topbar">
+        <div class="brand">
+          <span class="brand-mark">PF</span>
+          <span class="brand-text">
+            <span class="brand-word">PharmFlow</span>
+            <span class="brand-eyebrow">FARM CONTROL DECK</span>
+          </span>
+        </div>
+        <div class="hud" id="hud" role="status" aria-live="polite">
+          <div class="hud-tile">
+            <span class="hud-k">Farm</span>
+            <span class="hud-v"><span class="hud-lamp" id="hud-farm-lamp"></span><span id="hud-farm">—</span></span>
+          </div>
+          <div class="hud-tile">
+            <span class="hud-k">Phones</span>
+            <span class="hud-v" id="hud-phones">—</span>
+          </div>
+          <div class="hud-tile hud-tile-money">
+            <span class="hud-k">Today</span>
+            <span class="hud-v" id="hud-today">—</span>
+          </div>
+          <div class="hud-tile">
+            <span class="hud-k">Clicks</span>
+            <span class="hud-v" id="hud-clicks">—</span>
+          </div>
+          <div class="hud-tile">
+            <span class="hud-k">Impr</span>
+            <span class="hud-v" id="hud-impr">—</span>
+          </div>
+          <div class="hud-tile">
+            <span class="hud-k">eCPM</span>
+            <span class="hud-v" id="hud-ecpm">—</span>
+          </div>
+          <div class="hud-tile">
+            <span class="hud-k">Sync</span>
+            <span class="hud-v" id="hud-sync">—</span>
+          </div>
+        </div>
+      </header>
+
+      <nav class="step-pipeline" id="step-nav" aria-label="Wizard steps"></nav>
+      <p class="pipeline-note">Steps 1–10 in order. <span class="ok">Green = done</span> · <span class="current-hint">bright = current</span>.</p>
+
+      <div id="backend-error" role="alert" hidden></div>
+
+      <main class="content" id="content-area">
+        <!-- 0 Start -->
+        <section class="view" id="view-start" data-view="start">
+          <header class="view-hero">
+            <div class="kicker"><span class="badge-dot"></span> HOME · QUICK START</div>
+            <h1>Home</h1>
+            <p class="subtitle">Phones up? Hit <strong>Start farm</strong> — the EXE adopts every live phone (MuMu, Android Studio, Docker redroid, real devices) and fixes proxy, injection and Tor problems on its own.</p>
+          </header>
+          <div class="view-body">
+            <div class="main-grid">
+              <section class="panel panel-run-actions">
+                <h2 class="panel-title">Quick start</h2>
+                <div class="action-row action-row-big">
+                  <button type="button" class="btn-go" id="btn-start-farm-home" data-help="Farms every phone already answering ADB. This button does not boot phones. If nothing is answering, press Boot all phones first.">Start farm</button>
+                  <button type="button" class="btn-go btn-go-secondary" id="btn-open-dash-home" data-help="Opens the farm operator dashboard at 127.0.0.1:8091. If that is down, it says so. It does not open the control dashboard.">Open dashboard</button>
+                  <button type="button" class="btn-go btn-go-secondary" id="btn-health-home" data-help="Session quality from the farm log. LIVE means a farm worker process is running, not that the log was touched recently.">Farm health</button>
+                </div>
+                <div class="action-row">
+                  <button type="button" class="btn-go btn-go-secondary" id="btn-boot-all-home" data-help="Starts every stopped MuMu phone, every stopped redroid container, and every stopped Android Studio AVD. Does not wipe AVD data. Does not start Docker Desktop.">Boot all phones</button>
+                  <button type="button" class="btn-ghost" id="btn-spin-test-phone-home" data-help="Your click only: boots one spare phone (Docker redroid first, then MuMu) so you can test the setup before the farm goes live.">Spin up one phone to test</button>
+                  <button type="button" class="btn-ghost" id="btn-stop-farm-home" hidden data-help="Stops the running farm: farm lanes, watchdog and money lanes wind down. Phones you started yourself stay on.">Stop farm</button>
+                </div>
+                <p class="panel-note">Farms whatever is live on ADB — no roster. Never opens or closes emulators by itself; once running it keeps its phones alive.</p>
+              </section>
+              <section class="panel">
+                <h2 class="panel-title">What the farm fixes by itself</h2>
+                <ul class="instruction-list">
+                  <li><strong>Proxy:</strong> pins each phone's guest proxy to its own Tor exit before every sequence.</li>
+                  <li><strong>Injection:</strong> re-binds the ad-zone injector and clears stale zones mid-run.</li>
+                  <li><strong>Tor:</strong> starts per-phone Tor, enforces unique exit IPs, rotates on failures.</li>
+                  <li><strong>Phones:</strong> a phone that drops mid-run is spun back up automatically.</li>
+                </ul>
+              </section>
+              <section class="panel">
+                <h2 class="panel-title">The path</h2>
+                <ol class="instruction-list roadmap-list">
+                  <li><strong>Part 1 · 01–03</strong> Set up this PC, then Android tools.</li>
+                  <li><strong>Part 2 · 04</strong> Connect and set up phones.</li>
+                  <li><strong>Part 3 · 05–09</strong> Test your site, map it, steps, groups.</li>
+                  <li><strong>Part 4 · 10</strong> Run the farm.</li>
+                </ol>
+              </section>
+            </div>
+          </div>
+          <footer class="view-footer-nav">
+            <span></span>
+            <button type="button" class="btn-go btn-next-step" data-next="install">Next: Install →</button>
+          </footer>
+        </section>
+
+        <!-- 1 Install -->
+        <section class="view" id="view-install" data-view="install">
+          <header class="view-hero">
+            <div class="kicker"><span class="badge-dot"></span> STEP 2 OF 10 · SETUP</div>
+            <h1>Install</h1>
+            <p class="subtitle">Set up this PC first: Java, Python helpers, Tor, and the farm files. Android tools are the next step.</p>
+          </header>
+          <div class="view-body">
+            <div class="main-grid">
+              <section class="panel">
+                <div class="panel-head">
+                  <h2 class="panel-title">Dependencies</h2>
+                  <button type="button" class="btn-mini" id="btn-refresh-prereq" data-help="Re-checks which install tools are already present on this PC.">Refresh</button>
+                </div>
+                <ul class="prereq-list" id="prereq-list"></ul>
+                <div class="action-row">
+                  <button type="button" class="btn-go" id="btn-install-all" data-help="Installs missing Java, Python helpers, extra packages, Tor, and the farm files. Android SDK and ADB are the next step. Does not install WebView2. Safe to run again.">Install everything</button>
+                </div>
+                <ol class="instruction-list">
+                  <li>Click <strong>Install everything</strong> and wait for green lines.</li>
+                  <li>Then go to <strong>Android</strong>.</li>
+                </ol>
+              </section>
+              <section class="panel log-panel">
+                <div class="log-header">
+                  <h2 class="panel-title">Log</h2>
+                  <div class="log-status">
+                    <span class="status-led" id="install-led"></span>
+                    <span id="install-status">Ready</span>
+                  </div>
+                </div>
+                <div class="log-terminal" id="install-log" role="log"></div>
+              </section>
+            </div>
+          </div>
+          <footer class="view-footer-nav">
+            <button type="button" class="btn-ghost btn-prev-step" data-prev="start">← Welcome</button>
+            <button type="button" class="btn-go btn-next-step" data-next="android">Next: Android →</button>
+          </footer>
+        </section>
+
+        <!-- 2 Android -->
+        <section class="view" id="view-android" data-view="android">
+          <header class="view-hero">
+            <div class="kicker"><span class="badge-dot"></span> STEP 3 OF 10 · SETUP</div>
+            <h1>Android</h1>
+            <p class="subtitle">Android tooling plus a live inventory of this machine's emulator stacks — arch, Docker redroid, MuMu, Studio AVDs and real USB, whatever the CPU is.</p>
+          </header>
+          <div class="view-body">
+            <div class="main-grid">
+              <section class="panel">
+                <h2 class="panel-title">What to do</h2>
+                <ol class="instruction-list">
+                  <li><strong>Boot all phones</strong> starts stopped MuMu, redroid, and Studio phones. <strong>Start farm</strong> then works every phone that answers ADB. Neither button powers a phone off.</li>
+                  <li><strong>On this ARM64 (Snapdragon) machine</strong> Docker redroid containers run native <span class="mono">arm64-v8a</span> Android; MuMu, Studio AVDs and real USB phones are adopted exactly the same way.</li>
+                  <li>Use the <strong>Machine + emulator inventory</strong> below to see what is actually online right now, then continue to <strong>Phones</strong>.</li>
+                </ol>
+              </section>
+              <section class="panel">
+                <div class="panel-head">
+                  <h2 class="panel-title">Machine + emulator inventory</h2>
+                  <button type="button" class="btn-mini" id="btn-refresh-caps" data-help="Rescans this machine: CPU architecture, Docker engine, redroid containers, MuMu instances, Studio AVDs, and every phone on ADB.">Check again</button>
+                </div>
+                <div id="machine-caps" class="machine-caps">
+                  <p class="panel-note">Scanning this machine…</p>
+                </div>
+              </section>
+              <section class="panel">
+                <h2 class="panel-title">Android tools</h2>
+                <button type="button" class="btn-go" id="btn-android-install" data-help="Installs the Android SDK command-line tools and ADB on this machine so the farm can talk to phones. Docker redroid and MuMu ship their own ADB; this covers Studio AVDs and real devices.">Install Android tools (SDK + ADB)</button>
+                <p class="status-line" id="android-status">Checking SDK…</p>
+                <p class="status-line" id="android-detail"></p>
+              </section>
+              <section class="panel log-panel">
+                <div class="log-header">
+                  <h2 class="panel-title">Log</h2>
+                  <div class="log-status">
+                    <span class="status-led" id="android-led"></span>
+                    <span id="android-status-label">Ready</span>
+                  </div>
+                </div>
+                <p class="panel-note">Setup and phone adoption happen in the <strong>Phones</strong> step. This log only shows SDK/ADB install output.</p>
+                <div class="log-terminal" id="android-log" role="log"></div>
+              </section>
+            </div>
+          </div>
+          <footer class="view-footer-nav">
+            <button type="button" class="btn-ghost btn-prev-step" data-prev="install">← Install</button>
+            <button type="button" class="btn-go btn-next-step" data-next="phones">Next: Phones →</button>
+          </footer>
+        </section>
+
+        <!-- 3 Phones -->
+        <section class="view" id="view-phones" data-view="phones">
+          <header class="view-hero">
+            <div class="kicker"><span class="badge-dot"></span> STEP 4 OF 10 · SETUP</div>
+            <h1>Phones</h1>
+            <p class="subtitle">Connect your phones. PharmFlow installs the browser, hides the emulator look, and applies the ad-zone fix for you.</p>
+          </header>
+          <div class="view-body view-body-scroll">
+            <div class="phones-layout">
+              <section class="panel panel-instructions">
+                <h2 class="panel-title">Before you start</h2>
+                <ol class="instruction-list instruction-list-compact phones-instructions">
+                  <li>Start your phones in your stack — <strong>MuMu, Android Studio AVD, Docker redroid, or real USB</strong>. The farm adopts anything that answers ADB.</li>
+                  <li>Turn on <strong>USB debugging</strong> (Settings → Developer options). Leave it on — PharmFlow needs it; the disguise still applies during setup.</li>
+                  <li>If your emulator has a <strong>Root</strong> toggle, leave it <strong>ON</strong>.</li>
+                  <li>Click <strong>Check again</strong>, then <strong>Set up my phones</strong>.</li>
+                  <li>PharmFlow installs the browser, disguises each phone, and finishes setup.</li>
+                  <li>If asked, restart the phones and run setup again.</li>
+                </ol>
+                <p class="panel-note setup-hint" id="setup-hint" hidden></p>
+              </section>
+
+              <section class="panel checklist-panel">
+                <div class="panel-head">
+                  <h2 class="panel-title">Checklist</h2>
+                  <button type="button" class="btn-mini" id="btn-refresh-setup" data-help="Re-runs the phone checklist: ADB, browsers, Tor, and disguise status.">Check again</button>
+                </div>
+                <ul class="checklist checklist-scroll" id="checklist"></ul>
+                <div class="phones-wrap">
+                  <h2 class="panel-title phones-found-title">Phones found</h2>
+                  <div id="phones-empty" class="phones-empty"><strong>None yet</strong> — start an emulator (MuMu, Studio AVD, Docker redroid) or plug a real phone, turn USB debugging ON, then click Check again</div>
+                  <div id="phone-chips" class="phone-chips" hidden></div>
+                </div>
+                <div class="phones-actions-bar">
+                  <button type="button" class="btn-go btn-go-compact" id="btn-go" data-help="Walks the live phones through setup: browser install, ADB keys, Tor per phone. Skips phones already set up.">Set up my phones</button>
+                  <button type="button" class="btn-go btn-go-secondary" id="btn-boot-all" data-help="Starts every stopped MuMu phone, every stopped redroid container, and every stopped Android Studio AVD. Does not wipe AVD data. Does not start Docker Desktop.">Boot all phones</button>
+                </div>
+              </section>
+
+              <section class="panel browser-panel">
+                <div class="panel-head">
+                  <h2 class="panel-title">Install browser</h2>
+                </div>
+                <div class="browser-picker">
+                  <div class="browser-field">
+                    <label class="browser-picker-label" for="browser-select">Browser</label>
+                    <select id="browser-select" class="browser-select" aria-label="Choose a browser to install" data-help="Browser to install on each phone. Chrome is the default; Firefox is lighter and uses less RAM."></select>
+                  </div>
+                  <div class="browser-field">
+                    <label class="browser-picker-label" for="phone-select">On</label>
+                    <select id="phone-select" class="browser-select phone-select" aria-label="Choose which phone to install on" data-help="Which phone gets the browser. Leave as All to batch-install to every live phone."></select>
+                  </div>
+                  <button type="button" class="btn-go btn-chrome btn-chrome-compact" id="btn-install-browser" data-help="Sideloads the selected browser APK onto the chosen phone (or all live phones).">Install</button>
+                </div>
+                <p class="panel-note">FarmBrowser is the stealth money browser — pick it to also delete Lawnchair from the phones. Other browsers come embedded in this EXE and install offline.</p>
+              </section>
+
+              <section class="panel log-panel phones-log-panel">
+                <div class="log-header">
+                  <h2 class="panel-title">Progress log</h2>
+                  <div class="log-status">
+                    <span class="status-led" id="setup-led"></span>
+                    <span id="setup-status">Ready — click Set up my phones</span>
+                  </div>
+                </div>
+                <div class="log-terminal" id="setup-log" role="log"></div>
+              </section>
+            </div>
+          </div>
+          <footer class="view-footer-nav">
+            <button type="button" class="btn-ghost btn-prev-step" data-prev="android">← Android</button>
+            <button type="button" class="btn-go btn-next-step" data-next="boot">Next: Test (step 5) →</button>
+          </footer>
+        </section>
+
+        <!-- 4 Boot -->
+        <section class="view" id="view-boot" data-view="boot">
+          <header class="view-hero">
+            <div class="kicker"><span class="badge-dot"></span> STEP 5 OF 10 · TEST</div>
+            <h1>Test</h1>
+            <p class="subtitle">Confirm your site opens on the phones, with ads visible.</p>
+          </header>
+          <div class="view-body">
+            <div class="main-grid">
+              <section class="panel panel-instructions-boot">
+                <h2 class="panel-title">What to do</h2>
+                <ol class="instruction-list instruction-list-compact">
+                  <li>Set your site URL.</li>
+                  <li>Click <strong>Open site on phones</strong>.</li>
+                  <li>Check the site and ads render.</li>
+                  <li>Not right? Go back to <strong>Phones</strong> and run setup again.</li>
+                </ol>
+                <h2 class="panel-title">Target site</h2>
+                <div class="site-url-row">
+                  <input type="url" class="site-url-input" id="site-url-input" placeholder="https://example.com" autocomplete="url" data-help="The site the farm works against. Save it before testing, and keep it pointing at the site you farm." />
+                  <button type="button" class="btn-mini" id="btn-save-site-url" data-help="Saves this URL as the farm target site used by Test, Map, and default sequences.">Save</button>
+                </div>
+                <p class="panel-note" id="site-url-hint">Used for Test and default sequences.</p>
+                <p class="panel-note boot-policy-note">Start farm uses phones already on ADB. Boot all phones and Spin up one phone start stopped phones only. They do not wipe AVD data, and they do not power phones off.</p>
+                <div class="action-row">
+                  <button type="button" class="btn-ghost" id="btn-spin-test-phone" data-help="Your click only: boots one spare phone (Docker redroid first, then MuMu) so you can test the setup before the farm goes live.">Spin up one phone to test</button>
+                  <button type="button" class="btn-go btn-go-secondary" id="btn-test-url" data-help="Opens the saved site on the live phones so you can check it renders before farming.">Open site on phones</button>
+                </div>
+                <p class="panel-note">No phone on ADB? <strong>Spin up one phone to test</strong> boots a Docker redroid or a MuMu VM for you — never automatic, your click only.</p>
+              </section>
+              <section class="panel log-panel">
+                <div class="log-header">
+                  <h2 class="panel-title">Log</h2>
+                  <div class="log-status">
+                    <span class="status-led" id="boot-led"></span>
+                    <span id="boot-status">Ready</span>
+                  </div>
+                </div>
+                <div class="log-terminal" id="boot-log" role="log"></div>
+              </section>
+            </div>
+          </div>
+          <footer class="view-footer-nav">
+            <button type="button" class="btn-ghost btn-prev-step" data-prev="phones">← Phones</button>
+            <button type="button" class="btn-go btn-next-step" data-next="map">Next: Site Map →</button>
+          </footer>
+        </section>
+
+        <!-- 5 Site Map -->
+        <section class="view" id="view-map" data-view="map">
+          <header class="view-hero">
+            <div class="kicker"><span class="badge-dot"></span> STEP 6 OF 10 · TEST</div>
+            <h1>Site Map</h1>
+            <p class="subtitle">Scan any website the farm will use — map its pages, forms and buttons, then generate a starter sequence to refine.</p>
+          </header>
+          <div class="view-body view-body-scroll">
+            <div class="main-grid main-grid-map">
+              <section class="panel">
+                <h2 class="panel-title">What to do</h2>
+                <ol class="instruction-list instruction-list-compact">
+                  <li>Enter the site URL (pre-filled from <strong>Test</strong>).</li>
+                  <li>Click <strong>Scan site</strong> — PharmFlow maps pages, links, forms, and buttons. A web app shell is read from same-host scripts. A shell with no routes is a failed map.</li>
+                  <li>Click <strong>Generate starter sequence</strong> — a draft becomes your default sequence.</li>
+                  <li>Refine taps and timing in <strong>Steps</strong> or <strong>Builder</strong>.</li>
+                </ol>
+                <h2 class="panel-title">Site URL</h2>
+                <div class="site-url-row">
+                  <input type="url" class="site-url-input" id="map-url-input" placeholder="https://example.com" autocomplete="url" data-help="Site to crawl for a starter sequence. Should match the site you farm on the Test step." />
+                  <button type="button" class="btn-mini" id="btn-map-scan" data-help="Crawls every same-host page and reads same-host script routes in a web app shell. A shell with no routes is a failed map, not an empty success.">Scan site</button>
+                </div>
+                <p class="status-line" id="map-status">Not scanned yet.</p>
+                <div class="action-row">
+                  <button type="button" class="btn-go" id="btn-map-generate" data-help="Turns the scanned pages into a starter sequence you can review and edit on the next step.">Generate starter sequence</button>
+                </div>
+              </section>
+              <section class="panel log-panel">
+                <div class="log-header">
+                  <h2 class="panel-title">Scan log</h2>
+                  <div class="log-status">
+                    <span class="status-led" id="map-led"></span>
+                    <span id="map-status-label">Ready</span>
+                  </div>
+                </div>
+                <div class="log-terminal" id="map-log" role="log"></div>
+              </section>
+            </div>
+            <div class="map-results" id="map-results"></div>
+          </div>
+          <footer class="view-footer-nav">
+            <button type="button" class="btn-ghost btn-prev-step" data-prev="boot">← Test</button>
+            <button type="button" class="btn-go btn-next-step" data-next="steps">Next: Steps →</button>
+          </footer>
+        </section>
+
+        <!-- 6 Steps -->
+        <section class="view" id="view-steps" data-view="steps">
+          <header class="view-hero">
+            <div class="kicker"><span class="badge-dot"></span> STEP 7 OF 10 · TEST</div>
+            <h1>Steps</h1>
+            <p class="subtitle">The default tap sequence new phones run.</p>
+          </header>
+          <div class="view-body">
+            <div class="main-grid">
+              <section class="panel">
+                <h2 class="panel-title">What to do</h2>
+                <ol class="instruction-list">
+                  <li>Setup usually creates steps for you — if so, skip this.</li>
+                  <li>Otherwise open the <strong>in-deck editor</strong> on Builder, or jump there below.</li>
+                </ol>
+                <h2 class="panel-title">Default sequence</h2>
+                <p class="status-line" id="steps-summary">No default steps defined.</p>
+                <ul class="steps-preview" id="steps-preview"></ul>
+                <div class="action-row">
+                  <button type="button" class="btn-go" id="btn-edit-sequence" data-help="Opens the in-deck sequence editor (Builder) so you can add, edit, or reorder steps without leaving the deck.">Edit in Builder</button>
+                  <button type="button" class="btn-mini" id="btn-load-sequence" data-help="Loads a sequence from disk (JSON).">Load file</button>
+                  <button type="button" class="btn-mini" id="btn-save-sequence" data-help="Saves the current sequence to disk so you can reuse it later.">Save as</button>
+                </div>
+              </section>
+              <section class="panel">
+                <h2 class="panel-title">Daily mix</h2>
+                <p class="panel-note">How many Path 1, Path 2, and Path 3 sequences each phone runs. Path 1 is a full browse. Path 2 is a halfway browse so visits are not identical. Path 3 is one paid action. Phones get different random daily counts so the farm does not look cloned. The fleet total still matches your target. Same mix rules for any site. Payout is impressions times eCPM divided by 1000. The dashboard can change these numbers after the farm is up. A blank phone count is not a guess.</p>
+                <form id="earn-plan-form" class="builder-step-form" autocomplete="off" onsubmit="return false;">
+                  <div class="step-field-row">
+                    <label class="step-field-label" for="earn-phones">Phones</label>
+                    <input id="earn-phones" type="number" min="1" step="1" inputmode="numeric" placeholder="How many phones this plan is for">
+                  </div>
+                  <div class="step-field-row">
+                    <label class="step-field-label" for="earn-visits">Visits per phone</label>
+                    <input id="earn-visits" type="number" min="1" step="1" inputmode="numeric" placeholder="Optional if you enter payout and eCPM">
+                  </div>
+                  <div class="step-field-row">
+                    <label class="step-field-label" for="earn-usd">Target daily payout</label>
+                    <input id="earn-usd" type="number" min="0" step="0.01" inputmode="decimal" placeholder="USD, optional if visits are set">
+                  </div>
+                  <div class="step-field-row">
+                    <label class="step-field-label" for="earn-ecpm">Site eCPM</label>
+                    <input id="earn-ecpm" type="number" min="0" step="0.01" inputmode="decimal" placeholder="What the site pays per 1000 impressions">
+                  </div>
+                  <div class="step-field-row">
+                    <label class="step-field-label" for="earn-ipv">Impressions per visit</label>
+                    <input id="earn-ipv" type="number" min="0" step="1" inputmode="decimal" placeholder="Blank uses 22 (labeled as a default)">
+                  </div>
+                  <div class="step-field-row">
+                    <label class="step-field-label" for="earn-path2">Path 2 share</label>
+                    <input id="earn-path2" type="number" min="0" max="1" step="0.01" inputmode="decimal" placeholder="Blank uses 0.20 of non-ad visits">
+                  </div>
+                  <div class="step-field-row">
+                    <label class="step-field-label" for="earn-ads">Paid actions</label>
+                    <select id="earn-ads" class="browser-select" aria-label="Paid actions">
+                      <option value="off">Off — Path 1 and Path 2 only</option>
+                      <option value="on">On — include Path 3</option>
+                    </select>
+                  </div>
+                  <div class="step-field-row">
+                    <label class="step-field-label" for="earn-ratio">Visits per paid action</label>
+                    <input id="earn-ratio" type="number" min="1" step="1" inputmode="numeric" placeholder="Required if Path 3 is on. Documented band 30-45.">
+                  </div>
+                  <div class="action-row">
+                    <button type="button" class="btn-mini" id="btn-earn-preview" data-help="Computes Path 1, 2, and 3 counts from the numbers above. Does not start the farm.">Preview mix</button>
+                    <button type="button" class="btn-go" id="btn-earn-save" data-help="Saves the mix. The farm reads this file while it is running. The dashboard can change the same numbers later.">Save mix</button>
+                  </div>
+                </form>
+                <p class="status-line" id="earn-plan-status">No mix saved yet.</p>
+              </section>
+            </div>
+          </div>
+          <footer class="view-footer-nav">
+            <button type="button" class="btn-ghost btn-prev-step" data-prev="map">← Site Map</button>
+            <button type="button" class="btn-go btn-next-step" data-next="builder">Next: Builder →</button>
+          </footer>
+        </section>
+
+        <!-- 7 Builder -->
+        <section class="view" id="view-builder" data-view="builder">
+          <header class="view-hero">
+            <div class="kicker"><span class="badge-dot"></span> STEP 8 OF 10 · TEST</div>
+            <h1>Builder</h1>
+            <p class="subtitle">Edit the default sequence in-deck — add, update, or clear steps.</p>
+          </header>
+          <div class="view-body view-body-scroll">
+            <div class="main-grid main-grid-builder">
+              <section class="panel panel-builder-list" id="builder-editor">
+                <div class="panel-head">
+                  <h2 class="panel-title">Sequence steps</h2>
+                  <button type="button" class="btn-mini" id="btn-open-builder" data-help="Reloads the step list from the current default sequence.">Reload steps</button>
+                </div>
+                <ul class="step-editor-list" id="builder-step-list"></ul>
+                <p class="panel-note">Select a step to edit it, or add a new one below. Most people keep the money-path defaults.</p>
+              </section>
+              <section class="panel panel-builder-form">
+                <h2 class="panel-title">Step form</h2>
+                <form id="builder-step-form" class="builder-step-form" autocomplete="off" onsubmit="return false;">
+                  <div class="step-field-row">
+                    <label class="step-field-label" for="builder-step-type">Type</label>
+                    <select id="builder-step-type" class="browser-select" aria-label="Step type">
+                      <option value="open_url">Open URL</option>
+                      <option value="launch_app">Launch app</option>
+                      <option value="tap">Tap</option>
+                      <option value="wait">Wait</option>
+                      <option value="swipe">Swipe</option>
+                      <option value="keyevent">Keyevent</option>
+                      <option value="close_app">Close app</option>
+                      <option value="clear_cookies">Clear cookies</option>
+                      <option value="rotate_identity">Rotate identity</option>
+                      <option value="type_text">Type text</option>
+                    </select>
+                  </div>
+                  <div id="builder-step-fields" class="builder-step-fields"></div>
+                  <div class="action-row builder-form-actions">
+                    <button type="button" class="btn-go" id="btn-builder-add" data-help="Appends the step from the form to the default sequence.">Add step</button>
+                    <button type="button" class="btn-go btn-go-secondary" id="btn-builder-update" disabled hidden data-help="Writes your form edits back into the selected step.">Update selected</button>
+                    <button type="button" class="btn-mini" id="btn-builder-clear-sel" data-help="Clears the selected step so Add creates a new step instead of updating.">Clear selection</button>
+                  </div>
+                </form>
+              </section>
+            </div>
+          </div>
+          <footer class="view-footer-nav">
+            <button type="button" class="btn-ghost btn-prev-step" data-prev="steps">← Steps</button>
+            <button type="button" class="btn-go btn-next-step" data-next="teams">Next: Groups →</button>
+          </footer>
+        </section>
+
+        <!-- 8 Groups -->
+        <section class="view" id="view-teams" data-view="teams">
+          <header class="view-hero">
+            <div class="kicker"><span class="badge-dot"></span> STEP 9 OF 10 · TEST</div>
+            <h1>Groups</h1>
+            <p class="subtitle">Organize phones into groups with natural timing.</p>
+          </header>
+          <div class="view-body view-body-scroll">
+            <div class="main-grid">
+              <section class="panel">
+                <h2 class="panel-title">What to do</h2>
+                <ol class="instruction-list">
+                  <li>Rename or remove groups in the list below — manage them here in the deck.</li>
+                  <li>Put each phone in one group.</li>
+                  <li>Add a group only if you need one.</li>
+                  <li>Then go to <strong>Run</strong>.</li>
+                </ol>
+                <h2 class="panel-title">Your groups</h2>
+                <p class="status-line" id="teams-summary">No groups yet.</p>
+                <ul class="groups-list" id="groups-list"></ul>
+                <div class="action-row">
+                  <button type="button" class="btn-go" id="btn-manage-groups" data-help="Refreshes the groups list from farm state.">Refresh groups</button>
+                  <button type="button" class="btn-mini" id="btn-add-group" data-help="Creates another phone group in the saved farm config.">Add group</button>
+                  <button type="button" class="btn-mini" id="btn-humanize" data-help="Adds natural timing jitter to every phone sequence so runs look less robotic.">Natural timing — all phones</button>
+                </div>
+              </section>
+              <section class="panel">
+                <h2 class="panel-title">Dashboard</h2>
+                <p class="panel-note">Open the dashboard to watch runs and revenue live.</p>
+                <div class="action-row">
+                  <button type="button" class="btn-ghost" id="btn-open-dash-teams" data-help="Opens the farm operator dashboard at 127.0.0.1:8091. If that is down, it says so. It does not open the control dashboard.">Open dashboard</button>
+                </div>
+              </section>
+            </div>
+          </div>
+          <footer class="view-footer-nav">
+            <button type="button" class="btn-ghost btn-prev-step" data-prev="builder">← Builder</button>
+            <button type="button" class="btn-go btn-next-step" data-next="go">Next: Run (step 10) →</button>
+          </footer>
+        </section>
+
+        <!-- 8 Go -->
+        <section class="view" id="view-go" data-view="go">
+          <header class="view-hero">
+            <div class="kicker"><span class="badge-dot"></span> STEP 10 OF 10 · RUN</div>
+            <h1>Run</h1>
+            <p class="subtitle">Launch the farm. Service plus all groups, from one button.</p>
+          </header>
+          <div class="view-body view-body-scroll">
+            <div class="main-grid main-grid-run">
+              <section class="panel panel-run-actions">
+                <h2 class="panel-title">What to do</h2>
+                <ol class="instruction-list">
+                  <li>Click <strong>Start automation</strong>.</li>
+                  <li>PharmFlow boots stopped phones, starts the service, and runs all groups.</li>
+                  <li>Watch the phone screens (MuMu, Docker redroid, Studio AVD, real) to confirm phones are running.</li>
+                </ol>
+                <p class="status-line" id="launch-summary"></p>
+                <div class="action-row action-row-big">
+                  <button type="button" class="btn-go" id="btn-start-server" data-help="Starts the wizard control service and opens that control dashboard in your browser. This is not the farm dashboard at 127.0.0.1:8091.">Start service + open control dashboard</button>
+                  <button type="button" class="btn-go btn-go-secondary" id="btn-run-groups" data-help="Boots phones if needed, then runs every group sequence in parallel.">Run all groups</button>
+                </div>
+                <div class="action-row">
+                  <button type="button" class="btn-go" id="btn-start-automation" data-help="Boots stopped phones, then starts the service and runs every group. Does not wipe AVD data.">Start automation (service + run)</button>
+                </div>
+                <div class="advanced-block">
+                  <p class="panel-title">Extra tools</p>
+                  <div class="advanced-actions">
+                    <button type="button" class="btn-ghost" id="btn-fix-net" data-help="Re-pins each live phone onto its own exit. Does not clear the phone proxy or send traffic out this PC.">Fix phone internet</button>
+                    <button type="button" class="btn-ghost" id="btn-open-dash" data-help="Opens the wizard control server in your browser (localhost:8080). Start service first. This is not the farm dashboard at 127.0.0.1:8091.">Open control dashboard</button>
+                  </div>
+                </div>
+                <div class="advanced-block">
+                  <p class="panel-title">Cloud phones + agent</p>
+                  <div class="advanced-actions">
+                    <button type="button" class="btn-ghost" id="btn-cloud-setup">Cloud phone setup…</button>
+                    <button type="button" class="btn-ghost" id="btn-cloud-status">Cloud status…</button>
+                    <button type="button" class="btn-ghost" id="btn-agent-status">Agent status</button>
+                    <button type="button" class="btn-ghost" id="btn-cloud-agent">Run cloud agent…</button>
+                    <button type="button" class="btn-ghost" id="btn-cloud-agent-settings">Agent settings…</button>
+                  </div>
+                  <p class="panel-note">Cloud setup connects, disguises, and routes Tor for remote Android instances. Agent status checks Docker, emulators, and ADB health. Run cloud agent uses your own API key to reason over the farm.</p>
+                </div>
+              </section>
+              <section class="panel log-panel">
+                <div class="log-header">
+                  <h2 class="panel-title">Log</h2>
+                  <div class="log-status">
+                    <span class="status-led" id="run-led"></span>
+                    <span id="run-status">Ready</span>
+                  </div>
+                </div>
+                <div class="log-terminal" id="go-log" role="log"></div>
+              </section>
+            </div>
+          </div>
+          <footer class="view-footer-nav">
+            <button type="button" class="btn-ghost btn-prev-step" data-prev="teams">← Groups</button>
+            <span></span>
+          </footer>
+        </section>
+        <section class="view" id="view-health" data-view="health">
+          <header class="view-hero">
+            <div class="kicker"><span class="badge-dot"></span> SESSION QUALITY</div>
+            <h1>Farm health</h1>
+            <p class="subtitle">Dump timeouts, fallback taps and paying fills — read live from the farm logs.</p>
+          </header>
+          <div class="view-body view-body-scroll">
+            <div class="main-grid">
+              <section class="panel">
+                <h2 class="panel-title">Session summary</h2>
+                <div class="health-summary" id="health-summary"></div>
+              </section>
+              <section class="panel log-panel">
+                <div class="log-header">
+                  <h2 class="panel-title">Per-phone quality</h2>
+                  <div class="log-status">
+                    <span class="status-led" id="health-led"></span>
+                    <button type="button" class="btn-ghost" id="btn-health-refresh" data-help="Reloads dump-timeout and fallback stats from farm_354.log.">Refresh</button>
+                  </div>
+                </div>
+                <div class="health-table-wrap" id="health-table"></div>
+                <p class="panel-note" id="health-note">Live from farm_354.log — no log files to open.</p>
+              </section>
+            </div>
+          </div>
+          <footer class="view-footer-nav">
+            <button type="button" class="btn-ghost btn-prev-step" data-prev="go">← Run</button>
+            <span></span>
+          </footer>
+        </section>
+      </main>
+    </div>
+
+    <div class="app-toast" id="app-toast" hidden></div>
+
+    <!-- Help (File → Help) -->
+    <div class="help-overlay" id="help-overlay" hidden>
+      <div class="help-sheet" role="dialog" aria-modal="true" aria-labelledby="help-title">
+        <header class="help-head">
+          <div class="help-head-titles">
+            <div class="kicker"><span class="badge-dot"></span> PHARMFLOW · HELP</div>
+            <h2 id="help-title">Help &amp; quick guide</h2>
+          </div>
+          <button type="button" class="btn-ghost help-close" id="help-close" title="Close help (Esc)">Close ✕</button>
+        </header>
+
+        <div class="help-body">
+          <section class="help-sec">
+            <h3>What this is</h3>
+            <p>PharmFlow turns emulator phones into a working ad farm. The deck walks you through it in <strong>10 ordered steps</strong> — set up this PC, get Android tools, connect phones, prove the site works, map it, build sequences, assign groups, and run. Work top to bottom; the pipeline above turns green as each part is done.</p>
+          </section>
+
+          <section class="help-sec">
+            <h3>The 10 steps</h3>
+            <ol class="help-steps">
+              <li><strong>Welcome</strong> — the path and what each part needs.</li>
+              <li><strong>Install</strong> — browser + tools this PC needs to run the farm.</li>
+              <li><strong>Android</strong> — ADB and emulator tooling, wherever it lives on this machine.</li>
+              <li><strong>Phones</strong> — discover and set up phones. <em>Any live ADB device works — MuMu, Android Studio AVD, Docker, or cloud — the deck finds what is actually online, not a fixed list.</em></li>
+              <li><strong>Test</strong> — prove a phone can load your site and click a zone before you build anything.</li>
+              <li><strong>Site Map</strong> — scan a site once and get a map of its pages, forms, buttons, and links to base sequences on.</li>
+              <li><strong>Steps</strong> — review and fine-tune the recorded steps for the site.</li>
+              <li><strong>Builder</strong> — shape full sequences (with and without ads) from the mapped site.</li>
+              <li><strong>Groups</strong> — assign sequences to phones so every phone knows its job.</li>
+              <li><strong>Run</strong> — start the server, start the groups, and watch the farm work. Log and money gauges live on this screen.</li>
+            </ol>
+          </section>
+
+          <section class="help-sec">
+            <h3>Emulators — started when you ask</h3>
+            <p><strong>Boot all phones</strong> starts every stopped MuMu phone, redroid container, and Studio AVD. It does not wipe AVD data and does not start Docker Desktop. <strong>Start farm</strong> does not boot phones; it farms whatever is already answering ADB. There is no fixed roster.</p>
+          </section>
+
+          <section class="help-sec">
+            <h3>Running the farm</h3>
+            <p>On <strong>Run</strong>, <strong>Start automation</strong> boots stopped phones, then starts the service and runs groups. <strong>Start farm</strong> does not boot phones; it farms phones already on ADB. Once the farm is running it keeps its phones alive. Watch it live:</p>
+            <ul class="help-list">
+              <li><strong>Farm dashboard:</strong> <span class="mono">http://127.0.0.1:8091/</span> — phones, progress, money.</li>
+              <li><strong>Wizard control server:</strong> <span class="mono">http://localhost:8080/</span></li>
+            </ul>
+          </section>
+
+          <section class="help-sec">
+            <h3>Stealth first, then money</h3>
+            <p>Those are the two priorities, in that order. Phones are disguised as real devices before they ever click; per-phone identity and exit paths are applied during setup and kept through the run. The farm never trades stealth for speed — a phone that looks wrong is stopped, not pushed.</p>
+          </section>
+
+          <section class="help-sec">
+            <h3>Advanced controls</h3>
+            <p>Most steps have an <strong>Advanced</strong> panel for that step: stealth, proxy mode, paths, and start timing. It does not set a phone count or an hourly cap. The farm uses every phone that answers ADB. Changes are saved when you press Save and survive EXE restarts.</p>
+          </section>
+
+          <section class="help-sec">
+            <h3>If something looks stuck</h3>
+            <ul class="help-list">
+              <li><strong>No phones listed:</strong> press <strong>Boot all phones</strong>, wait for the Android home, then Check again.</li>
+              <li><strong>Farm idle with a phone online:</strong> check the phone was adopted on the Run screen, then check <span class="mono">127.0.0.1:8091</span>.</li>
+              <li><strong>Farm lane died:</strong> the watchdog respawns it automatically; give it one cycle.</li>
+              <li><strong>Nothing helps:</strong> restarting PharmFlow does not power phones off and does not reset ADB.</li>
+            </ul>
+          </section>
+        </div>
+
+        <footer class="help-foot">Settings and logs live under <span class="mono">C:\PharmFlow</span> · Help is File → Help at any time.</footer>
+      </div>
+    </div>
+
+    <script src="app.js?v=20260908"></script>
+  </body>
+</html>

@@ -23,18 +23,18 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-os.environ.setdefault("CPHARM_ALLOW_SEQUENCE_RUNS", "1")
-os.environ.setdefault("CPHARM_SKIP_MANTIS_PATCH", "1")
-os.environ["CPHARM_EMULATOR_AD_FILL_WAIT"] = "0"
+os.environ.setdefault("PHARMFLOW_ALLOW_SEQUENCE_RUNS", "1")
+os.environ.setdefault("PHARMFLOW_SKIP_MANTIS_PATCH", "1")
+os.environ["PHARMFLOW_EMULATOR_AD_FILL_WAIT"] = "0"
 # Fast demo: skip Tor/geo/IMEI isolation (minutes) — browser wipe still runs.
-os.environ.setdefault("CPHARM_SKIP_SEQUENCE_ISOLATION", "1")
-os.environ.setdefault("CPHARM_SKIP_FINGERPRINT", "1")
+os.environ.setdefault("PHARMFLOW_SKIP_SEQUENCE_ISOLATION", "1")
+os.environ.setdefault("PHARMFLOW_SKIP_FINGERPRINT", "1")
 
 from automation.sequence_runner import Sequence, SequenceRunner
 from automation.web_viewport import get_viewport
 from wizard.mumu_farm_ops import MuMuFarmOps
 
-OUT = Path(r"C:\CPharm\logs\browser_verify")
+OUT = Path(r"C:\PharmFlow\logs\browser_verify")
 BROWSER_TAGS = ("chromium", "firefox", "brave", "duckduckgo")
 TIMER_MARKERS = ("HEAT YOUR BANGER", "Pause", "PAUSE", "timer-display", "COOL DOWN")
 
@@ -68,8 +68,8 @@ def run_one(farm: MuMuFarmOps, phone: str, seq_path: Path) -> dict:
     runner = SequenceRunner(farm)
     result = runner.run(seq)
 
-    farm.adb.shell("uiautomator dump /sdcard/cpharm_verify.xml", serial=serial)
-    xml = farm.adb.shell("cat /sdcard/cpharm_verify.xml", serial=serial).stdout or ""
+    farm.adb.shell("uiautomator dump /sdcard/pharmflow_verify.xml", serial=serial)
+    xml = farm.adb.shell("cat /sdcard/pharmflow_verify.xml", serial=serial).stdout or ""
     OUT.mkdir(parents=True, exist_ok=True)
     (OUT / f"{seq_path.stem}.xml").write_text(xml, encoding="utf-8", errors="replace")
     farm.adb.shell(f"screencap -p /sdcard/{seq_path.stem}.png", serial=serial)
@@ -111,7 +111,7 @@ def main() -> int:
     ap.add_argument(
         "--root",
         type=Path,
-        default=Path(r"C:\CPharm\automation\recordings\sequences\base"),
+        default=Path(r"C:\PharmFlow\automation\recordings\sequences\base"),
     )
     ap.add_argument("--seed", type=int, default=0)
     args = ap.parse_args()

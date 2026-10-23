@@ -22,7 +22,8 @@ from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional
 
-from adb_paths import adb_executable
+import automation.no_window  # noqa: F401  — CREATE_NO_WINDOW for every Popen child
+from automation.adb_paths import adb_executable
 from automation.adb_wrapper import AdbWrapper
 from automation.browser_adb import browser_pkg_for_clear
 from automation.config import (
@@ -68,10 +69,13 @@ _recent_exit_ips: list[str] = []
 
 # Common Tor Browser + Expert Bundle install locations (Windows)
 TOR_SEARCH_PATHS: list[Path] = [
+    Path(r"C:\CPharm\bundled\tor.exe"),
     bundled_dir() / "tor.exe",
+    Path(r"C:\PharmFlow\bundled\tor.exe"),
+    bundle_root() / "bundled" / "tor.exe",
     bundle_root() / "tor" / "tor.exe",
     app_data_root() / "tor" / "tor.exe",
-    Path(os.environ.get("CPHARM_TOR_PATH", "")),
+    Path(os.environ.get("CPHARM_TOR_PATH") or os.environ.get("PHARMFLOW_TOR_PATH") or ""),
     Path(r"C:\Tor\tor.exe"),
     Path(r"C:\Program Files\Tor\tor.exe"),
     Path(os.environ.get("LOCALAPPDATA", "")) / "Tor Browser" / "Browser" / "TorBrowser" / "Tor" / "tor.exe",
@@ -184,21 +188,124 @@ class ExitIpRotateResult:
         }
 
 
+def _slot_index(phone_index: int) -> int:
+    """Fleet slot for an absolute phone index (farm export or live-roster scan).
+
+    Tor lanes are prewarmed for slots 0..N-1 at the runtime base; dialing
+    base+absolute_idx (39 -> 8157) hit nobody when the fleet is vm39+ — the
+    2026-09-13 split-brain. Precedence: the farm's slot map exported at arm
+    time (CPHARM_/PHARMFLOW_INJECT_SLOT_MAP), then the live serial map/config scan
+    (same rule as mantis_inject_proxy._fleet_slot), then the absolute idx.
+    """
+    idx = int(phone_index)
+    raw = (
+        os.environ.get("CPHARM_INJECT_SLOT_MAP")
+        or os.environ.get("PHARMFLOW_INJECT_SLOT_MAP")
+        or ""
+    )
+    if raw.strip():
+        try:
+            m = json.loads(raw)
+            val = m.get(str(idx))
+            if val is not None:
+                return int(val)
+        except Exception:
+            pass
+    idxs = live_fleet_indices()
+    if idxs and idx in idxs:
+        return idxs.index(idx)
+    return idx
+
+
+def live_fleet_indices() -> list[int]:
+    """Sorted absolute phone indices of the live roster (empty when unknown).
+
+    Same discovery ``_slot_index`` has always used -- the live serial map, then
+    the farm config -- so fleet size is read from the real fleet rather than
+    assumed. Never raises: an unreadable roster is simply "unknown".
+    """
+    try:
+        names: list[str] = []
+        for logs_dir in _logs_dirs_for_bases():
+            try:
+                data = json.loads((logs_dir / "ADB_SERIAL_MAP.lock.json").read_text(encoding="utf-8"))
+                names = [
+                    str(k)
+                    for k, v in dict(data.get("phones") or {}).items()
+                    if str(v or "").strip()
+                ]
+            except Exception:
+                names = []
+            if names:
+                break
+            for cfg_name in ("cpharm_config.json", "pharmflow_config.json"):
+                try:
+                    cfg = json.loads((logs_dir.parent / cfg_name).read_text(encoding="utf-8"))
+                    names = [str(x) for x in (cfg.get("phones") or [])]
+                except Exception:
+                    names = []
+                if names:
+                    break
+            if names:
+                break
+        return sorted(int(mm.group(1)) for n in names if (mm := re.match(r"^vm(\d+)\.", n)))
+    except Exception:
+        return []
+
+
+def listening_tor_http_lane_ports() -> list[int]:
+    """HTTP-tunnel ports of the Tor lanes that are actually accepting connections.
+
+    For callers with no roster to go on. Lanes are NOT guaranteed contiguous --
+    one lane can fail to warm while a higher one starts fine -- so every
+    candidate port from the runtime base to the top of the port space is
+    probed; the scan never stops at the first gap. Probes run with a bounded
+    number of sockets in flight at once (not one future per candidate port),
+    so scanning the full range stays fast without piling up tens of thousands
+    of pending futures.
+    """
+    import concurrent.futures as _cf
+
+    base = int(globals().get("HTTP_TUNNEL_BASE", TOR_HTTP_TUNNEL_BASE))
+    last_port = 65535
+    found: list[int] = []
+    workers = 128
+    next_port = base
+    with _cf.ThreadPoolExecutor(max_workers=workers) as ex:
+        pending: dict[_cf.Future, int] = {}
+        while next_port <= last_port and len(pending) < workers:
+            pending[ex.submit(_tcp_open, next_port)] = next_port
+            next_port += 1
+        while pending:
+            done, _ = _cf.wait(pending, return_when=_cf.FIRST_COMPLETED)
+            for fut in done:
+                p = pending.pop(fut)
+                try:
+                    if fut.result():
+                        found.append(p)
+                except Exception:
+                    pass
+                if next_port <= last_port:
+                    pending[ex.submit(_tcp_open, next_port)] = next_port
+                    next_port += 1
+    return sorted(found)
+
+
 def phone_http_port(phone_index: int) -> int:
-    """Per-phone HTTPTunnelPort — must match standalone ``HTTP_TUNNEL_BASE`` (may auto-shift)."""
+    """Per-phone HTTPTunnelPort — slot-based so high-index fleets dial a live lane."""
     # Looked up at call time so the shifted base assigned later in this module applies.
-    return int(globals().get("HTTP_TUNNEL_BASE", TOR_HTTP_TUNNEL_BASE)) + phone_index
+    return int(globals().get("HTTP_TUNNEL_BASE", TOR_HTTP_TUNNEL_BASE)) + _slot_index(phone_index)
 
 
 def phone_socks_port(phone_index: int) -> int:
-    """Per-phone SocksPort — must match standalone ``BASE_PORT`` (may auto-shift)."""
-    return int(globals().get("BASE_PORT", TOR_SOCKS_BASE)) + phone_index
+    """Per-phone SocksPort — slot-based, same rule as HTTP (split-brain fix)."""
+    return int(globals().get("BASE_PORT", TOR_SOCKS_BASE)) + _slot_index(phone_index)
 
 
 def phone_control_port(phone_index: int) -> int:
-    """Per-phone ControlPort for SIGNAL NEWNYM — standalone uses BASE_PORT+1000+idx."""
+    """Per-phone ControlPort for SIGNAL NEWNYM — slot-based, same rule as HTTP/SOCKS."""
     base = int(globals().get("BASE_PORT", TOR_SOCKS_BASE))
-    return base + 1000 + phone_index
+    return base + 1000 + _slot_index(phone_index)
 
 
 def guest_proxy_endpoint(phone_index: int) -> str:
@@ -379,7 +486,7 @@ def _classify_tor_path(path: Path) -> TorInstallKind:
         return TorInstallKind.TOR_BROWSER
     if "bundled" in parts or path.parent.name == "tor":
         return TorInstallKind.BUNDLED
-    if os.environ.get("CPHARM_TOR_PATH") and str(path) == os.environ.get("CPHARM_TOR_PATH"):
+    if os.environ.get("PHARMFLOW_TOR_PATH") and str(path) == os.environ.get("PHARMFLOW_TOR_PATH"):
         return TorInstallKind.ENV_PATH
     if "tor-win" in path.as_posix().lower():
         return TorInstallKind.EXPERT_BUNDLE
@@ -484,7 +591,7 @@ def write_torrc(
     cfg_path = tor_config_path(phone_index, data_root)
     cfg_path.parent.mkdir(parents=True, exist_ok=True)
 
-    torrc = f"""# CPharm Tor instance for phone {phone_index}
+    torrc = f"""# PharmFlow Tor instance for phone {phone_index}
 DataDirectory {str(data_dir.resolve())}
 HTTPTunnelPort {http_port}
 SocksPort {socks_port}
@@ -537,32 +644,102 @@ class TorManager:
         self.tor_exe = install.path if install else tor_binary_path()
         return install
 
+    def _proc_age_s(self, proc: subprocess.Popen | None) -> float | None:
+        """Process age in seconds, or None when the start time cannot be read."""
+        if proc is None or proc.poll() is not None or not proc.pid:
+            return None
+        try:
+            import psutil
+
+            return max(0.0, time.time() - psutil.Process(int(proc.pid)).create_time())
+        except Exception:
+            return None
+
+    def _http_down_needs_restart(self, phone_index: int, proc: subprocess.Popen | None) -> bool:
+        """True when HTTP is down and the owner is stale — not a young bootstrap.
+
+        Control-up + HTTP-down on a young (or age-unknown) process is bootstrap.
+        Adopting that as "already up" used to leave the slot dead and claim healed.
+        """
+        if self._http_tunnel_alive(phone_index):
+            return False
+        age = self._proc_age_s(proc)
+        try:
+            budget = float(tor_wait_http_seconds())
+        except Exception:
+            budget = 240.0
+        if age is None:
+            # Can't prove stale. Control-up means HTTP may still be opening.
+            return not self._control_alive(phone_index)
+        return age >= budget
+
+    def _terminate_proc(self, proc: subprocess.Popen | None) -> None:
+        if proc is None or proc.poll() is not None:
+            return
+        try:
+            proc.terminate()
+            proc.wait(timeout=8)
+        except Exception:
+            try:
+                proc.kill()
+            except Exception:
+                pass
+
     def start_phone_tor(
         self,
         phone_index: int,
         adb_serial: str,
         data_root: Path | None = None,
     ) -> TorInstance:
-        """Start Tor for a phone and configure adb reverse to guest 127.0.0.1:<port>."""
+        """Start Tor for a phone and configure adb reverse to guest 127.0.0.1:<port>.
+
+        A live process or ControlPort is not a live HTTP tunnel. Returning the
+        instance in that state used to look like a restore while inject dialed
+        a dead slot.
+        """
         http_port = phone_http_port(phone_index)
         socks_port = phone_socks_port(phone_index)
         control_port = phone_control_port(phone_index)
         cfg = write_torrc(phone_index, http_port, socks_port, data_root, control_port)
 
-        if phone_index in self.instances and self.instances[phone_index].process:
-            proc = self.instances[phone_index].process
-            if proc and proc.poll() is None:
-                logger.info("Tor already running for phone %d", phone_index)
-                self._setup_reverse(adb_serial, http_port)
-                return self.instances[phone_index]
+        existing = self.instances.get(phone_index)
+        proc = existing.process if existing else None
+        proc_alive = proc is not None and proc.poll() is None
+        http_up = self._http_tunnel_alive(phone_index)
 
-        # Another farm process may already own this HTTP tunnel — adopt via ControlPort.
-        if self._control_alive(phone_index) or self._http_tunnel_alive(phone_index):
+        if proc_alive and http_up:
+            logger.info("Tor already running for phone %d", phone_index)
+            self._setup_reverse(adb_serial, http_port, phone_index=phone_index)
+            return existing  # type: ignore[return-value]
+
+        if proc_alive and not http_up:
+            if not self._http_down_needs_restart(phone_index, proc):
+                logger.info(
+                    "Tor bootstrapping for phone %d — HTTP :%s not up yet",
+                    phone_index,
+                    http_port,
+                )
+                return existing  # type: ignore[return-value]
+            logger.warning(
+                "Tor process alive but HTTP :%s down for phone %d — restarting",
+                http_port,
+                phone_index,
+            )
+            self._terminate_proc(proc)
+            self.instances.pop(phone_index, None)
+
+        # Adopt only a listener that accepts HTTP. Control-only is a dead tunnel.
+        if http_up:
             logger.info(
                 "Tor tunnel already up for phone %d (adopting ControlPort %d)",
                 phone_index,
                 control_port,
             )
+            # Farm uses this path, not start_tor_for_phone. Without the
+            # publish, inject keeps the last writer's bases (dash was
+            # heartbeating Tor Browser SOCKS 9150).
+            _broadcast_port_bases()
+            _ensure_bases_heartbeat()
             instance = TorInstance(
                 phone_index=phone_index,
                 http_port=http_port,
@@ -572,12 +749,12 @@ class TorManager:
                 control_port=control_port,
             )
             self.instances[phone_index] = instance
-            self._setup_reverse(adb_serial, http_port)
+            self._setup_reverse(adb_serial, http_port, phone_index=phone_index)
             return instance
 
         if not self.tor_exe.is_file():
             raise FileNotFoundError(
-                f"Tor binary not found: {self.tor_exe}. Install Tor Expert Bundle or set CPHARM_TOR_PATH."
+                f"Tor binary not found: {self.tor_exe}. Install Tor Expert Bundle or set PHARMFLOW_TOR_PATH."
             )
 
         # DEVNULL (not PIPE): console-subsystem tor.exe + PIPE still attaches conhost and can flash.
@@ -599,10 +776,10 @@ class TorManager:
             hide_console_burst(int(proc.pid))
         time.sleep(3.0)  # Allow Tor bootstrap
         if proc.poll() is not None:
-            # Port conflict / bad torrc — prefer adopting an already-bound tunnel.
-            if self._control_alive(phone_index) or self._http_tunnel_alive(phone_index):
+            # Port conflict / bad torrc — adopt only when HTTP actually accepts.
+            if self._http_tunnel_alive(phone_index):
                 logger.warning(
-                    "Tor process exited for phone %d but tunnel is up — adopting",
+                    "Tor process exited for phone %d but HTTP tunnel is up — adopting",
                     phone_index,
                 )
                 instance = TorInstance(
@@ -614,7 +791,7 @@ class TorManager:
                     control_port=control_port,
                 )
                 self.instances[phone_index] = instance
-                self._setup_reverse(adb_serial, http_port)
+                self._setup_reverse(adb_serial, http_port, phone_index=phone_index)
                 return instance
             err = ""
             try:
@@ -632,7 +809,7 @@ class TorManager:
             control_port=control_port,
         )
         self.instances[phone_index] = instance
-        self._setup_reverse(adb_serial, http_port)
+        self._setup_reverse(adb_serial, http_port, phone_index=phone_index)
         return instance
 
     def _control_alive(self, phone_index: int) -> bool:
@@ -651,48 +828,68 @@ class TorManager:
         except OSError:
             return False
 
-    def _setup_reverse(self, serial: str, port: int) -> None:
+    def _setup_reverse(self, serial: str, port: int, phone_index: int | None = None) -> None:
         """
         Map host Tor HTTPTunnelPort into the emulator guest.
 
         Default: adb reverse tcp:<port> tcp:<port> then http_proxy 127.0.0.1:<port>
-        When Mantis inject proxy is enabled: phone → inject(8218+) → Tor(8118+).
-        Legacy: http_proxy 10.0.2.2:<port> (CPHARM_PROXY_LEGACY_GATEWAY=1)
+        When Mantis inject proxy is enabled: phone → inject(8218+) only → host
+        Tor(8118+slot). Never stack a guest Tor reverse beside inject — that
+        lets Chromium bypass MITM (no bottom-ad paint / CERTIFICATE_UNKNOWN).
+        Legacy: http_proxy 10.0.2.2:<port> (PHARMFLOW_PROXY_LEGACY_GATEWAY=1)
         """
-        if is_proxy_legacy_gateway():
-            self.adb.set_http_proxy("10.0.2.2", port, serial=serial)
-            logger.info("legacy gateway proxy 10.0.2.2:%d on %s", port, serial)
+        # 10.0.2.2 is the host from the guest. Never write that proxy.
+        try:
+            port_i = int(port)
+        except (TypeError, ValueError):
+            port_i = 0
+        if port_i <= 0:
+            logger.warning("refusing guest proxy on %s — port %s is not a loopback exit", serial, port)
             return
 
-        self.adb.reverse(str(port), str(port), serial=serial)
-
         guest_port = port
-        try:
-            from automation.mantis_inject_proxy import (
-                ensure_inject_for_phone,
-                inject_enabled,
-                phone_inject_port,
-            )
-
-            # Derive phone index from Tor HTTP port.
-            phone_index = int(port) - int(TOR_HTTP_TUNNEL_BASE)
-            if inject_enabled() and 0 <= phone_index <= 31:
-                info = ensure_inject_for_phone(
-                    self.adb, serial, phone_index, install_ca=False
+        # Only arm inject when the caller named the phone. Deriving the index
+        # as port - HTTP base treats a slot port as an absolute VM index and
+        # arms the wrong listener. install_ca stays True — False was the
+        # CERTIFICATE_UNKNOWN root cause on fresh ARM guests.
+        if phone_index is not None:
+            try:
+                from automation.mantis_inject_proxy import (
+                    ensure_inject_for_phone,
+                    inject_enabled,
+                    phone_inject_port,
                 )
-                if info.get("ok"):
-                    guest_port = int(info.get("port") or phone_inject_port(phone_index))
+
+                idx = int(phone_index)
+                if inject_enabled() and idx >= 0:
+                    info = ensure_inject_for_phone(
+                        self.adb, serial, idx, install_ca=True
+                    )
+                    if not info.get("ok"):
+                        raise RuntimeError(
+                            "inject not restored phone=%s err=%s ca=%s"
+                            % (idx, info.get("error"), info.get("ca_installed"))
+                        )
+                    guest_port = int(info.get("port") or phone_inject_port(idx))
                     logger.info(
-                        "Mantis inject proxy armed phone=%d tor=%d inject=%d ca=%s serial=%s",
-                        phone_index,
+                        "Mantis inject-only pin phone=%d host_tor=%d inject=%d ca=%s serial=%s (no guest Tor reverse)",
+                        idx,
                         port,
                         guest_port,
                         info.get("ca_installed"),
                         serial,
                     )
-        except Exception as exc:
-            logger.warning("Mantis inject proxy setup skipped: %s", exc)
+                    # ensure_inject already set http_proxy + inject reverse only.
+                    return
+            except Exception as exc:
+                logger.warning("Mantis inject proxy not restored: %s", exc)
+                # Pin the Tor tunnel (not :0) so a failed inject is not host-IP
+                # egress, then refuse to look restored.
+                self.adb.reverse(str(port_i), str(port_i), serial=serial)
+                self._set_device_proxy(serial, port)
+                raise
 
+        self.adb.reverse(str(port_i), str(port_i), serial=serial)
         self._set_device_proxy(serial, guest_port)
         logger.info(
             "adb reverse tcp:%d + guest http_proxy %s:%d on %s",
@@ -703,27 +900,38 @@ class TorManager:
         )
 
     def _set_device_proxy(self, serial: str, port: int) -> None:
-        """Set Android http_proxy to 127.0.0.1:<port> (honored by MuMu Browser)."""
-        if not is_proxy_legacy_gateway():
-            self.adb.set_http_proxy(GUEST_PROXY_HOST, port, serial=serial)
+        """Set Android http_proxy to 127.0.0.1:<port>. Never the host gateway."""
+        try:
+            port_i = int(port)
+        except (TypeError, ValueError):
+            port_i = 0
+        if port_i <= 0:
+            logger.warning("refusing guest proxy on %s — port %s is not a loopback exit", serial, port)
+            return
+        self.adb.set_http_proxy(GUEST_PROXY_HOST, port_i, serial=serial)
 
     def new_identity(self, phone_index: int) -> bool:
         """Request new Tor circuit for one phone (SIGHUP on Unix; restart on Windows)."""
         return self.rotate_identity(phone_index)
 
     def _control_newnym(self, phone_index: int) -> bool:
-        """SIGNAL NEWNYM via ControlPort. Returns False if control is unavailable."""
+        """SIGNAL NEWNYM via ControlPort. Returns False if control is unavailable.
+
+        Adopted standalone Tor uses CookieAuthentication. An empty
+        AUTHENTICATE is rejected, so the circuit never moves. Cookie first,
+        then the unauthenticated fallback used by CookieAuthentication 0.
+        """
         inst = self.instances.get(phone_index)
         control_port = (inst.control_port if inst and inst.control_port else phone_control_port(phone_index))
+        cookie = _control_auth_cookie(phone_index)
         try:
             with socket.create_connection(("127.0.0.1", control_port), timeout=5.0) as sock:
-                sock.sendall(b'AUTHENTICATE ""\r\n')
-                auth = sock.recv(256).decode("utf-8", errors="replace")
-                if "250" not in auth:
-                    sock.sendall(b"AUTHENTICATE\r\n")
-                    auth = sock.recv(256).decode("utf-8", errors="replace")
-                if "250" not in auth:
-                    logger.warning("Tor AUTHENTICATE failed phone=%d: %s", phone_index, auth.strip())
+                if not _control_authenticate(sock, cookie):
+                    logger.warning(
+                        "Tor AUTHENTICATE failed phone=%d cookie=%s",
+                        phone_index,
+                        bool(cookie),
+                    )
                     return False
                 sock.sendall(b"SIGNAL NEWNYM\r\n")
                 resp = sock.recv(256).decode("utf-8", errors="replace")
@@ -786,7 +994,7 @@ class TorManager:
             )
             time.sleep(3.0)
             if adb_serial:
-                self._setup_reverse(adb_serial, inst.http_port)
+                self._setup_reverse(adb_serial, inst.http_port, phone_index=phone_index)
             return True
         except OSError as exc:
             logger.error("Failed to restart Tor for phone %d: %s", phone_index, exc)
@@ -798,10 +1006,20 @@ class TorManager:
         if self._control_newnym(phone_index):
             time.sleep(2.5)
             inst = self.instances.get(phone_index)
-            if adb_serial and inst:
-                self._setup_reverse(adb_serial, inst.http_port)
-            elif adb_serial:
-                self._setup_reverse(adb_serial, phone_http_port(phone_index))
+            try:
+                if adb_serial and inst:
+                    self._setup_reverse(adb_serial, inst.http_port, phone_index=phone_index)
+                elif adb_serial:
+                    self._setup_reverse(
+                        adb_serial, phone_http_port(phone_index), phone_index=phone_index
+                    )
+            except Exception as exc:
+                logger.error(
+                    "Tor NEWNYM ok but proxy not restored phone=%d: %s",
+                    phone_index,
+                    exc,
+                )
+                return False
             logger.info(
                 "New Tor identity for phone %d via ControlPort NEWNYM (port %d)",
                 phone_index,
@@ -820,7 +1038,19 @@ class TorManager:
             if self._control_newnym(phone_index):
                 time.sleep(2.5)
                 if adb_serial:
-                    self._setup_reverse(adb_serial, phone_http_port(phone_index))
+                    try:
+                        self._setup_reverse(
+                            adb_serial,
+                            phone_http_port(phone_index),
+                            phone_index=phone_index,
+                        )
+                    except Exception as exc:
+                        logger.error(
+                            "Tor adopted but proxy not restored phone=%d: %s",
+                            phone_index,
+                            exc,
+                        )
+                        return False
                 logger.info(
                     "New Tor identity for phone %d via ControlPort after adopt (port %d)",
                     phone_index,
@@ -845,14 +1075,16 @@ class TorManager:
             else:
                 time.sleep(2.5)
             if adb_serial:
-                self._setup_reverse(adb_serial, phone_http_port(phone_index))
+                self._setup_reverse(
+                    adb_serial, phone_http_port(phone_index), phone_index=phone_index
+                )
             logger.info(
                 "New Tor identity for phone %d (port %d)",
                 phone_index,
                 phone_http_port(phone_index),
             )
             return True
-        except OSError as exc:
+        except (OSError, RuntimeError) as exc:
             logger.error("Failed to rotate Tor identity for phone %d: %s", phone_index, exc)
             return False
 
@@ -1092,30 +1324,9 @@ class TorManager:
     )
 
     def clear_all_proxies_on_devices(self, serials: list[str]) -> list[str]:
-        """Clear Android global HTTP proxy on each serial. Returns serials that still have proxy."""
-        failed: list[str] = []
-        for serial in serials:
-            if not serial:
-                continue
-            ser = str(serial)
-            try:
-                # Clear reverse for every phone tunnel — only removing idx 0 left
-                # stale adb reverse mappings on phones 1..N after teardown.
-                for idx in range(32):
-                    try:
-                        self.adb.reverse_remove(str(phone_http_port(idx)), serial=ser)
-                    except Exception:
-                        pass
-            except Exception:
-                pass
-            for key in self._PROXY_GLOBAL_KEYS:
-                self.adb.shell(f"settings delete global {key}", serial=ser)
-            self.adb.clear_http_proxy(serial=ser)
-            left = self.adb.shell("settings get global http_proxy", serial=ser)
-            val = (left.stdout or "").strip()
-            if val and val not in ("null", ":0", ""):
-                failed.append(ser)
-        return failed
+        """Refuse. Deleting http_proxy or writing :0 sends farm traffic out the host."""
+        log.warning("clear_all_proxies_on_devices refused — will not write http_proxy :0")
+        return [str(s) for s in serials if s]
 
     def kick_default_browser_after_proxy_teardown(self, serials: list[str]) -> None:
         """Force-stop Chromium so cached proxy state is dropped."""
@@ -1128,7 +1339,7 @@ class TorManager:
                 self.adb.shell(f"am force-stop {pkg}", serial=str(serial))
 
 
-# ==== merged from cpharm automation/tor_manager.py (warm bootstrap / adb reverse / identity) ====
+# ==== merged from pharmflow automation/tor_manager.py (warm bootstrap / adb reverse / identity) ====
 
 def _prefs_base_value(key: str) -> Optional[int]:
     """Optional override from ``desktop_prefs.json`` so moved bases survive EXE restarts.
@@ -1156,27 +1367,51 @@ def _prefs_base_value(key: str) -> Optional[int]:
 def _port_base_env(name: str, default: int) -> int:
     """Read a Tor port-base offset from env, then ``desktop_prefs.json`` (clamped).
 
-    CPharm and other farms on the same PC (e.g. FamFlow) both used ``9050``/``8118``,
-    so their Tor instances fought over the same SOCKS/HTTP ports. ``CPHARM_TOR_SOCKS_BASE``
-    / ``CPHARM_TOR_HTTP_BASE`` (env) and ``tor_socks_base`` / ``tor_http_base``
-    (desktop_prefs.json) let CPharm move to its own range (e.g. 9150/8218) so per-slot
-    warmup never collides with another resident service.
+    PharmFlow and other farms on the same PC both used ``9050``/``8118``,
+    so their Tor instances fought over the same SOCKS/HTTP ports. ``PHARMFLOW_TOR_*``
+    / ``CPHARM_TOR_*`` (env) and ``tor_socks_base`` / ``tor_http_base``
+    (desktop_prefs.json) let a second stack move — but prefs still carry the old
+    evasion pair 9150/8218, which collides with mantis inject (8218+). Reject that
+    pair so inject never dials itself as Tor upstream.
     """
-    raw = os.environ.get(name, "").strip()
-    if raw.isdigit():
-        return max(1024, min(65500, int(raw)))
-    pref_key = "tor_http_base" if name == "CPHARM_TOR_HTTP_BASE" else "tor_socks_base"
+    aliases = {
+        "PHARMFLOW_TOR_SOCKS_BASE": ("CPHARM_TOR_SOCKS_BASE", "PHARMFLOW_TOR_SOCKS_BASE"),
+        "PHARMFLOW_TOR_HTTP_BASE": ("CPHARM_TOR_HTTP_BASE", "PHARMFLOW_TOR_HTTP_BASE"),
+        "CPHARM_TOR_SOCKS_BASE": ("CPHARM_TOR_SOCKS_BASE", "PHARMFLOW_TOR_SOCKS_BASE"),
+        "CPHARM_TOR_HTTP_BASE": ("CPHARM_TOR_HTTP_BASE", "PHARMFLOW_TOR_HTTP_BASE"),
+    }
+    for env_name in aliases.get(name, (name,)):
+        raw = os.environ.get(env_name, "").strip()
+        if raw.isdigit():
+            return max(1024, min(65500, int(raw)))
+    pref_key = (
+        "tor_http_base"
+        if "HTTP" in name.upper()
+        else "tor_socks_base"
+    )
     v = _prefs_base_value(pref_key)
     if v is not None:
+        if pref_key == "tor_http_base" and int(v) == 8218:
+            return default
+        if pref_key == "tor_socks_base" and int(v) == 9150:
+            return default
         return v
     return default
 
 
 
+def _tcp_port_excluded(port: int) -> bool:
+    """True when Windows Hyper-V (or similar) has reserved ``port`` (WSAEACCES)."""
+    # Live exclusion snapshot (2026-09-14): 9036-9535 blocks default Tor SOCKS 9050.
+    # Keep HTTPTunnel 8118 clear; only skip known SOCKS collision bands.
+    p = int(port)
+    return 9036 <= p <= 9535
+
+
 def _listen_ports_in_range(base: int, span: int) -> set[int]:
     """Ports in ``base..base+span-1`` that another process already listens on.
 
-    Two farms share this PC (CPharm + FamFlow's ``bundled\\tor.exe`` and mantis
+    Two farms share this PC (PharmFlow + PharmFlow's ``bundled\\tor.exe`` and mantis
     injectors), and their ranges overlap at runtime. Instead of hardcoding a range
     that can collide again, pick a base whose whole per-phone span is free.
     """
@@ -1184,6 +1419,9 @@ def _listen_ports_in_range(base: int, span: int) -> set[int]:
         import socket
         busy: set[int] = set()
         for p in range(base, base + span):
+            if _tcp_port_excluded(p):
+                busy.add(p)
+                continue
             s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             s.settimeout(0.15)
             try:
@@ -1207,10 +1445,47 @@ def _free_port_base(base: int, span: int, step: int = 10) -> int:
     return base
 
 
-# Prefer a configured base, but auto-evade any other process (FamFlow's Tor stack,
+# Prefer a configured base, but auto-evade any other process (PharmFlow's Tor stack,
 # mantis injectors, etc.) that has already claimed part of that window.
-_CONFIGURED_SOCKS = _port_base_env("CPHARM_TOR_SOCKS_BASE", 9050)
-_CONFIGURED_HTTP = _port_base_env("CPHARM_TOR_HTTP_BASE", 8118)
+_CONFIGURED_SOCKS = _port_base_env("PHARMFLOW_TOR_SOCKS_BASE", 9050)
+_CONFIGURED_HTTP = _port_base_env("PHARMFLOW_TOR_HTTP_BASE", 8118)
+# Prefs 9150/8218 are the inject-collision pair — never adopt as Tor bases.
+if _CONFIGURED_HTTP == 8218:
+    _CONFIGURED_HTTP = 8118
+    if _CONFIGURED_SOCKS == 9150:
+        _CONFIGURED_SOCKS = 9050
+
+
+def _logs_dirs_for_bases() -> list[Path]:
+    """Tor broadcast log roots.
+
+    Explicit LOGS/LOG_DIR env: first non-empty wins. Else dual-read CPharm + PharmFlow.
+    """
+    for name in (
+        "CPHARM_LOGS",
+        "PHARMFLOW_LOGS",
+        "CPHARM_LOG_DIR",
+        "PHARMFLOW_LOG_DIR",
+    ):
+        raw = os.environ.get(name)
+        if raw is not None and str(raw).strip() != "":
+            return [Path(raw)]
+    return [Path(r"C:\CPharm\logs"), Path(r"C:\PharmFlow\logs")]
+
+
+def _logs_dirs_for_bases_write() -> list[Path]:
+    out: list[Path] = []
+    seen: set[str] = set()
+    for d in list(_logs_dirs_for_bases()) + [
+        Path(r"C:\CPharm\logs"),
+        Path(r"C:\PharmFlow\logs"),
+    ]:
+        key = str(d).lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(d)
+    return out
 
 
 def _read_broadcast_bases() -> tuple[int, int] | None:
@@ -1219,23 +1494,28 @@ def _read_broadcast_bases() -> tuple[int, int] | None:
     The owning process heartbeats the file every 60s while its lanes live, so a
     fresh file (<120s) proves both the writer and its generation are alive. A
     stale file is ignored — that generation is dead and its bases are poison.
+    Prefer the freshest valid broadcast across CPharm + PharmFlow log dirs.
+    Never adopt http_base in the inject window (8218+).
     """
-    try:
-        import json
-        from pathlib import Path
-
-        state = Path(
-            os.environ.get("CPHARM_LOGS") or os.environ.get("CPHARM_LOG_DIR") or r"C:\CPharm\logs"
-        ) / "tor_port_bases.json"
-        data = json.loads(state.read_text(encoding="utf-8"))
-        age = time.time() - float(data.get("ts") or 0)
-        socks_b = int(data.get("socks_base") or 0)
-        http_b = int(data.get("http_base") or 0)
-        if age < 120 and socks_b > 0 and http_b > 0:
-            return socks_b, http_b
-    except Exception:
-        pass
-    return None
+    best: tuple[float, int, int] | None = None
+    now = time.time()
+    for logs_dir in _logs_dirs_for_bases():
+        state = logs_dir / "tor_port_bases.json"
+        try:
+            data = json.loads(state.read_text(encoding="utf-8"))
+            age = now - float(data.get("ts") or 0)
+            socks_b = int(data.get("socks_base") or 0)
+            http_b = int(data.get("http_base") or 0)
+            if age >= 120 or socks_b <= 0 or http_b <= 0 or http_b == 8218:
+                continue
+            ts = float(data.get("ts") or 0)
+            if best is None or ts > best[0]:
+                best = (ts, socks_b, http_b)
+        except Exception:
+            continue
+    if best is None:
+        return None
+    return best[1], best[2]
 
 
 def _free_base_or_adopt(configured: int, span: int, fallback_broadcast: int | None) -> int:
@@ -1259,6 +1539,11 @@ BASE_PORT = _free_base_or_adopt(
 HTTP_TUNNEL_BASE = _free_base_or_adopt(
     _CONFIGURED_HTTP, 8, _BROADCAST[1] if _BROADCAST else None
 )
+if int(HTTP_TUNNEL_BASE) == 8218:
+    # Never let Tor HTTP land on the inject listen base.
+    HTTP_TUNNEL_BASE = 8118
+    if int(BASE_PORT) == 9150:
+        BASE_PORT = 9050
 if BASE_PORT != _CONFIGURED_SOCKS or HTTP_TUNNEL_BASE != _CONFIGURED_HTTP:
     logger.info(
         "Tor port bases auto-shifted to avoid other listeners: socks %s->%s http %s->%s",
@@ -1277,24 +1562,25 @@ def _broadcast_port_bases() -> None:
     the phones as total loss of internet.
     """
     try:
-        import json
-        from pathlib import Path
-
-        state_dir = Path(
-            os.environ.get("CPHARM_LOGS") or os.environ.get("CPHARM_LOG_DIR") or r"C:\CPharm\logs"
+        # 9150 is Tor Browser, not a farm SOCKS base. desktop_prefs still has
+        # the old PharmFlow-evasion pair (9150/8218); publishing it made inject
+        # dial a different HTTP lane than the farm worker.
+        if int(BASE_PORT) == 9150 or int(HTTP_TUNNEL_BASE) == 8218:
+            return
+        payload = json.dumps(
+            {
+                "ts": time.time(),
+                "socks_base": int(BASE_PORT),
+                "http_base": int(HTTP_TUNNEL_BASE),
+                "pid": os.getpid(),
+            }
         )
-        state_dir.mkdir(parents=True, exist_ok=True)
-        (state_dir / "tor_port_bases.json").write_text(
-            json.dumps(
-                {
-                    "ts": time.time(),
-                    "socks_base": int(BASE_PORT),
-                    "http_base": int(HTTP_TUNNEL_BASE),
-                    "pid": os.getpid(),
-                }
-            ),
-            encoding="utf-8",
-        )
+        for state_dir in _logs_dirs_for_bases_write():
+            try:
+                state_dir.mkdir(parents=True, exist_ok=True)
+                (state_dir / "tor_port_bases.json").write_text(payload, encoding="utf-8")
+            except OSError:
+                continue
     except Exception as exc:  # noqa: BLE001 — broadcast is best-effort
         logger.debug("tor port-base broadcast failed: %s", exc)
 
@@ -1336,6 +1622,9 @@ _BASES_HEARTBEAT: threading.Thread | None = None
 # used ``tcp:8118`` for every index on the device side, which could leave incorrect host forwards
 # when multiple devices run Tor (browser: **proxy connection failed**).
 _tor_procs: dict[int, subprocess.Popen] = {}
+# Monotonic spawn time so a still-bootstrapping tor.exe is not killed and
+# replaced on the next heal tick (that restart loop never opens HTTP).
+_tor_proc_started: dict[int, float] = {}
 
 # Host Tor bootstrap: dashboard may start one multi-index prewarm thread; per-index warm threads
 # from ``start_tor_warm_background``; per-index locks so concurrent ``ensure_tor_ready`` / open_url
@@ -1353,7 +1642,7 @@ _tor_idx_warm_threads_lock = threading.Lock()
 
 # Per phone_idx: monotonic timestamp of the most recent warm worker exit (success or failure).
 # Used by :func:`ensure_tor_and_proxy_for_phone` to detect that a warm attempt **just ran** for
-# this index and avoid double-spending the full ``CPHARM_TOR_WAIT_SOCKS`` + ``CPHARM_TOR_WAIT_HTTP``
+# this index and avoid double-spending the full ``PHARMFLOW_TOR_WAIT_SOCKS`` + ``PHARMFLOW_TOR_WAIT_HTTP``
 # budget when bootstrap is already known to be slow / failing — keeps ``open_url`` from blocking
 # 8+ minutes (warm budget) and then another 8 minutes (ensure budget) for the same device.
 _tor_warm_last_exit_ts: dict[int, float] = {}
@@ -1383,7 +1672,7 @@ def _recent_warm_attempt(phone_idx: int, window_sec: float = 60.0) -> bool:
 
 
 def _tor_skip_wait_env() -> bool:
-    return os.environ.get("CPHARM_SKIP_TOR_WAIT", "").strip().lower() in (
+    return os.environ.get("PHARMFLOW_SKIP_TOR_WAIT", "").strip().lower() in (
         "1",
         "true",
         "yes",
@@ -1393,13 +1682,23 @@ def _tor_skip_wait_env() -> bool:
 
 
 def _tor_prewarm_max_idx() -> int:
-    raw = os.environ.get("CPHARM_TOR_PREWARM_MAX_IDX", "").strip()
+    """Highest Tor lane to prewarm in the background (lanes ``0..max``).
+
+    An operator-set ``PHARMFLOW_TOR_PREWARM_MAX_IDX`` is used as given (no
+    ceiling -- repo rule forbids hardcoded phone-count limits). Unset, it is
+    derived from the live fleet so a 6-phone farm warms 6 lanes and a 40-phone
+    farm warms 40, instead of a fixed 8. With no discoverable roster only lane
+    0 is warmed; every other phone still gets Tor on demand through
+    ``ensure_tor_and_proxy_for_phone``, so prewarm is only a head start.
+    """
+    raw = os.environ.get("PHARMFLOW_TOR_PREWARM_MAX_IDX", "").strip()
     if raw:
         try:
-            return max(0, min(31, int(raw)))
+            return max(0, int(raw))
         except ValueError:
             pass
-    return 7
+    fleet = live_fleet_indices()
+    return max(0, len(fleet) - 1) if fleet else 0
 
 
 
@@ -1420,13 +1719,15 @@ def _get_host_ready_event(phone_idx: int) -> threading.Event:
 
 
 def _resolve_warm_phone_index(phone_index: Optional[int]) -> int:
-    """Default warm index: ``phone_index``, else env ``CPHARM_TOR_WARM_PHONE_INDEX``, else **0**."""
+    """Default warm index: ``phone_index``, else env ``PHARMFLOW_TOR_WARM_PHONE_INDEX``, else **0**."""
+    # No upper clamp: a fleet with high absolute indexes (e.g. vm39+) must warm
+    # its own lane, not be silently remapped onto index 31.
     if phone_index is not None:
-        return max(0, min(31, int(phone_index)))
-    raw = os.environ.get("CPHARM_TOR_WARM_PHONE_INDEX", "").strip()
+        return max(0, int(phone_index))
+    raw = os.environ.get("PHARMFLOW_TOR_WARM_PHONE_INDEX", "").strip()
     if raw:
         try:
-            return max(0, min(31, int(raw)))
+            return max(0, int(raw))
         except ValueError:
             pass
     return 0
@@ -1517,11 +1818,11 @@ def _join_idx_warm_thread_if_running(phone_idx: int, timeout_sec: float) -> None
 def start_tor_warm_background(phone_index: Optional[int] = None) -> None:
     """Start **at most one** daemon thread per ``phone_index`` that host-warms Tor for that slot.
 
-    Idempotent: no-op when ``CPHARM_SKIP_TOR_WAIT`` is set, Tor preflight fails, host ports are
+    Idempotent: no-op when ``PHARMFLOW_SKIP_TOR_WAIT`` is set, Tor preflight fails, host ports are
     already ready, or a warm thread for this index is already alive. Does **not** apply ADB
     ``http_proxy`` — that remains in :func:`ensure_tor_and_proxy_for_phone` / ``ensure_tor_ready``.
 
-    ``phone_index`` defaults to env ``CPHARM_TOR_WARM_PHONE_INDEX`` or **0**.
+    ``phone_index`` defaults to env ``PHARMFLOW_TOR_WARM_PHONE_INDEX`` or **0**.
     """
     if _tor_skip_wait_env():
         return
@@ -1541,7 +1842,7 @@ def start_tor_warm_background(phone_index: Optional[int] = None) -> None:
             target=_tor_warm_background_worker,
             args=(idx,),
             daemon=True,
-            name=f"cpharm-tor-warm-{idx}",
+            name=f"pharmflow-tor-warm-{idx}",
         )
         t.start()
         _tor_idx_warm_threads[idx] = t
@@ -1552,7 +1853,7 @@ def wait_tor_ready(phone_index: Optional[int] = None, timeout_sec: float = 240) 
     """Block until host SOCKS + HTTP tunnel accept for ``phone_index`` **without** starting Tor.
 
     Polls ports in short slices until ``timeout_sec`` elapses. Returns ``True`` immediately when
-    ``CPHARM_SKIP_TOR_WAIT`` is set. Does not spawn ``tor.exe`` or background warm threads.
+    ``PHARMFLOW_SKIP_TOR_WAIT`` is set. Does not spawn ``tor.exe`` or background warm threads.
     """
     if _tor_skip_wait_env():
         return True
@@ -1574,10 +1875,11 @@ def start_tor_host_bootstrap_background(max_phone_idx: Optional[int] = None) -> 
     """Start **one** daemon thread that brings host Tor listeners up for indices ``0..max``.
 
     Idempotent while the thread is alive. Does **not** touch ADB or ``http_proxy`` (that stays in
-    :func:`ensure_tor_and_proxy_for_phone`). Skipped when ``CPHARM_SKIP_TOR_WAIT`` is set or Tor
+    :func:`ensure_tor_and_proxy_for_phone`). Skipped when ``PHARMFLOW_SKIP_TOR_WAIT`` is set or Tor
     preflight fails (nothing to warm).
 
-    ``max_phone_idx`` defaults to env ``CPHARM_TOR_PREWARM_MAX_IDX`` (default **7**).
+    ``max_phone_idx`` defaults to env ``PHARMFLOW_TOR_PREWARM_MAX_IDX``, else the live fleet size
+    (see :func:`_tor_prewarm_max_idx`).
     """
     if _tor_skip_wait_env():
         return
@@ -1586,7 +1888,7 @@ def start_tor_host_bootstrap_background(max_phone_idx: Optional[int] = None) -> 
         log.debug("Tor host bootstrap not started — %s", pre.get("error", "unknown"))
         return
     m = int(max_phone_idx) if max_phone_idx is not None else _tor_prewarm_max_idx()
-    m = max(0, min(31, m))
+    m = max(0, m)
     with _tor_prewarm_thread_lock:
         global _tor_prewarm_thread
         if _tor_prewarm_thread is not None and _tor_prewarm_thread.is_alive():
@@ -1595,7 +1897,7 @@ def start_tor_host_bootstrap_background(max_phone_idx: Optional[int] = None) -> 
             target=_prewarm_host_tors_worker,
             args=(m,),
             daemon=True,
-            name="cpharm-tor-prewarm",
+            name="pharmflow-tor-prewarm",
         )
         t.start()
         _tor_prewarm_thread = t
@@ -1603,20 +1905,163 @@ def start_tor_host_bootstrap_background(max_phone_idx: Optional[int] = None) -> 
 
 
 def ensure_tor_daemon_started_async(max_phone_idx: Optional[int] = None) -> None:
-    """:func:`start_tor_host_bootstrap_background` alias for callers that expect an "async start" name."""
+    """:func:`start_tor_host_bootstrap_background` alias for callers that expect an "async start" name.
+
+    Not a heal. Returns before any port is listening and warms ``0..max``
+    (including unused slots). Farm self-heal must call
+    :func:`restore_tor_http_for_slots` and treat a down port as unrestored.
+    """
     start_tor_host_bootstrap_background(max_phone_idx)
+
+
+def _tcp_open(port: int, timeout: float = 0.4) -> bool:
+    try:
+        with socket.create_connection(("127.0.0.1", int(port)), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+
+def align_bases_to_live_broadcast() -> tuple[int, int]:
+    """Adopt the live Tor generation's bases, or the configured bases.
+
+    A fresh ``tor_port_bases.json`` is the generation inject already dials.
+    Re-shifting here is the 8118-vs-8218 split-brain. A stale file means that
+    generation is dead — bind the configured bases, never a base that lands
+    in the inject window (8218+). Does not invent a phone-count cap.
+    """
+    global BASE_PORT, HTTP_TUNNEL_BASE
+    broadcast = _read_broadcast_bases()
+    if broadcast:
+        BASE_PORT = int(broadcast[0])
+        HTTP_TUNNEL_BASE = int(broadcast[1])
+        return BASE_PORT, HTTP_TUNNEL_BASE
+    socks = int(_port_base_env("PHARMFLOW_TOR_SOCKS_BASE", 9050))
+    http = int(_port_base_env("PHARMFLOW_TOR_HTTP_BASE", 8118))
+    if http == 8218:
+        log.warning(
+            "configured Tor HTTP base %s collides with inject (8218) — using 8118",
+            http,
+        )
+        http = 8118
+        # Prefs 9150/8218 are the old PharmFlow-evasion pair. Forcing only HTTP
+        # down to 8118 left SOCKS on Tor Browser (9150). Inject then dialed a
+        # different generation than the farm. Keep the pair together.
+        if socks == 9150:
+            socks = 9050
+    BASE_PORT = socks
+    HTTP_TUNNEL_BASE = http
+    return BASE_PORT, HTTP_TUNNEL_BASE
+
+
+def _terminate_owned_tor(phone_idx: int) -> None:
+    """Stop only the Tor process this process spawned for ``phone_idx``."""
+    proc = _tor_procs.pop(phone_idx, None)
+    _tor_proc_started.pop(phone_idx, None)
+    try:
+        _get_host_ready_event(phone_idx).clear()
+    except Exception:
+        pass
+    if proc is None or proc.poll() is not None:
+        return
+    try:
+        proc.terminate()
+        proc.wait(timeout=8)
+    except Exception:
+        try:
+            proc.kill()
+        except Exception:
+            pass
+
+
+def _tor_http_ready_or_bootstrapping(phone_idx: int, http_port: int) -> bool:
+    """True when the caller must NOT spawn another tor.exe for this slot.
+
+    A live HTTP tunnel is ready (adopt it). A young process that has not
+    opened HTTP yet is still bootstrapping — killing it every tick never
+    restores the port. An old process with a dead HTTP tunnel is terminated
+    so the caller can spawn a replacement.
+    """
+    if _tcp_open(http_port):
+        return True
+    proc = _tor_procs.get(phone_idx)
+    if proc is None or proc.poll() is not None:
+        _tor_procs.pop(phone_idx, None)
+        return False
+    started = float(_tor_proc_started.get(phone_idx) or 0.0)
+    age = (time.monotonic() - started) if started else 1e9
+    if age < float(tor_wait_http_seconds()):
+        return True
+    log.warning(
+        "Tor slot=%s pid=%s HTTP :%s still down after %.0fs — restarting owned process",
+        phone_idx,
+        getattr(proc, "pid", 0),
+        http_port,
+        age,
+    )
+    _terminate_owned_tor(phone_idx)
+    return False
+
+
+def restore_tor_http_for_slots(slots: list[int]) -> dict[str, object]:
+    """Start standalone Tor for each slot whose HTTPTunnelPort is down.
+
+    ``slots`` are the 0..N-1 indices inject dials (``http_base + slot``), not
+    absolute VM indices. Does not warm unused indices, does not clamp the
+    fleet, and does not report a port restored until it accepts TCP.
+
+    Returns restored / started / bootstrapping / still_dead / errors so a
+    heal tick cannot treat a swallowed exception or an async warm as success.
+    """
+    socks_base, http_base = align_bases_to_live_broadcast()
+    restored: list[int] = []
+    started: list[int] = []
+    bootstrapping: list[int] = []
+    still_dead: list[int] = []
+    errors: list[str] = []
+    want = sorted({int(s) for s in slots if int(s) >= 0})
+    for slot in want:
+        port = int(http_base) + slot
+        if _tcp_open(port):
+            restored.append(slot)
+            continue
+        try:
+            start_tor_for_phone(slot)
+            started.append(slot)
+        except Exception as exc:  # noqa: BLE001 — caller must see the failure
+            errors.append(f"slot={slot}:{type(exc).__name__}:{exc}")
+            still_dead.append(slot)
+            continue
+        if _tcp_open(port):
+            restored.append(slot)
+        else:
+            bootstrapping.append(slot)
+    if restored:
+        _broadcast_port_bases()
+        _ensure_bases_heartbeat()
+    return {
+        "socks_base": int(socks_base),
+        "http_base": int(http_base),
+        "restored": restored,
+        "started": started,
+        "bootstrapping": bootstrapping,
+        "still_dead": still_dead,
+        "errors": errors,
+    }
 
 
 
 def tor_wait_socks_seconds() -> int:
     """Host wait for Tor SOCKS to accept connections (bootstrap can exceed old 45s defaults).
 
-    Override with ``CPHARM_TOR_WAIT_SOCKS`` (seconds, clamped 5–600). Default **240**.
+    Override with ``PHARMFLOW_TOR_WAIT_SOCKS`` (seconds). Default **240**.
+    A set value is not cut at 600. Values under 5 use 5 so a typo of 0
+    does not skip the port check.
     """
-    raw = os.environ.get("CPHARM_TOR_WAIT_SOCKS", "").strip()
+    raw = os.environ.get("PHARMFLOW_TOR_WAIT_SOCKS", "").strip()
     if raw:
         try:
-            return max(5, min(600, int(raw)))
+            return max(5, int(raw))
         except ValueError:
             pass
     return 240
@@ -1626,12 +2071,13 @@ def tor_wait_socks_seconds() -> int:
 def tor_wait_http_seconds() -> int:
     """Host wait for ``HTTPTunnelPort`` to accept connections.
 
-    Override with ``CPHARM_TOR_WAIT_HTTP`` (seconds, clamped 5–600). Default **240**.
+    Override with ``PHARMFLOW_TOR_WAIT_HTTP`` (seconds). Default **240**.
+    A set value is not cut at 600.
     """
-    raw = os.environ.get("CPHARM_TOR_WAIT_HTTP", "").strip()
+    raw = os.environ.get("PHARMFLOW_TOR_WAIT_HTTP", "").strip()
     if raw:
         try:
-            return max(5, min(600, int(raw)))
+            return max(5, int(raw))
         except ValueError:
             pass
     return 240
@@ -1642,13 +2088,13 @@ def tor_wait_bootstrap_seconds() -> int:
     """Host wait for Tor control ``BOOTSTRAP PROGRESS=100`` (or log equivalent).
 
     Separate from SOCKS/HTTP port waits — a recent background warm that failed bootstrap
-    must not shrink this to ~13s. Override with ``CPHARM_TOR_WAIT_BOOTSTRAP`` (seconds,
-    clamped 15–600). Default **120**.
+    must not shrink this to ~13s. Override with ``PHARMFLOW_TOR_WAIT_BOOTSTRAP``
+    (seconds). Default **120**. A set value is not cut at 600.
     """
-    raw = os.environ.get("CPHARM_TOR_WAIT_BOOTSTRAP", "").strip()
+    raw = os.environ.get("PHARMFLOW_TOR_WAIT_BOOTSTRAP", "").strip()
     if raw:
         try:
-            return max(15, min(600, int(raw)))
+            return max(15, int(raw))
         except ValueError:
             pass
     return 120
@@ -1758,10 +2204,10 @@ def phone_idx_from_adb_serial(serial: str) -> int:
 
 
 def _proxy_debug() -> bool:
-    """Verbose reverse / proxy logging when ``CPHARM_PROXY_DEBUG=1`` or ``CPHARM_OPEN_URL_DEBUG=1``."""
-    if os.environ.get("CPHARM_PROXY_DEBUG", "").strip().lower() in ("1", "true", "yes", "on"):
+    """Verbose reverse / proxy logging when ``PHARMFLOW_PROXY_DEBUG=1`` or ``PHARMFLOW_OPEN_URL_DEBUG=1``."""
+    if os.environ.get("PHARMFLOW_PROXY_DEBUG", "").strip().lower() in ("1", "true", "yes", "on"):
         return True
-    return os.environ.get("CPHARM_OPEN_URL_DEBUG", "").strip().lower() in ("1", "true", "yes", "on")
+    return os.environ.get("PHARMFLOW_OPEN_URL_DEBUG", "").strip().lower() in ("1", "true", "yes", "on")
 
 
 
@@ -1772,7 +2218,7 @@ def _env_truthy(name: str) -> bool:
 
 
 def _adb_serial_is_mumu_guest_bridge(serial: str) -> bool:
-    """True when ADB is addressed as the MuMu guest IP (e.g. ``10.0.2.244:5555`` — discover via ``adb devices`` or CPharmMuMuSetup.exe → GO).
+    """True when ADB is addressed as the MuMu guest IP (e.g. ``10.0.2.244:5555`` — discover via ``adb devices`` or PharmFlow.exe → GO).
 
     On MuMu ARM the connect address is the VM's ``wlan0`` address, not classic AVD
     ``127.0.0.1:5554``. Those guests reach host Tor via ``adb reverse`` +
@@ -1810,25 +2256,13 @@ def _serial_looks_like_emulator(serial: str) -> bool:
 
 
 def _use_gateway_proxy_mode(serial: str) -> bool:
-    """Use ``10.0.2.2:<port>`` (or detected host gateway) instead of ``adb reverse`` + ``127.0.0.1``.
+    """Never. ``10.0.2.2`` is the host from the guest, which is host-IP egress.
 
-    **Default on MuMu ARM guest-bridge** (``10.0.2.x:5555``, ``x`` not 2 or 15): **reverse +
-    ``127.0.0.1``** — the gateway path is broken on this farm unless
-    ``CPHARM_PROXY_LEGACY_GATEWAY=1``.
-
-    **AVD / classic NAT** (guest reaches host via ``10.0.2.2``): gateway mode when auto-detect
-    says the host is reachable at ``10.0.2.2``.
-
-    Set ``CPHARM_PROXY_FORCE_REVERSE=1`` to always try ``adb reverse`` first.
-    Set ``CPHARM_PROXY_LEGACY_GATEWAY=1`` to force gateway mode on guest-bridge serials.
+    ``PHARMFLOW_PROXY_LEGACY_GATEWAY`` used to select that path. It does not anymore.
+    Every phone is pinned with ``adb reverse`` and ``127.0.0.1``.
     """
-    if _env_truthy("CPHARM_PROXY_FORCE_REVERSE"):
-        return False
-    if _adb_serial_is_mumu_guest_bridge(serial):
-        return _env_truthy("CPHARM_PROXY_LEGACY_GATEWAY")
-    if _env_truthy("CPHARM_PROXY_LEGACY_GATEWAY"):
-        return True
-    return _tor_proxy_host_for_device(serial) == "10.0.2.2"
+    del serial
+    return False
 
 
 
@@ -1857,7 +2291,7 @@ def _shell(serial: str, *args: str, timeout: int = 15) -> subprocess.CompletedPr
             text=True,
             errors="replace",  # device output can contain raw bytes — never crash sequence threads on decode
             timeout=timeout,
-            creationflags=_SUBPROC_FLAGS,
+            **hidden_run_kwargs(),
         )
     except (OSError, subprocess.TimeoutExpired, subprocess.SubprocessError) as exc:
         # A slow/unresponsive phone must NEVER kill the sequence thread mid-run.
@@ -1873,49 +2307,12 @@ def _shell(serial: str, *args: str, timeout: int = 15) -> subprocess.CompletedPr
 
 
 def _tor_proxy_host_for_device(serial: str) -> str:
-    """Host IP where Tor's SOCKS port is reachable *from the Android guest*.
+    """Guest proxy host is always loopback.
 
-    On the desktop, Tor listens on 127.0.0.1. Inside a guest VM, ``127.0.0.1`` is the
-    VM itself unless **``adb reverse``** forwards the tunnel port — that is the default for
-    **MuMu guest-bridge** serials. Classic **AVD** guests use ``10.0.2.2`` (host loopback alias).
-
-    Override with env ``CPHARM_TOR_PROXY_HOST`` (e.g. your PC's LAN IP when using
-    wireless debugging to a physical phone: ``192.168.1.10``).
+    ``10.0.2.2`` and ``PHARMFLOW_TOR_PROXY_HOST`` are this PC from the phone.
+    The pin is ``adb reverse`` plus ``127.0.0.1``.
     """
-    explicit = os.environ.get("CPHARM_TOR_PROXY_HOST", "").strip()
-    if explicit:
-        return explicit
-    ser = str(serial).strip()
-    if _adb_serial_is_mumu_guest_bridge(ser):
-        return "127.0.0.1"
-    # Classic emulator NAT: host is 10.0.2.2 from the guest.
-    if ser.startswith("10.0.2.") and ":" in ser:
-        return "10.0.2.2"
-    exe = _adb_exe()
-    try:
-
-
-        def gp(name: str) -> str:
-            r = subprocess.run(
-                [exe, "-s", ser, "shell", "getprop", name],
-                capture_output=True,
-                text=True,
-                errors="replace",  # device output can contain raw bytes — never crash sequence threads on decode
-                timeout=8,
-                creationflags=_SUBPROC_FLAGS,
-            )
-            return (r.stdout or "").strip()
-
-        if gp("ro.kernel.qemu") == "1":
-            return "10.0.2.2"
-        man = gp("ro.product.manufacturer").lower()
-        model = (gp("ro.product.model") + " " + gp("ro.product.brand")).lower()
-        if "mumu" in man or "netease" in man or "mumu" in model or "netease" in model:
-            return "10.0.2.2"
-        if re.match(r"^emulator-\d+$", ser):
-            return "10.0.2.2"
-    except Exception:
-        log.debug("tor proxy host detection failed serial=%s", ser, exc_info=True)
+    del serial
     return "127.0.0.1"
 
 
@@ -1936,7 +2333,7 @@ def _adb_reverse_pairs(serial: str) -> list[tuple[int, int]]:
             text=True,
             errors="replace",  # device output can contain raw bytes — never crash sequence threads on decode
             timeout=12,
-            creationflags=_SUBPROC_FLAGS,
+            **hidden_run_kwargs(),
         )
         text = (rr.stdout or "") + (rr.stderr or "")
     except Exception:
@@ -2024,7 +2421,7 @@ def _reverse_tcp_remove(serial: str, tcp_port: int) -> None:
             text=True,
             errors="replace",  # device output can contain raw bytes — never crash sequence threads on decode
             timeout=12,
-            creationflags=_SUBPROC_FLAGS,
+            **hidden_run_kwargs(),
         )
     except Exception:
         pass
@@ -2035,9 +2432,9 @@ def _reverse_clear_all_tor_proxy_ports_for_serial(serial: str) -> None:
     """Remove reverse forwards for all Tor HTTP-tunnel indices plus legacy single-port 8118."""
     for i in range(_tor_reverse_port_clear_max_idx() + 1):
         _reverse_tcp_remove(str(serial), HTTP_TUNNEL_BASE + i)
-    # Older CPharm used a fixed device port (env default 8118) for every phone_idx.
+    # Older PharmFlow used a fixed device port (env default 8118) for every phone_idx.
     try:
-        legacy = int(os.environ.get("CPHARM_DEVICE_PROXY_PORT", "8118"))
+        legacy = int(os.environ.get("PHARMFLOW_DEVICE_PROXY_PORT", "8118"))
     except ValueError:
         legacy = 8118
     _reverse_tcp_remove(str(serial), legacy)
@@ -2064,7 +2461,7 @@ def _adb_reverse_tcp_pair_with_retries(serial: str, device_tcp: int, host_tcp: i
                 text=True,
                 errors="replace",  # device output can contain raw bytes — never crash sequence threads on decode
                 timeout=25,
-                creationflags=_SUBPROC_FLAGS,
+                **hidden_run_kwargs(),
             )
             if rr.returncode == 0:
                 if _proxy_debug():
@@ -2109,24 +2506,9 @@ _PROXY_GLOBAL_KEYS = (
 
 
 def clear_all_proxies_on_devices(serials: list) -> list[str]:
-    """Clear Android global HTTP proxy via ADB for each serial. Returns serials that failed."""
-    failed: list[str] = []
-    for serial in serials:
-        if not serial:
-            continue
-        ser = str(serial)
-        try:
-            _reverse_remove_local(ser)
-            for key in _PROXY_GLOBAL_KEYS:
-                _shell(ser, "settings", "delete", "global", key, timeout=15)
-            _shell(ser, "settings", "put", "global", "http_proxy", ":0", timeout=12)
-            left = _shell(ser, "settings", "get", "global", "http_proxy", timeout=8)
-            val = (left.stdout or "").strip()
-            if val and val not in ("null", ":0", ""):
-                failed.append(ser)
-        except Exception:
-            failed.append(ser)
-    return failed
+    """Refuse. Deleting http_proxy or writing :0 sends farm traffic out the host."""
+    log.warning("clear_all_proxies_on_devices refused — will not write http_proxy :0")
+    return [str(s) for s in serials if s]
 
 
 
@@ -2166,7 +2548,18 @@ def _resolve_tor_binary() -> Optional[str]:
     fast with a clear message instead of letting :mod:`subprocess` raise
     ``FileNotFoundError`` deep inside an unrelated stack.
     """
-    candidates = [str(TOR_DIR / "tor.exe"), r"C:\Tor\tor.exe"]
+    env_tor = (
+        os.environ.get("CPHARM_TOR_PATH") or os.environ.get("PHARMFLOW_TOR_PATH") or ""
+    ).strip()
+    candidates = [
+        str(TOR_DIR / "tor.exe"),
+        env_tor,
+        r"C:\CPharm\bundled\tor.exe",
+        r"C:\PharmFlow\bundled\tor.exe",
+        r"C:\CPharm\automation\tor\tor.exe",
+        r"C:\PharmFlow\automation\tor\tor.exe",
+        r"C:\Tor\tor.exe",
+    ]
     if os.name != "nt":
         candidates.append(str(TOR_DIR / "tor"))
     for c in candidates:
@@ -2175,9 +2568,27 @@ def _resolve_tor_binary() -> Optional[str]:
         try:
             p = Path(c)
             if p.is_file():
-                return str(p)
+                # Seed TOR_DIR so the next frozen launch finds it without env.
+                try:
+                    dest = TOR_DIR / "tor.exe"
+                    if p.resolve() != dest.resolve() and not dest.is_file():
+                        dest.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.copy2(p, dest)
+                except OSError:
+                    pass
+                return str(p if p.is_file() else TOR_DIR / "tor.exe")
         except OSError:
             continue
+    # Last chance: EXE self-heal copies a seed into TOR_DIR.
+    try:
+        from automation.farm_exe_self_heal import ensure_tor_binary
+
+        ensure_tor_binary()
+        seeded = TOR_DIR / "tor.exe"
+        if seeded.is_file():
+            return str(seeded)
+    except Exception:
+        pass
     on_path = shutil.which("tor.exe") if os.name == "nt" else shutil.which("tor")
     if on_path is None:
         on_path = shutil.which("tor")
@@ -2206,31 +2617,35 @@ def _standalone_tor_binary_available() -> bool:
 def socks_port_for_phone_idx(phone_idx: int) -> int:
     """SOCKS port that matches :func:`start_tor_for_phone`.
 
-    Standalone Tor uses ``BASE_PORT + phone_idx``. Tor Browser alone exposes SOCKS on
+    Standalone Tor uses ``BASE_PORT + slot``. The slot is the roster position
+    inject dials, not the absolute VM index. Tor Browser alone exposes SOCKS on
     **9150** only when no standalone ``tor.exe`` is available.
     """
-    if _standalone_tor_proc_alive(phone_idx):
-        return BASE_PORT + phone_idx
+    lane = _slot_index(int(phone_idx))
+    if _standalone_tor_proc_alive(lane):
+        return BASE_PORT + lane
     if _standalone_tor_binary_available():
-        return BASE_PORT + phone_idx
+        return BASE_PORT + lane
     if _tor_browser_running():
         return 9150
-    return BASE_PORT + phone_idx
+    return BASE_PORT + lane
 
 
 
 def http_proxy_port_for_phone_idx(phone_idx: int) -> Optional[int]:
-    """Host port for Tor **HTTPTunnelPort** — Android ``global http_proxy`` is HTTP CONNECT, not SOCKS.
+    """Host port for Tor **HTTPTunnelPort** — the slot listener inject dials.
 
     Returns ``None`` when only Tor Browser is available (SOCKS on 9150, no HTTP tunnel).
+    Absolute VM index is not a port offset: vm39 dials ``http_base+0``, not ``+39``.
     """
-    if _standalone_tor_proc_alive(phone_idx):
-        return HTTP_TUNNEL_BASE + phone_idx
+    lane = _slot_index(int(phone_idx))
+    if _standalone_tor_proc_alive(lane):
+        return HTTP_TUNNEL_BASE + lane
     if _standalone_tor_binary_available():
-        return HTTP_TUNNEL_BASE + phone_idx
+        return HTTP_TUNNEL_BASE + lane
     if _tor_browser_running():
         return None
-    return HTTP_TUNNEL_BASE + phone_idx
+    return HTTP_TUNNEL_BASE + lane
 
 
 _IP_ECHO_URLS = (
@@ -2266,6 +2681,60 @@ def fetch_exit_ip(phone_idx: int, timeout: float = 15.0) -> str:
         except Exception:
             continue
     return ""
+
+
+def country_from_control_reply(text: str) -> str:
+    """Two-letter country from a Tor control ``ip-to-country`` reply, or empty."""
+    match = re.search(r"ip-to-country/[0-9.]+=([A-Za-z]{2})\b", str(text or ""))
+    if not match:
+        return ""
+    code = match.group(1).upper()
+    if code in ("A1", "ZZ"):
+        return ""
+    return code
+
+
+def tor_exit_country(phone_idx: int, timeout: float = 8.0) -> str:
+    """Country of this phone's Tor exit, read through that phone's own proxy and control port.
+
+    Empty when the exit IP or GeoIP reply is missing. Callers must not invent a host timezone.
+    """
+    ip = fetch_exit_ip(phone_idx, timeout=timeout)
+    if not re.fullmatch(r"\d{1,3}(?:\.\d{1,3}){3}", ip or ""):
+        return ""
+    lane = _slot_index(int(phone_idx))
+    ctrl_port = phone_control_port(phone_idx)
+    cookie_path = TOR_DIR / f"data_{lane}" / "control_auth_cookie"
+    try:
+        raw_cookie = cookie_path.read_bytes()
+    except OSError:
+        return ""
+    if not raw_cookie:
+        return ""
+    try:
+        with socket.create_connection(("127.0.0.1", ctrl_port), timeout=3) as sock:
+            sock.settimeout(3.0)
+            sock.sendall(b"AUTHENTICATE " + raw_cookie.hex().encode() + b"\r\n")
+            auth = b""
+            while b"\n" not in auth and len(auth) < 512:
+                chunk = sock.recv(256)
+                if not chunk:
+                    break
+                auth += chunk
+            if b"250" not in auth:
+                return ""
+            sock.sendall(b"GETINFO ip-to-country/" + ip.encode("ascii") + b"\r\n")
+            resp = b""
+            while len(resp) < 1024:
+                chunk = sock.recv(256)
+                if not chunk:
+                    break
+                resp += chunk
+                if b"552" in resp or b"551" in resp or b"\n250 " in resp:
+                    break
+    except OSError:
+        return ""
+    return country_from_control_reply(resp.decode("utf-8", "replace"))
 
 
 
@@ -2367,27 +2836,36 @@ def tor_proxy_preflight() -> dict:
 
 
 def start_tor_for_phone(phone_idx: int) -> int:
-    """Start a Tor process for this phone. Returns the SOCKS5 port.
+    """Start a Tor process for this phone's slot. Returns the SOCKS5 port.
 
     Prefer **standalone** Tor (SOCKS + ``HTTPTunnelPort``) whenever ``tor.exe`` is
     available — even if Tor Browser is already listening on 9150 — because Android's
     system HTTP proxy cannot use SOCKS.
 
+    ``phone_idx`` may be an absolute VM index or an already-resolved slot.
+    The process and ports are keyed by :func:`_slot_index` so a heal that passes
+    slots and a farm call that passes vm39 bind the same listener inject dials.
+    Binding ``base+39`` left slot 0 dead and the tick treated the wrong port as a heal.
+
     If no standalone binary exists but Tor Browser's SOCKS is up, returns **9150**
     (SOCKS only; :func:`http_proxy_port_for_phone_idx` is then ``None``).
     """
-    lock = _bootstrap_lock_for(phone_idx)
+    lane = _slot_index(int(phone_idx))
+    lock = _bootstrap_lock_for(lane)
     with lock:
-        return _start_tor_for_phone_locked(phone_idx)
+        return _start_tor_for_phone_locked(lane)
 
 
 def _start_tor_for_phone_locked(phone_idx: int) -> int:
     tor_bin = _resolve_tor_binary()
     socks_port = BASE_PORT + phone_idx
+    http_port = HTTP_TUNNEL_BASE + phone_idx
     ctrl_port = BASE_PORT + 1000 + phone_idx
 
     if tor_bin:
-        if phone_idx in _tor_procs and _tor_procs[phone_idx].poll() is None:
+        # A live process object is not a live HTTP tunnel. Adopt only when the
+        # port accepts; leave a young bootstrap alone; restart a stale one.
+        if _tor_http_ready_or_bootstrapping(phone_idx, http_port):
             return socks_port
     else:
         if _tor_browser_running():
@@ -2420,9 +2898,9 @@ def _start_tor_for_phone_locked(phone_idx: int) -> int:
         cfg.write(f"CookieAuthFile {cookie_path}\n")
         # No country constraint by default — restricting ExitNodes can stall bootstrap when
         # a usable guard for the chosen country isn't quickly found (operator was hitting
-        # ``SOCKS not ready within 240s``). Set ``CPHARM_TOR_EXIT_NODES="{us}"`` or similar
+        # ``SOCKS not ready within 240s``). Set ``PHARMFLOW_TOR_EXIT_NODES="{us}"`` or similar
         # to constrain again.
-        _exit = os.environ.get("CPHARM_TOR_EXIT_NODES", "").strip()
+        _exit = os.environ.get("PHARMFLOW_TOR_EXIT_NODES", "").strip()
         if _exit:
             cfg.write(f"ExitNodes {_exit}\n")
         cfg.write("StrictNodes 0\n")
@@ -2432,17 +2910,64 @@ def _start_tor_for_phone_locked(phone_idx: int) -> int:
     finally:
         cfg.close()
 
-    flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+    # CREATE_NO_WINDOW alone is not enough on some Windows hosts — use the
+    # shared hidden_run_kwargs (NO_WINDOW + STARTF_USESHOWWINDOW) and burst-hide.
     proc = subprocess.Popen(
         [tor_bin, "-f", cfg.name],
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-        creationflags=flags,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        **hidden_run_kwargs(),
     )
+    if proc.pid:
+        hide_console_burst(int(proc.pid))
     _tor_procs[phone_idx] = proc
+    _tor_proc_started[phone_idx] = time.monotonic()
     _broadcast_port_bases()
     _ensure_bases_heartbeat()
     return socks_port
 
+
+
+def _control_auth_cookie(phone_index: int) -> bytes:
+    """Control cookie for this phone's slot, or empty if the instance has none."""
+    lane = _slot_index(int(phone_index))
+    candidates = [
+        TOR_DIR / f"data_{lane}" / "control_auth_cookie",
+        TOR_DIR / f"data_{int(phone_index)}" / "control_auth_cookie",
+    ]
+    try:
+        candidates.append(tor_data_path(phone_index) / "control_auth_cookie")
+    except Exception:
+        pass
+    seen: set[str] = set()
+    for path in candidates:
+        key = str(path)
+        if key in seen:
+            continue
+        seen.add(key)
+        try:
+            raw = path.read_bytes()
+        except OSError:
+            continue
+        if raw:
+            return raw
+    return b""
+
+
+def _control_authenticate(sock: socket.socket, cookie: bytes) -> bool:
+    """AUTHENTICATE with a cookie when present, else the empty-password form."""
+    if cookie:
+        sock.sendall(b"AUTHENTICATE " + cookie.hex().encode() + b"\r\n")
+    else:
+        sock.sendall(b'AUTHENTICATE ""\r\n')
+    auth = sock.recv(256).decode("utf-8", errors="replace")
+    if "250" in auth:
+        return True
+    if cookie:
+        return False
+    sock.sendall(b"AUTHENTICATE\r\n")
+    auth = sock.recv(256).decode("utf-8", errors="replace")
+    return "250" in auth
 
 
 def _send_tor_newnym(ctrl_port: int) -> bool:
@@ -2469,15 +2994,30 @@ def _send_tor_newnym(ctrl_port: int) -> bool:
         return False
     try:
         with socket.create_connection(("127.0.0.1", ctrl_port), timeout=3) as s:
-            auth = b'AUTHENTICATE ' + cookie.hex().encode() + b'\r\n'
-            s.sendall(auth)
-            s.recv(256)
+            if not _control_authenticate(s, cookie):
+                return False
             s.sendall(b"SIGNAL NEWNYM\r\n")
             resp = s.recv(256)
             return b"250" in resp
     except OSError:
         return False
 
+
+
+def _refuse_guest_proxy_write(proxy_value: str) -> str:
+    """Refuse empty, :0, and non-loopback guest proxies. Host gateway is host-IP egress."""
+    raw = str(proxy_value or "").strip()
+    if not raw or raw.lower() in ("null", "none", ":0") or raw.endswith(":0"):
+        return "empty or :0"
+    if not raw.startswith("127.0.0.1:"):
+        return "not a loopback exit"
+    try:
+        port = int(raw.split(":", 1)[1])
+    except (IndexError, ValueError):
+        return "not a loopback exit"
+    if port <= 0:
+        return "empty or :0"
+    return ""
 
 
 def apply_host_http_proxy_adb(serial: str, phone_idx: int, host_tunnel: int) -> dict:
@@ -2503,37 +3043,14 @@ def apply_host_http_proxy_adb(serial: str, phone_idx: int, host_tunnel: int) -> 
         _reverse_tcp_remove(ser, dev_listen)
         adb_reverse_ok = _adb_reverse_tcp_pair_with_retries(ser, dev_listen, int(host_tunnel))
         if not adb_reverse_ok:
-            if (
-                _serial_looks_like_emulator(ser)
-                and not _env_truthy("CPHARM_PROXY_NO_EMU_GATEWAY_FALLBACK")
-            ):
-                gw_host = _tor_proxy_host_for_device(ser)
-                if gw_host != "127.0.0.1":
-                    gw_proxy = f"{gw_host}:{host_tunnel}"
-                    log.warning(
-                        "apply_host_http_proxy_adb: adb reverse FAILED serial=%s — gateway %s",
-                        ser,
-                        gw_proxy,
-                    )
-                    try:
-                        r = _shell(ser, "settings", "put", "global", "http_proxy", gw_proxy, timeout=12)
-                        if r.returncode == 0:
-                            return {
-                                "socks_port": socks,
-                                "http_proxy_port": host_tunnel,
-                                "proxy_host": gw_host,
-                                "http_proxy": gw_proxy,
-                                "proxy_mode": "emu_gateway_fallback",
-                                "device_proxy_local_port": None,
-                                "http_proxy_applied": True,
-                                "adb_reverse_ok": False,
-                            }
-                    except Exception:
-                        pass
-            try:
-                _shell(ser, "settings", "delete", "global", "http_proxy", timeout=10)
-            except Exception:
-                pass
+            # Do not point the guest at 10.0.2.2 and do not delete http_proxy.
+            # Both are host-IP egress. Leave the existing pin; the heal tick
+            # restores the listener without opening the host route.
+            log.warning(
+                "apply_host_http_proxy_adb: adb reverse FAILED serial=%s — "
+                "not applying gateway (host-IP egress forbidden); leaving existing pin",
+                ser,
+            )
             return {
                 "socks_port": socks,
                 "http_proxy_port": host_tunnel,
@@ -2548,6 +3065,26 @@ def apply_host_http_proxy_adb(serial: str, phone_idx: int, host_tunnel: int) -> 
         proxy_mode = "adb_reverse"
         host = "127.0.0.1"
 
+    refused = _refuse_guest_proxy_write(proxy_value)
+    if refused:
+        log.warning(
+            "apply_host_http_proxy_adb refused serial=%s proxy=%s (%s)",
+            serial,
+            proxy_value,
+            refused,
+        )
+        return {
+            "socks_port": socks,
+            "http_proxy_port": host_tunnel,
+            "proxy_host": host if legacy else "127.0.0.1",
+            "http_proxy": None,
+            "proxy_mode": proxy_mode,
+            "device_proxy_local_port": dev_listen,
+            "http_proxy_applied": False,
+            "adb_reverse_ok": adb_reverse_ok,
+        }
+
+    put_ok = False
     try:
         r = _shell(
             serial,
@@ -2558,7 +3095,8 @@ def apply_host_http_proxy_adb(serial: str, phone_idx: int, host_tunnel: int) -> 
             proxy_value,
             timeout=12,
         )
-        if r.returncode != 0:
+        put_ok = r.returncode == 0
+        if not put_ok:
             log.warning(
                 "apply_host_http_proxy_adb settings put failed serial=%s proxy=%s rc=%s",
                 serial,
@@ -2575,8 +3113,21 @@ def apply_host_http_proxy_adb(serial: str, phone_idx: int, host_tunnel: int) -> 
             )
     except Exception as e:
         log.warning("apply_host_http_proxy_adb exception serial=%s: %s", serial, e)
+        put_ok = False
 
-    if os.environ.get("CPHARM_PROXY_NO_BROWSER_KICK", "").strip().lower() not in (
+    if not put_ok:
+        return {
+            "socks_port": socks,
+            "http_proxy_port": host_tunnel,
+            "proxy_host": host if legacy else "127.0.0.1",
+            "http_proxy": None,
+            "proxy_mode": proxy_mode,
+            "device_proxy_local_port": dev_listen,
+            "http_proxy_applied": False,
+            "adb_reverse_ok": adb_reverse_ok,
+        }
+
+    if os.environ.get("PHARMFLOW_PROXY_NO_BROWSER_KICK", "").strip().lower() not in (
         "1",
         "true",
         "yes",
@@ -2611,8 +3162,8 @@ def apply_identity_adb(serial: str, phone_idx: int) -> dict:
     **MuMu guest-bridge** (``10.0.2.x:5555``, ``x`` not 2 or 15): ``adb reverse`` +
     ``127.0.0.1:<port>`` where ``<port> = 8118 + phone_idx`` (default).
 
-    **AVD / legacy gateway:** ``10.0.2.2:<port>`` when auto-detect routes to the host, or when
-    ``CPHARM_PROXY_LEGACY_GATEWAY=1``. Override reverse-first with ``CPHARM_PROXY_FORCE_REVERSE=1``.
+    **Every guest:** ``adb reverse`` plus ``127.0.0.1:<port>``. ``10.0.2.2`` is this PC
+    from the phone and is not written.
     """
     host_tunnel = http_proxy_port_for_phone_idx(phone_idx)
     socks = socks_port_for_phone_idx(phone_idx)
@@ -2648,7 +3199,7 @@ def rotate_identity_adb(serial: str, phone_idx: int) -> dict:
     This does **not** restart the tor process — Tor rotates circuits in-process (see Tor manual:
     control ``NEWNYM``). Use :func:`stop_all` only when tearing Tor down entirely.
     """
-    ctrl_port = BASE_PORT + 1000 + phone_idx
+    ctrl_port = phone_control_port(int(phone_idx))
     rotated   = _send_tor_newnym(ctrl_port)
     time.sleep(1)
     result = apply_identity_adb(serial, phone_idx)
@@ -2668,8 +3219,8 @@ def ensure_tor_and_proxy_for_phone(serial: str, phone_idx: int) -> dict:
     or a prior caller already completed bootstrap.
 
     Dashboard groups / the scheduler call this before automation steps unless
-    ``CPHARM_SKIP_TOR_WAIT=1``. Tune bootstrap timeouts with ``CPHARM_TOR_WAIT_SOCKS`` /
-    ``CPHARM_TOR_WAIT_HTTP`` (seconds).
+    ``PHARMFLOW_SKIP_TOR_WAIT=1``. Tune bootstrap timeouts with ``PHARMFLOW_TOR_WAIT_SOCKS`` /
+    ``PHARMFLOW_TOR_WAIT_HTTP`` (seconds).
     """
     register_tor_slot(str(serial), int(phone_idx))
     idx = int(phone_idx)
@@ -2680,15 +3231,20 @@ def ensure_tor_and_proxy_for_phone(serial: str, phone_idx: int) -> dict:
     try:
         start_tor_for_phone(idx)
     except (RuntimeError, FileNotFoundError) as e:
-        try:
-            _shell(str(serial), "settings", "delete", "global", "http_proxy", timeout=10)
-        except Exception:
-            pass
+        log.warning(
+            "ensure_tor_ready failed serial=%s — leaving http_proxy "
+            "(host-IP egress forbidden): %s",
+            serial,
+            e,
+        )
         return {"ok": False, "error": str(e)}
     ws = tor_wait_socks_seconds()
     wh = tor_wait_http_seconds()
-    lock = _bootstrap_lock_for(idx)
-    ev = _get_host_ready_event(idx)
+    lane = _slot_index(idx)
+    if lane != idx:
+        _join_idx_warm_thread_if_running(lane, min(45.0, float(tor_wait_socks_seconds())))
+    lock = _bootstrap_lock_for(lane)
+    ev = _get_host_ready_event(lane)
     with lock:
         quick_ok = False
         if ev.is_set():
@@ -2706,56 +3262,71 @@ def ensure_tor_and_proxy_for_phone(serial: str, phone_idx: int) -> dict:
             if not wait_for_tor(idx, timeout=ws_eff):
                 msg = f"SOCKS not ready within {ws_eff}s"
                 if warm_recent:
-                    msg += " (after recent prewarm — see CPHARM_TOR_WAIT_SOCKS)"
+                    msg += " (after recent prewarm — see PHARMFLOW_TOR_WAIT_SOCKS)"
                 proc_exit = _poll_standalone_tor_exit_code(idx)
                 if proc_exit is not None:
                     msg += (
                         f"; tor.exe exited (code {proc_exit}) — install Tor expert bundle under "
-                        f"{TOR_DIR} or set PATH tor.exe (see {TOR_DIR / f'data_{idx}' / 'tor.log'})"
+                        f"{TOR_DIR} or set PATH tor.exe (see {TOR_DIR / f'data_{lane}' / 'tor.log'})"
                     )
-                try:
-                    _shell(str(serial), "settings", "delete", "global", "http_proxy", timeout=10)
-                except Exception:
-                    pass
+                log.warning(
+                    "ensure_tor_ready failed serial=%s — leaving http_proxy "
+                    "(host-IP egress forbidden): %s",
+                    serial,
+                    msg,
+                )
                 return {"ok": False, "error": msg}
             # SOCKS port accepts TCP — verify Tor has fully bootstrapped before http_proxy / browser.
             _boot_budget = tor_wait_bootstrap_seconds()
             if not wait_for_tor_bootstrap(idx, timeout=_boot_budget):
                 msg = (
                     f"Tor bootstrap not confirmed within {_boot_budget}s "
-                    f"(tune CPHARM_TOR_WAIT_BOOTSTRAP; log {TOR_DIR / f'data_{idx}' / 'tor.log'})"
+                    f"(tune PHARMFLOW_TOR_WAIT_BOOTSTRAP; log {TOR_DIR / f'data_{lane}' / 'tor.log'})"
                 )
-                try:
-                    _shell(str(serial), "settings", "delete", "global", "http_proxy", timeout=10)
-                except Exception:
-                    pass
+                log.warning(
+                    "ensure_tor_ready failed serial=%s — leaving http_proxy "
+                    "(host-IP egress forbidden): %s",
+                    serial,
+                    msg,
+                )
                 return {"ok": False, "error": msg}
             if not wait_for_tor_http_tunnel(idx, timeout=wh_eff):
                 msg = f"HTTP tunnel not ready within {wh_eff}s"
                 if warm_recent:
-                    msg += " (after recent prewarm — see CPHARM_TOR_WAIT_HTTP)"
-                try:
-                    _shell(str(serial), "settings", "delete", "global", "http_proxy", timeout=10)
-                except Exception:
-                    pass
+                    msg += " (after recent prewarm — see PHARMFLOW_TOR_WAIT_HTTP)"
+                log.warning(
+                    "ensure_tor_ready failed serial=%s — leaving http_proxy "
+                    "(host-IP egress forbidden): %s",
+                    serial,
+                    msg,
+                )
                 return {"ok": False, "error": msg}
             ev.set()
     repair_adb_reverse_for_proxy(str(serial), idx)
     applied = apply_identity_adb(str(serial), idx)
     if applied.get("proxy_mode") == "emu_gateway_fallback":
-        log.warning(
-            "ensure_tor_ready: adb reverse failed; using emulator gateway fallback proxy=%s serial=%s — "
-            "if browser still times out on guest-bridge MuMu, fix adb reverse (see CPHARM_PROXY_DEBUG=1); gateway 10.0.2.2 is opt-in via CPHARM_PROXY_LEGACY_GATEWAY=1 on this ARM farm",
-            applied.get("http_proxy"),
-            serial,
-        )
+        return {
+            "ok": False,
+            "error": "gateway fallback refused (host-IP egress forbidden)",
+        }
     if applied.get("proxy_mode") == "adb_reverse" and not applied.get("adb_reverse_ok", True):
         return {
             "ok": False,
             "error": (
                 "adb reverse failed — http_proxy not applied (browser would show proxy connection failed); "
-                "see CPHARM_PROXY_DEBUG=1, adb reverse --list, USB debugging / bridge"
+                "see PHARMFLOW_PROXY_DEBUG=1, adb reverse --list, USB debugging / bridge"
             ),
+        }
+    if applied.get("http_proxy_applied") is False:
+        return {
+            "ok": False,
+            "error": applied.get("error") or "http_proxy not applied",
+        }
+    http_port = http_proxy_port_for_phone_idx(idx)
+    if http_port is None or not _tcp_open(int(http_port)):
+        return {
+            "ok": False,
+            "error": f"http_tunnel_down_after_ensure port={http_port}",
         }
     return {"ok": True}
 
@@ -2768,7 +3339,7 @@ ensure_tor_ready = ensure_tor_and_proxy_for_phone
 
 def _poll_standalone_tor_exit_code(phone_idx: int) -> Optional[int]:
     """If our standalone ``tor`` process exited, return exit code; if running or unknown, ``None``."""
-    proc = _tor_procs.get(phone_idx)
+    proc = _tor_procs.get(_slot_index(int(phone_idx)))
     if proc is None:
         return None
     return proc.poll()
@@ -2777,7 +3348,8 @@ def _poll_standalone_tor_exit_code(phone_idx: int) -> Optional[int]:
 
 def _bootstrap_indicated_in_tor_log(phone_idx: int) -> bool:
     """True when Tor's notice log shows bootstrap complete (control-port fallback)."""
-    log_path = TOR_DIR / f"data_{phone_idx}" / "tor.log"
+    lane = _slot_index(int(phone_idx))
+    log_path = TOR_DIR / f"data_{lane}" / "tor.log"
     try:
         if not log_path.is_file():
             return False
@@ -2821,12 +3393,13 @@ def _check_tor_bootstrap_via_control(phone_idx: int, timeout: float = 30.0) -> b
     bootstrapped when running). When the control cookie is slow on Windows, also
     checks the per-index ``tor.log`` tail written by ``start_tor_for_phone``.
     """
-    if not _standalone_tor_proc_alive(phone_idx):
+    lane = _slot_index(int(phone_idx))
+    if not _standalone_tor_proc_alive(lane):
         return True
-    if _bootstrap_indicated_in_tor_log(phone_idx):
+    if _bootstrap_indicated_in_tor_log(lane):
         return True
-    ctrl_port = BASE_PORT + 1000 + phone_idx
-    cookie_path = TOR_DIR / f"data_{phone_idx}" / "control_auth_cookie"
+    ctrl_port = BASE_PORT + 1000 + lane
+    cookie_path = TOR_DIR / f"data_{lane}" / "control_auth_cookie"
     deadline = time.time() + max(1.0, float(timeout))
     while time.time() < deadline:
         if _poll_standalone_tor_exit_code(phone_idx) is not None:
@@ -2984,9 +3557,13 @@ def randomize_android_id_adb(serial: str) -> str:
     """
     new_id = os.urandom(8).hex()
     try:
-        _shell(serial, "settings", "put", "secure", "android_id", new_id, timeout=12)
+        put = _shell(serial, "settings", "put", "secure", "android_id", new_id, timeout=12)
+        got = _shell(serial, "settings", "get", "secure", "android_id", timeout=12)
     except Exception:
-        pass
+        return ""
+    live = (got.stdout or "").strip().lower()
+    if put.returncode != 0 or live != new_id:
+        return ""
     return new_id
 
 
@@ -3025,14 +3602,27 @@ def full_identity_reset(serial: str, phone_idx: int) -> dict:
     4. Clear browser cookies / app data
     """
     # 1. Rotate Tor circuit
-    ctrl_port = BASE_PORT + 1000 + phone_idx
+    ctrl_port = phone_control_port(int(phone_idx))
     tor_rotated = _send_tor_newnym(ctrl_port)
     time.sleep(0.5)
 
-    # 2. Re-apply proxy to pick up new Tor circuit
-    apply_identity_adb(serial, phone_idx)
+    # 2. Re-apply proxy to pick up new Tor circuit. A planned port is not a pin.
+    applied = apply_identity_adb(serial, phone_idx)
+    want = str((applied or {}).get("http_proxy") or "").strip()
+    live_proxy = ""
+    try:
+        live_proxy = (
+            _shell(serial, "settings", "get", "global", "http_proxy", timeout=12).stdout or ""
+        ).strip()
+    except Exception:
+        live_proxy = ""
+    proxy_pinned = bool(
+        want.startswith("127.0.0.1:")
+        and not want.endswith(":0")
+        and live_proxy == want
+    )
 
-    # 3. New Android ID
+    # 3. New Android ID — empty means the guest read did not match.
     new_android_id = randomize_android_id_adb(serial)
 
     # 4. New MAC (best-effort, requires root)
@@ -3053,6 +3643,9 @@ def full_identity_reset(serial: str, phone_idx: int) -> dict:
     return {
         "tor_circuit_rotated": tor_rotated,
         "new_android_id": new_android_id,
+        "android_id_applied": bool(new_android_id),
+        "http_proxy": live_proxy,
+        "http_proxy_applied": proxy_pinned,
         "new_mac": mac_result.get("mac", ""),
         "mac_applied": mac_result.get("applied", False),
         "new_imei": imei_result.get("imei", ""),

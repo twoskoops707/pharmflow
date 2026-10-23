@@ -90,7 +90,7 @@ class OpenUrlNavigationRetryTests(unittest.TestCase):
             return second
 
         with (
-            mock.patch.dict(os.environ, {"CPHARM_OPEN_URL_NAV_RETRY": "1"}),
+            mock.patch.dict(os.environ, {"PHARMFLOW_OPEN_URL_NAV_RETRY": "1"}),
             mock.patch.object(dashboard, "_adb", side_effect=fake_adb),
         ):
             result = dashboard._retry_open_url_action_view_for_browser_net_error(
@@ -120,7 +120,7 @@ class OpenUrlNavigationRetryTests(unittest.TestCase):
             return second
 
         with (
-            mock.patch.dict(os.environ, {"CPHARM_OPEN_URL_NAV_RETRY_BACKOFF_SEC": "0"}, clear=True),
+            mock.patch.dict(os.environ, {"PHARMFLOW_OPEN_URL_NAV_RETRY_BACKOFF_SEC": "0"}, clear=True),
             mock.patch.object(dashboard, "_adb", side_effect=fake_adb),
         ):
             result = dashboard._retry_open_url_action_view_for_browser_net_error(
@@ -138,7 +138,7 @@ class OpenUrlNavigationRetryTests(unittest.TestCase):
             stderr="net::ERR_CONNECTION_RESET",
         )
         with (
-            mock.patch.dict(os.environ, {"CPHARM_OPEN_URL_NAV_RETRY": "0"}),
+            mock.patch.dict(os.environ, {"PHARMFLOW_OPEN_URL_NAV_RETRY": "0"}),
             mock.patch.object(dashboard, "_adb") as adb_mock,
         ):
             result = dashboard._retry_open_url_action_view_for_browser_net_error(
@@ -153,7 +153,7 @@ class TorWarmDoubleWaitTests(unittest.TestCase):
     """Regression for the open_url double-wait: when a warm worker has just exited without
     setting the host-ready event, the synchronous ``ensure_tor_and_proxy_for_phone`` should
     use a short retry budget (<= 15s) instead of waiting another full
-    ``CPHARM_TOR_WAIT_SOCKS`` + ``CPHARM_TOR_WAIT_HTTP`` window (8+ minutes blocked browser).
+    ``PHARMFLOW_TOR_WAIT_SOCKS`` + ``PHARMFLOW_TOR_WAIT_HTTP`` window (8+ minutes blocked browser).
     """
 
     def setUp(self) -> None:
@@ -218,7 +218,7 @@ class TorWarmDoubleWaitTests(unittest.TestCase):
         self.assertFalse(result.get("ok"))
         self.assertEqual(bootstrap_timeouts, [120])
         self.assertNotIn("13s", result.get("error", ""))
-        self.assertIn("CPHARM_TOR_WAIT_BOOTSTRAP", result.get("error", ""))
+        self.assertIn("PHARMFLOW_TOR_WAIT_BOOTSTRAP", result.get("error", ""))
         apply_mock.assert_not_called()
 
     def test_bootstrap_response_parser_accepts_common_tor_formats(self):
@@ -273,8 +273,9 @@ class EmulatorProxyRoutingTests(unittest.TestCase):
         self.assertTrue(tor_manager._adb_serial_is_mumu_guest_bridge("10.0.2.120:5555"))
         self.assertFalse(tor_manager._use_gateway_proxy_mode("10.0.2.120:5555"))
         self.assertFalse(tor_manager._adb_serial_is_mumu_guest_bridge("10.0.2.2:5555"))
-        with mock.patch.dict(os.environ, {"CPHARM_PROXY_LEGACY_GATEWAY": "1"}, clear=False):
-            self.assertTrue(tor_manager._use_gateway_proxy_mode("10.0.2.120:5555"))
+        with mock.patch.dict(os.environ, {"PHARMFLOW_PROXY_LEGACY_GATEWAY": "1"}, clear=False):
+            self.assertFalse(tor_manager._use_gateway_proxy_mode("10.0.2.120:5555"))
+            self.assertFalse(tor_manager._use_gateway_proxy_mode("emulator-5554"))
 
     def test_apply_identity_uses_reverse_for_mumu_guest_bridge(self):
         shell_calls: list[tuple] = []
@@ -309,9 +310,9 @@ class EmulatorProxyRoutingTests(unittest.TestCase):
 
 
 class ApplyIdentityStaleProxyTests(unittest.TestCase):
-    """When ``adb reverse`` fails, stale ``http_proxy`` must be cleared so the browser is not wedged."""
+    """When ``adb reverse`` fails, the guest proxy is left in place. Deleting it is host-IP egress."""
 
-    def test_apply_identity_clears_http_proxy_when_reverse_fails(self):
+    def test_apply_identity_does_not_clear_http_proxy_when_reverse_fails(self):
         shell_calls: list[tuple] = []
 
         def fake_shell(serial: str, *args: str, timeout: int = 15):
@@ -331,9 +332,18 @@ class ApplyIdentityStaleProxyTests(unittest.TestCase):
 
         self.assertFalse(result.get("http_proxy_applied"))
         self.assertFalse(result.get("adb_reverse_ok"))
-        self.assertTrue(
+        self.assertFalse(
             any(args[:4] == ("settings", "delete", "global", "http_proxy") for _s, args in shell_calls),
-            f"expected http_proxy delete in shell calls, got {shell_calls}",
+            f"must not delete http_proxy when reverse fails, got {shell_calls}",
+        )
+        self.assertFalse(
+            any(
+                len(args) >= 5
+                and args[:4] == ("settings", "put", "global", "http_proxy")
+                and str(args[4]).endswith(":0")
+                for _s, args in shell_calls
+            ),
+            shell_calls,
         )
 
 
@@ -416,7 +426,7 @@ class OpenUrlAttemptsOemBeforeGenericTests(unittest.TestCase):
             "packages_for_dabflow_view_url_attempts",
             return_value=[oem_pkg],
         ):
-            attempts = dashboard._open_url_attempts("https://getdabflow.app", {}, serial="serial-1")
+            attempts = dashboard._open_url_attempts("https://example.com", {}, serial="serial-1")
 
         reasons = [r for r, _ in attempts]
         oem_idx = next((i for i, r in enumerate(reasons) if r.startswith("oem-pkg-")), None)

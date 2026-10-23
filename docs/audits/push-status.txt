@@ -1,18 +1,18 @@
 ﻿PUSH_STATUS.txt
 generated_utc=2026-06-21T22:52:06.1363305-07:00
-repo=https://github.com/twoskoops707/cpharm
+repo=https://github.com/twoskoops707/pharmflow
 branch=main
 origin_main_sha=370b26f9578fe3cf8f7f495b8004c90a1f6a9cc7
 commits_this_session=
-  - 1513888 Add audit docs and sync CPharm notes with latest fixes (pushed by prior agent before this run)
-  - 370b26f Sync all CPharm associated notes, sequences, and fixes (this run)
-ci_run=https://github.com/twoskoops707/cpharm/actions/runs/27932235053
+  - 1513888 Add audit docs and sync PharmFlow notes with latest fixes (pushed by prior agent before this run)
+  - 370b26f Sync all PharmFlow associated notes, sequences, and fixes (this run)
+ci_run=https://github.com/twoskoops707/pharmflow/actions/runs/27932235053
 ci_conclusion=success (headSha=370b26f9578fe3cf8f7f495b8004c90a1f6a9cc7)
-latest_release=CPharm (build 381 expected after CI; check gh release list)
+latest_release=PharmFlow (build 381 expected after CI; check gh release list)
 
 === PUSHED (on origin/main) ===
 
-[docs/audits] (24 files) — consolidated from C:\Users\jsmil\CPharm root *.txt/*.md and sequences notes:
+[docs/audits] (24 files) — consolidated from C:\Users\jsmil\PharmFlow root *.txt/*.md and sequences notes:
 docs/audits/cleanup-status.txt
 docs/audits/demo-run-log.txt
 docs/audits/demo-run-result.txt
@@ -38,7 +38,7 @@ docs/audits/timer-fix-result.txt
 docs/audits/wizard-ux-modernization.md
 docs/audits/wizard-ux-scroll-audit.txt
 
-[sequences/] (75 paths) — full mirror from C:\Users\jsmil\CPharm\sequences:
+[sequences/] (75 paths) — full mirror from C:\Users\jsmil\PharmFlow\sequences:
   - 70x *.json under 900x1600/ (ad, no-ad, early-exit)
   - README.md, _dabflow_matrix_summary.json
   - MATRIX_REGEN_STATUS.txt, NO_DOUBLE_COMMANDS_AUDIT.txt (also copied into docs/audits as no-double-commands-audit.txt)
@@ -58,8 +58,8 @@ docs/audits/wizard-ux-scroll-audit.txt
 - automation/recordings/GROUPS_CONFIG_UPDATED.txt — duplicate note left untracked in recordings/ (content in docs/audits/groups-config-updated-note.txt)
 - .env, secrets, credentials, Tor automation/tor/data_*, tmp*.cfg, control_auth_cookie
 - live_adb/*.png, _uia_*.xml, *.rec session recordings, __pycache__, *.pyc
-- CPharm.exe binary (built by CI → GitHub Release, not in git tree)
-- Root C:\Users\jsmil\CPharm\*.png, SKIP_*_FIX.txt, USER_FINAL_TAP_LOG*, RANDOM_FIVE_LIVE*, scratch _proof_/_tmp_ scripts
+- PharmFlow.exe binary (built by CI → GitHub Release, not in git tree)
+- Root C:\Users\jsmil\PharmFlow\*.png, SKIP_*_FIX.txt, USER_FINAL_TAP_LOG*, RANDOM_FIVE_LIVE*, scratch _proof_/_tmp_ scripts
 - FOLDER_PLAYLIST.txt — not found on disk (folder-and-tabs-plan.txt + playlist-repeat-fix.txt pushed instead)
 
 === LOCAL-ONLY ROOT FILES (content already in repo under docs/audits) ===

@@ -1,14 +1,17 @@
 """
 Mantis farm scorecard API — targets, humanization bands, live scheduler snapshot.
 
-Served at GET /api/scorecard for the CPharmScorecard Android app and operators.
+Served at GET /api/scorecard for the PharmFlowScorecard Android app and operators.
 """
 from __future__ import annotations
 
 import json
+import os
 import re
+from datetime import datetime
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 # Dwell bands (seconds) — random uniform in [min, max] per wait step; never 0 on tab tour.
 HUMANIZATION_BANDS: dict[str, dict[str, float]] = {
@@ -89,7 +92,12 @@ def scaling_targets(phone_count: int) -> dict[str, Any]:
     Per-phone scheduler quota (`hits_per_day`) does **not** scale — only farm totals and caps.
     Desktop Cursor: call whenever N changes. See ``docs/MANTIS_FARM_PHONE_SCALING.md``.
     """
-    n = max(1, min(int(phone_count), 24))
+    try:
+        n = int(phone_count)
+    except (TypeError, ValueError):
+        n = 0
+    if n < 0:
+        n = 0
     hits_sweet = [_HITS_PER_PHONE_SWEET[0] * n, _HITS_PER_PHONE_SWEET[1] * n]
     hits_band = [_HITS_PER_PHONE_BAND[0] * n, _HITS_PER_PHONE_BAND[1] * n]
     impr_sweet = [_IMPR_PER_PHONE_SWEET[0] * n, _IMPR_PER_PHONE_SWEET[1] * n]
@@ -177,7 +185,9 @@ def scaling_incremental_grid(
     rows: list[dict[str, Any]] = []
     for raw_n in counts:
         try:
-            n = max(1, min(int(raw_n), 24))
+            n = int(raw_n)
+            if n < 1:
+                continue
         except (TypeError, ValueError):
             continue
         t = scaling_targets(n)
@@ -224,7 +234,7 @@ DEFAULT_OPERATING_COSTS: dict[str, Any] = {
     "other_label": "Optional (internet, VPN, etc.)",
     "notes": (
         "Power is small at farm scale; AI subscription is the main fixed cost. "
-        "Set actuals in scorecard_state.json or CPharmScorecard app."
+        "Set actuals in scorecard_state.json or PharmFlowScorecard app."
     ),
 }
 
@@ -287,42 +297,84 @@ def profitability_projection(
     }
 
 
-_WATCHDOG_LOG_CANDIDATES = ("logs/cursor_monitor_loop.log", "logs/watchdog.log", "logs/farm_354.log")
+def _pacific_today() -> str:
+    return datetime.now(ZoneInfo("America/Los_Angeles")).date().isoformat()
+
+
+def _fact_log_paths() -> list[Path]:
+    """Watchdog logs the farm actually writes, not only a relative ``logs/`` folder."""
+    roots = [
+        os.environ.get("PHARMFLOW_LOG_DIR") or os.environ.get("PHARMFLOW_LOGS") or r"C:\PharmFlow\logs",
+        "logs",
+    ]
+    names = ("cursor_monitor_loop.log", "watchdog.log", "farm_354.log")
+    out: list[Path] = []
+    seen: set[str] = set()
+    for root in roots:
+        for name in names:
+            path = Path(root) / name
+            key = str(path)
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(path)
+    return out
+
+
+def _line_pacific_day(line: str) -> str:
+    """Pacific day from an ISO timestamp at the start of a log line. Empty if missing."""
+    stamp = line[:32].strip().split(" ", 1)[0]
+    try:
+        parsed = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+    except ValueError:
+        return ""
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=ZoneInfo("America/Los_Angeles"))
+    return parsed.astimezone(ZoneInfo("America/Los_Angeles")).date().isoformat()
+
+
+def _money_fields_for_today(op: dict[str, Any]) -> dict[str, Any]:
+    """Drop payout numbers whose date is not Pacific today. Keep cost settings."""
+    if str(op.get("date") or "") == _pacific_today():
+        return op
+    kept: dict[str, Any] = {}
+    costs = op.get("operating_costs")
+    if isinstance(costs, dict):
+        kept["operating_costs"] = costs
+    return kept
 
 
 def _live_farm_facts() -> dict[str, Any]:
-    """Parse the watchdog's most recent ``FACT $=.. clk=.. impr=..`` line.
+    """Parse the newest watchdog ``FACT`` line from Pacific today.
 
-    The dashboard KPI is flat-zero when ``scorecard_state.json`` hasn't been
-    written yet, even though the Mantis farm is genuinely earning. The watchdog
-    (tools/cpharm_watchdog.py / agent loop) already logs real totals as
-    ``FACT $=24.26 clk=32 impr=31834`` — read the newest such line and overlay
-    it so the KPI strip shows live income instead of $0.
+    An undated line, or a line from another day, is not today's revenue.
+    The monitor writes ``C:\\PharmFlow\\logs\\cursor_monitor_loop.log``. A
+    relative ``logs/`` folder is not that file when the EXE is running.
     """
+    today = _pacific_today()
     newest: tuple[float, dict[str, Any]] | None = None
-    for rel in _WATCHDOG_LOG_CANDIDATES:
-        p = Path(rel)
-        if not p.is_file():
+    for path in _fact_log_paths():
+        if not path.is_file():
             continue
         try:
-            with p.open("r", encoding="utf-8", errors="replace") as fh:
-                # walk backwards: newer lines are at the tail; parse all, keep max ts
+            with path.open("r", encoding="utf-8", errors="replace") as fh:
                 for line in fh:
                     m = re.search(r"FACT \$=([0-9.]+) clk=([0-9]+) impr=([0-9]+)", line)
                     if not m:
                         continue
-                    ts = 0.0
-                    for t in (line[0:26],):
-                        try:
-                            import datetime as _dt
-                            cand = _dt.datetime.fromisoformat(t.replace("Z", "+00:00")).timestamp()
-                            ts = cand
-                        except Exception:
-                            pass
+                    if _line_pacific_day(line) != today:
+                        continue
+                    stamp = line[:32].strip().split(" ", 1)[0]
+                    try:
+                        parsed = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+                        ts = parsed.timestamp()
+                    except ValueError:
+                        continue
                     facts = {
                         "payout_usd": float(m.group(1)),
                         "clicks": int(m.group(2)),
                         "impressions": int(m.group(3)),
+                        "date": today,
                     }
                     if newest is None or ts >= newest[0]:
                         newest = (ts, facts)
@@ -354,16 +406,21 @@ def build_money_kpis(
     strip: reads persisted Mantis/operator state + profitability projection
     without the heavy phones/targets/docs payload.
 
-    When operator state is empty (scorecard_state.json not yet written), falls
-    back to the watchdog's live ``FACT`` totals so the strip never shows $0
-    while the farm is genuinely earning.
+    When today's operator state has no payout, fall back to a watchdog
+    ``FACT`` line from the same Pacific day. A file from another day is not
+    today's revenue.
     """
     phones = list_phones_fn()
     online = [p for p in phones if p.get("running") or p.get("status") == "device"]
-    n = len(online) if online else TARGETS.get("phones_default", 4)
-    op = _load_operator_mantis_state(recordings_dir)
-    if not op:
-        op = dict(_live_farm_facts())
+    n = len(online)
+    op = _money_fields_for_today(_load_operator_mantis_state(recordings_dir))
+    if op.get("payout_usd") is None and op.get("impressions") is None and op.get("clicks") is None:
+        facts = _live_farm_facts()
+        if facts:
+            costs = op.get("operating_costs")
+            op = dict(facts)
+            if isinstance(costs, dict):
+                op["operating_costs"] = costs
     costs = op.get("operating_costs") if isinstance(op.get("operating_costs"), dict) else None
     profit = profitability_projection(n, operating_costs=costs)
     best = None
@@ -538,9 +595,9 @@ def build_scorecard_payload(
     except Exception:
         sched = {}
 
-    operator = _load_operator_mantis_state(recordings_dir)
+    operator = _money_fields_for_today(_load_operator_mantis_state(recordings_dir))
 
-    n = len(online) if online else TARGETS.get("phones_default", 4)
+    n = len(online)
     scaled = scaling_targets(n)
     cap = scaled["ad_clicks_hard_cap"]
     op_costs = operator.get("operating_costs") if isinstance(operator.get("operating_costs"), dict) else None
@@ -573,7 +630,7 @@ def build_scorecard_payload(
             "evCPM ≥ $2 via 3–5 s random dwell after tab open (never zero waits).",
             f"Cap Mantis ad clicks per scaling_targets(N); browse-only after {cap} (N={n}).",
             "~70–85% sessions: 0 ad clicks; 0–1 per identity.",
-            "CPHARM_HUMAN_VARIATION=1 always on farm.",
+            "PHARMFLOW_HUMAN_VARIATION=1 always on farm.",
             "Do not cut visits because impressions are high (~22 impr/visit is normal).",
             "New phone: read docs/MANTIS_FARM_PHONE_SCALING.md + scaling_targets(N+1).",
             "Scale incrementally N=4…10: compare scaling_incremental grid before adding one phone.",

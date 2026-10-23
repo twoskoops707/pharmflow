@@ -35,23 +35,23 @@ class FarmGuestRailsTests(unittest.TestCase):
         self.assertEqual(data["resolution_height"], 1600)
 
     def test_env_cpu_ram_clamped(self) -> None:
-        old_c = os.environ.get("CPHARM_MUMU_CPU_CORES")
-        old_r = os.environ.get("CPHARM_MUMU_RAM_MB")
+        old_c = os.environ.get("PHARMFLOW_MUMU_CPU_CORES")
+        old_r = os.environ.get("PHARMFLOW_MUMU_RAM_MB")
         try:
-            os.environ["CPHARM_MUMU_CPU_CORES"] = "99"
-            os.environ["CPHARM_MUMU_RAM_MB"] = "99"
+            os.environ["PHARMFLOW_MUMU_CPU_CORES"] = "99"
+            os.environ["PHARMFLOW_MUMU_RAM_MB"] = "99"
             data = apply_farm_guest_rails({})
             self.assertEqual(data["PerformancePreset"]["Cpu"], 2)
             self.assertEqual(data["PerformancePreset"]["MemoryOfMB"], 1024)
         finally:
             if old_c is None:
-                os.environ.pop("CPHARM_MUMU_CPU_CORES", None)
+                os.environ.pop("PHARMFLOW_MUMU_CPU_CORES", None)
             else:
-                os.environ["CPHARM_MUMU_CPU_CORES"] = old_c
+                os.environ["PHARMFLOW_MUMU_CPU_CORES"] = old_c
             if old_r is None:
-                os.environ.pop("CPHARM_MUMU_RAM_MB", None)
+                os.environ.pop("PHARMFLOW_MUMU_RAM_MB", None)
             else:
-                os.environ["CPHARM_MUMU_RAM_MB"] = old_r
+                os.environ["PHARMFLOW_MUMU_RAM_MB"] = old_r
 
     def test_file_write(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

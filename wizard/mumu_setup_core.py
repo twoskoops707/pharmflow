@@ -1,8 +1,8 @@
 """
 Backend for phone setup — preflight, ADB discovery, fingerprint, groups.
 
-UI: embedded in PharmFlow.exe step 4 (``cpharm_app``) via ``MuMuSetupApi``;
-legacy standalone ``cpharm_mumu_setup.py`` / ``mumu_setup_webview.py`` for dev only.
+UI: embedded in PharmFlow.exe step 4 (``pharmflow_app``) via ``MuMuSetupApi``;
+legacy standalone ``pharmflow_mumu_setup.py`` / ``mumu_setup_webview.py`` for dev only.
 """
 
 from __future__ import annotations
@@ -22,9 +22,10 @@ if str(_wizard_dir) not in sys.path:
 import mumu_farm_ops as farm  # noqa: E402
 import preflight_core as preflight  # noqa: E402
 from wizard_paths import (  # noqa: E402
-    cpharm_default_install_root,
-    cpharm_install_root,
     has_automation_dashboard,
+    persist_groups_config_text,
+    pharmflow_default_install_root,
+    pharmflow_install_root,
 )
 
 LogFn = Callable[[str], None]
@@ -56,36 +57,36 @@ def ensure_automation_importable() -> None:
 
 
 def exe_dir() -> Path:
-    return cpharm_default_install_root()
+    return pharmflow_default_install_root()
 
 
 def data_root() -> Path:
     try:
-        root = cpharm_install_root()
+        root = pharmflow_install_root()
     except Exception:
         root = exe_dir()
     if has_automation_dashboard(root):
         return root
-    home_clone = Path.home() / "CPharm"
+    home_clone = Path.home() / "PharmFlow"
     if has_automation_dashboard(home_clone):
         return home_clone
     return exe_dir()
 
 
-def cpharm_exe_path() -> Path:
-    """Primary app exe beside this program — PharmFlow.exe, else legacy CPharm.exe."""
+def pharmflow_exe_path() -> Path:
+    """Primary app exe beside this program — PharmFlow.exe, else legacy PharmFlow.exe."""
     folder = exe_dir()
     primary = folder / "PharmFlow.exe"
     if primary.is_file():
         return primary
-    return folder / "CPharm.exe"
+    return folder / "PharmFlow.exe"
 
 
 def launch_env() -> dict[str, str]:
     env = dict(os.environ)
     root = data_root()
     if has_automation_dashboard(root):
-        env["CPHARM_HOME"] = str(root)
+        env["PHARMFLOW_HOME"] = str(root)
     return env
 
 
@@ -111,32 +112,50 @@ def run_check_action(action: str, log: LogFn | None = None) -> dict:
 
 
 def _groups_config_path(install_root: Path) -> Path:
-    return install_root / "automation" / "recordings" / "groups_config.json"
+    """Live groups file. Do not append automation/recordings onto a recordings dir."""
+    from wizard_paths import (
+        _groups_file_for_root,
+        groups_config_path,
+        is_nested_recordings_path,
+    )
+
+    live = groups_config_path()
+    if live.is_file() and not is_nested_recordings_path(live):
+        return live
+    cand = _groups_file_for_root(install_root)
+    if cand is not None and not is_nested_recordings_path(cand):
+        return cand
+    return live
 
 
 def should_seed_groups(install_root: Path) -> bool:
     """Do not stomp hand-edited groups unless forced or first-run."""
-    if os.environ.get("CPHARM_FORCE_RESEED_GROUPS", "").strip().lower() in ("1", "true", "yes"):
+    if os.environ.get("PHARMFLOW_FORCE_RESEED_GROUPS", "").strip().lower() in ("1", "true", "yes"):
         return True
     gp = _groups_config_path(install_root)
     if not gp.is_file():
         return True
     try:
         data = json.loads(gp.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+    except (OSError, json.JSONDecodeError, TypeError, ValueError):
         return True
-    note = str(data.get("_note") or "")
+    if not isinstance(data, dict):
+        return True
     groups = data.get("groups")
     if not groups:
         return True
-    # Spawned Tk windows once saved empty phones{} — treat as corrupt and reseed.
-    if "Written by CPharm" in note or "CPharmMuMuSetup" in note:
-        for g in groups:
-            if not isinstance(g, dict):
-                continue
-            phones = g.get("phones")
-            if not isinstance(phones, dict) or not phones:
-                return True
+    # An empty phones map on one group is not a reason to replace the file.
+    # A spawned window used to save phones{}. Reseed only when no group has a phone.
+    return not _config_has_assigned_phones(data)
+
+
+def _config_has_assigned_phones(data: dict) -> bool:
+    for g in data.get("groups") or []:
+        if not isinstance(g, dict):
+            continue
+        phones = g.get("phones")
+        if isinstance(phones, dict) and phones:
+            return True
     return False
 
 
@@ -145,43 +164,45 @@ def repair_groups_if_empty(
     install_root: Path | None = None,
     *,
     force: bool = False,
-) -> Path | None:
-    """Ensure groups_config has every adb phone with default playlists."""
+) -> tuple[Path | None, bool]:
+    """Seed groups only when no group has a phone.
+
+    Returns ``(path, wrote)``. ``wrote`` is True only when this call replaced
+    the file. A second group with an empty phones map must not wipe the group
+    that already has sequences.
+    """
     root = install_root or data_root()
     if serials is None:
         serials = adb_devices()
     if not serials:
-        return None
+        return None, False
     gp = _groups_config_path(root)
-    needs = force
-    if not needs and gp.is_file():
+    needs = force or not gp.is_file()
+    if not needs:
         try:
             data = json.loads(gp.read_text(encoding="utf-8"))
-            for g in data.get("groups") or []:
-                if not isinstance(g, dict):
-                    continue
-                phones = g.get("phones")
-                if not isinstance(phones, dict) or not phones:
-                    needs = True
-                    break
-        except (OSError, json.JSONDecodeError):
+        except (OSError, json.JSONDecodeError, TypeError, ValueError):
             needs = True
-    else:
-        needs = True
+        else:
+            needs = not (isinstance(data, dict) and _config_has_assigned_phones(data))
     if needs:
-        return write_groups_config(serials, root, force=True)
-    return gp if gp.is_file() else None
+        written = write_groups_config(serials, root, force=True)
+        return written, written is not None
+    return gp, False
 
 
 def write_groups_config(serials: list[str], install_root: Path, *, force: bool = False) -> Path | None:
     if not force and not should_seed_groups(install_root):
+        return None
+    serials = [str(s).strip() for s in serials if str(s or "").strip()]
+    if not serials:
         return None
     phones = {
         s: farm.phone_playlist_entry(i, extended_ad=True)
         for i, s in enumerate(serials)
     }
     cfg = {
-        "_note": "Written by CPharm",
+        "_note": "Written by PharmFlow",
         "groups": [
             {
                 "name": "Group 1",
@@ -193,11 +214,16 @@ def write_groups_config(serials: list[str], install_root: Path, *, force: bool =
             }
         ],
     }
-    rec = install_root / "automation" / "recordings"
-    rec.mkdir(parents=True, exist_ok=True)
-    out = rec / "groups_config.json"
-    out.write_text(json.dumps(cfg, indent=2) + "\n", encoding="utf-8")
-    return out
+    out = _groups_config_path(install_root)
+    text = json.dumps(cfg, indent=2) + "\n"
+    written = persist_groups_config_text(text, primary=out)
+    try:
+        stored = json.loads(written.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, TypeError, ValueError):
+        return None
+    if not isinstance(stored, dict) or stored.get("groups") != cfg["groups"]:
+        return None
+    return written
 
 
 def write_desktop_prefs(
@@ -210,7 +236,16 @@ def write_desktop_prefs(
     rec = install_root / "automation" / "recordings"
     rec.mkdir(parents=True, exist_ok=True)
     prefs = rec / "desktop_prefs.json"
-    existing = read_setup_prefs(install_root)
+    if prefs.is_file():
+        try:
+            loaded = json.loads(prefs.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise OSError("desktop prefs file is corrupt — not replaced") from exc
+        if not isinstance(loaded, dict):
+            raise OSError("desktop prefs file is corrupt — not replaced")
+        existing = loaded
+    else:
+        existing = {}
     existing.update(
         {
             "tor_proxy_configured": existing.get("tor_proxy_configured", False),
@@ -235,37 +270,63 @@ def write_desktop_prefs(
         else:
             existing.pop("mumu_cold_boot_requested_at", None)
     prefs.write_text(json.dumps(existing, indent=2) + "\n", encoding="utf-8")
+    stored = json.loads(prefs.read_text(encoding="utf-8"))
+    if (
+        stored.get("mumu_setup_complete") is not setup_complete
+        or stored.get("phone_serials") != serials
+    ):
+        raise OSError("desktop prefs disk copy does not match")
     return prefs
 
 
-def launch_cpharm() -> tuple[bool, str]:
-    try:
-        from phone_setup_entry import is_unified_cpharm, skip_launch_cpharm_after_setup
+def launch_pharmflow() -> tuple[bool, str]:
+    """Open the Control Panel EXE — never a second hidden copy of this process.
 
-        if skip_launch_cpharm_after_setup() or is_unified_cpharm():
+    CREATE_NO_WINDOW on a windowed PharmFlow.exe is what operators see as
+    \"two EXEs, one in the background\". Frozen / already-PharmFlow must no-op.
+    """
+    try:
+        from phone_setup_entry import is_unified_pharmflow, skip_launch_pharmflow_after_setup
+
+        if skip_launch_pharmflow_after_setup() or is_unified_pharmflow():
             return True, (
-                "Phones are ready. Next: Test (step 5) → Steps → Teams → Run (step 9)."
+                "This window is already PharmFlow. A second copy was not opened."
             )
     except Exception:
-        if "--phone-setup" in sys.argv:
+        if "--phone-setup" in sys.argv or getattr(sys, "frozen", False):
             return True, (
-                "Phones are ready. Next: Test (step 5) → Steps → Teams → Run (step 9)."
+                "This window is already PharmFlow. A second copy was not opened."
             )
-    cpharm = cpharm_exe_path()
-    if not cpharm.is_file():
+    # Same binary stem as the Control Panel — re-execing ourselves only
+    # duplicates the deck (PyInstaller onefile already has a parent+child pair).
+    try:
+        if Path(sys.executable).stem.lower() == "pharmflow":
+            return True, (
+                "This window is already PharmFlow. A second copy was not opened."
+            )
+    except OSError:
+        pass
+    pharmflow = pharmflow_exe_path()
+    if not pharmflow.is_file():
         return False, (
             "PharmFlow.exe not found next to this program:\n"
-            f"  {cpharm.parent}\n"
+            f"  {pharmflow.parent}\n"
             "Download PharmFlow.exe from the GitHub release into that folder."
         )
-    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if sys.platform == "win32" else 0
+    try:
+        if Path(pharmflow).resolve() == Path(sys.executable).resolve():
+            return True, (
+                "This window is already PharmFlow. A second copy was not opened."
+            )
+    except OSError:
+        pass
+    # Never CREATE_NO_WINDOW — that hides a second Control Panel as a "background EXE".
     subprocess.Popen(
-        [str(cpharm)],
-        cwd=str(cpharm.parent),
+        [str(pharmflow)],
+        cwd=str(pharmflow.parent),
         env=launch_env(),
-        creationflags=flags,
     )
-    return True, str(cpharm)
+    return True, str(pharmflow)
 
 
 _COLD_BOOT_MSG = (
@@ -288,7 +349,7 @@ _SEQUENCES_MISSING_MSG = (
     "Sequence files missing on this PC.\n\n"
     "In PharmFlow run Install (step 2), then open Phones (step 4) and click Set up my phones again.\n"
     "Or copy the repo sequences/ folder to:\n"
-    "  %USERPROFILE%\\CPharm\\sequences\n\n"
+    "  %USERPROFILE%\\PharmFlow\\sequences\n\n"
     "Missing: {sample}{more}"
 )
 
@@ -311,9 +372,22 @@ def read_setup_prefs(install_root: Path) -> dict:
 def write_setup_prefs(install_root: Path, **fields: object) -> Path:
     p = _prefs_path(install_root)
     p.parent.mkdir(parents=True, exist_ok=True)
-    data = read_setup_prefs(install_root)
+    if p.is_file():
+        try:
+            loaded = json.loads(p.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise OSError("desktop prefs file is corrupt — not replaced") from exc
+        if not isinstance(loaded, dict):
+            raise OSError("desktop prefs file is corrupt — not replaced")
+        data = loaded
+    else:
+        data = {}
     data.update(fields)
     p.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    stored = json.loads(p.read_text(encoding="utf-8"))
+    for key, value in fields.items():
+        if stored.get(key) != value:
+            raise OSError("desktop prefs disk copy does not match")
     return p
 
 
@@ -333,7 +407,7 @@ def go_button_label() -> str:
 
 
 def _sync_local_sequences(log: LogFn) -> dict:
-    """Copy shipped ``sequences/`` into ``~/CPharm/sequences`` for the dashboard."""
+    """Copy shipped ``sequences/`` into ``~/PharmFlow/sequences`` for the dashboard."""
     from sequences_sync import sync_shipped_sequences
 
     return sync_shipped_sequences(log=log)
@@ -347,7 +421,7 @@ def _sequences_missing_message(missing: list[str]) -> str:
 
 def initial_state() -> dict:
     root = data_root()
-    exe_ok, exe_path = preflight.cpharm_exe_beside_setup()
+    exe_ok, exe_path = preflight.pharmflow_exe_beside_setup()
     awaiting = setup_awaiting_cold_boot(root)
     if not preflight.list_adb_phones():
         # View-load discovery must NEVER launch MuMu players and must never eat
@@ -369,8 +443,8 @@ def initial_state() -> dict:
         if c.get("id") not in _ready_skip and c.get("status") != "manual"
     )
     state = {
-        "cpharm_found": exe_ok,
-        "cpharm_path": str(exe_path),
+        "pharmflow_found": exe_ok,
+        "pharmflow_path": str(exe_path),
         "data_root": str(root),
         "checklist": checklist,
         "setup_already_done": setup_done,
@@ -385,7 +459,7 @@ def initial_state() -> dict:
 
 
 def run_setup_startup_cleanup(log: LogFn | None = None) -> dict:
-    """Close stale MuMu/adb/CPharm before the setup UI opens."""
+    """Close stale MuMu/adb/PharmFlow before the setup UI opens."""
     from setup_startup_cleanup import run_setup_startup_cleanup as _run
 
     summary = _run(log=log)
@@ -395,15 +469,16 @@ def run_setup_startup_cleanup(log: LogFn | None = None) -> dict:
 
 def _no_phones_message() -> str:
     return (
-        "No phones found yet.\n\n"
-        "YOU do these (we cannot start MuMu for you):\n"
-        "  1. Open MuMu Player on this PC.\n"
-        "  2. Click Start on each phone — wait for Android home.\n"
-        "  3. On each phone: Settings → Developer options → USB debugging ON.\n"
-        "     (Leave USB debugging ON — PharmFlow needs it; websites still get disguised.)\n"
-        "  4. If MuMu shows Root, leave Root ON.\n"
-        "  5. Click Check again, then Set up my phones.\n\n"
-        "Tip: If phone connection helper (adb) was red, click Fix first."
+        "No phones are answering ADB yet.\n\n"
+        "Boot all phones in the Control Panel starts stopped MuMu, redroid, "
+        "and Android Studio phones. Wait until each phone shows the Android home, "
+        "then click Check again.\n\n"
+        "If a phone is already open and still missing:\n"
+        "  1. Settings → Developer options → USB debugging ON.\n"
+        "     Leave USB debugging ON. PharmFlow needs it. Sites still get the disguise.\n"
+        "  2. If MuMu shows Root, leave Root ON.\n"
+        "  3. Click Check again, then Set up my phones.\n\n"
+        "If the phone connection helper (adb) was red, click Fix first."
     )
 
 
@@ -430,8 +505,8 @@ def run_full_setup(log: LogFn) -> tuple[bool, str, list[str]]:
     """
     Phased MuMu setup. Returns ``(ready, message, serials)``.
 
-    ``ready=True`` only when phones are verified and CPharm may open.
-    ``ready=False`` means stop (cold boot, missing phones, or fix needed) — do NOT launch CPharm.
+    ``ready=True`` only when phones are verified and PharmFlow may open.
+    ``ready=False`` means stop (cold boot, missing phones, or fix needed) — do NOT launch PharmFlow.
     """
     ensure_automation_importable()
     root = data_root()
@@ -457,7 +532,7 @@ def run_full_setup(log: LogFn) -> tuple[bool, str, list[str]]:
         log(f"  {i + 1}. {s}")
 
     awaiting = setup_awaiting_cold_boot(root)
-    force_setup = os.environ.get("CPHARM_FORCE_SETUP", "").strip().lower() in ("1", "true", "yes")
+    force_setup = os.environ.get("PHARMFLOW_FORCE_SETUP", "").strip().lower() in ("1", "true", "yes")
 
     if (
         preflight.mumu_setup_already_done(root)
@@ -473,14 +548,16 @@ def run_full_setup(log: LogFn) -> tuple[bool, str, list[str]]:
             if not sync.get("ok"):
                 missing = list(sync.get("missing_playlists") or [])
                 return False, _sequences_missing_message(missing), serials
-            write_desktop_prefs(serials, root, setup_complete=True, awaiting_cold_boot=False)
-            write_setup_prefs(root, mumu_setup_phase="complete")
             # Never force-reseed — hand-edited playlists must survive refresh.
-            gp = repair_groups_if_empty(serials, root, force=False)
-            if gp:
-                log(f"  Updated groups: {gp}")
+            gp, wrote = repair_groups_if_empty(serials, root, force=False)
+            if wrote and gp:
+                log(f"  Saved groups: {gp}")
+            elif gp:
+                log(f"  Kept existing groups: {gp}")
+            else:
+                log("  Groups were not saved.")
             log("")
-            log("Clearing stale proxies and resetting screen size…")
+            log("Resetting screen size. Leaving each phone's exit proxy in place…")
             import browser_setup
 
             for serial in serials:
@@ -489,11 +566,20 @@ def run_full_setup(log: LogFn) -> tuple[bool, str, list[str]]:
             fp = farm.apply_fingerprint_all(serials, log, patch_vms=False)
             leaks = int(fp.get("leaks_total") or 0)
             if leaks:
-                log(f"  {leaks} fingerprint warning(s) — cold-boot MuMu if ads fail.")
+                log(f"  {leaks} fingerprint leak(s) left — phones are not ready.")
+                write_desktop_prefs(serials, root, setup_complete=False, awaiting_cold_boot=False)
+                write_setup_prefs(root, mumu_setup_phase="browser_retry")
+                return (
+                    False,
+                    f"{leaks} fingerprint leak(s) left. Cold-boot each MuMu phone, then Set up my phones again.",
+                    serials,
+                )
+            write_desktop_prefs(serials, root, setup_complete=True, awaiting_cold_boot=False)
+            write_setup_prefs(root, mumu_setup_phase="complete")
             log("  Phone order, masking, and sequences refreshed.")
-            from phone_setup_entry import skip_launch_cpharm_after_setup
+            from phone_setup_entry import skip_launch_pharmflow_after_setup
 
-            if skip_launch_cpharm_after_setup():
+            if skip_launch_pharmflow_after_setup():
                 return True, "Already set up — phone settings and sequences refreshed.", serials
             return True, "Already set up — opening PharmFlow…", serials
 
@@ -572,6 +658,16 @@ def run_full_setup(log: LogFn) -> tuple[bool, str, list[str]]:
             log(f"  Saved: {gp}")
         else:
             log("  Kept your existing groups file (already edited in PharmFlow).")
+        if leaks:
+            write_desktop_prefs(serials, root, setup_complete=False, awaiting_cold_boot=False)
+            write_setup_prefs(root, mumu_setup_phase="browser_retry")
+            return (
+                False,
+                (
+                    f"{leaks} fingerprint leak(s) left. Cold-boot each MuMu phone, then Set up my phones again."
+                ),
+                serials,
+            )
         write_desktop_prefs(serials, root, setup_complete=True, awaiting_cold_boot=False)
         write_setup_prefs(root, mumu_setup_phase="complete")
         log("  Phone Setup complete.")
@@ -583,16 +679,7 @@ def run_full_setup(log: LogFn) -> tuple[bool, str, list[str]]:
             log(f"  Sequences folder: {sync.get('dest')}")
             log("  In PharmFlow: Install step downloads the rest (Java, Python, Tor).")
     except OSError as e:
-        log(f"  Warning: could not save settings: {e}")
+        log(f"  Settings were not saved: {e}")
         return False, f"Could not save settings: {e}", serials
-
-    if leaks:
-        return (
-            False,
-            (
-                f"{leaks} minor fingerprint warning(s) — if getdabflow blocks you, cold-boot and GO again."
-            ),
-            serials,
-        )
 
     return True, "All phones ready. Opening PharmFlow…", serials

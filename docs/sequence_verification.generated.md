@@ -1,7 +1,7 @@
 # Sequence Verification Report
 
 Generated: 2026-05-05 (local)
-Scope: `c:\Users\jsmil\CPharm\cpharm-clone`
+Scope: `c:\Users\jsmil\PharmFlow\pharmflow-clone`
 
 ## Checks Run
 
@@ -69,4 +69,4 @@ ok: sequence module imports
 ## Notes
 
 - `python` was not available via PATH alias in this environment; `py -3` was used for all checks.
-- Repository git metadata was not available from `cpharm-clone` during this run (`fatal: not a git repository`), so this report records command evidence rather than git diff metadata.
+- Repository git metadata was not available from `pharmflow-clone` during this run (`fatal: not a git repository`), so this report records command evidence rather than git diff metadata.

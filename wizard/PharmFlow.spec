@@ -1,6 +1,6 @@
 ﻿# -*- mode: python ; coding: utf-8 -*-
 #
-# Single frozen Windows binary: ``cpharm_desktop.py`` → ``PharmFlow.exe``.
+# Single frozen Windows binary: ``pharmflow_desktop.py`` → ``PharmFlow.exe``.
 # One exe: 9-step wizard, phone setup (step 4), install, boot, go, dashboard.
 # CI: ``pyinstaller PharmFlow.spec`` from ``wizard/`` (see ``.github/workflows/build-wizard.yml``).
 #
@@ -83,15 +83,26 @@ if _is_arm64_host:
             "Microsoft.Web.WebView2.WinForms.dll"
         )
 
-    _webview_datas = [e for e in _webview_datas if not _is_stock_webview2_managed(e)]
-    _webview_binaries = [e for e in _webview_binaries if not _is_stock_webview2_managed(e)]
-    for _name in (
+    # Only drop pywebview's managed DLLs when both netcore replacements exist.
+    # Stripping with an empty bundled/webview2_netcore leaves the freeze with no
+    # WebView2 assemblies, so webview.start() never paints and the Control
+    # Panel title never appears.
+    _netcore_names = (
         "Microsoft.Web.WebView2.Core.dll",
         "Microsoft.Web.WebView2.WinForms.dll",
-    ):
-        _src = _webview2_netcore_dir / _name
-        if _src.is_file():
-            _webview_datas.append((str(_src), "webview/lib"))
+    )
+    _have_netcore = all((_webview2_netcore_dir / _name).is_file() for _name in _netcore_names)
+    if _have_netcore:
+        _webview_datas = [e for e in _webview_datas if not _is_stock_webview2_managed(e)]
+        _webview_binaries = [e for e in _webview_binaries if not _is_stock_webview2_managed(e)]
+        for _name in _netcore_names:
+            _webview_datas.append((str(_webview2_netcore_dir / _name), "webview/lib"))
+        print("WEBVIEW2: overlaying netcore managed DLLs from bundled/webview2_netcore", flush=True)
+    else:
+        print(
+            "WEBVIEW2: netcore overlays missing; keeping stock WebView2 managed DLLs",
+            flush=True,
+        )
 
 # Tor runtime data dirs (automation/tor/data_*) must NOT ship in the EXE:
 # their per-run 'lock' files raise PermissionError when PyInstaller reads
@@ -112,8 +123,8 @@ for _f in _auto_root.rglob("*"):
     _dest = "automation" if _rel.parent == Path(".") else f"automation/{_rel.parent.as_posix()}"
     _automation_datas.append((str(_f), _dest))
 
-# Farm helpers (run_farm_354.py, cpharm_unison_supervisor.py, farm_operator_dash.py,
-# tools/cpharm_watchdog.py) run as plain .py under an external system pythonw and do
+# Farm helpers (run_farm_354.py, pharmflow_unison_supervisor.py, farm_operator_dash.py,
+# tools/pharmflow_watchdog.py) run as plain .py under an external system pythonw and do
 # ``sys.path.insert(0, <bundle root>)`` then ``import wizard.*`` (wizard_paths,
 # mumu_farm_ops, ...). Those modules must exist as source on disk in the extract, so
 # ship every wizard/*.py (skipping heavyweight dirs already excluded / bundled elsewhere).
@@ -155,8 +166,8 @@ _hidden = (
         "mumu_setup_core",
         "mumu_setup_webview",
         "phone_setup_entry",
-        "cpharm_app_webview",
-        "cpharm_wizard_bridge",
+        "pharmflow_app_webview",
+        "pharmflow_wizard_bridge",
         "wizard_tk_spawn",
         "setup_startup_cleanup",
         "mumu_detect",
@@ -170,12 +181,13 @@ _hidden = (
         "automation.mantis_farm_math",
         "mantis_gauge_score",
         "automation.mantis_gauge_score",
+        "automation.earn_plan",
         "age_gate_uia",
         "session_notes_uia",
         "browser_builder_webview",
         "webview",
-        "cpharm_watchdog",
-        "tools.cpharm_watchdog",
+        "pharmflow_watchdog",
+        "tools.pharmflow_watchdog",
         "cloud_phones.cloud_phones_cli",
     ]
     + collect_submodules("webview")
@@ -185,7 +197,7 @@ _hidden = (
 
 # Stamp the real build identity at build time so the frozen EXE's window header
 # shows which commit/build it actually is (git is not available at runtime).
-# ``cpharm_version.build_label`` prefers bundled assets/build_info.json, so the
+# ``pharmflow_version.build_label`` prefers bundled assets/build_info.json, so the
 # header reads e.g. ``(build git-abc1234 @ 20260907-1700)`` — always current.
 import datetime as _dt
 import subprocess as _sp
@@ -216,18 +228,18 @@ _build_info_path.write_text(
 print(f"BUILD_INFO: {_json.dumps(_build_info)}")
 
 a = Analysis(
-    ["cpharm_desktop.py"],
+    ["pharmflow_desktop.py"],
     pathex=[".", "..", "../automation", "../tools"],
     binaries=list(_webview_binaries) + list(_webview_root_binaries)
     + _dash_binaries,
     datas=[
         ("assets", "assets"),
-        ("assets/cpharm_app", "assets/cpharm_app"),
+        ("assets/pharmflow_app", "assets/pharmflow_app"),
 
         ("../docs", "docs"),
         # Farm runtime payload: the frozen EXE owns Start farm, and farm_control
         # resolves helpers from bundle_root()/scripts + bundle_root()/automation
-        # (run_farm_354.py, cpharm_unison_supervisor.py, farm_operator_dash.py,
+        # (run_farm_354.py, pharmflow_unison_supervisor.py, farm_operator_dash.py,
         # suppress_console_flash.py, and the automation package they import).
         ("../scripts", "scripts"),
         *_automation_datas,
@@ -269,5 +281,6 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon=str(Path("icons") / "app_icon.ico") if (Path("icons") / "app_icon.ico").is_file() else None,
 )
 

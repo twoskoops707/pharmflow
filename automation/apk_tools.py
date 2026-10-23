@@ -10,6 +10,7 @@ import subprocess
 from pathlib import Path
 
 from automation.adb_wrapper import AdbWrapper
+from automation.browser_adb import apk_install_reported
 from automation.win_subprocess import hidden_run_kwargs
 
 logger = logging.getLogger(__name__)
@@ -78,7 +79,7 @@ def install_apk_on_serials(
     for serial in serials:
         try:
             result = adb.install(str(path), serial=serial)
-            ok = result.ok or "Success" in (result.stdout or "")
+            ok = apk_install_reported(result.stdout, result.stderr, result.returncode)
             results[serial] = ok
             logger.info("install %s on %s -> %s", path.name, serial, ok)
         except Exception as exc:

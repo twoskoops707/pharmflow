@@ -13,7 +13,7 @@ import java.util.UUID
  * 1. Each phone starts at a UNIQUE index (seeded from ANDROID_ID).
  * 2. Identity ROTATES on every page load — never stays the same.
  * 3. No permanent lock — a locked identity is a tracking fingerprint.
- * 4. set_identity (from CPharm ADB) sets the STARTING point for this session,
+ * 4. set_identity (from PharmFlow ADB) sets the STARTING point for this session,
  *    but rotation still happens on each subsequent page load.
  *
  * The uniqueness guarantee comes from different starting points,

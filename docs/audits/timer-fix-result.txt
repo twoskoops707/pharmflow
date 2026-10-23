@@ -11,16 +11,16 @@ ROOT CAUSE (two issues)
    → automation closed the browser ~47s before full timer + completion animation + modal
 
 2. Human-variation could shorten timer waits in older paths:
-   - cpharm-ci-temp/automation/dashboard.py scaled ALL waits (no timer_complete guard)
-   - cpharm-ci-temp/wizard/sequence_humanize.py scaled timer_complete JSON waits ~±8%
+   - pharmflow-ci-temp/automation/dashboard.py scaled ALL waits (no timer_complete guard)
+   - pharmflow-ci-temp/wizard/sequence_humanize.py scaled timer_complete JSON waits ~±8%
    - With HUMAN_VARIATION_FORCE=True (default), 90.5s could become ~83.3s at runtime
-   - cpharm-clone dashboard already had cp != timer_complete guard; defense now centralized
+   - pharmflow-clone dashboard already had cp != timer_complete guard; defense now centralized
 
 demo ONE JSON was already correct (90.5s); live run with HV=0 had PASS (DEMO_RUN_RESULT.txt).
 
 FIX APPLIED
 -----------
-Code (cpharm-clone + cpharm-ci-temp):
+Code (pharmflow-clone + pharmflow-ci-temp):
   - sequence_normalize.py: step_is_timer_complete_wait(); merge_consecutive_waits skips timer_complete
   - human_variation.py: scaled_wait_seconds(..., checkpoint=) never scales timer_complete
   - dashboard.py: uses step_is_timer_complete_wait + checkpoint-aware scaling

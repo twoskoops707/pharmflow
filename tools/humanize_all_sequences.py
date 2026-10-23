@@ -78,7 +78,7 @@ def _patch_age_in_steps(steps: list) -> None:
 def _roots() -> list[Path]:
     seen: set[str] = set()
     out: list[Path] = []
-    for p in (ROOT / "sequences", ROOT.parent / "sequences", Path.home() / "CPharm" / "sequences"):
+    for p in (ROOT / "sequences", ROOT.parent / "sequences", Path.home() / "PharmFlow" / "sequences"):
         try:
             key = str(p.resolve())
         except OSError:

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""CPharm Cloud Agent — an LLM-driven operations agent.
+"""PharmFlow Cloud Agent — an LLM-driven operations agent.
 
 The agent calls an OpenAI-compatible chat-completions API (any provider whose
 endpoint mirrors that protocol) using the operator's own API key, and lets the
@@ -14,15 +14,15 @@ Design intent
   chosen provider does with it is that provider's policy — that choice is the
   operator's to make when they pick an endpoint/model.
 * We DO gate dangerous actions with the same ``--apply`` convention used
-  everywhere else in CPharm: read-only tools run freely; anything that mutates
+  everywhere else in PharmFlow: read-only tools run freely; anything that mutates
   the local machine (docker up/down, adb operations, writes) requires ``--apply``.
   That is an operational safety rail for the operator's own infra, not content
   filtering.
 
-Config (in order): environment variables, then a JSON file in the CPharm root.
-    CPHARM_CLOUD_AGENT_BASE    base URL, e.g. https://api.openai.com/v1
-    CPHARM_CLOUD_AGENT_KEY     API key (never logged)
-    CPHARM_CLOUD_AGENT_MODEL   model id, e.g. gpt-4o
+Config (in order): environment variables, then a JSON file in the PharmFlow root.
+    PHARMFLOW_CLOUD_AGENT_BASE    base URL, e.g. https://api.openai.com/v1
+    PHARMFLOW_CLOUD_AGENT_KEY     API key (never logged)
+    PHARMFLOW_CLOUD_AGENT_MODEL   model id, e.g. gpt-4o
     cloud_agent.json           {"base":..., "api_key":..., "model":...}
 """
 from __future__ import annotations
@@ -51,7 +51,7 @@ TOOL_SCHEMAS = [
         "type": "function",
         "function": {
             "name": "farm_status",
-            "description": "High-level health of the local CPharm farm (docker, adb, groups, dashboard). Read-only.",
+            "description": "High-level health of the local PharmFlow farm (docker, adb, groups, dashboard). Read-only.",
             "parameters": {"type": "object", "properties": {}, "required": []},
         },
     },
@@ -75,7 +75,7 @@ TOOL_SCHEMAS = [
         "type": "function",
         "function": {
             "name": "tail_log",
-            "description": "Tail the CPharm log file. Returns the last N lines.",
+            "description": "Tail the PharmFlow log file. Returns the last N lines.",
             "parameters": {
                 "type": "object",
                 "properties": {"lines": {"type": "integer", "description": "number of trailing lines (>=1, <=2000)"}},
@@ -87,7 +87,7 @@ TOOL_SCHEMAS = [
         "type": "function",
         "function": {
             "name": "watchdog_once",
-            "description": "Run the CPharm watchdog a single pass for the operator (health + known repairs). Requires --apply to perform any repair.",
+            "description": "Run the PharmFlow watchdog a single pass for the operator (health + known repairs). Requires --apply to perform any repair.",
             "parameters": {"type": "object", "properties": {}, "required": []},
         },
     },
@@ -106,7 +106,7 @@ TOOL_SCHEMAS = [
 ]
 
 SYSTEM_PROMPT = (
-    "You are the CPharm farm operations agent. You help run and repair an Android "
+    "You are the PharmFlow farm operations agent. You help run and repair an Android "
     "emulation farm (Redroid Docker containers + MuMu + ADB) that automates visits "
     "and ad interactions on a site. Inspect the real environment with the available "
     "tools, reason step by step, and report what you find and what you recommend "
@@ -157,7 +157,7 @@ def tool_farm_status() -> dict:
     else:
         out["docker"] = {"ok": False, "error": "Docker off (engine not running) - not started by PharmFlow"}
     out["adb"] = _run(["adb", "devices"], timeout=30)
-    log = ROOT / "logs" / "cpharm.log"
+    log = ROOT / "logs" / "pharmflow.log"
     out["log_exists"] = log.is_file()
     return out
 
@@ -177,7 +177,7 @@ def tool_tail_log(lines: int = 100) -> dict:
         n = max(1, min(int(lines or 100), 2000))
     except (TypeError, ValueError):
         n = 100
-    log_file = ROOT / "logs" / "cpharm.log"
+    log_file = ROOT / "logs" / "pharmflow.log"
     if not log_file.is_file():
         return {"ok": False, "error": f"log not found: {log_file}"}
     try:
@@ -188,7 +188,7 @@ def tool_tail_log(lines: int = 100) -> dict:
 
 
 def tool_watchdog_once() -> dict:
-    wd = ROOT / "tools" / "cpharm_watchdog.py"
+    wd = ROOT / "tools" / "pharmflow_watchdog.py"
     if not wd.is_file():
         return {"ok": False, "error": "watchdog script not found (source tree only)"}
     return _run([sys.executable, str(wd), "--once"], timeout=150)
@@ -246,9 +246,9 @@ def _redact(obj) -> dict:
 
 def _load_config() -> dict:
     cfg = {
-        "base": os.environ.get("CPHARM_CLOUD_AGENT_BASE", "https://api.openai.com/v1").rstrip("/"),
-        "api_key": os.environ.get("CPHARM_CLOUD_AGENT_KEY", ""),
-        "model": os.environ.get("CPHARM_CLOUD_AGENT_MODEL", "gpt-4o"),
+        "base": os.environ.get("PHARMFLOW_CLOUD_AGENT_BASE", "https://api.openai.com/v1").rstrip("/"),
+        "api_key": os.environ.get("PHARMFLOW_CLOUD_AGENT_KEY", ""),
+        "model": os.environ.get("PHARMFLOW_CLOUD_AGENT_MODEL", "gpt-4o"),
     }
     json_file = ROOT / "cloud_agent.json"
     if json_file.is_file():
@@ -292,11 +292,11 @@ def call_model(cfg: dict, messages: list[dict], *, timeout: int = DEFAULT_TIMEOU
         return {"ok": False, "error": "response was not valid JSON", "detail": raw[:800]}
 
 
-def run_agent(goal: str, *, apply: bool, max_steps: int = 12, stream=print) -> int:
+def run_agent(goal: str, *, apply: bool, max_steps: int | None = None, stream=print) -> int:
     cfg = _load_config()
     if not cfg["api_key"]:
         print("No API key configured.", file=sys.stderr)
-        print("Set CPHARM_CLOUD_AGENT_KEY or create <root>/cloud_agent.json.", file=sys.stderr)
+        print("Set PHARMFLOW_CLOUD_AGENT_KEY or create <root>/cloud_agent.json.", file=sys.stderr)
         return 3
     if not goal or not goal.strip():
         print("A goal is required.", file=sys.stderr)
@@ -308,8 +308,11 @@ def run_agent(goal: str, *, apply: bool, max_steps: int = 12, stream=print) -> i
         {"role": "user", "content": goal.strip()},
     ]
 
-    for step in range(1, max_steps + 1):
-        stream(f"[[ step {step}/{max_steps} ]]")
+    step = 0
+    while max_steps is None or step < max_steps:
+        step += 1
+        limit = str(max_steps) if max_steps is not None else "open"
+        stream(f"[[ step {step}/{limit} ]]")
         resp = call_model(cfg, messages)
         if not resp.get("ok"):
             stream(f"[[ model error: {resp.get('error')} ]]")
@@ -348,8 +351,8 @@ def run_agent(goal: str, *, apply: bool, max_steps: int = 12, stream=print) -> i
                 "tool_call_id": tc.get("id") or f"call_{step}_{name}",
                 "content": json.dumps(result),
             })
-    stream(f"[[ reached step limit {max_steps} ]]")
-    return 0
+    stream(f"[[ reached step limit {max_steps} — agent did not finish ]]")
+    return 4
 
 
 # --------------------------------------------------------------------------- CLI
@@ -357,15 +360,15 @@ def run_agent(goal: str, *, apply: bool, max_steps: int = 12, stream=print) -> i
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
-        prog="cpharm-cloud-agent",
-        description="LLM-driven CPharm operations agent (OpenAI-compatible API).",
+        prog="pharmflow-cloud-agent",
+        description="LLM-driven PharmFlow operations agent (OpenAI-compatible API).",
     )
-    p.add_argument("--version", action="version", version=f"CPharmCloudAgent {VERSION}")
+    p.add_argument("--version", action="version", version=f"PharmFlowCloudAgent {VERSION}")
     p.add_argument("--base", help="API base URL (overrides config)")
     p.add_argument("--model", help="model id (overrides config)")
     p.add_argument("--apply", action="store_true",
                    help="allow local shell actions (run_command). Without it, only read-only tools run.")
-    p.add_argument("--max-steps", type=int, default=12, help="max model/tool turns (default 12)")
+    p.add_argument("--max-steps", type=int, default=None, help="optional turn limit; omitted means no limit")
     p.add_argument("goal", nargs="+", help="the task/goal to give the agent")
     return p
 
@@ -378,8 +381,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.model:
         cfg["model"] = args.model
     # Env override is respected; persist base/model through _load_config cache-free.
-    os.environ["CPHARM_CLOUD_AGENT_BASE"] = cfg["base"]
-    os.environ["CPHARM_CLOUD_AGENT_MODEL"] = cfg["model"]
+    os.environ["PHARMFLOW_CLOUD_AGENT_BASE"] = cfg["base"]
+    os.environ["PHARMFLOW_CLOUD_AGENT_MODEL"] = cfg["model"]
     return run_agent(" ".join(args.goal), apply=args.apply, max_steps=args.max_steps)
 
 

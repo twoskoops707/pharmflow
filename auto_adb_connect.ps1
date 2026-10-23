@@ -11,7 +11,7 @@ param(
     [int]$Timeout = 8
 )
 
-$AdbExe = "C:\CPharm\bundled\adb.exe"
+$AdbExe = "C:\PharmFlow\bundled\adb.exe"
 if (-not (Test-Path $AdbExe)) {
     Write-Host "ERROR: ADB not found at $AdbExe" -ForegroundColor Red
     exit 1

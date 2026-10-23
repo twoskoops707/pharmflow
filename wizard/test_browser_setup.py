@@ -91,7 +91,7 @@ class BrowserSetupInstallTests(unittest.TestCase):
 
 class ChromiumResetTests(unittest.TestCase):
     def test_reset_skips_when_env_disabled(self) -> None:
-        with mock.patch.dict("os.environ", {"CPHARM_SKIP_CHROMIUM_RESET": "1"}):
+        with mock.patch.dict("os.environ", {"PHARMFLOW_SKIP_CHROMIUM_RESET": "1"}):
             with mock.patch.object(browser_setup, "pkg_installed", return_value=True):
                 with mock.patch.object(browser_setup, "_adb") as mock_adb:
                     ok = browser_setup.reset_chromium_session("10.0.2.15:5555")
@@ -134,7 +134,7 @@ class MumuDetectTests(unittest.TestCase):
             root.mkdir(parents=True)
             exe.write_text("", encoding="utf-8")
             with mock.patch.object(mumu_detect, "IS_WIN", True):
-                with mock.patch.dict("os.environ", {"CPHARM_MUMU_ROOT": str(root)}):
+                with mock.patch.dict("os.environ", {"PHARMFLOW_MUMU_ROOT": str(root)}):
                     hit = mumu_detect.find_mumu_install()
             self.assertIsNotNone(hit)
             self.assertTrue(hit.name.lower().endswith(".exe"))

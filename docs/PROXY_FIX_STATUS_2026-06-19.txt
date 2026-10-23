@@ -25,7 +25,7 @@ User next steps:
   - After MuMu restart or adb disconnect/reconnect, if proxy fails again run:
       adb connect 10.0.2.179:5555
       adb -s 10.0.2.179:5555 reverse tcp:8118 tcp:8118
-    Or: py -3 -c "import sys; sys.path.insert(0,r'C:\Users\jsmil\CPharm\cpharm-clone\automation'); from tor_manager import repair_adb_reverse_for_proxy; print(repair_adb_reverse_for_proxy('10.0.2.179:5555', 0))"
-  - If host 8118 is down, start Tor/Privoxy (CPharm tor stack) before re-applying reverse.
+    Or: py -3 -c "import sys; sys.path.insert(0,r'C:\Users\jsmil\PharmFlow\pharmflow-clone\automation'); from tor_manager import repair_adb_reverse_for_proxy; print(repair_adb_reverse_for_proxy('10.0.2.179:5555', 0))"
+  - If host 8118 is down, start Tor/Privoxy (PharmFlow tor stack) before re-applying reverse.
 
 Did NOT run setup_fresh_mumu_farm.py. No git commit --trailer "Co-authored-by: Cursor <cursoragent@cursor.com>".

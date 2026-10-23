@@ -16,7 +16,7 @@ import wizard_theme as _wizard_theme  # noqa: E402
 
 import setup_wizard as sw  # noqa: E402
 from setup_wizard import (  # noqa: E402
-    CPharmWizard,
+    PharmFlowWizard,
     GroupsPage,
     PerPhoneSequenceEditor,
     SequenceGeneratorPage,
@@ -30,7 +30,7 @@ def _reset_icon_cache() -> None:
     interpreter that created them; when that interpreter is destroyed (test
     teardown) the cached entries become invalid and the *next* test that calls
     ``load_icon`` raises ``image "pyimageN" doesn't exist``. Tests that build a
-    ``CPharmWizard`` clear the cache here to keep the suite order-independent.
+    ``PharmFlowWizard`` clear the cache here to keep the suite order-independent.
     """
     cache = getattr(_wizard_theme, "_icon_cache", None)
     if isinstance(cache, dict):
@@ -147,7 +147,7 @@ class TestSequenceFooterVisibility(unittest.TestCase):
         root = tk.Tk()
         root.withdraw()
         try:
-            wiz = CPharmWizard(root)
+            wiz = PharmFlowWizard(root)
             wiz.update_idletasks()
             seq_index = wiz.PAGES.index(SequenceGeneratorPage)
             seq_outer, _seq_canvas = wiz._page_wrappers[seq_index]  # internal layout contract
@@ -170,7 +170,7 @@ class TestSequenceFooterVisibility(unittest.TestCase):
         root = tk.Tk()
         root.withdraw()
         try:
-            wiz = CPharmWizard(root)
+            wiz = PharmFlowWizard(root)
             wiz.update_idletasks()
             groups_index = wiz.PAGES.index(GroupsPage)
             wiz._show(groups_index)
@@ -211,14 +211,14 @@ class TestSequenceFooterVisibility(unittest.TestCase):
                 old_open = sw.webbrowser.open
                 old_showinfo = sw.messagebox.showinfo
                 old_showerror = sw.messagebox.showerror
-                old_roots = sw._cpharm_search_roots_ordered
-                old_install = sw._cpharm_install_root
+                old_roots = sw._pharmflow_search_roots_ordered
+                old_install = sw._pharmflow_install_root
                 old_startfile = getattr(sw.os, "startfile", None)
                 called: dict[str, str] = {}
                 try:
-                    sw.state["cpharm_dir"] = str(tmp_path)
-                    sw._cpharm_search_roots_ordered = lambda: [tmp_path]
-                    sw._cpharm_install_root = lambda: tmp_path
+                    sw.state["pharmflow_dir"] = str(tmp_path)
+                    sw._pharmflow_search_roots_ordered = lambda: [tmp_path]
+                    sw._pharmflow_install_root = lambda: tmp_path
                     # Windows tries ``os.startfile(https…)`` before ``webbrowser``; force the browser path
                     # so this test stays deterministic on all platforms.
                     if old_startfile is not None:
@@ -233,8 +233,8 @@ class TestSequenceFooterVisibility(unittest.TestCase):
                     sw.webbrowser.open = old_open
                     sw.messagebox.showinfo = old_showinfo
                     sw.messagebox.showerror = old_showerror
-                    sw._cpharm_search_roots_ordered = old_roots
-                    sw._cpharm_install_root = old_install
+                    sw._pharmflow_search_roots_ordered = old_roots
+                    sw._pharmflow_install_root = old_install
                     if old_startfile is not None:
                         sw.os.startfile = old_startfile  # type: ignore[attr-defined]
                 self.assertIn("url", called)

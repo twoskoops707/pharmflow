@@ -113,14 +113,19 @@ def run_group(
     reports: list[dict[str, Any]] = []
     iteration = 0
     forever = bool(group.repeat_forever)
-    target = max_iterations if max_iterations > 0 else (10_000 if forever else max(1, int(group.repeat or 1)))
+    if max_iterations > 0:
+        target: int | None = max_iterations
+    elif forever:
+        target = None
+    else:
+        target = max(1, int(group.repeat or 1))
     phones = [p for p in (_canonical_phone(farm, x) for x in group.phones) if p]
     if not phones:
         return {"success": False, "error": "no valid phones in group", "group": name}
     if group.shuffle:
         random.shuffle(phones)
 
-    while iteration < target:
+    while target is None or iteration < target:
         if cancel and cancel():
             _log(f"Group {name} cancelled at iteration {iteration}", "warn")
             break
@@ -161,8 +166,6 @@ def run_group(
             t.join()
         reports.extend(r for r in thread_reports if r is not None)
         iteration += 1
-        if forever and max_iterations <= 0 and iteration >= 10_000:
-            break
 
     success = all(r.get("success") for r in reports) if reports else False
     return {"success": success, "iterations": iteration, "reports": reports, "group": name}
@@ -187,7 +190,7 @@ def _inline_steps(
             continue
         params = dict(s.get("params") or {})
         if not params:
-            for key in ("url", "package", "seconds", "x", "y", "cmd", "keycode"):
+            for key in ("url", "package", "seconds", "x", "y", "cmd", "keycode", "code", "key", "text", "ms"):
                 if key in s:
                     params[key] = s[key]
         seq_steps.append(

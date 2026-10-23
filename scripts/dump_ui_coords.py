@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 SERIAL = sys.argv[1] if len(sys.argv) > 1 else "10.0.2.132:5555"
-OUT = Path(r"C:\CPharm\logs\ad_proof\age_now.xml")
+OUT = Path(r"C:\PharmFlow\logs\ad_proof\age_now.xml")
 
 
 def adb(*args: str) -> str:
@@ -18,8 +18,8 @@ def adb(*args: str) -> str:
 
 
 def main() -> None:
-    adb("shell", "uiautomator", "dump", "/sdcard/cpharm_age.xml")
-    adb("pull", "/sdcard/cpharm_age.xml", str(OUT))
+    adb("shell", "uiautomator", "dump", "/sdcard/pharmflow_age.xml")
+    adb("pull", "/sdcard/pharmflow_age.xml", str(OUT))
     xml = OUT.read_text(encoding="utf-8", errors="replace")
     print(f"xml bytes={len(xml)}")
     pat = re.compile(

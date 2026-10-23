@@ -17,7 +17,7 @@ pywebview's Windows backend loads .NET through pythonnet. Two runtimes can host 
 
 ``ensure_pythonnet_ready()`` returns ``"netfx"`` / ``"coreclr"`` on success and
 ``None`` on total failure (caller falls back to the Tk deck). Every step is
-logged to ``%USERPROFILE%\\CPharm\\dotnet_provision.log`` so a headless EXE
+logged to ``%USERPROFILE%\\PharmFlow\\dotnet_provision.log`` so a headless EXE
 failure is diagnosable without the agent.
 """
 
@@ -30,7 +30,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-_LOG_DIR = Path.home() / "CPharm"
+_LOG_DIR = Path.home() / "PharmFlow"
 _LOG_PATH = _LOG_DIR / "dotnet_provision.log"
 
 logger = logging.getLogger("dotnet_provision")
@@ -102,11 +102,13 @@ def _install_desktop_runtime(root: Path) -> bool:
             f"& '{script}' -Channel 8.0 -Runtime windowsdesktop -Architecture {_machine_arch()} "
             f"-InstallDir '{root}' 2>&1 | Out-Null"
         )
+        flags = int(getattr(subprocess, "CREATE_NO_WINDOW", 0) or 0) if sys.platform == "win32" else 0
         r = subprocess.run(
             ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps],
             capture_output=True,
             text=True,
             timeout=600,
+            creationflags=flags,
         )
         ok = r.returncode == 0 and _has_desktop_runtime(root)
         logger.info("dotnet-install rc=%s ok=%s", r.returncode, ok)

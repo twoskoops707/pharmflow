@@ -24,19 +24,19 @@ import automation.no_window  # noqa: E402,F401  (kill child console-window flash
 
 # Honor farm overrides (scramble vs tor) before first pin.
 try:
-    ov_path = Path(os.environ.get("CPHARM_LOG_DIR", r"C:\CPharm\logs")) / "farm_runtime_overrides.json"
+    ov_path = Path(os.environ.get("PHARMFLOW_LOG_DIR", r"C:\PharmFlow\logs")) / "farm_runtime_overrides.json"
     if ov_path.is_file():
         import json
 
         ov = json.loads(ov_path.read_text(encoding="utf-8"))
         if isinstance(ov, dict):
             for k, v in ov.items():
-                if str(k).startswith("CPHARM_") and v not in (None, ""):
+                if str(k).startswith("PHARMFLOW_") and v not in (None, ""):
                     os.environ.setdefault(str(k), str(v))
 except Exception:
     pass
 
-os.environ.setdefault("CPHARM_MANTIS_INJECT_PROXY", "1")
+os.environ.setdefault("PHARMFLOW_MANTIS_INJECT_PROXY", "1")
 
 from automation.adb_wrapper import AdbWrapper  # noqa: E402
 from automation.browse_proxy import (  # noqa: E402
@@ -51,10 +51,10 @@ from automation.browse_proxy import (  # noqa: E402
 from automation.mumu_shell_cli import phone_vm_index  # noqa: E402
 from automation.tor_manager import TorManager  # noqa: E402
 
-INTERVAL = float(os.environ.get("CPHARM_PROXY_WATCH_INTERVAL", "3") or "3")
-HEARTBEAT = Path(r"C:\CPharm\logs\proxy_watch_heartbeat.txt")
+INTERVAL = float(os.environ.get("PHARMFLOW_PROXY_WATCH_INTERVAL", "3") or "3")
+HEARTBEAT = Path(r"C:\PharmFlow\logs\proxy_watch_heartbeat.txt")
 # Absolute MuMu idx (vm24 → 24 → inject 8242). Never clamp to a packed roster.
-_MAX_PHONE = int(os.environ.get("CPHARM_PROXY_WATCH_MAX_INDEX", "512") or "512")
+_MAX_PHONE = int(os.environ.get("PHARMFLOW_PROXY_WATCH_MAX_INDEX", "512") or "512")
 
 
 def _is_cleared(proxy: str) -> bool:
@@ -90,7 +90,7 @@ def _map(adb: AdbWrapper) -> dict[int, str]:
         return out
     # Lock-map fallback: absolute ports already baked as 8218+vmN.
     try:
-        lock_path = Path(os.environ.get("CPHARM_LOG_DIR", r"C:\CPharm\logs")) / "ADB_SERIAL_MAP.lock.json"
+        lock_path = Path(os.environ.get("PHARMFLOW_LOG_DIR", r"C:\PharmFlow\logs")) / "ADB_SERIAL_MAP.lock.json"
         if lock_path.is_file():
             import json
 

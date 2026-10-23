@@ -16,11 +16,11 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_billing_direct_default_is_zero() -> None:
-    from automation.cpharm_farm_config import get_runtime
+    from automation.pharmflow_farm_config import get_runtime
 
     data = get_runtime()
-    assert data["CPHARM_MANTIS_BILLING_DIRECT"] == "0", (
-        "CPHARM_MANTIS_BILLING_DIRECT must stay 0: host-IP billing exposes a "
+    assert data["PHARMFLOW_MANTIS_BILLING_DIRECT"] == "0", (
+        "PHARMFLOW_MANTIS_BILLING_DIRECT must stay 0: host-IP billing exposes a "
         "single-IP bot pattern to Mantis and dedupes clicks. Operator rule."
     )
 
@@ -30,22 +30,20 @@ def test_no_rails_source_sets_billing_direct_to_one() -> None:
         for py in path.rglob("*.py"):
             text = py.read_text(encoding="utf-8", errors="replace")
             for m in re.finditer(
-                r"[\"']CPHARM_MANTIS_BILLING_DIRECT[\"']\s*:\s*[\"']1[\"']", text
+                r"[\"']PHARMFLOW_MANTIS_BILLING_DIRECT[\"']\s*:\s*[\"']1[\"']", text
             ):
                 raise AssertionError(
-                    f"{py.relative_to(ROOT)} sets CPHARM_MANTIS_BILLING_DIRECT to 1 "
+                    f"{py.relative_to(ROOT)} sets PHARMFLOW_MANTIS_BILLING_DIRECT to 1 "
                     "(host-IP billing). Operator rule forbids this."
                 )
 
 
 def test_hostside_pixel_firing_stays_disabled() -> None:
-    from automation.mantis_inject_proxy import fire_ssp_impression_pixels_hostside  # noqa: F401
-
-    # The function exists for history but every call site must remain
-    # commented out — the DISABLED block in _build patch JS is the proof.
+    # Host-side pixel firing must stay gone — impressions leave each phone exit.
     inject = (ROOT / "automation" / "mantis_inject_proxy.py").read_text(
         encoding="utf-8", errors="replace"
     )
+    assert "fire_ssp_impression_pixels_hostside" not in inject
     for line in inject.splitlines():
         stripped = line.strip()
         if stripped.startswith("fire_ssp_impression_pixels_hostside("):
@@ -66,10 +64,13 @@ def test_inject_proxy_billing_direct_source_default_is_zero() -> None:
     inject = (ROOT / "automation" / "mantis_inject_proxy.py").read_text(
         encoding="utf-8", errors="replace"
     )
-    assert 'os.environ.get("CPHARM_MANTIS_BILLING_DIRECT", "0")' in inject, (
+    assert 'default="0"' in inject and "MANTIS_BILLING_DIRECT" in inject, (
         "billing_direct_enabled() must default to 0 (no host-IP egress) — "
         "standing rule 7"
     )
+    from automation.mantis_inject_proxy import billing_direct_enabled
+
+    assert billing_direct_enabled() is False
 
 
 def test_upstream_tor_port_follows_live_broadcast(tmp_path, monkeypatch) -> None:
@@ -83,7 +84,10 @@ def test_upstream_tor_port_follows_live_broadcast(tmp_path, monkeypatch) -> None
         ),
         encoding="utf-8",
     )
+    monkeypatch.delenv("CPHARM_LOG_DIR", raising=False)
+    monkeypatch.delenv("PHARMFLOW_LOG_DIR", raising=False)
     monkeypatch.setenv("CPHARM_LOGS", str(tmp_path))
+    monkeypatch.delenv("PHARMFLOW_LOGS", raising=False)
     from automation.mantis_inject_proxy import upstream_tor_port
 
     assert upstream_tor_port(2) == 8882
@@ -106,13 +110,39 @@ def test_upstream_tor_port_ignores_stale_broadcast(tmp_path, monkeypatch) -> Non
         ),
         encoding="utf-8",
     )
+    monkeypatch.delenv("CPHARM_LOG_DIR", raising=False)
+    monkeypatch.delenv("PHARMFLOW_LOG_DIR", raising=False)
     monkeypatch.setenv("CPHARM_LOGS", str(tmp_path))
+    monkeypatch.delenv("PHARMFLOW_LOGS", raising=False)
     from automation.mantis_inject_proxy import TOR_HTTP_TUNNEL_BASE, upstream_tor_port
 
     assert upstream_tor_port(2) != 8882
     # Falls back to the in-process resolver or the raw constant — both are
     # ≥ the configured base, never the stale broadcast's value.
     assert upstream_tor_port(2) >= TOR_HTTP_TUNNEL_BASE
+    assert upstream_tor_port(2) != 8218 + 2
+
+
+def test_upstream_tor_port_refuses_inject_window_broadcast(tmp_path, monkeypatch) -> None:
+    """http_base in the inject listen window (8218+) must never be dialed as Tor."""
+    import json
+    import time as _time
+
+    (tmp_path / "tor_port_bases.json").write_text(
+        json.dumps(
+            {"ts": _time.time(), "socks_base": 9150, "http_base": 8218, "pid": 123}
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.delenv("CPHARM_LOG_DIR", raising=False)
+    monkeypatch.delenv("PHARMFLOW_LOG_DIR", raising=False)
+    monkeypatch.setenv("CPHARM_LOGS", str(tmp_path))
+    monkeypatch.delenv("PHARMFLOW_LOGS", raising=False)
+    from automation.mantis_inject_proxy import upstream_tor_port
+
+    port = upstream_tor_port(0)
+    assert port != 8218
+    assert port >= 8118
 
 
 def test_billing_route_prefers_residential_then_tor_not_host() -> None:

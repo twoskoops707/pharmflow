@@ -1,13 +1,13 @@
 @echo off
 setlocal EnableDelayedExpansion
-title CPharm - Install App
+title PharmFlow - Install App
 color 0A
 
 set APKDIR=%~dp0..\apks
 
 echo.
 echo  ==========================================
-echo   CPharm - Install App on Master Phone
+echo   PharmFlow - Install App on Master Phone
 echo  ==========================================
 echo.
 
@@ -23,10 +23,10 @@ if not defined APK (
 
 echo  [*] Found: %APK%
 
-if defined CPHARM_LEGACY_EMU_CONSOLE (
-    set "LEGACY_CLI=%CPHARM_LEGACY_EMU_CONSOLE%"
+if defined PHARMFLOW_LEGACY_EMU_CONSOLE (
+    set "LEGACY_CLI=%PHARMFLOW_LEGACY_EMU_CONSOLE%"
     if not exist "!LEGACY_CLI!" (
-        echo  [!] CPHARM_LEGACY_EMU_CONSOLE path not found:
+        echo  [!] PHARMFLOW_LEGACY_EMU_CONSOLE path not found:
         echo      !LEGACY_CLI!
         pause & exit /b 1
     )
@@ -38,7 +38,7 @@ if defined CPHARM_LEGACY_EMU_CONSOLE (
 where adb >nul 2>&1
 if errorlevel 1 (
     echo  [!] adb not found in PATH.
-    echo  [!] Install Android platform-tools, or set CPHARM_LEGACY_EMU_CONSOLE, or use CPharm:
+    echo  [!] Install Android platform-tools, or set PHARMFLOW_LEGACY_EMU_CONSOLE, or use PharmFlow:
     echo       py -3 wizard\setup_wizard.py
     pause & exit /b 1
 )
@@ -46,14 +46,14 @@ if errorlevel 1 (
 echo  [*] Installing via adb (single connected device / default target)...
 adb install -r "%APK%"
 if errorlevel 1 (
-    echo  [!] adb install failed. Connect one emulator or device, or use CPharm.
+    echo  [!] adb install failed. Connect one emulator or device, or use PharmFlow.
     pause & exit /b 1
 )
 
 :AFTER_INSTALL
 echo.
 echo  ==========================================
-echo   Done! For multi-device farms, use CPharm (MuMu / AVD).
+echo   Done! For multi-device farms, use PharmFlow (MuMu / AVD).
 echo  ==========================================
 echo.
 pause

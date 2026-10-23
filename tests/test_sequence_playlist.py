@@ -64,6 +64,97 @@ class SequencePlaylistTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             self.assertIsNone(load_steps_from_filename("nope.json", Path(tmp)))
 
+    def test_path3_hits_budget_skips_ads_when_zero(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "browse.json").write_text(
+                json.dumps({"steps": [{"type": "wait", "seconds": 1}]}),
+                encoding="utf-8",
+            )
+            (root / "ad.json").write_text(
+                json.dumps({"steps": [{"type": "wait", "seconds": 2}]}),
+                encoding="utf-8",
+            )
+            ent = {
+                "sequence_playlist": ["browse.json"],
+                "sequence_playlist_secondary": ["ad.json"],
+                "sequence_playlist_mode": "random",
+                "sequence_playlist_shuffle": "combined",
+                "hits_per_day": 40,
+                "path3_hits_per_day": 0,
+            }
+            notes = []
+            with patch("automation.sequence_playlist.sequences_dir", return_value=root):
+                for i in range(20):
+                    _steps, note = resolve_steps(ent, i, "10.0.2.1:5555", directory=root)
+                    notes.append(note or "")
+            self.assertTrue(all("ad.json" not in n for n in notes))
+            self.assertTrue(any("browse.json" in n for n in notes))
+
+    def test_path3_hits_budget_can_pick_ads(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "browse.json").write_text(
+                json.dumps({"steps": [{"type": "wait", "seconds": 1}]}),
+                encoding="utf-8",
+            )
+            (root / "ad.json").write_text(
+                json.dumps({"steps": [{"type": "wait", "seconds": 2}]}),
+                encoding="utf-8",
+            )
+            ent = {
+                "sequence_playlist": ["browse.json"],
+                "sequence_playlist_secondary": ["ad.json"],
+                "sequence_playlist_mode": "random",
+                "sequence_playlist_shuffle": "combined",
+                "hits_per_day": 2,
+                "path3_hits_per_day": 2,
+            }
+            with patch("automation.sequence_playlist.sequences_dir", return_value=root):
+                _steps, note = resolve_steps(ent, 0, "10.0.2.1:5555", directory=root)
+            self.assertIn("ad.json", note or "")
+
+    def test_path2_budget_synthesizes_halfway_timer(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "browse.json").write_text(
+                json.dumps(
+                    {
+                        "steps": [
+                            {"type": "open_url", "url": "https://example.test"},
+                            {
+                                "type": "wait",
+                                "seconds": 90.5,
+                                "checkpoint": "timer_complete",
+                            },
+                            {"type": "tap", "x": 1, "y": 2},
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (root / "ad.json").write_text(
+                json.dumps({"steps": [{"type": "wait", "seconds": 2}]}),
+                encoding="utf-8",
+            )
+            ent = {
+                "sequence_playlist": ["browse.json"],
+                "sequence_playlist_secondary": ["ad.json"],
+                "sequence_playlist_mode": "random",
+                "sequence_playlist_shuffle": "combined",
+                "hits_per_day": 10,
+                "path2_hits_per_day": 10,
+                "path3_hits_per_day": 0,
+            }
+            with patch("automation.sequence_playlist.sequences_dir", return_value=root):
+                steps, note = resolve_steps(ent, 0, "10.0.2.1:5555", directory=root)
+            self.assertIn("#path2", note or "")
+            self.assertTrue(steps)
+            self.assertEqual(steps[-1].get("checkpoint"), "timer_halfway")
+            self.assertGreaterEqual(float(steps[-1].get("seconds") or 0), 45.0)
+            self.assertLessEqual(float(steps[-1].get("seconds") or 0), 60.0)
+            self.assertEqual(len(steps), 2)
+
 
 if __name__ == "__main__":
     unittest.main()

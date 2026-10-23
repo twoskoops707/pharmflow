@@ -9,13 +9,13 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
-from cpharm_defaults import desktop_gold_default
+from pharmflow_defaults import desktop_gold_default
 from sequence_geometry import SEQUENCE_BASE_H, SEQUENCE_BASE_W, scale_point
 from sequence_normalize import unwrap_sequence_document
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "automation" / "recordings" / "sequences"
-DOC_MUMU = ROOT / "docs" / "CPharm_emulator_MuMu_and_sequences.md"
+DOC_MUMU = ROOT / "docs" / "PharmFlow_emulator_MuMu_and_sequences.md"
 DEFAULT_GOLD = desktop_gold_default()
 
 EXPLICIT_MUMU_RESOLUTIONS = {(1080, 1920), (900, 1600), (720, 1280), (540, 960)}

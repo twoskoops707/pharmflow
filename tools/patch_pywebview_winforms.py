@@ -11,7 +11,7 @@ the stub.
 
 This script idempotently replaces the OpenFolderDialog class in the installed
 pywebview copy with a no-op stub (same marker the runtime path uses:
-CPHARM_NET8_OPENFOLDER_PATCH). Runs in CI immediately before `pyinstaller`.
+PHARMFLOW_NET8_OPENFOLDER_PATCH). Runs in CI immediately before `pyinstaller`.
 Exit code 0 always — a missing/mismatched file is logged, not fatal.
 """
 
@@ -20,7 +20,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-MARKER = "CPHARM_NET8_OPENFOLDER_PATCH"
+MARKER = "PHARMFLOW_NET8_OPENFOLDER_PATCH"
 
 
 def main() -> int:

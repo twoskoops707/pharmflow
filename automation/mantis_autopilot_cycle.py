@@ -12,7 +12,7 @@ from automation.mantis_autopilot_apply import apply_steering_plan
 from automation.mantis_gauge_score import score_levers
 from automation.mantis_steering import plan_steering
 
-LOG_DIR = Path(os.environ.get("CPHARM_LOG_DIR", r"C:\CPharm\logs"))
+LOG_DIR = Path(os.environ.get("PHARMFLOW_LOG_DIR", r"C:\PharmFlow\logs"))
 HB = LOG_DIR / "mantis_autopilot_heartbeat.txt"
 STATE = LOG_DIR / "autopilot_state.json"
 MANTIS_TODAY = LOG_DIR / "mantis_today_state.json"
@@ -105,7 +105,7 @@ def run_once(*, dry_run: bool | None = None, fetch: bool = True) -> dict[str, An
         farm_visits=farm_visits,
     )
     ov = _load(OVERRIDES)
-    cur = {k: str(v) for k, v in ov.items() if str(k).startswith("CPHARM_")}
+    cur = {k: str(v) for k, v in ov.items() if str(k).startswith("PHARMFLOW_")}
     plan = plan_steering(
         score,
         farm_ads_used=farm_ads,

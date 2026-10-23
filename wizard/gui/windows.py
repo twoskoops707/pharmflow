@@ -108,15 +108,10 @@ class SettingsWindow(SubWindow):
         self.adb_path.insert(0, initial.get("adb_path", ""))
         GradientButton(adb_row, "BROWSE", command=self._browse_adb, width=100).pack(side="left")
 
-        self.skip_fp = ctk.CTkSwitch(general, text="Skip fingerprint (CPHARM_SKIP_FINGERPRINT)")
+        self.skip_fp = ctk.CTkSwitch(general, text="Skip fingerprint (PHARMFLOW_SKIP_FINGERPRINT)")
         self.skip_fp.pack(anchor="w", pady=8)
         if initial.get("skip_fingerprint"):
             self.skip_fp.select()
-
-        self.legacy_proxy = ctk.CTkSwitch(general, text="Legacy proxy gateway (10.0.2.2)")
-        self.legacy_proxy.pack(anchor="w", pady=4)
-        if initial.get("legacy_proxy"):
-            self.legacy_proxy.select()
 
         ctk.CTkLabel(privacy, text="Anti-detection uses 6 layers:", font=FONT_BODY, wraplength=500, justify="left").pack(
             anchor="w", pady=8,
@@ -214,7 +209,6 @@ class SettingsWindow(SubWindow):
             "tor_path": tor,
             "adb_path": adb,
             "skip_fingerprint": bool(self.skip_fp.get()),
-            "legacy_proxy": bool(self.legacy_proxy.get()),
         })
         save_llm_settings(
             api_key=self.llm_key.get(),

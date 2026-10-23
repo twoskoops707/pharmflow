@@ -18,7 +18,7 @@
 #        apt install linux-modules-extra-$(uname -r)
 #        modprobe binder_linux devices="binder,hwbinder,vndbinder"
 #      (ashmem_linux is OPTIONAL on kernel >= 5.18 / Oracle 6.8 — see research)
-#   4. boots the same docker-compose.redroid.yml stack from your CPharm repo
+#   4. boots the same docker-compose.redroid.yml stack from your PharmFlow repo
 #   5. verifies containers are up AND that the ADB port is actually listening
 #
 # If this kernel ships no binder device, the script ABORTS with exact
@@ -161,6 +161,6 @@ echo "Connect ADB from your Windows PC to THIS host (do NOT expose 5555 publicly
 for i in $(seq 0 $((COUNT-1))); do
     echo "    adb connect YOUR_IP:$((START_ADB+i))"
 done
-echo "Or with the CPharm CLI:"
-echo "    CloudPhones.exe connect --host YOUR_IP --count $COUNT --start-port $START_ADB"
-echo "    CloudPhones.exe setup   --host YOUR_IP --count $COUNT"
+echo "Or with PharmFlow:"
+echo "    PharmFlow.exe --cloud-phones-cli connect --host YOUR_IP --count $COUNT --start-port $START_ADB"
+echo "    PharmFlow.exe --cloud-phones-cli setup   --host YOUR_IP --count $COUNT"

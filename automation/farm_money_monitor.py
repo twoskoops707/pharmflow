@@ -1,4 +1,4 @@
-"""CPharm/dash self-monitor: money-health + flat-$ detection + auto-remediation.
+"""PharmFlow/dash self-monitor: money-health + flat-$ detection + auto-remediation.
 
 ALERTS on junk eCPM, house-only SSP, impression dilution, and flat $ — not only
 when payout has been unchanged for 25 minutes. last_ok / money_ok require paying
@@ -8,7 +8,7 @@ Safe remediations: re-pin inject, SSP refresh, heat_down on house/dilution,
 ensure bottom-ads watcher, cull hung adb / dup hunters. Does NOT start
 ensure_farm / farm_354 dual-run.
 
-State files under C:\\CPharm\\logs\\:
+State files under C:\\PharmFlow\\logs\\:
   farm_money_monitor_state.json
   farm_money_history.jsonl
   FARM_MONEY_HEALTH.json
@@ -48,7 +48,7 @@ from automation.farm_exe_self_heal import (  # noqa: E402
 )
 from automation.farm_health_audit import apply_money_rails, behind_on_path3_clicks  # noqa: E402
 
-LOG = Path(r"C:\CPharm\logs")
+LOG = Path(r"C:\PharmFlow\logs")
 STATE = LOG / "farm_money_monitor_state.json"
 HISTORY = LOG / "farm_money_history.jsonl"
 FLAT_FLAG = LOG / "FARM_FLAT_DOLLAR.flag"
@@ -58,7 +58,7 @@ ADS_WATCH = LOG / "ads_watch_state.json"
 MANTIS = LOG / "mantis_today_state.json"
 HONEST = LOG / "FARM_HONEST_NOW.txt"
 
-_ADB = str(Path(r"C:\CPharm\bundled\adb.exe"))
+_ADB = str(Path(r"C:\PharmFlow\bundled\adb.exe"))
 if not Path(_ADB).is_file():
     _ADB = "adb"
 
@@ -354,7 +354,11 @@ def soft_restart_inject_if_needed() -> list[str]:
 
 
 def repin_all_inject() -> list[str]:
-    """adb reverse inject port (+tor) then pin http_proxy. Tor-only reverse caused ERR_PROXY."""
+    """Inject-only adb reverse + http_proxy. Never stack Tor reverse on guest.
+
+    Tor stays host-side upstream of inject. Guest Tor reverse bypasses MITM and
+    kills bottom-ad paint (CERTIFICATE_UNKNOWN / empty Sponsored).
+    """
     fixes: list[str] = []
     for serial, port, name in live_phone_ports():
         if not serial or not serial.startswith("10.0.2."):
@@ -368,32 +372,19 @@ def repin_all_inject() -> list[str]:
                 continue
         except Exception:
             pass
-        tor = 8118 + (port - 8218)
-        cur = _adb(serial, "shell", "settings", "get", "global", "http_proxy", timeout=5.0).strip()
-        cur_port = None
-        mcur = re.search(r"127\.0\.0\.1:(\d+)", cur or "")
-        if mcur:
-            cur_port = int(mcur.group(1))
-        listing = _adb(serial, "reverse", "--list", timeout=6.0)
-        keep = {port}
-        if cur_port and _INJECT_LO <= cur_port <= _INJECT_HI:
-            keep.add(cur_port)
-        for m in re.finditer(r"tcp:(\d+)\s+tcp:\d+", listing or ""):
-            g = int(m.group(1))
-            if _INJECT_LO <= g <= _INJECT_HI and g not in keep:
-                _adb(serial, "reverse", "--remove", f"tcp:{g}", timeout=5.0)
+        _adb(serial, "reverse", "--remove-all", timeout=8.0)
         _adb(serial, "reverse", f"tcp:{port}", f"tcp:{port}", timeout=8.0)
-        _adb(serial, "reverse", f"tcp:{tor}", f"tcp:{tor}", timeout=6.0)
-        if cur_port and cur_port != port and _INJECT_LO <= cur_port <= _INJECT_HI:
-            _adb(serial, "reverse", f"tcp:{cur_port}", f"tcp:{cur_port}", timeout=6.0)
         want = f"127.0.0.1:{port}"
         _adb(serial, "shell", "settings", "put", "global", "http_proxy", want, timeout=6.0)
         time.sleep(0.15)
         _adb(serial, "shell", "settings", "put", "global", "http_proxy", want, timeout=6.0)
         got = _adb(serial, "shell", "settings", "get", "global", "http_proxy", timeout=6.0).strip()
         listing2 = _adb(serial, "reverse", "--list", timeout=6.0)
-        rev_ok = f"tcp:{port}" in (listing2 or "")
-        fixes.append(f"repin {name} {serial}->{want} got={got} reverse_ok={rev_ok}")
+        nrev = len([ln for ln in (listing2 or "").splitlines() if "tcp:" in ln])
+        rev_ok = f"tcp:{port}" in (listing2 or "") and nrev == 1
+        fixes.append(
+            f"repin {name} {serial}->{want} got={got} reverse_ok={rev_ok} nrev={nrev}"
+        )
     return fixes
 
 
@@ -863,8 +854,8 @@ def start_background(
         if _thread is not None and _thread.is_alive():
             return {"ok": True, "already": True, "pid_thread": _thread.name}
         _stop.clear()
-        fm = float(flat_min if flat_min is not None else os.environ.get("CPHARM_FLAT_DOLLAR_MIN", DEFAULT_FLAT_MIN))
-        ts = float(tick_s if tick_s is not None else os.environ.get("CPHARM_MONEY_MON_TICK_S", DEFAULT_TICK_S))
+        fm = float(flat_min if flat_min is not None else os.environ.get("PHARMFLOW_FLAT_DOLLAR_MIN", DEFAULT_FLAT_MIN))
+        ts = float(tick_s if tick_s is not None else os.environ.get("PHARMFLOW_MONEY_MON_TICK_S", DEFAULT_TICK_S))
         _thread = threading.Thread(
             target=_loop,
             kwargs={"flat_min": fm, "tick_s": ts},

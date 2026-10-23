@@ -41,7 +41,7 @@ def _can_do_gui() -> bool:
 
 
 def _build_cmd(idx: int) -> list[str]:
-    target = ROOT / "wizard" / "cpharm_desktop.py"
+    target = ROOT / "wizard" / "pharmflow_desktop.py"
     return [sys.executable, str(target), "--internal-tk-page", str(idx)]
 
 

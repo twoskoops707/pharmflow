@@ -7,7 +7,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-ADB = r"C:\CPharm\bundled\adb.exe"
+ADB = r"C:\PharmFlow\bundled\adb.exe"
 # All 6 MuMu guests — VM-index inject map.
 PHONES = (
     ("vm0", "10.0.2.222:5555", 8218),
@@ -60,7 +60,7 @@ def main() -> None:
     # import watch once
     import sys
 
-    sys.path.insert(0, r"C:\Users\jsmil\FamFlow")
+    sys.path.insert(0, r"C:\Users\jsmil\PharmFlow")
     from scripts.watch_bottom_ads import run_once
 
     payload = run_once(fix=True)
@@ -82,7 +82,7 @@ def main() -> None:
             f"  {p.get('name')}: ads={p.get('adsbymantis')} fat={p.get('fat_bounds')} "
             f"proxy={p.get('proxy')} fg={p.get('fg')} ok={p.get('ok')} note={p.get('note')}"
         )
-    Path(r"C:\CPharm\logs\FARM_HONEST_NOW.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    Path(r"C:\PharmFlow\logs\FARM_HONEST_NOW.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
     print("\n".join(lines), flush=True)
 
 

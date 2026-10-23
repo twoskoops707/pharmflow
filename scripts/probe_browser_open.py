@@ -28,7 +28,7 @@ from automation.browser_onboarding import (
     seed_firefox_onboarding_complete,
 )
 
-OUT_DIR = Path(r"C:\CPharm\logs\browser_probe")
+OUT_DIR = Path(r"C:\PharmFlow\logs\browser_probe")
 _NODE_RE = re.compile(
     r'text="([^"]*)"[^>]*?resource-id="([^"]*)"[^>]*?class="([^"]*)"[^>]*?'
     r'bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"'

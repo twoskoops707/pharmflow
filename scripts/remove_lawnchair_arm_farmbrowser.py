@@ -16,9 +16,9 @@ from automation.config import BROWSER_FARMBROWSER  # noqa: E402
 from automation.farm_canonical_phones import CANONICAL_FARM_PHONES, canonical_names_sorted  # noqa: E402
 from automation.farm_visit_caps import write_runtime_overrides  # noqa: E402
 
-ADB = Path(r"C:\CPharm\bundled\adb.exe")
-APK_SRC = Path(r"C:\CPharm\farmbrowser\app\build\outputs\apk\debug\app-debug.apk")
-APK_CACHE = Path(r"C:\CPharm\apks\farmbrowser-debug.apk")
+ADB = Path(r"C:\PharmFlow\bundled\adb.exe")
+APK_SRC = Path(r"C:\PharmFlow\farmbrowser\app\build\outputs\apk\debug\app-debug.apk")
+APK_CACHE = Path(r"C:\PharmFlow\apks\farmbrowser-debug.apk")
 FLAGS = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 LAWNCHAIR_PKGS = (
     "app.lawnchair",
@@ -108,9 +108,9 @@ def main() -> int:
     # actually have sequences and are installed on the phones.
     write_runtime_overrides(
         {
-            "CPHARM_FARM_BROWSERS": "chromium,firefox,brave",
-            "CPHARM_FARM_PATH3_BROWSERS": "chromium",
-            "CPHARM_FARM_CHROMIUM_ONLY": "0",
+            "PHARMFLOW_FARM_BROWSERS": "chromium,firefox,brave",
+            "PHARMFLOW_FARM_PATH3_BROWSERS": "chromium",
+            "PHARMFLOW_FARM_CHROMIUM_ONLY": "0",
         }
     )
 
@@ -137,7 +137,7 @@ def main() -> int:
         "inject": {k: 8218 + int(k.split(".")[0][2:]) for k in CANONICAL_FARM_PHONES},
         "note": "farmbrowser_only_no_lawnchair",
     }
-    log = Path(r"C:\CPharm\logs")
+    log = Path(r"C:\PharmFlow\logs")
     (log / "ADB_SERIAL_MAP.lock.json").write_text(
         json.dumps(lock, indent=2) + "\n", encoding="utf-8"
     )

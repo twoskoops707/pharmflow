@@ -1,11 +1,11 @@
-# CPharm Emergency Cleanup & Restart
-Write-Host "=== CPharm Emergency Recovery ===" -ForegroundColor Yellow
+# PharmFlow Emergency Cleanup & Restart
+Write-Host "=== PharmFlow Emergency Recovery ===" -ForegroundColor Yellow
 
-# 1. Kill all CPharm/Python processes
+# 1. Kill all PharmFlow/Python processes
 Write-Host "[1/6] Killing stale processes..." -ForegroundColor Cyan
 Get-Process | Where-Object { 
     $_.ProcessName -match "python|adb" -or 
-    $_.Path -match "CPharm" 
+    $_.Path -match "PharmFlow" 
 } | ForEach-Object {
     Stop-Process -Id $_.Id -Force -ErrorAction Ignore
 }
@@ -23,14 +23,14 @@ foreach ($port in $ports) {
 
 # 3. Restart ADB server
 Write-Host "[3/6] Restarting ADB server..." -ForegroundColor Cyan
-& "C:\CPharm\bundled\adb.exe" kill-server 2>&1 | Out-Null
+& "C:\PharmFlow\bundled\adb.exe" kill-server 2>&1 | Out-Null
 Start-Sleep 1
-& "C:\CPharm\bundled\adb.exe" start-server 2>&1 | Out-Null
+& "C:\PharmFlow\bundled\adb.exe" start-server 2>&1 | Out-Null
 Start-Sleep 2
 
 # 4. Clear stale logs
 Write-Host "[4/6] Cleaning stale log entries..." -ForegroundColor Cyan
-$logDir = "C:\CPharm\logs"
+$logDir = "C:\PharmFlow\logs"
 Remove-Item "$logDir\dash_trace.log" -ErrorAction Ignore
 Remove-Item "$logDir\*heartbeat*" -ErrorAction Ignore
 
@@ -46,4 +46,4 @@ if ($mumuProc) {
 # 6. Done
 Write-Host "[6/6] Cleanup complete!" -ForegroundColor Green
 Write-Host ""
-Write-Host "Next: Start CPharm.exe and follow Launch wizard" -ForegroundColor Yellow
+Write-Host "Next: Start PharmFlow.exe and follow Launch wizard" -ForegroundColor Yellow

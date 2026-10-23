@@ -46,13 +46,13 @@ echo "ashmem_linux" | sudo tee -a /etc/modules-load.d/binder.conf
 
 ## Step 3: Deploy Redroid Instances
 
-Copy `docker-compose.redroid.yml` to your instance and run:
+Create the number of phones you want. Do not compose-up the checked-in file — it defines no phones.
 
 ```bash
-docker compose -f docker-compose.redroid.yml up -d
+py -3 cloud_phones/redroid_local.py up --count N
 ```
 
-This creates 8 Android instances on ports 5555-5562.
+`--count` writes one service per phone, then starts them. There is no default count.
 
 ## Step 4: Connect from Windows
 
@@ -62,14 +62,14 @@ adb connect 100.x.x.x:5555
 adb connect 100.x.x.x:5556
 ... (up to 5562)
 
-REM Or use the CloudPhones tool
-CloudPhones.exe connect --host 100.x.x.x
+REM Or use PharmFlow (there is no separate CloudPhones.exe)
+PharmFlow.exe --cloud-phones-cli connect --host 100.x.x.x
 ```
 
 ## Step 5: Apply Stealth
 
 ```batch
-CloudPhones.exe stealth --host 100.x.x.x --count 8
+PharmFlow.exe --cloud-phones-cli stealth --host 100.x.x.x --count N
 ```
 
 This applies:
@@ -82,7 +82,7 @@ This applies:
 ## Step 6: Set Up Tor (Optional)
 
 ```batch
-CloudPhones.exe tor --host 100.x.x.x --verify
+PharmFlow.exe --cloud-phones-cli tor --host 100.x.x.x --verify
 ```
 
 Each device gets its own Tor circuit with a unique exit IP.
@@ -90,14 +90,14 @@ Each device gets its own Tor circuit with a unique exit IP.
 ## Step 7: Verify
 
 ```batch
-CloudPhones.exe status
+PharmFlow.exe --cloud-phones-cli status
 ```
 
-Should show all 8 devices online with their spoofed identities.
+Should show the instances that answered, with their spoofed identities. There is no fixed device count.
 
-## Integration with CPharm
+## Integration with PharmFlow
 
-Once connected, the cloud phones appear as regular ADB devices. Your existing CPharm automation can use them alongside your local MuMu VMs.
+Once connected, the cloud phones appear as regular ADB devices. PharmFlow automation can use them alongside local MuMu VMs.
 
 ## Troubleshooting
 

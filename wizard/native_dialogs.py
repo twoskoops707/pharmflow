@@ -15,7 +15,29 @@ def _json_initial_dir() -> str | None:
         return None
 
 
-def _win32_open_file(*, title: str) -> str | None:
+def _owner_hwnd(parent: Any) -> int | None:
+    """Prefer the WebView2 window so the dialog is not parked behind the deck."""
+    try:
+        from pharmflow_wizard_bridge import _webview_native_hwnd
+
+        hwnd = _webview_native_hwnd()
+        if hwnd:
+            return int(hwnd)
+    except Exception:
+        pass
+    if parent is None:
+        return None
+    try:
+        winfo = getattr(parent, "winfo_id", None)
+        if callable(winfo):
+            hwnd = int(winfo())
+            return hwnd or None
+    except Exception:
+        return None
+    return None
+
+
+def _win32_open_file(*, title: str, owner: int | None = None) -> str | None:
     import ctypes
     from ctypes import wintypes
 
@@ -55,7 +77,7 @@ def _win32_open_file(*, title: str) -> str | None:
     initial = _json_initial_dir() or ""
     ofn = OPENFILENAMEW()
     ofn.lStructSize = ctypes.sizeof(OPENFILENAMEW)
-    ofn.hwndOwner = None
+    ofn.hwndOwner = owner or None
     ofn.lpstrFilter = "JSON sequences (*.json)\0*.json\0All files (*.*)\0*.*\0\0"
     ofn.lpstrFile = buf
     ofn.nMaxFile = len(buf)
@@ -67,7 +89,7 @@ def _win32_open_file(*, title: str) -> str | None:
     return None
 
 
-def _win32_save_file(*, title: str, initialfile: str) -> str | None:
+def _win32_save_file(*, title: str, initialfile: str, owner: int | None = None) -> str | None:
     import ctypes
     from ctypes import wintypes
 
@@ -107,7 +129,7 @@ def _win32_save_file(*, title: str, initialfile: str) -> str | None:
     initial = _json_initial_dir() or ""
     ofn = OPENFILENAMEW()
     ofn.lStructSize = ctypes.sizeof(OPENFILENAMEW)
-    ofn.hwndOwner = None
+    ofn.hwndOwner = owner or None
     ofn.lpstrFilter = "JSON sequences (*.json)\0*.json\0All files (*.*)\0*.*\0\0"
     ofn.lpstrFile = buf
     ofn.nMaxFile = 65536
@@ -126,7 +148,7 @@ def _win32_save_file(*, title: str, initialfile: str) -> str | None:
 def ask_open_json_file(*, title: str = "Load sequence", parent: Any = None) -> str | None:
     if sys.platform == "win32":
         try:
-            p = _win32_open_file(title=title)
+            p = _win32_open_file(title=title, owner=_owner_hwnd(parent))
             if p:
                 return p
         except Exception:
@@ -151,7 +173,7 @@ def ask_save_json_file(
 ) -> str | None:
     if sys.platform == "win32":
         try:
-            p = _win32_save_file(title=title, initialfile=initialfile)
+            p = _win32_save_file(title=title, initialfile=initialfile, owner=_owner_hwnd(parent))
             if p:
                 return p
         except Exception:

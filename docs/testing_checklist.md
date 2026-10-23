@@ -1,4 +1,4 @@
-# CPharm Comprehensive Testing Checklist
+# PharmFlow Comprehensive Testing Checklist
 
 Complete verification checklist for **every** phone farm feature. Use before each release or after major changes to wizard, automation, Tor, fingerprint, or build code.
 
@@ -15,10 +15,10 @@ Complete verification checklist for **every** phone farm feature. Use before eac
 | 1.1 | EXE runs without errors | App launches, window opens | [ ] |
 | 1.2 | First-run detection works | Detects if first time running (`needs_setup()` → integrated setup) | [ ] |
 | 1.3 | Manual path selector opens | `PathSelectorWindow` popup appears (Browse .exe / folder) | [ ] |
-| 1.4 | Manual path can be saved | Path saved to `cpharm_config.json` + `saved_paths.json` | [ ] |
+| 1.4 | Manual path can be saved | Path saved to `pharmflow_config.json` + `saved_paths.json` | [ ] |
 | 1.5 | Saved paths persist | Paths available in dropdown after restart | [ ] |
 
-**How to test 1.2–1.5:** Delete or rename `C:\CPharm\cpharm_config.json`, launch `CPharm.exe`, use **LOCATE MUMU** on setup checklist, restart app and confirm saved path appears.
+**How to test 1.2–1.5:** Delete or rename `C:\PharmFlow\pharmflow_config.json`, launch `PharmFlow.exe`, use **LOCATE MUMU** on setup checklist, restart app and confirm saved path appears.
 
 ---
 
@@ -41,7 +41,7 @@ Complete verification checklist for **every** phone farm feature. Use before eac
 
 | # | Test | Expected Result | Pass/Fail |
 |---|------|-----------------|-----------|
-| 3.1 | ADB auto-downloads | ~6 MB platform-tools downloaded to `C:\CPharm\bundled\adb.exe` | [ ] |
+| 3.1 | ADB auto-downloads | ~6 MB platform-tools downloaded to `C:\PharmFlow\bundled\adb.exe` | [ ] |
 | 3.2 | ADB connects to MuMu | `adb devices -l` shows `127.0.0.1:16384+` as `device` | [ ] |
 | 3.3 | ADB commands work | `shell`, `install`, `reverse` succeed | [ ] |
 | 3.4 | Multiple device support | Multiple serials visible when multiple phones running | [ ] |
@@ -49,7 +49,7 @@ Complete verification checklist for **every** phone farm feature. Use before eac
 **Commands:**
 
 ```powershell
-set ADB=C:\CPharm\bundled\adb.exe
+set ADB=C:\PharmFlow\bundled\adb.exe
 %ADB% devices -l
 %ADB% -s 127.0.0.1:16384 shell echo ok
 ```
@@ -132,7 +132,7 @@ netstat -an | findstr 8118
 
 | # | Test | Expected Result | Pass/Fail |
 |---|------|-----------------|-----------|
-| 8.1 | Chromium downloads | ~230 MB `ChromePublic.apk` in `C:\CPharm\bundled\` | [ ] |
+| 8.1 | Chromium downloads | ~230 MB `ChromePublic.apk` in `C:\PharmFlow\bundled\` | [ ] |
 | 8.2 | Chromium sideloads | `pm list packages` shows Chromium if installed | [ ] |
 | 8.3 | MuMu Browser works | `com.mumudroid.browser` opens URLs | [ ] |
 | 8.4 | http_proxy honored | Tor works with MuMu Browser | [ ] |
@@ -204,7 +204,7 @@ curl http://127.0.0.1:8080/api/tor
 
 | # | Test | Expected Result | Pass/Fail |
 |---|------|-----------------|-----------|
-| 13.1 | EXE builds | `CPharm.exe` from PyInstaller | [ ] |
+| 13.1 | EXE builds | `PharmFlow.exe` from PyInstaller | [ ] |
 | 13.2 | EXE runs standalone | No Python install required on target PC | [ ] |
 | 13.3 | All features in EXE | No `ModuleNotFoundError`; icons/sequences bundled | [ ] |
 | 13.4 | GitHub Release works | CI artifact + draft release uploaded | [ ] |
@@ -213,8 +213,8 @@ curl http://127.0.0.1:8080/api/tor
 
 ```bash
 python scripts/generate_icons.py
-pyinstaller wizard/CPharm.spec --noconfirm
-pyinstaller wizard/CPharm.spec --noconfirm
+pyinstaller wizard/PharmFlow.spec --noconfirm
+pyinstaller wizard/PharmFlow.spec --noconfirm
 ```
 
 ---
@@ -255,7 +255,7 @@ RE-TEST DATE: ___________________
 ## Quick verification commands
 
 ```powershell
-set ADB=C:\CPharm\bundled\adb.exe
+set ADB=C:\PharmFlow\bundled\adb.exe
 set SERIAL=127.0.0.1:16384
 %ADB% devices -l
 %ADB% -s %SERIAL% shell getprop ro.product.model
@@ -270,5 +270,5 @@ netstat -an | findstr 8118
 ## Related docs
 
 - [Troubleshooting](troubleshooting.md)
-- [MuMu & Sequences](CPharm_emulator_MuMu_and_sequences.md)
+- [MuMu & Sequences](PharmFlow_emulator_MuMu_and_sequences.md)
 - [Operator Quick Guide](operator_sequence_quick_guide.md)

@@ -46,7 +46,7 @@ def test_host_headroom_sample_shape(bg) -> None:
 
 
 def test_gate_disabled_env_bypasses_wait(bg, monkeypatch) -> None:
-    monkeypatch.setenv("CPHARM_BOOT_GATE_DISABLED", "1")
+    monkeypatch.setenv("PHARMFLOW_BOOT_GATE_DISABLED", "1")
     assert bg.wait_for_boot_headroom(label="t") is True
 
 
@@ -73,7 +73,7 @@ def test_wait_passes_when_headroom_available(bg) -> None:
 
 
 def test_gate_settings_env_overrides(bg, monkeypatch) -> None:
-    monkeypatch.setenv("CPHARM_BOOT_MIN_FREE_RAM_MB", "1500")
-    monkeypatch.setenv("CPHARM_BOOT_MAX_CPU_PCT", "70")
+    monkeypatch.setenv("PHARMFLOW_BOOT_MIN_FREE_RAM_MB", "1500")
+    monkeypatch.setenv("PHARMFLOW_BOOT_MAX_CPU_PCT", "70")
     s = bg.gate_settings()
     assert s["min_free_ram_mb"] == 1500.0 and s["max_cpu_pct"] == 70.0

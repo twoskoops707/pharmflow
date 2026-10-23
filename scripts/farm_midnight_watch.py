@@ -12,7 +12,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-LOG = Path(r"C:\CPharm\logs")
+LOG = Path(r"C:\PharmFlow\logs")
 INTERVAL_S = 30.0
 
 
@@ -38,11 +38,11 @@ def _spawn(script: str, *extra: str) -> int | None:
     from automation.farm_visit_caps import apply_runtime_overrides_to_env
 
     apply_runtime_overrides_to_env(env, log_dir=LOG)
-    env["CPHARM_FARM_STOP"] = "0"
-    env["CPHARM_FARM_UNIQUE_SEQ"] = "1"
-    env["CPHARM_FARM_CHROMIUM_ONLY"] = "0"
-    env["CPHARM_FARM_BROWSERS"] = "chromium,firefox,brave"
-    env["CPHARM_FARM_PATH3_BROWSERS"] = "chromium,firefox,brave"
+    env["PHARMFLOW_FARM_STOP"] = "0"
+    env["PHARMFLOW_FARM_UNIQUE_SEQ"] = "1"
+    env["PHARMFLOW_FARM_CHROMIUM_ONLY"] = "0"
+    env["PHARMFLOW_FARM_BROWSERS"] = "chromium,firefox,brave"
+    env["PHARMFLOW_FARM_PATH3_BROWSERS"] = "chromium,firefox,brave"
     proc = subprocess.Popen(
         [pyw, "-u", str(ROOT / "scripts" / script), *extra],
         cwd=str(ROOT),
@@ -69,7 +69,7 @@ def resume_stack() -> dict:
     if snap_path.is_file():
         try:
             snap = json.loads(snap_path.read_text(encoding="utf-8-sig"))
-            adb = r"C:\CPharm\bundled\adb.exe"
+            adb = r"C:\PharmFlow\bundled\adb.exe"
             if not Path(adb).is_file():
                 adb = "adb"
             for row in snap.get("phones") or []:

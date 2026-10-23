@@ -211,7 +211,7 @@ def check_hidden_imports(report: VerificationReport) -> None:
         from wizard.pyinstaller_common import base_hiddenimports
 
         required = (
-            "wizard.cpharm_desktop",
+            "wizard.pharmflow_desktop",
             "wizard.setup_desktop",
             "wizard.path_detection",
             "wizard.path_utils",
@@ -230,7 +230,7 @@ def check_hidden_imports(report: VerificationReport) -> None:
 
 
 def check_spec_files(report: VerificationReport) -> None:
-    specs = ("wizard/CPharm.spec",)
+    specs = ("wizard/PharmFlow.spec",)
     for spec in specs:
         path = ROOT / spec
         if path.is_file():
@@ -258,8 +258,8 @@ def check_path_modules(report: VerificationReport) -> None:
 
 def check_core_imports(report: VerificationReport) -> None:
     modules = (
-        "wizard.cpharm_merged",
-        "wizard.cpharm_desktop",
+        "wizard.pharmflow_merged",
+        "wizard.pharmflow_desktop",
         "wizard.setup_desktop",
         "wizard.mumu_farm_ops",
         "automation.tor_manager",
@@ -371,7 +371,7 @@ def print_report(report: VerificationReport, as_json: bool = False) -> None:
         return
 
     print("=" * 60)
-    print("CPharm Verification Report")
+    print("PharmFlow Verification Report")
     print("=" * 60)
     for r in report.results:
         print(f"  [{r.status:6}] {r.checklist_id:6} {r.name}")
@@ -385,7 +385,7 @@ def print_report(report: VerificationReport, as_json: bool = False) -> None:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Run CPharm automated verification checks")
+    parser = argparse.ArgumentParser(description="Run PharmFlow automated verification checks")
     parser.add_argument("--json", action="store_true", help="Output JSON report")
     args = parser.parse_args()
 

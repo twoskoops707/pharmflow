@@ -9,7 +9,7 @@ import time
 from pathlib import Path
 
 S = "10.0.2.132:5555"
-OUT = Path(r"C:\CPharm\logs\ad_proof")
+OUT = Path(r"C:\PharmFlow\logs\ad_proof")
 OUT.mkdir(parents=True, exist_ok=True)
 
 
@@ -27,8 +27,8 @@ def shot(n: str) -> None:
 
 
 def dump() -> str:
-    sh("shell", "uiautomator", "dump", "/sdcard/cpharm_age.xml")
-    sh("pull", "/sdcard/cpharm_age.xml", str(OUT / "age_probe.xml"))
+    sh("shell", "uiautomator", "dump", "/sdcard/pharmflow_age.xml")
+    sh("pull", "/sdcard/pharmflow_age.xml", str(OUT / "age_probe.xml"))
     return (OUT / "age_probe.xml").read_text(encoding="utf-8", errors="replace")
 
 

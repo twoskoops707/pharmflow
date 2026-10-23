@@ -26,7 +26,7 @@ class ApkToolsTests(unittest.TestCase):
 
     def test_install_apk_on_serials(self) -> None:
         adb = MagicMock()
-        adb.install.return_value = MagicMock(ok=True, stdout="Success")
+        adb.install.return_value = MagicMock(ok=True, stdout="Success", stderr="", returncode=0)
         with patch.object(Path, "is_file", return_value=True):
             results = install_apk_on_serials(adb, Path("app.apk"), ["s1", "s2"])
         self.assertEqual(results, {"s1": True, "s2": True})

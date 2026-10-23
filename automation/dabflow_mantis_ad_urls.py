@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import json
+import threading
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from pathlib import Path
 from typing import Any
 
 MANTIS_PROPERTY_ID = "6950d5527c56c6494f189e46"
@@ -52,31 +55,31 @@ ZONE_TO_AD_CHECKPOINT: dict[str, str] = {
 FALLBACK_LANDING_URLS: dict[str, str] = {
     "zone-one": (
         "https://www.grasscity.com/"
-        "?utm_source=mantis&utm_medium=6950d5527c56c6494f189e46&utm_campaign=cpharm-fallback"
+        "?utm_source=mantis&utm_medium=6950d5527c56c6494f189e46&utm_campaign=pharmflow-fallback"
     ),
     "zone-two": (
         "https://www.smokecartel.com/"
-        "?utm_source=mantis&utm_medium=6950d5527c56c6494f189e46&utm_campaign=cpharm-fallback"
+        "?utm_source=mantis&utm_medium=6950d5527c56c6494f189e46&utm_campaign=pharmflow-fallback"
     ),
     "zone-three": (
         "https://www.smokecartel.com/"
-        "?utm_source=mantis&utm_medium=6950d5527c56c6494f189e46&utm_campaign=cpharm-fallback"
+        "?utm_source=mantis&utm_medium=6950d5527c56c6494f189e46&utm_campaign=pharmflow-fallback"
     ),
     "zone-five": (
         "https://ageofhemp.com/collections/best-deals"
-        "?utm_source=mantis&utm_medium=6950d5527c56c6494f189e46&utm_campaign=cpharm-fallback"
+        "?utm_source=mantis&utm_medium=6950d5527c56c6494f189e46&utm_campaign=pharmflow-fallback"
     ),
     "zone-eight": (
         "https://ageofhemp.com/collections/best-deals"
-        "?utm_source=mantis&utm_medium=6950d5527c56c6494f189e46&utm_campaign=cpharm-fallback"
+        "?utm_source=mantis&utm_medium=6950d5527c56c6494f189e46&utm_campaign=pharmflow-fallback"
     ),
     "zone-nine": (
         "https://ageofhemp.com/collections/best-deals"
-        "?utm_source=mantis&utm_medium=6950d5527c56c6494f189e46&utm_campaign=cpharm-fallback"
+        "?utm_source=mantis&utm_medium=6950d5527c56c6494f189e46&utm_campaign=pharmflow-fallback"
     ),
     "zone-twelve": (
         "https://www.grasscity.com/"
-        "?utm_source=mantis&utm_medium=6950d5527c56c6494f189e46&utm_campaign=cpharm-fallback"
+        "?utm_source=mantis&utm_medium=6950d5527c56c6494f189e46&utm_campaign=pharmflow-fallback"
     ),
 }
 
@@ -86,6 +89,120 @@ def decode_click_landing(click_url: str) -> str:
     qs = urllib.parse.parse_qs(urllib.parse.urlparse(click_url).query)
     raw = qs.get("r", [""])[0]
     return urllib.parse.unquote(raw) if raw else ""
+
+
+def has_live_click_token(click_url: str) -> bool:
+    """True only for a token-bound paying click (bi+bt), never a synthetic wrap.
+
+    A clicked URL without the fill's bi/bt returns HTTP 200 and pays $0.
+    """
+    raw = (click_url or "").strip()
+    if "bids.mantis.marketing/clicked" not in raw.lower():
+        return False
+    if is_mantis_house_bot_click_url(raw):
+        return False
+    qs = urllib.parse.parse_qs(urllib.parse.urlparse(raw).query)
+    bi = (qs.get("bi") or [""])[0].strip().lower()
+    bt = (qs.get("bt") or [""])[0].strip()
+    if not bi or not bt:
+        return False
+    if bi in ("pharmflow-fallback", "cpharm-fallback", "mantis-hardcode", "mantis-bot"):
+        return False
+    return True
+
+
+def _viewed_clicks_paths() -> list[Path]:
+    """Live CPharm first, branded PharmFlow second (dual-read / dual-write)."""
+    out: list[Path] = []
+    seen: set[str] = set()
+    for raw in (
+        r"C:\CPharm\logs\phone_viewed_clicks.json",
+        r"C:\PharmFlow\logs\phone_viewed_clicks.json",
+    ):
+        key = str(Path(raw)).lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(Path(raw))
+    return out
+
+
+_VIEWED_CLICKS_PATH = _viewed_clicks_paths()[0]
+# Same sequence can scroll for several minutes after the page paints.
+# 300s expired the token before Path3's tap, so the open was skipped.
+_VIEWED_CLICK_TTL_S = 900.0
+_viewed_lock = threading.Lock()
+
+
+def record_phone_viewed_ads(phone_index: int, ads: list) -> int:
+    """Store click URLs the phone itself fetched. Host SSP tokens do not match."""
+    now = time.time()
+    key = str(int(phone_index))
+    with _viewed_lock:
+        data: dict = {}
+        for path in _viewed_clicks_paths():
+            try:
+                raw = json.loads(path.read_text(encoding="utf-8"))
+                if isinstance(raw, dict) and raw:
+                    data = raw
+                    break
+            except (OSError, json.JSONDecodeError, TypeError):
+                continue
+        bucket = dict(data.get(key) or {})
+        stored = 0
+        for ad in ads or []:
+            if not isinstance(ad, dict):
+                continue
+            zone = str(ad.get("zone_id") or "").strip()
+            url = str(ad.get("click_url") or "").strip()
+            if not zone or not has_live_click_token(url):
+                continue
+            bucket[zone] = {"url": url, "ts": now}
+            stored += 1
+        data[key] = bucket
+        text = json.dumps(data)
+        for path in _viewed_clicks_paths():
+            try:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                tmp = path.with_suffix(".json.tmp")
+                tmp.write_text(text, encoding="utf-8")
+                tmp.replace(path)
+            except OSError:
+                continue
+    return stored
+
+
+def phone_viewed_click_url(
+    phone_index: int,
+    zone: str,
+    *,
+    max_age_s: float = _VIEWED_CLICK_TTL_S,
+) -> str:
+    """Click URL from this phone's own fill, or empty if missing/stale."""
+    want = str(zone or "").strip()
+    if not want:
+        return ""
+    for path in _viewed_clicks_paths():
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError, TypeError):
+            continue
+        if not isinstance(data, dict):
+            continue
+        row = (data.get(str(int(phone_index))) or {}).get(want) or {}
+        if not isinstance(row, dict):
+            continue
+        url = str(row.get("url") or "").strip()
+        try:
+            ts = float(row.get("ts") or 0)
+        except (TypeError, ValueError):
+            ts = 0.0
+        if not url or (time.time() - ts) > float(max_age_s):
+            continue
+        if not has_live_click_token(url):
+            continue
+        return url
+    return ""
 
 
 def is_mantis_house_bot_click_url(click_url: str) -> bool:
@@ -128,7 +245,7 @@ def tag_landing_with_publisher(
     campaign = qd.get("utm_campaign", "")
     content = qd.get("utm_content", "")
     weak_campaigns = frozenset(
-        {"", "mantis-bot", "Banner", "Top Sellers", "Top+Sellers", "mantis-hardcode", "cpharm-fallback"}
+        {"", "mantis-bot", "Banner", "Top Sellers", "Top+Sellers", "mantis-hardcode", "pharmflow-fallback"}
     )
     qd["utm_source"] = "mantis"
     qd["utm_medium"] = property_id
@@ -144,7 +261,7 @@ def tag_landing_with_publisher(
     return urllib.parse.urlunparse(parsed._replace(query=new_query))
 
 
-def wrap_paying_click_url(landing: str, *, bid_id: str = "cpharm-fallback") -> str:
+def wrap_paying_click_url(landing: str, *, bid_id: str = "pharmflow-fallback") -> str:
     """Build a ``bids.mantis.marketing/clicked`` URL around a publisher-tagged landing.
 
     Slot taps alone do not bill; opening this tracking redirect is the Jul 30 path.
@@ -220,7 +337,7 @@ def fetch_mantis_landing_urls(
         data=json.dumps(body).encode("utf-8"),
         headers={
             "Content-Type": "text/plain",
-            "User-Agent": "CPharm-mantis-hardcode/1.0 (Linux; Android 13) Mobile",
+            "User-Agent": "PharmFlow-mantis-hardcode/1.0 (Linux; Android 13) Mobile",
         },
     )
     with urllib.request.urlopen(req, timeout=timeout) as resp:

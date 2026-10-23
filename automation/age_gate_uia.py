@@ -35,7 +35,7 @@ def _dump_ui_xml(serial: str) -> str:
         timeout=60,
         creationflags=_no_win(),
     )
-    local = Path(tempfile.gettempdir()) / f"cpharm_age_uia_{serial.replace(':', '_')}.xml"
+    local = Path(tempfile.gettempdir()) / f"pharmflow_age_uia_{serial.replace(':', '_')}.xml"
     subprocess.run(
         [adb, "-s", serial, "pull", remote, str(local)],
         capture_output=True,

@@ -1,5 +1,5 @@
 """
-Shared preflight checks for CPharmMuMuSetup and the wizard (MuMu / adb / exes).
+Shared preflight checks for PharmFlowMuMuSetup and the wizard (MuMu / adb / exes).
 
 Keeps host + MuMu readiness logic in one place so the setup exe and wizard do not
 duplicate downloads or contradict each other.
@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -19,9 +20,14 @@ import zipfile
 from pathlib import Path
 from typing import Callable
 
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+import docker_guard  # noqa: E402
+
 IS_WIN = platform.system() == "Windows"
 MUMU_DOWNLOAD_URL = "https://www.mumuglobal.com/download"
-CPHARM_RELEASES_URL = "https://github.com/twoskoops707/pharmflow/releases/latest"
+PHARMFLOW_RELEASES_URL = "https://github.com/twoskoops707/pharmflow/releases/latest"
 SDK_DEFAULT_PATH = Path(os.environ.get("LOCALAPPDATA", "C:\\")) / "Android" / "Sdk"
 
 MUMU_MANAGER_NAMES = (
@@ -115,10 +121,10 @@ def _legacy_find_mumu_install() -> Path | None:
     return None
 
 
-def cpharm_exe_beside_setup() -> tuple[bool, Path]:
+def pharmflow_exe_beside_setup() -> tuple[bool, Path]:
     """True when PharmFlow is available — the running app counts as ready.
 
-    The unified PharmFlow.exe (formerly CPharm.exe) runs phone setup in-process
+    The unified PharmFlow.exe (formerly PharmFlow.exe) runs phone setup in-process
     (``--phone-setup``), so when this code runs the app is already available.
     """
     if getattr(sys, "frozen", False):
@@ -133,7 +139,7 @@ def cpharm_exe_beside_setup() -> tuple[bool, Path]:
                 return True, sibling
         return False, exe.parent / "PharmFlow.exe"
     # Running from source inside the app — the app is live.
-    return True, Path(__file__).resolve().parent / "cpharm_desktop.py"
+    return True, Path(__file__).resolve().parent / "pharmflow_desktop.py"
 
 
 def setup_marker_path(data_root: Path) -> Path:
@@ -157,12 +163,18 @@ def mumu_setup_already_done(data_root: Path) -> bool:
     return bool(read_setup_marker(data_root).get("mumu_setup_complete"))
 
 
-def open_mumu_download() -> None:
-    webbrowser.open(MUMU_DOWNLOAD_URL)
+def open_mumu_download() -> bool:
+    try:
+        return bool(webbrowser.open(MUMU_DOWNLOAD_URL))
+    except Exception:
+        return False
 
 
-def open_cpharm_releases() -> None:
-    webbrowser.open(CPHARM_RELEASES_URL)
+def open_pharmflow_releases() -> bool:
+    try:
+        return bool(webbrowser.open(PHARMFLOW_RELEASES_URL))
+    except Exception:
+        return False
 
 
 def download_platform_tools(log_fn: LogFn | None = None) -> bool:
@@ -196,7 +208,7 @@ def download_platform_tools(log_fn: LogFn | None = None) -> bool:
         return False
 
 
-def list_adb_phones() -> list[str]:
+def list_adb_phones(timeout: float = 20) -> list[str]:
     try:
         from adb_paths import adb_executable
 
@@ -210,7 +222,7 @@ def list_adb_phones() -> list[str]:
             [exe, "devices", "-l"],
             capture_output=True,
             text=True,
-            timeout=20,
+            timeout=timeout,
             creationflags=_subproc_flags(),
         )
     except (OSError, subprocess.TimeoutExpired):
@@ -242,7 +254,6 @@ def try_connect_mumu_via_adb(
         if mgr:
             wiz.state["mumu_mgr_path"] = str(mgr)
         return wiz._connect_mumu_phones(
-            count=16,
             log_fn=log_fn,
             force_full_scan=force_full_scan,
         )
@@ -252,8 +263,9 @@ def try_connect_mumu_via_adb(
         return []
 
 
-# (start_port, stride, count) — MuMu uses 16384 + n*32; emulator/cloud uses 5555 + n*2
-_AUTO_CONNECT_RANGES = ((16384, 32, 10), (5555, 2, 8))
+# Discovery attaches published guest endpoints. A fixed localhost range
+# (10 MuMu ports, 8 redroid ports) cannot see an ARM guest on 10.0.2.x and
+# drops every phone past that count.
 
 
 def _adb_exe() -> str:
@@ -267,18 +279,18 @@ def _adb_exe() -> str:
 
 
 def _known_fleet_serials() -> list[str]:
-    """Live farm serials from CPharm runtime state, never hardcoded ports.
+    """Live farm serials from PharmFlow runtime state, never hardcoded ports.
 
     The farm stack (supervisor, cycles, injectors) persists the canonical
     vm→10.0.2.x mapping in ADB_SERIAL_MAP.lock.json and the active serial list in
-    farm_runtime_overrides.json (CPHARM_ADB_SERIALS). On ARM MuMu the guest
+    farm_runtime_overrides.json (PHARMFLOW_ADB_SERIALS). On ARM MuMu the guest
     phones live on 10.0.2.x NAT addresses, which the legacy 127.0.0.1 range
     scan can never reach — so discovery must re-attach these exact serials.
     Best-effort and bounded; returns [] when no farm state exists.
     """
     import json
 
-    log_dir = Path(os.environ.get("CPHARM_LOG_DIR", r"C:\CPharm\logs"))
+    log_dir = Path(os.environ.get("PHARMFLOW_LOG_DIR", r"C:\PharmFlow\logs"))
     serials: list[str] = []
     seen: set[str] = set()
 
@@ -304,12 +316,74 @@ def _known_fleet_serials() -> list[str]:
         over = log_dir / "farm_runtime_overrides.json"
         if over.is_file():
             data = json.loads(over.read_text(encoding="utf-8-sig"))
-            raw = str(data.get("CPHARM_ADB_SERIALS") or "")
+            raw = str(data.get("PHARMFLOW_ADB_SERIALS") or "")
             for serial in raw.split(","):
                 _add(serial)
     except (OSError, json.JSONDecodeError, TypeError, ValueError):
         pass
     return serials
+
+
+def _published_guest_serials() -> list[str]:
+    """Every MuMu guest AdbHost plus lock-file serials. No phone-count ceiling."""
+    serials: list[str] = []
+    seen: set[str] = set()
+
+    def _add(raw: str) -> None:
+        serial = (raw or "").strip()
+        if not serial or ":" not in serial or serial in seen:
+            return
+        seen.add(serial)
+        serials.append(serial)
+
+    try:
+        from automation.farm_canonical_phones import canonical_serials_sorted
+
+        for serial in canonical_serials_sorted():
+            _add(str(serial))
+    except Exception:
+        pass
+    for serial in _known_fleet_serials():
+        _add(serial)
+    return serials
+
+
+def _redroid_adb_targets() -> list[str]:
+    """Host ADB ports docker published for redroid containers. No index ceiling.
+
+    Does not call docker when the engine is down — that CLI shim opens Docker Desktop.
+    """
+    if not docker_guard.engine_running():
+        return []
+    try:
+        proc = subprocess.run(
+            [
+                "docker",
+                "ps",
+                "-a",
+                "--filter",
+                "name=redroid-",
+                "--format",
+                "{{.Ports}}",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=8,
+            creationflags=_subproc_flags(),
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    if proc.returncode != 0:
+        return []
+    targets: list[str] = []
+    seen: set[str] = set()
+    for match in re.finditer(r"(?:0\.0\.0\.0|127\.0\.0\.1):(\d+)->", proc.stdout or ""):
+        serial = f"127.0.0.1:{match.group(1)}"
+        if serial in seen:
+            continue
+        seen.add(serial)
+        targets.append(serial)
+    return targets
 
 
 def _connect_serials(serials: list[str], *, deadline: float | None = None) -> list[str]:
@@ -348,27 +422,14 @@ _DISCOVER_BUDGET_S = 12.0
 
 
 def _restart_adb_server() -> None:
-    """Restart the local adb server once (kills a wedged/stale 5037 daemon).
+    """Do not restart the adb server from the Control Panel.
 
-    The Windows adb server can outlive its TCP fleet: the daemon keeps answering
-    ``adb devices`` with an empty list while ``adb connect`` to a running VM
-    hangs (WinError 10060). A fresh server re-attaches the fleet immediately.
-    Bounded and silent — never raises.
+    ``adb kill-server`` drops every phone the farm is already using. A failed
+    connect is not proof the server is wedged — the guest may simply be down
+    or the port may be wrong. Reconnect the fleet. A dedicated farm repair may
+    restart adb; phone checks, Check again, and setup discovery must not.
     """
-    exe = _adb_exe()
-    if not Path(exe).is_file():
-        return
-    for arg in ("kill-server", "start-server"):
-        try:
-            subprocess.run(
-                [exe, arg],
-                capture_output=True,
-                text=True,
-                timeout=15,
-                creationflags=_subproc_flags(),
-            )
-        except (OSError, subprocess.TimeoutExpired):
-            return
+    return
 
 
 def discover_adb_phones(
@@ -377,62 +438,25 @@ def discover_adb_phones(
     connect_mumu: bool = True,
     force_mumu_scan: bool = False,
 ) -> list[str]:
-    """List adb devices from BOTH sources — MuMu AND Docker-redroid.
+    """List adb devices from MuMu guest endpoints and Docker-redroid.
 
-    Docker-redroid and MuMu are meant to run side by side in one farm, so we
-    probe the farm's known fleet serials first, then both port ranges instead of
-    treating one as the only source. A wedged/stale 5037 adb server (empty
-    ``adb devices`` while VMs are up, connects hanging) is self-healed with one
-    server restart. The whole call is capped at ``_DISCOVER_BUDGET_S`` seconds
-    even when every endpoint is dead — discovery can never hang the deck.
-    Never raises.
-
-    Docker stays open alongside the farm: nothing here stops the engine, and the
-    redroid range is only probed — offline nodes are simply not surfaced.
+    ARM MuMu guests publish AdbHost in each VM folder. A lock-file subset or a
+    fixed localhost port range is not the roster. This attaches every published
+    guest serial and every redroid port docker published, then lists whatever
+    ADB answers. It does not restart the adb server. The whole call stays inside
+    ``_DISCOVER_BUDGET_S`` so a dead fleet cannot hang the deck. Never raises.
     """
     import time as _t
 
     deadline = _t.monotonic() + _DISCOVER_BUDGET_S
-    already = list_adb_phones()
-    if already and not force_mumu_scan:
-        # Sessions survived a restart — still also connect the Docker-redroid
-        # range so Docker phones appear alongside the MuMu ones, then re-list.
-        auto_connect_all_phones(log_fn)
-        return list_adb_phones()
-    fleet = _known_fleet_serials()
-    if fleet:
-        # Probe the server with ONE short connect. If the fleet can't attach the
-        # 5037 daemon is wedged (connects hang with 10060 while ``adb devices``
-        # still answers "0 devices") — restart once, then connect the fleet.
-        if _t.monotonic() < deadline:
-            try:
-                subprocess.run(
-                    [_adb_exe(), "connect", fleet[0]],
-                    capture_output=True,
-                    text=True,
-                    timeout=3,
-                    creationflags=_subproc_flags(),
-                )
-            except (OSError, subprocess.TimeoutExpired):
-                _restart_adb_server()
-        got = _connect_serials(fleet, deadline=deadline)
-        if got:
-            if log_fn:
-                log_fn(f"  re-attached fleet: {len(got)} phone(s)\n")
-            return got
-        if _t.monotonic() < deadline:
-            _restart_adb_server()
-            got = _connect_serials(fleet, deadline=deadline)
-            if got:
-                if log_fn:
-                    log_fn(f"  adb server restarted; fleet back: {len(got)} phone(s)\n")
-                return got
+    auto_connect_all_phones(log_fn, deadline=deadline)
+    phones = list_adb_phones()
+    if phones and not force_mumu_scan:
+        return phones
     if connect_mumu and _t.monotonic() < deadline:
         try_connect_mumu_via_adb(log_fn, force_full_scan=force_mumu_scan)
-    # Connect BOTH the MuMu (16384 + n*32) and Docker-redroid (5555 + n*2) ranges
-    # so the two phone types run together, not either-or. Never sleeps, never
-    # raises; offline/unbooted nodes are filtered below.
-    return auto_connect_all_phones(log_fn, deadline=deadline)
+        phones = list_adb_phones()
+    return phones
 
 
 def auto_connect_all_phones(
@@ -440,44 +464,24 @@ def auto_connect_all_phones(
     *,
     deadline: float | None = None,
 ) -> list[str]:
-    """Best-effort ``adb connect`` to the farm fleet + emulator/cloud ranges.
+    """``adb connect`` every published MuMu guest and redroid host port.
 
-    Connects the farm's known 10.0.2.x serials first (the only addresses that
-    reach ARM MuMu guests), then the legacy localhost port ranges as a
-    fallback for other emulators. Each connect is bounded to a few seconds,
-    honors the shared ``deadline``, and never sleeps or raises — the wizard UI
-    cannot hang on phone discovery.
+    Does not scan a fixed 10- or 8-port localhost range, and does not return
+    after the first lock-file serial answers. A phone missing from yesterday's
+    lock file is still a phone if its VM folder published AdbHost.
     """
-    import time as _t
-
     exe = _adb_exe()
     if not Path(exe).is_file():
         return []
-    fleet = _known_fleet_serials()
-    if fleet:
-        got = _connect_serials(fleet, deadline=deadline)
-        if got:
-            return got
-        if deadline is None or _t.monotonic() < deadline:
-            _restart_adb_server()
-            got = _connect_serials(fleet, deadline=deadline)
-            if got:
-                return got
-    for start, stride, count in _AUTO_CONNECT_RANGES:
-        for off in range(count):
-            if deadline is not None and _t.monotonic() >= deadline:
-                return list_adb_phones()
-            addr = f"127.0.0.1:{start + off * stride}"
-            try:
-                subprocess.run(
-                    [exe, "connect", addr],
-                    capture_output=True,
-                    text=True,
-                    timeout=3,
-                    creationflags=_subproc_flags(),
-                )
-            except (OSError, subprocess.TimeoutExpired):
-                continue
+    targets: list[str] = []
+    seen: set[str] = set()
+    for serial in _published_guest_serials() + _redroid_adb_targets():
+        if serial in seen:
+            continue
+        seen.add(serial)
+        targets.append(serial)
+    if targets:
+        _connect_serials(targets, deadline=deadline)
     if log_fn:
         log_fn("  auto-connect finished; re-scanning adb devices\n")
     return list_adb_phones()
@@ -497,7 +501,7 @@ def build_checklist(data_root: Path) -> list[dict]:
     Plain-English steps for the setup UI. Each item:
     id, title, help, status (pass|fail|manual|warn), optional action key.
     """
-    exe_ok, exe_path = cpharm_exe_beside_setup()
+    exe_ok, exe_path = pharmflow_exe_beside_setup()
     mumu = find_mumu_install()
     adb_ok = adb_usable()
     phones = list_adb_phones()
@@ -549,7 +553,7 @@ def build_checklist(data_root: Path) -> list[dict]:
             "title": "PharmFlow is ready",
             "help": "One PharmFlow.exe does everything — wizard, phone setup, dashboard, and watchdog.",
             "status": "pass" if exe_ok else "fail",
-            "action": None if exe_ok else "download_cpharm",
+            "action": None if exe_ok else "download_pharmflow",
         },
         {
             "id": "mumu",
@@ -661,29 +665,61 @@ def run_check_action(action: str, log_fn: LogFn | None = None) -> dict:
     """Handle checklist button actions from the setup UI."""
     log = log_fn or (lambda _m: None)
     if action == "download_mumu":
-        open_mumu_download()
+        if not open_mumu_download():
+            return {"ok": False, "message": "Could not open the MuMu download page in a browser."}
         return {"ok": True, "message": "Opened MuMu download page in your browser."}
-    if action == "download_cpharm":
-        open_cpharm_releases()
+    if action == "download_pharmflow":
+        if not open_pharmflow_releases():
+            return {"ok": False, "message": "Could not open GitHub Releases in a browser."}
         return {"ok": True, "message": "Opened GitHub Releases — download PharmFlow.exe into this folder."}
     if action == "install_adb":
-        ok = download_platform_tools(log)
+        downloaded = download_platform_tools(log)
+        ok = bool(downloaded) and adb_usable()
         return {
             "ok": ok,
             "message": "adb ready." if ok else "Could not install adb — check your internet and try again.",
         }
     if action == "refresh":
+        if not adb_usable():
+            return {
+                "ok": False,
+                "error": "ADB is not usable — click Fix on the phone-connection line first.",
+                "message": "ADB is not usable — click Fix on the phone-connection line first.",
+                "phones": [],
+                "phone_count": 0,
+            }
         phones = discover_adb_phones(log, connect_mumu=True, force_mumu_scan=True)
-        return {"ok": True, "phones": phones, "phone_count": len(phones)}
+        n = len(phones)
+        if n < 1:
+            msg = "No phones are answering — start MuMu and turn USB debugging ON."
+            return {
+                "ok": False,
+                "error": msg,
+                "message": msg,
+                "phones": phones,
+                "phone_count": 0,
+            }
+        return {
+            "ok": True,
+            "message": f"{n} phone(s) answering",
+            "phones": phones,
+            "phone_count": n,
+        }
     if action == "fix_tablet":
         import mumu_farm_ops as farm
 
+        profiles = farm.scan_mumu_vm_profiles()
+        if not profiles:
+            msg = "No MuMu VM profiles found — cannot change screen size."
+            return {"ok": False, "error": msg, "message": msg, "fixed_count": 0}
         n = farm.fix_mumu_tablet_profiles(log)
-        msg = (
-            f"Patched {n} MuMu VM(s) to Phone 900×1600. Stop and start each phone, then Set up my phones again."
-            if n
-            else "All MuMu VMs already Phone 900×1600 (or MuMu vms/ not found)."
-        )
+        if n:
+            msg = (
+                f"Patched {n} MuMu VM(s) to Phone 900×1600. "
+                "Stop and start each phone, then Set up my phones again."
+            )
+        else:
+            msg = "All MuMu VMs already Phone 900×1600."
         return {"ok": True, "message": msg, "fixed_count": n}
     if action == "download_chromium":
         import mumu_farm_ops as farm

@@ -1,4 +1,4 @@
-"""Studio Steps / Builder / Teams pages — prior CPharm capability level."""
+"""Studio Steps / Builder / Teams pages — prior PharmFlow capability level."""
 
 from __future__ import annotations
 
@@ -63,7 +63,7 @@ QUICK_ACTION_TYPES = (
 
 def _safe_hits_display(raw: Any, default: int = DEFAULT_HITS) -> int:
     try:
-        return max(0, min(int(float(raw)), 1440))
+        return max(0, int(float(raw)))
     except (TypeError, ValueError):
         return default
 
@@ -780,7 +780,7 @@ def _teams_toggle(app: Any, group_name: str, phone: str, checked: bool, hits_var
         app.groups.update_group(group_name, phones=phones)
         ent = group.ensure_phone_entry(phone)
         try:
-            ent["hits_per_day"] = max(0, min(int(hits_var.get() or DEFAULT_HITS), 1440))
+            ent["hits_per_day"] = max(0, int(hits_var.get() or DEFAULT_HITS))
         except ValueError:
             ent["hits_per_day"] = DEFAULT_HITS
         # Only copy user template if they authored one — never invent steps.

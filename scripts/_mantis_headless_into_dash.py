@@ -13,8 +13,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-os.environ["CPHARM_MANTIS_ALLOW_HEADED"] = "0"
-os.environ["CPHARM_MANTIS_SKIP_PLAYWRIGHT"] = "0"
+os.environ["PHARMFLOW_MANTIS_ALLOW_HEADED"] = "0"
+os.environ["PHARMFLOW_MANTIS_SKIP_PLAYWRIGHT"] = "0"
 
 import automation.no_window  # noqa: E402,F401
 

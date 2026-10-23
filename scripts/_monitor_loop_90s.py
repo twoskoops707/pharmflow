@@ -10,7 +10,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 PY = Path(r"C:\Users\jsmil\AppData\Local\Python\pythoncore-3.14-64\python.exe")
-LOG = Path(r"C:\CPharm\logs\cursor_monitor_loop.log")
+LOG = Path(r"C:\PharmFlow\logs\cursor_monitor_loop.log")
 INTERVAL = 60
 FLAGS = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 

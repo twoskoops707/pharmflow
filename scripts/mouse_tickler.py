@@ -17,9 +17,9 @@ ES_CONTINUOUS = 0x80000000
 ES_SYSTEM_REQUIRED = 0x00000001
 ES_DISPLAY_REQUIRED = 0x00000002
 
-HEARTBEAT = Path(os.environ.get("CPHARM_MOUSE_TICKLE_HB", r"C:\CPharm\logs\mouse_tickler_heartbeat.txt"))
-INTERVAL_S = float(os.environ.get("CPHARM_MOUSE_TICKLE_INTERVAL", "45"))
-DELTA = int(os.environ.get("CPHARM_MOUSE_TICKLE_DELTA", "1"))
+HEARTBEAT = Path(os.environ.get("PHARMFLOW_MOUSE_TICKLE_HB", r"C:\PharmFlow\logs\mouse_tickler_heartbeat.txt"))
+INTERVAL_S = float(os.environ.get("PHARMFLOW_MOUSE_TICKLE_INTERVAL", "45"))
+DELTA = int(os.environ.get("PHARMFLOW_MOUSE_TICKLE_DELTA", "1"))
 
 
 class POINT(ctypes.Structure):

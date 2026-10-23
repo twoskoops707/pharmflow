@@ -15,7 +15,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-LOG = Path(r"C:\CPharm\logs")
+LOG = Path(r"C:\PharmFlow\logs")
 OUT = LOG / "FARM_OPERATOR_TRUTH.json"
 HONEST = LOG / "FARM_HONEST_NOW.txt"
 

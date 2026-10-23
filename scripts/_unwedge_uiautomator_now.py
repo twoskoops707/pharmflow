@@ -16,7 +16,7 @@ sys.path.insert(0, str(ROOT))
 from automation.adb_wrapper import AdbWrapper
 from automation.farm_money_monitor import cull_hung_adb
 
-ADB = Path(r"C:\CPharm\bundled\adb.exe")
+ADB = Path(r"C:\PharmFlow\bundled\adb.exe")
 FLAGS = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 
@@ -74,9 +74,9 @@ def main() -> int:
                 "shell",
                 "rm",
                 "-f",
-                "/sdcard/cpharm_ui.xml",
-                "/sdcard/cpharm_overlay.xml",
-                "/sdcard/cpharm_ad_pick.xml",
+                "/sdcard/pharmflow_ui.xml",
+                "/sdcard/pharmflow_overlay.xml",
+                "/sdcard/pharmflow_ad_pick.xml",
             ],
             timeout=8,
         )
@@ -93,7 +93,7 @@ def main() -> int:
             print(f"chrome_fail {ser} {exc}", flush=True)
 
     # Flag farm to keep going — do not full restart (would re-wedge on isolation storm)
-    Path(r"C:\CPharm\logs").mkdir(parents=True, exist_ok=True)
+    Path(r"C:\PharmFlow\logs").mkdir(parents=True, exist_ok=True)
     print("DONE_UNWEDGE", flush=True)
     return 0
 

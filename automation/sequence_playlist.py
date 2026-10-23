@@ -34,6 +34,25 @@ _COMBO_REQUIRED_TAIL_TYPES = ("rotate_identity", "wait", "full_reset")
 
 SHUFFLE_MODES = frozenset({"none", "set_a", "set_b", "both_sets_separately", "combined"})
 
+# sequence_playlist_mode values accepted by resolve_step_chunks / playlist_cycle_length.
+# Referenced but never defined (same class of bug as SEQUENCES_DIR above) — every call
+# into resolve_step_chunks/playlist_cycle_length/_strip_trailing_ip_id_tail crashed with
+# NameError. "ordered"/"random"/"series" mirror resolve_steps' own validation; "folder"
+# and "folder_random" are the two folder-backed modes handled by folder_json_refs.
+PLAYLIST_MODES = frozenset({"ordered", "random", "series", "folder", "folder_random"})
+FOLDER_MODES = frozenset({"folder", "folder_random"})
+
+# Ad/no-ad flow subdirectories under SEQUENCES_DIR/<profile_key>/ — same pair used
+# throughout generate_dabflow_gold_matrix.py, verify_sequence_matrix_counts.py, and
+# path_mix_calculator.py. Also referenced but never defined; resolve_sequence_file's
+# profile_key fallback search crashed with NameError on every call.
+_FLOW_SUBDIRS = ("ad", "no-ad")
+
+# The three-step identity-rotation tail appended by _enforce_ip_id_tail: rotate_identity,
+# wait, full_reset. _combo_tail_present / _strip_trailing_ip_id_tail compare against this
+# exact tuple (and — with a leading "close_app" — against its four-step variant).
+_COMBO_REQUIRED_TAIL_TYPES = ("rotate_identity", "wait", "full_reset")
+
 
 def _normalize_shuffle(raw: Any) -> str:
     s = (str(raw or "none")).strip().lower()
@@ -75,6 +94,138 @@ def _apply_playlist_shuffle(
             _shuffle_names(secondary, iteration, serial),
         )
     return list(primary), list(secondary)
+
+
+def _is_halfway_name(name: str) -> bool:
+    stem = Path(str(name)).stem.lower()
+    return stem.endswith("_halfway")
+
+
+def _split_browse_lists(primary: list[str]) -> tuple[list[str], list[str]]:
+    """Split primary playlist into (complete Path1, halfway Path2) by stem."""
+    complete: list[str] = []
+    halfway: list[str] = []
+    for name in primary:
+        if _is_halfway_name(name):
+            halfway.append(name)
+        else:
+            complete.append(name)
+    return complete, halfway
+
+
+def _synthesize_path2_halfway(
+    steps: list[dict[str, Any]],
+    *,
+    serial: str,
+    iteration: int,
+) -> list[dict[str, Any]]:
+    """Turn a full-timer browse into Path2: exit after a 50–80s timer wait.
+
+    DabFlow Groups playlists only ship complete no-ad + ad files — there are no
+    ``*_halfway.json`` stems under ``sequences/``. Farm Path2 uses a separate
+    recordings pool. For EXE Groups, synthesize the halfway cut in-memory so
+    ``path2_hits_per_day`` is not a no-op.
+    """
+    rng = random.Random(_stable_seed(serial, iteration) ^ 0xB202)
+    # seq-logic-simple Path2: wait ~45–60s then close (no session notes / no ad).
+    target = 45.0 + (rng.random() * 15.0)
+    out: list[dict[str, Any]] = []
+    for step in steps:
+        item = dict(step)
+        action = str(item.get("action") or item.get("type") or "").strip().lower()
+        if item.get("checkpoint") == "timer_complete" and action in {"wait", ""}:
+            item["action"] = "wait"
+            item.pop("type", None)
+            item["seconds"] = float(target)
+            item["checkpoint"] = "timer_halfway"
+            out.append(item)
+            break
+        out.append(item)
+    return out if out else list(steps)
+
+
+def _path3_weight_lists(
+    ent: dict[str, Any],
+    primary: list[str],
+    secondary: list[str],
+    *,
+    iteration: int,
+    serial: str,
+    mode: str,
+) -> tuple[list[str], list[str]]:
+    """Pick browse (primary) OR ad (secondary) once when Path 3 budget is set.
+
+    Phone setup used to seed ``combined`` shuffle with 2 no-ad + 1 ad files.
+    Equal-weight random then schedules Path 3 about one third of the time.
+    An earn plan may only allow ~1 Path 3 per ~30–45 visits. When
+    ``path3_hits_per_day`` is present, random mode uses that ratio instead of
+    equal file weight. Ordered / series modes are unchanged.
+    """
+    primary, secondary, _synth = _path_mix_weight_lists(
+        ent,
+        primary,
+        secondary,
+        iteration=iteration,
+        serial=serial,
+        mode=mode,
+    )
+    return primary, secondary
+
+
+def _path_mix_weight_lists(
+    ent: dict[str, Any],
+    primary: list[str],
+    secondary: list[str],
+    *,
+    iteration: int,
+    serial: str,
+    mode: str,
+) -> tuple[list[str], list[str], bool]:
+    """Path1 / Path2 / Path3 budget for random mode.
+
+    Returns ``(primary, secondary, synthesize_path2)``. When Path2 is selected
+    but the playlist has no ``*_halfway`` stems, ``synthesize_path2`` is True
+    so ``resolve_steps`` truncates the timer in-memory.
+    """
+    if (mode or "").strip().lower() != "random":
+        return primary, secondary, False
+    has_p2 = "path2_hits_per_day" in ent
+    has_p3 = "path3_hits_per_day" in ent
+    if not has_p2 and not has_p3:
+        return primary, secondary, False
+    try:
+        hits = int(ent.get("hits_per_day") or 0)
+        path2 = int(ent.get("path2_hits_per_day") or 0) if has_p2 else 0
+        path3 = int(ent.get("path3_hits_per_day") or 0) if has_p3 else 0
+    except (TypeError, ValueError):
+        return primary, secondary, False
+    if hits <= 0:
+        return primary, secondary, False
+
+    complete, halfway = _split_browse_lists(primary)
+    browse = complete or primary
+    rng = random.Random(_stable_seed(serial, iteration) ^ 0xA341)
+
+    if has_p3 and secondary:
+        if path3 <= 0:
+            secondary = []
+        elif path3 >= hits:
+            return secondary, [], False
+        elif rng.random() < (path3 / float(hits)):
+            return secondary, [], False
+        else:
+            secondary = []
+
+    browse_budget = hits - path3 if has_p3 else hits
+    if has_p2 and path2 > 0 and browse_budget > 0:
+        if path2 >= browse_budget or rng.random() < (path2 / float(browse_budget)):
+            if halfway:
+                return halfway, [], False
+            if browse:
+                return browse, [], True
+    if browse:
+        return browse, [], False
+    return primary, secondary, False
 
 
 def _playlist_basenames(raw: Any) -> list[str]:
@@ -134,7 +285,7 @@ def load_steps_from_filename(name: str, directory: Path | str | None = None) -> 
         steps = data.get("steps")
     if not isinstance(steps, list):
         return None
-    # Normalize prior CPharm "type" field to FamFlow "action".
+    # Normalize prior PharmFlow "type" field to PharmFlow "action".
     out: list[dict[str, Any]] = []
     for step in steps:
         if not isinstance(step, dict):
@@ -154,15 +305,24 @@ def resolve_steps(
     directory: Path | None = None,
 ) -> tuple[list[dict[str, Any]], str | None]:
     """Return (steps_to_run, playlist_note). Falls back to inline steps."""
+    directory = directory or SEQUENCES_DIR
     primary = _playlist_basenames(ent.get("sequence_playlist"))
     secondary = _playlist_basenames(ent.get("sequence_playlist_secondary"))
+    mode = (ent.get("sequence_playlist_mode") or "ordered").strip().lower()
+    if mode not in ("ordered", "random", "series"):
+        mode = "ordered"
+    primary, secondary, synth_path2 = _path_mix_weight_lists(
+        ent,
+        primary,
+        secondary,
+        iteration=iteration,
+        serial=serial,
+        mode=mode,
+    )
     shuffle_mode = _normalize_shuffle(ent.get("sequence_playlist_shuffle"))
     primary, secondary = _apply_playlist_shuffle(
         primary, secondary, shuffle_mode, iteration, serial
     )
-    mode = (ent.get("sequence_playlist_mode") or "ordered").strip().lower()
-    if mode not in ("ordered", "random", "series"):
-        mode = "ordered"
 
     if not primary and not secondary:
         return list(inline_steps or []), None
@@ -174,8 +334,13 @@ def resolve_steps(
             loaded = load_steps_from_filename(name, directory)
             if not loaded:
                 continue
+            loaded = _strip_trailing_ip_id_tail(loaded)
+            if synth_path2:
+                loaded = _synthesize_path2_halfway(
+                    loaded, serial=serial, iteration=iteration
+                )
             combined.extend(loaded)
-            labels.append(name)
+            labels.append(name + ("#path2" if synth_path2 else ""))
         if combined:
             return combined, "series:" + "+".join(labels)
         return list(inline_steps or []), None
@@ -189,8 +354,15 @@ def resolve_steps(
             continue
         loaded = load_steps_from_filename(fn, directory)
         if loaded:
+            loaded = _strip_trailing_ip_id_tail(loaded)
+            if synth_path2 and fn == fn_a:
+                loaded = _synthesize_path2_halfway(
+                    loaded, serial=serial, iteration=iteration
+                )
+                tag_parts.append(fn + "#path2")
+            else:
+                tag_parts.append(fn)
             steps_acc.extend(loaded)
-            tag_parts.append(fn)
     if steps_acc:
         return steps_acc, "+".join(tag_parts)
     return list(inline_steps or []), None
@@ -208,7 +380,7 @@ def estimate_step_count(ent: dict[str, Any], inline_steps: list[Any] | None = No
     return len(inline_steps or [])
 
 
-# ==== merged from cpharm automation/sequence_playlist.py (old playlist API) ====
+# ==== merged from pharmflow automation/sequence_playlist.py (old playlist API) ====
 
 def normalize_playlist_ref(raw: str, *, sequences_dir: Path | None = None) -> str:
     """Normalize a playlist entry to a safe path relative to the sequences root.
@@ -350,11 +522,18 @@ def is_playlist_cycle_end(ent: dict, iteration: int) -> bool:
 
 
 
+def _step_action(step: dict) -> str | None:
+    # load_steps_from_filename renames a loaded step's "type" key to "action" (see its
+    # own normalization comment); hand-built step dicts elsewhere in this codebase still
+    # use "type". Check both, same as group_runner.py's own action/type fallback.
+    return step.get("action") or step.get("type")
+
+
 def _combo_tail_present(steps: list) -> bool:
     if not isinstance(steps, list):
         return False
     tail_types = [
-        step.get("type") for step in steps if isinstance(step, dict) and step.get("type")
+        _step_action(step) for step in steps if isinstance(step, dict) and _step_action(step)
     ]
     if len(tail_types) < len(_COMBO_REQUIRED_TAIL_TYPES):
         return False
@@ -366,7 +545,7 @@ def _strip_trailing_ip_id_tail(steps: list) -> list:
     """Remove canonical identity tail from the end of one playlist file's steps."""
     out = list(steps or [])
     types = [
-        step.get("type") for step in out if isinstance(step, dict) and step.get("type")
+        _step_action(step) for step in out if isinstance(step, dict) and _step_action(step)
     ]
     if len(types) >= 4 and tuple(types[-4:]) == ("close_app",) + _COMBO_REQUIRED_TAIL_TYPES:
         return out[: len(out) - 4]
@@ -398,7 +577,6 @@ def resolve_step_chunks(
     Like :func:`resolve_steps` but ``series`` mode returns one chunk per playlist file
     so callers can insert human gaps between sequence launches.
     """
-    profile_key = _profile_key_from_ent(ent)
     mode = (ent.get("sequence_playlist_mode") or "ordered").strip().lower()
     if mode not in PLAYLIST_MODES:
         mode = "ordered"
@@ -410,7 +588,7 @@ def resolve_step_chunks(
             return [(inline, None)] if inline else []
         chunks: list[tuple[list, str | None]] = []
         for name in folder_refs:
-            loaded = load_steps_from_filename(name, profile_key)
+            loaded = load_steps_from_filename(name, SEQUENCES_DIR)
             if loaded is None or len(loaded) == 0:
                 if loaded is not None and len(loaded) == 0:
                     log.warning("sequence playlist empty array in %s — skipping", name)
@@ -435,12 +613,13 @@ def resolve_step_chunks(
         return [(inline, None)] if inline else []
 
     if mode != "series":
+        # resolve_steps applies Path3 weight + shuffle again from the entry.
         steps, note = resolve_steps(ent, iteration, serial, inline_steps)
         return [(steps, note)] if steps else []
 
     chunks: list[tuple[list, str | None]] = []
     for name in primary + secondary:
-        loaded = load_steps_from_filename(name, profile_key)
+        loaded = load_steps_from_filename(name, SEQUENCES_DIR)
         if loaded is None or len(loaded) == 0:
             if loaded is not None and len(loaded) == 0:
                 log.warning("sequence playlist empty array in %s — skipping", name)

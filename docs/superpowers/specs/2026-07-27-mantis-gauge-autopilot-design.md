@@ -2,7 +2,7 @@
 
 **Date:** 2026-07-27  
 **Status:** Implemented (2026-07-27) — dash Pull + `scripts/mantis_autopilot.py` + ensure_farm keeper.  
-**Owner:** FamFlow operator dash + farm keepers  
+**Owner:** PharmFlow operator dash + farm keepers  
 
 ## Problem
 
@@ -27,11 +27,11 @@ The farm operator dash already shows sweet-spot gauges (impressions, clicks, eCP
 |----------|--------|
 | Cockpit | Dash-native autopilot (approach 1), singleton worker under the hood |
 | Authority | Full stack (caps + pacing + dwell + restarts) |
-| Mantis creds | `C:\Users\jsmil\FamFlow\logs\MANTIS.json` (gitignored via `logs/`) |
+| Mantis creds | `C:\Users\jsmil\PharmFlow\logs\MANTIS.json` (gitignored via `logs/`) |
 | Background cadence | Every **2–3 hours** |
 | Event cadence | Immediately when a gauge is **yellow/red** |
 | Reload / ntfy | **Wait for truth** — block until Mantis fetch completes (or fails), then paint gauges |
-| Dry-run | `CPHARM_AUTOPILOT_DRY_RUN=1` logs moves without applying |
+| Dry-run | `PHARMFLOW_AUTOPILOT_DRY_RUN=1` logs moves without applying |
 
 ## Architecture
 
@@ -93,7 +93,7 @@ Profit model: **Payout ≈ impressions × eCPM ÷ 1000**. Dwell/viewability firs
 
 | Condition | Autopilot move |
 |-----------|----------------|
-| Clicks ≥ 35 (soft) / ≥ 40 (hard) | Tighten `CPHARM_FARM_DAILY_ADS` / `PATH3_DAILY_CAP`; at ≥40 set `ALLOW_ADS=0` for rest of day |
+| Clicks ≥ 35 (soft) / ≥ 40 (hard) | Tighten `PHARMFLOW_FARM_DAILY_ADS` / `PATH3_DAILY_CAP`; at ≥40 set `ALLOW_ADS=0` for rest of day |
 | Clicks low early, farm Path3 ≪ Mantis | Do **not** “catch up” with taps; fix double-count / accidental taps instead |
 | Impressions low | Prefer Path1C/D multi-tab; keep visit caps; no click spam |
 | evCPM low | Enforce/raise tab dwell & load waits (3–5s floor); never zero waits |
@@ -113,11 +113,11 @@ Profit model: **Payout ≈ impressions × eCPM ÷ 1000**. Dwell/viewability firs
 
 | File | Role |
 |------|------|
-| `FamFlow/logs/MANTIS.json` | Creds (local only) |
-| `C:\CPharm\logs\mantis_today_state.json` | Latest Mantis snapshot for gauges |
-| `C:\CPharm\logs\farm_runtime_overrides.json` | Live farm env knobs |
-| `C:\CPharm\logs\autopilot_state.json` | last fetch, last move, next due, last error |
-| `C:\CPharm\logs\autopilot_actions.jsonl` | Append-only audit of steering |
+| `PharmFlow/logs/MANTIS.json` | Creds (local only) |
+| `C:\PharmFlow\logs\mantis_today_state.json` | Latest Mantis snapshot for gauges |
+| `C:\PharmFlow\logs\farm_runtime_overrides.json` | Live farm env knobs |
+| `C:\PharmFlow\logs\autopilot_state.json` | last fetch, last move, next due, last error |
+| `C:\PharmFlow\logs\autopilot_actions.jsonl` | Append-only audit of steering |
 
 ## Dash UX
 

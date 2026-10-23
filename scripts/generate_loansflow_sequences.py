@@ -1,4 +1,4 @@
-"""Generate LoansFlow farm sequences into FamFlow recordings catalog."""
+"""Generate LoansFlow farm sequences into PharmFlow recordings catalog."""
 
 from __future__ import annotations
 
@@ -54,7 +54,7 @@ def build_profile():
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="Generate LoansFlow FamFlow sequences")
+    ap = argparse.ArgumentParser(description="Generate LoansFlow PharmFlow sequences")
     ap.add_argument(
         "--out",
         type=Path,

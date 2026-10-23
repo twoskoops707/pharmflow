@@ -1,10 +1,10 @@
 @echo off
-title CPharm - Dashboard
+title PharmFlow - Dashboard
 color 0A
 
 echo.
 echo  ==========================================
-echo   CPharm - Starting Web Dashboard
+echo   PharmFlow - Starting Web Dashboard
 echo  ==========================================
 echo.
 

@@ -7,7 +7,7 @@ No Google Play required. Order:
   3. Fennec/Mull via optional bundled APK
 
 Drop ``chrome.apk``, ``ChromePublic.apk``, ``Fennec.apk``, or ``Mull.apk`` under
-``bundled/`` next to the exes (e.g. ``C:\\CPharm\\bundled\\``).
+``bundled/`` next to the exes (e.g. ``C:\\PharmFlow\\bundled\\``).
 """
 
 from __future__ import annotations
@@ -21,7 +21,8 @@ import zipfile
 from pathlib import Path
 from typing import Callable
 
-from wizard_paths import cpharm_default_install_root, meipass_dir, wizard_module_dir
+from automation.browser_adb import apk_install_reported
+from wizard_paths import pharmflow_default_install_root, meipass_dir, wizard_module_dir
 
 LogFn = Callable[[str], None]
 
@@ -92,7 +93,7 @@ def pkg_installed(serial: str, pkg: str) -> bool:
 
 
 def bundled_dir() -> Path:
-    d = cpharm_default_install_root() / "bundled"
+    d = pharmflow_default_install_root() / "bundled"
     d.mkdir(parents=True, exist_ok=True)
     return d
 
@@ -185,10 +186,10 @@ def download_official_chromium_apk(
     build is **armeabi-v7a only** and fails with INSTALL_FAILED_NO_MATCHING_ABIS.
 
     Saves to ``bundled/ChromePublic-<abi>.apk``. Skip when file exists unless
-    ``CPHARM_FORCE_APK_DOWNLOAD=1``.
+    ``PHARMFLOW_FORCE_APK_DOWNLOAD=1``.
     """
     log = log or (lambda _m: None)
-    if os.environ.get("CPHARM_SKIP_APK_DOWNLOAD", "").strip().lower() in ("1", "true", "yes"):
+    if os.environ.get("PHARMFLOW_SKIP_APK_DOWNLOAD", "").strip().lower() in ("1", "true", "yes"):
         return find_sideload_apk(serial=serial)[0] if find_sideload_apk(serial=serial) else None
 
     abi = abi or default_chromium_abi(serial=serial)
@@ -201,7 +202,7 @@ def download_official_chromium_apk(
         return None
 
     dest = bundled_dir() / chromium_apk_filename(abi)
-    if dest.is_file() and os.environ.get("CPHARM_FORCE_APK_DOWNLOAD", "").strip().lower() not in (
+    if dest.is_file() and os.environ.get("PHARMFLOW_FORCE_APK_DOWNLOAD", "").strip().lower() not in (
         "1",
         "true",
         "yes",
@@ -213,7 +214,7 @@ def download_official_chromium_apk(
     if (
         legacy.is_file()
         and apk_matches_abi(legacy, abi)
-        and os.environ.get("CPHARM_FORCE_APK_DOWNLOAD", "").strip().lower()
+        and os.environ.get("PHARMFLOW_FORCE_APK_DOWNLOAD", "").strip().lower()
         not in ("1", "true", "yes")
     ):
         return legacy
@@ -253,7 +254,7 @@ def download_official_chromium_apk(
 
 def bundled_search_dirs() -> list[Path]:
     dirs: list[Path] = []
-    for base in (cpharm_default_install_root(), wizard_module_dir()):
+    for base in (pharmflow_default_install_root(), wizard_module_dir()):
         dirs.append(base / "bundled")
         dirs.append(base / "apks")
         dirs.append(base / "bundled" / "apks")
@@ -323,11 +324,7 @@ def install_apk(serial: str, apk: Path, log: LogFn | None = None) -> tuple[bool,
     out = (r.stdout or "") + (r.stderr or "")
     if log and out.strip():
         log(f"    -> {out.strip()[:400]}")
-    if r.returncode == 0:
-        return True, out
-    low = out.lower()
-    ok = "success" in low and "failure [" not in low
-    return ok, out
+    return apk_install_reported(r.stdout or "", r.stderr or "", r.returncode), out
 
 
 LAWNCHAIR_PKGS = (
@@ -603,7 +600,7 @@ def ensure_browser(
 
 
 def chromium_reset_enabled() -> bool:
-    return os.environ.get("CPHARM_SKIP_CHROMIUM_RESET", "").strip().lower() not in (
+    return os.environ.get("PHARMFLOW_SKIP_CHROMIUM_RESET", "").strip().lower() not in (
         "1",
         "true",
         "yes",
@@ -615,7 +612,7 @@ def reset_chromium_session(serial: str, log: LogFn | None = None) -> bool:
     """
     Wipe Chromium tabs, history, cache, and cookies (``pm clear``) before each open.
 
-    Re-applies ``chrome-command-line`` flags after clear. Skip with ``CPHARM_SKIP_CHROMIUM_RESET=1``.
+    Re-applies ``chrome-command-line`` flags after clear. Skip with ``PHARMFLOW_SKIP_CHROMIUM_RESET=1``.
     """
     log = log or (lambda _m: None)
     if not chromium_reset_enabled():
@@ -724,7 +721,7 @@ def prepare_for_dabflow_open(serial: str, url: str, log: LogFn | None = None) ->
     """Install CDP-capable browser + write fingerprint flags before getdabflow ``open_url``."""
     if "getdabflow.app" not in (url or "").lower():
         return {"skipped": True}
-    log = log or (lambda m: print(f"[cpharm] {m}", flush=True))
+    log = log or (lambda m: print(f"[pharmflow] {m}", flush=True))
     result: dict = {"serial": serial}
 
     try:
@@ -734,8 +731,12 @@ def prepare_for_dabflow_open(serial: str, url: str, log: LogFn | None = None) ->
         import emulator_ad_mode as eam
         import tor_manager as tm
 
+        from adb_wrapper import AdbWrapper
+
         idx = tm.phone_idx_from_adb_serial(serial)
-        result["emulator_ad_pause"] = eam.pause_tor_for_ads(serial, idx, log_fn=log)
+        result["emulator_ad_pause"] = eam.pause_tor_for_ads(
+            AdbWrapper(), serial, idx, log_fn=log
+        )
     except Exception as exc:
         result["emulator_ad_pause_error"] = str(exc)
 
@@ -757,7 +758,7 @@ def prepare_for_dabflow_open(serial: str, url: str, log: LogFn | None = None) ->
             try:
                 import browse_proxy as bp
 
-                if not bp.dabflow_browse_active(serial):
+                if not bp.dabflow_browse_active():
                     warm_browser(serial, pkg, log)
             except Exception:
                 warm_browser(serial, pkg, log)
@@ -769,38 +770,24 @@ def prepare_for_dabflow_open(serial: str, url: str, log: LogFn | None = None) ->
 
 
 def configure_phone_baseline(serial: str, log: LogFn | None = None) -> None:
-    """Clear stale proxy and set 900×1600 — matches sequence tap coordinates."""
+    """Set 900×1600 so sequence taps match. Do not delete the phone's exit.
+
+    Clearing ``http_proxy`` or writing ``:0`` sends later traffic out the VM
+    or the host. A stuck exit is repaired by re-pinning, not by turning the
+    proxy off.
+    """
     log = log or (lambda _m: None)
-    proxy_keys = (
-        "http_proxy",
-        "global_http_proxy_host",
-        "global_http_proxy_port",
-        "global_http_proxy_exclusion_list",
-        "global_proxy_pac_url",
-    )
-    try:
-        from wizard_paths import automation_on_sys_path
-
-        automation_on_sys_path()
-        import tor_manager as tm
-
-        tm.clear_all_proxies_on_devices([serial])
-        tm.kick_default_browser_after_proxy_teardown([serial])
-    except Exception:
-        for key in proxy_keys:
-            _adb(serial, "shell", "settings", "delete", "global", key, timeout=12)
-        _adb(serial, "shell", "settings", "put", "global", "http_proxy", ":0", timeout=12)
     _adb(serial, "shell", "wm", "size", "900x1600", timeout=10)
     _adb(serial, "shell", "wm", "density", "reset", timeout=8)
     size = _adb(serial, "shell", "wm", "size", timeout=8).strip()
     proxy_after = _adb(serial, "shell", "settings", "get", "global", "http_proxy", timeout=8).strip()
     if log and size:
         log(f"    Screen: {size.splitlines()[-1] if size else size}")
-    if log and proxy_after and proxy_after not in ("null", ":0", ""):
-        log(f"    WARNING: proxy still set ({proxy_after}) — browser may fail until cleared")
+    if log and proxy_after and proxy_after not in ("null", ""):
+        log(f"    Exit proxy left in place ({proxy_after})")
 
 
-# --- FamFlow generation appendix (merged) ---
+# --- PharmFlow generation appendix (merged) ---
 import logging
 import re
 import shutil
@@ -854,7 +841,7 @@ def _reuse_local_chromium_apk(dest: Path) -> Path | None:
 
 
 def download_chrome_public_apk(dest: Path | None = None, progress_cb: Any = None) -> Path | None:
-    """Download ChromePublic.apk (~230 MB) to C:\\CPharm\\bundled."""
+    """Download ChromePublic.apk (~230 MB) to C:\\PharmFlow\\bundled."""
     apk = dest or chrome_apk_path()
     if apk.is_file() and apk.stat().st_size > 1_000_000:
         logger.info("Using cached ChromePublic.apk: %s", apk)
@@ -1039,7 +1026,7 @@ def download_tor_expert_bundle(dest_dir: Path | None = None, progress_cb: Any = 
 
         if progress_cb:
             progress_cb("Extracting Tor...")
-        extract_root = Path(tempfile.mkdtemp(prefix="cpharm_tor_"))
+        extract_root = Path(tempfile.mkdtemp(prefix="pharmflow_tor_"))
         with tarfile.open(tmp_path, "r:gz") as archive:
             for member in archive.getmembers():
                 if not member.name.startswith("tor/"):
@@ -1071,11 +1058,15 @@ def sideload_chromium(adb: AdbWrapper, serial: str, apk_path: Path | None = None
     if not apk or not apk.is_file():
         return False
     result = adb.install(str(apk), serial=serial)
-    if result.ok:
+    landed = apk_install_reported(result.stdout, result.stderr, result.returncode)
+    if landed and not is_chromium_available(adb, serial):
+        landed = False
+        logger.error("adb install reported Success but Chromium is not on %s", serial)
+    if landed:
         logger.info("Chromium installed on %s", serial)
     else:
-        logger.error("Chromium install failed: %s", result.stderr)
-    return result.ok
+        logger.error("Chromium install failed: %s", result.stderr or result.stdout)
+    return landed
 
 
 def ensure_browser_via_adb(adb: AdbWrapper, serial: str, prefer_mumu: bool = False) -> dict[str, Any]:
@@ -1094,7 +1085,7 @@ def ensure_browser_via_adb(adb: AdbWrapper, serial: str, prefer_mumu: bool = Fal
         "installed": False,
         "browser": None,
         "package": BROWSER_CHROMIUM,
-        "error": "Chromium not installed — run Install browser / place ChromePublic.apk in C:\\CPharm\\bundled",
+        "error": "Chromium not installed — run Install browser / place ChromePublic.apk in C:\\PharmFlow\\bundled",
     }
 
 
@@ -1107,7 +1098,7 @@ def ensure_farm_browsers(
 ) -> dict[str, Any]:
     """Download + sideload Chromium/Firefox/Brave/DuckDuckGo for Path1/2 (no Play Store).
 
-    Used by CPharm.exe setup and scripts/sideload_farm_browsers.py. Path3 still
+    Used by PharmFlow.exe setup and scripts/sideload_farm_browsers.py. Path3 still
     requires Chromium; this function installs all Path1/2 packages.
     """
     from automation.browser_apk_catalog import ensure_farm_browsers_on_serials

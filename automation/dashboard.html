@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<meta name="viewport" content="width=device-width,initial-scale=1">
 <title>PharmFlow</title>
 <link rel="manifest" href="/manifest.json">
 <meta name="theme-color" content="#00e676">
@@ -19,7 +19,7 @@
   --r:#c45c5c;--y:#c9a227;--b:#4a9ec8;
   --bg0:#12151a;--bg1:#1a1f27;--bg2:#222833;--bg3:#2e3642;
   --bd:#2e3642;--bd2:#3a4350;
-  --t0:#e7ecf2;--t1:#8b97a8;--t2:#5b6878;
+  --t0:#f4f7fb;--t1:#c5d0de;--t2:#a8b6c9;
   --font-head:'Segoe UI',system-ui,sans-serif;
   --font-mono:ui-monospace,Consolas,monospace;
   --font-body:'Segoe UI',system-ui,sans-serif;
@@ -32,7 +32,7 @@
   --scroll-thumb-active:var(--b);
 }
 html{
-  font-size:13px;scroll-behavior:smooth;
+  font-size:16px;scroll-behavior:smooth;
   color-scheme:dark;
   scrollbar-color:var(--scroll-thumb) var(--scroll-track);
   scrollbar-width:thin;
@@ -79,7 +79,7 @@ header{
 }
 .header-r{display:flex;align-items:center;gap:8px}
 .ip-chip{
-  font-family:var(--font-mono);font-size:.68rem;color:var(--t1);
+  font-family:var(--font-mono);font-size:.75rem;color:var(--t1);
   background:var(--bg2);border:1px solid var(--bd);border-radius:6px;
   padding:4px 10px;cursor:pointer;transition:all .15s;
 }
@@ -98,11 +98,11 @@ header{
   color:var(--t0);line-height:1;transition:color .3s;
 }
 .stat-n.green{color:var(--g)}.stat-n.yellow{color:var(--y)}
-.stat-lbl{font-size:.68rem;color:var(--t1);text-transform:uppercase;letter-spacing:.08em;font-family:var(--font-mono)}
+.stat-lbl{font-size:.75rem;color:var(--t1);text-transform:uppercase;letter-spacing:.08em;font-family:var(--font-mono)}
 
 .section{padding:14px;border-bottom:1px solid var(--bd)}
 .section-title{
-  font-family:var(--font-mono);font-size:.68rem;font-weight:600;
+  font-family:var(--font-mono);font-size:.75rem;font-weight:600;
   color:var(--t1);text-transform:uppercase;letter-spacing:.1em;margin-bottom:10px;
 }
 
@@ -155,7 +155,7 @@ button:disabled{opacity:.45;cursor:not-allowed;transform:none!important;filter:s
   color:var(--t0);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
 }
 .card-status{
-  font-size:.68rem;color:var(--t2);margin-top:2px;
+  font-size:.75rem;color:var(--t2);margin-top:2px;
   font-family:var(--font-mono);display:flex;align-items:center;gap:5px;
 }
 .card.on .card-status{color:var(--g)}
@@ -166,7 +166,7 @@ button:disabled{opacity:.45;cursor:not-allowed;transform:none!important;filter:s
 }
 .card-foot{padding:0 14px 12px;display:flex;gap:6px;align-items:center;justify-content:space-between;flex-wrap:wrap}
 .app-chip,.status-chip{
-  font-family:var(--font-mono);font-size:.68rem;font-weight:600;
+  font-family:var(--font-mono);font-size:.75rem;font-weight:600;
   background:var(--bg3);color:var(--t1);border:1px solid var(--bd2);
   border-radius:6px;padding:3px 8px;max-width:180px;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
@@ -191,12 +191,12 @@ button:disabled{opacity:.45;cursor:not-allowed;transform:none!important;filter:s
 }
 .apk-info{flex:1;min-width:0}
 .apk-name{font-family:var(--font-mono);font-size:.78rem;color:var(--t0);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.apk-meta{font-size:.65rem;color:var(--t2);margin-top:1px;font-family:var(--font-mono)}
+.apk-meta{font-size:.75rem;color:var(--t2);margin-top:1px;font-family:var(--font-mono)}
 
 .progress-wrap{margin-top:8px;display:none}
 .progress-track{height:4px;background:var(--bg3);border-radius:2px;overflow:hidden}
 .progress-fill{height:100%;background:var(--g);border-radius:2px;width:0%;transition:width .4s ease}
-.progress-lbl{font-family:var(--font-mono);font-size:.65rem;color:var(--t2);margin-top:4px}
+.progress-lbl{font-family:var(--font-mono);font-size:.75rem;color:var(--t2);margin-top:4px}
 
 .url-row{display:flex;gap:8px;align-items:stretch}
 .url-row input{
@@ -207,10 +207,10 @@ button:disabled{opacity:.45;cursor:not-allowed;transform:none!important;filter:s
 .url-row input:focus{border-color:var(--b)}
 .url-row input::placeholder{color:var(--t2)}
 .stagger-row{margin-top:10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-.stagger-lbl{font-size:.72rem;color:var(--t2);font-family:var(--font-mono);white-space:nowrap}
+.stagger-lbl{font-size:.75rem;color:var(--t2);font-family:var(--font-mono);white-space:nowrap}
 .stagger-opts{display:flex;gap:4px;flex-wrap:wrap}
 .stagger-opt{
-  font-family:var(--font-mono);font-size:.68rem;padding:4px 10px;border-radius:5px;
+  font-family:var(--font-mono);font-size:.75rem;padding:4px 10px;border-radius:5px;
   cursor:pointer;background:var(--bg3);color:var(--t1);border:1px solid var(--bd);
   transition:all .15s;user-select:none;
 }
@@ -231,17 +231,17 @@ button:disabled{opacity:.45;cursor:not-allowed;transform:none!important;filter:s
 }
 .teach-step::before{
   counter-increment:step;content:counter(step);
-  font-family:var(--font-mono);font-size:.6rem;color:var(--t2);display:block;margin-bottom:4px;
+  font-family:var(--font-mono);font-size:.75rem;color:var(--t2);display:block;margin-bottom:4px;
 }
 .teach-step-icon{font-size:1.2rem;display:block;margin-bottom:4px}
-.teach-step-lbl{font-size:.68rem;color:var(--t1);line-height:1.4}
+.teach-step-lbl{font-size:.75rem;color:var(--t1);line-height:1.4}
 .teach-step.active{border-color:var(--r);background:#f43f5e10}
 .teach-step.done{border-color:var(--g);background:var(--g-dim)}
 .rec-dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--r);margin-right:5px}
 .teach-controls{display:flex;gap:8px;flex-wrap:wrap}
 .delay-row{
   margin-top:10px;display:flex;align-items:center;gap:8px;
-  font-size:.72rem;color:var(--t2);font-family:var(--font-mono);
+  font-size:.75rem;color:var(--t2);font-family:var(--font-mono);
 }
 .delay-row input{
   width:70px;background:var(--bg2);border:1px solid var(--bd);border-radius:6px;
@@ -259,7 +259,7 @@ button:disabled{opacity:.45;cursor:not-allowed;transform:none!important;filter:s
 .tor-text h3{font-family:var(--font-body);font-weight:600;font-size:.9rem;color:var(--t0);margin-bottom:3px}
 .tor-text p{font-size:.75rem;color:var(--t1);line-height:1.6}
 .tor-status{margin-top:10px;display:flex;flex-direction:column;gap:4px;max-height:100px;overflow-y:auto}
-.tor-row{font-family:var(--font-mono);font-size:.65rem;color:var(--t2);padding:3px 0;border-bottom:1px solid var(--bd)}
+.tor-row{font-family:var(--font-mono);font-size:.75rem;color:var(--t2);padding:3px 0;border-bottom:1px solid var(--bd)}
 .tor-row:last-child{border-bottom:none}
 
 #log-feed{
@@ -271,7 +271,7 @@ button:disabled{opacity:.45;cursor:not-allowed;transform:none!important;filter:s
 .log-head{
   padding:12px 14px;border-bottom:1px solid var(--bd);
   background:var(--bg3);
-  font-family:var(--font-mono);font-size:.72rem;font-weight:600;color:var(--t0);
+  font-family:var(--font-mono);font-size:.75rem;font-weight:600;color:var(--t0);
   text-transform:uppercase;letter-spacing:.12em;display:flex;justify-content:space-between;align-items:center;
 }
 .log-head span:first-child{display:flex;align-items:center;gap:8px}
@@ -279,7 +279,7 @@ button:disabled{opacity:.45;cursor:not-allowed;transform:none!important;filter:s
   content:'';width:7px;height:7px;border-radius:50%;background:var(--g);
   box-shadow:0 0 8px var(--g-glow);flex-shrink:0;
 }
-#log-clear{color:var(--t2);font-size:.65rem;padding:4px 8px;border-radius:5px;border:1px solid transparent;transition:color .15s,border-color .15s}
+#log-clear{color:var(--t2);font-size:.75rem;padding:4px 8px;border-radius:5px;border:1px solid transparent;transition:color .15s,border-color .15s}
 #log-clear:hover{color:var(--g);border-color:#00e67635}
 #log-lines{padding:12px 14px;max-height:200px;min-height:72px;overflow-y:auto;display:flex;flex-direction:column-reverse;gap:4px}
 .log-line{font-family:var(--font-mono);font-size:.78rem;color:var(--t2);line-height:1.7;word-break:break-word;animation:fadeIn .2s ease both}
@@ -295,7 +295,7 @@ button:disabled{opacity:.45;cursor:not-allowed;transform:none!important;filter:s
 }
 .grp-card-info{display:flex;flex-direction:column;gap:4px;min-width:0}
 .grp-card-name{font-weight:700;color:var(--t0);font-size:.85rem}
-.grp-card-meta{font-size:.72rem;color:var(--t2);font-family:var(--font-mono);line-height:1.45}
+.grp-card-meta{font-size:.75rem;color:var(--t2);font-family:var(--font-mono);line-height:1.45}
 
 #empty{
   display:none;padding:48px 16px;text-align:center;color:var(--t2);
@@ -461,7 +461,7 @@ body:hover *::-webkit-scrollbar-thumb{background:var(--scroll-thumb)}
 </div>
 
 <div class="section">
-  <div class="section-title">Open a Website on All Phones</div>
+  <div class="section-title">Open a website on each phone</div>
   <div class="url-row">
     <input type="url" id="url-input" placeholder="Paste a web address…" autocomplete="off" autocorrect="off" spellcheck="false">
     <button class="btn-b" id="btn-open-url">Open</button>
@@ -477,7 +477,7 @@ body:hover *::-webkit-scrollbar-thumb{background:var(--scroll-thumb)}
   </div>
   <div class="stagger-custom" id="stagger-custom">
     <span class="stagger-lbl">Every</span>
-    <input type="number" id="custom-delay" value="10" min="1" max="3600">
+    <input type="number" id="custom-delay" value="10" min="1">
     <span class="stagger-lbl">minutes</span>
   </div>
   <div class="stagger-row" style="margin-top:.5rem;gap:.75rem;align-items:center">
@@ -487,7 +487,7 @@ body:hover *::-webkit-scrollbar-thumb{background:var(--scroll-thumb)}
     </label>
     <span id="dwell-wrap" style="display:none;align-items:center;gap:.4rem;font-size:.8rem;color:var(--t2)">
       · dwell
-      <input type="number" id="dwell-secs" value="30" min="5" max="3600" style="width:4rem;padding:.2rem .4rem;background:var(--bg2);border:1px solid var(--bd);border-radius:4px;color:var(--t1);font-size:.8rem">
+      <input type="number" id="dwell-secs" value="30" min="0" style="width:4rem;padding:.2rem .4rem;background:var(--bg2);border:1px solid var(--bd);border-radius:4px;color:var(--t1);font-size:.8rem">
       sec then rotate
     </span>
   </div>
@@ -507,7 +507,7 @@ body:hover *::-webkit-scrollbar-thumb{background:var(--scroll-thumb)}
   <div class="trend-card" style="background:var(--bg2);border:1px solid var(--bd);border-radius:var(--rad);padding:14px;margin-bottom:10px">
     <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px">
       <span style="font-size:.82rem;font-weight:700;color:var(--t1)">Revenue & impressions trend</span>
-      <span style="font-size:.68rem;color:var(--t2)" id="trend-asof"></span>
+      <span style="font-size:.75rem;color:var(--t2)" id="trend-asof"></span>
     </div>
     <canvas id="trend-chart" height="150" style="width:100%"></canvas>
   </div>
@@ -547,7 +547,7 @@ body:hover *::-webkit-scrollbar-thumb{background:var(--scroll-thumb)}
       <div class="section-title">Stealth Status — Every Phone, Live</div>
       <div style="background:var(--bg2);border:1px solid var(--bd);border-radius:var(--rad);padding:14px">
         <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px;flex-wrap:wrap">
-          <span style="font-size:.72rem;color:var(--t2)" id="stealth-asof">Refreshing…</span>
+          <span style="font-size:.75rem;color:var(--t2)" id="stealth-asof">Refreshing…</span>
           <span id="stealth-unique-badge" class="grp-card-meta" style="font-size:.7rem"></span>
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
@@ -566,7 +566,40 @@ body:hover *::-webkit-scrollbar-thumb{background:var(--scroll-thumb)}
             <tbody id="stealth-body"></tbody>
           </table>
         </div>
-        <div id="stealth-empty" style="font-size:.72rem;color:var(--t2);margin-top:6px">No phones online yet.</div>
+        <div id="stealth-empty" style="font-size:.75rem;color:var(--t2);margin-top:6px">No phones online yet.</div>
+      </div>
+    </div>
+
+    <div class="section" id="earn-sec">
+      <div class="section-title">Daily sequence mix</div>
+      <div style="background:var(--bg2);border:1px solid var(--bd);border-radius:var(--rad);padding:14px">
+        <p style="font-size:.75rem;color:var(--t2);line-height:1.5;margin:0 0 10px">
+          Path 1 is a full browse. Path 2 is a halfway browse. Path 3 is one paid action.
+          Phones get different random daily counts so the farm does not look cloned. The fleet total still matches your target.
+          Same formula for any site: impressions times eCPM divided by 1000.
+          Saving writes the mix the running farm reads. A blank phone count is not a guess.
+        </p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+          <label style="font-size:.72rem;color:var(--t2)">Phones<input id="earn-phones" type="number" min="1" step="1" style="display:block;margin-top:3px;width:120px" placeholder="required"></label>
+          <label style="font-size:.72rem;color:var(--t2)">Visits / phone<input id="earn-visits" type="number" min="1" step="1" style="display:block;margin-top:3px;width:120px" placeholder="or payout"></label>
+          <label style="font-size:.72rem;color:var(--t2)">Target $ / day<input id="earn-usd" type="number" min="0" step="0.01" style="display:block;margin-top:3px;width:120px"></label>
+          <label style="font-size:.72rem;color:var(--t2)">eCPM<input id="earn-ecpm" type="number" min="0" step="0.01" style="display:block;margin-top:3px;width:100px"></label>
+          <label style="font-size:.72rem;color:var(--t2)">Impr / visit<input id="earn-ipv" type="number" min="0" step="1" style="display:block;margin-top:3px;width:100px" placeholder="blank = 22"></label>
+          <label style="font-size:.72rem;color:var(--t2)">Path 2 share<input id="earn-path2" type="number" min="0" max="1" step="0.01" style="display:block;margin-top:3px;width:100px" placeholder="blank = 0.20"></label>
+          <label style="font-size:.72rem;color:var(--t2)">Paid actions
+            <select id="earn-ads" style="display:block;margin-top:3px">
+              <option value="off">Off</option>
+              <option value="on">On</option>
+            </select>
+          </label>
+          <label style="font-size:.72rem;color:var(--t2)">Visits / paid action<input id="earn-ratio" type="number" min="1" step="1" style="display:block;margin-top:3px;width:140px" placeholder="required if on"></label>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+          <button class="btn-ghost btn-sm" id="btn-earn-phones" type="button">Use phones answering now</button>
+          <button class="btn-ghost btn-sm" id="btn-earn-preview" type="button">Preview mix</button>
+          <button class="btn-g btn-sm" id="btn-earn-save" type="button">Save mix</button>
+        </div>
+        <div id="earn-status" style="font-size:.75rem;color:var(--t1)">No mix saved yet.</div>
       </div>
     </div>
 
@@ -612,14 +645,14 @@ body:hover *::-webkit-scrollbar-thumb{background:var(--scroll-thumb)}
         <span class="rec-dot" id="rec-dot"></span>Start Recording
       </button>
       <button class="btn-ghost btn-sm" id="btn-stop-rec" disabled>■ Stop</button>
-      <button class="btn-g btn-sm" id="btn-play-teach" disabled>▶ Play on All Phones</button>
+      <button class="btn-g btn-sm" id="btn-play-teach" disabled>Play on other phones</button>
     </div>
     <div class="delay-row">
       <span>Wait</span>
       <input type="number" id="teach-delay" value="60" min="0">
       <span>seconds between each phone</span>
     </div>
-    <div id="teach-status" style="margin-top:8px;font-family:var(--font-mono);font-size:.68rem;color:var(--t2)"></div>
+    <div id="teach-status" style="margin-top:8px;font-family:var(--font-mono);font-size:.75rem;color:var(--t2)"></div>
   </div>
 </div>
 
@@ -640,7 +673,7 @@ body:hover *::-webkit-scrollbar-thumb{background:var(--scroll-thumb)}
         </svg>
         Set Up Now
       </button>
-      <button class="btn-ghost btn-sm" id="btn-tor-off">Turn Off</button>
+      <button class="btn-ghost btn-sm" id="btn-tor-off">Re-pin exits</button>
       <button class="btn-ghost btn-sm" id="btn-tor-rotate">↻ Rotate IDs</button>
     </div>
     <div class="tor-status" id="tor-status"></div>
@@ -679,6 +712,7 @@ let staggerSecs = 0;
 let teachFile   = null;
 let apkFiles    = [];
 let installDone = 0;
+let installFailed = 0;
 
 // ── WebSocket ──────────────────────────────────────────────────────
 const WS_URL = `ws://${location.hostname}:8081`;
@@ -835,14 +869,23 @@ function renderPhones() {
 
 async function stopPhone(serial) {
   try {
-    await api('/api/phone/stop', 'POST', { serial });
-    toast('Stopping ' + serial, 'ok');
-  } catch(e) { toast('Something went wrong', 'err'); }
+    const r = await api('/api/phone/stop', 'POST', { serial });
+    if (!r || !r.ok) {
+      toast('Could not stop ' + serial, 'err');
+      return;
+    }
+    if (r.action === 'disconnected') {
+      toast('Disconnected ' + serial + ' — phone was not powered off');
+      return;
+    }
+    toast('Stopped ' + serial, 'ok');
+  } catch(e) { toast('Could not stop ' + serial, 'err'); }
 }
 
 async function connectDevice(addr) {
   try {
     const r = await api('/api/devices/connect', 'POST', { address: addr });
+    if (!(r && r.ok)) throw new Error('connect failed');
     toast('Phone connected', 'ok');
   } catch(e) { toast('Could not connect phone', 'err'); }
 }
@@ -930,7 +973,10 @@ async function uploadAndInstall(file) {
       for (let i = 0; i < bytes.length; i += 8192) bin += String.fromCharCode(...bytes.subarray(i, i + 8192));
       const b64 = btoa(bin);
       try {
-        await api('/api/upload', 'POST', { name: file.name, data: b64 });
+        const up = await api('/api/upload', 'POST', { name: file.name, data: b64 });
+        if (!up || !up.ok || up.saved !== true || !(Number(up.bytes) > 0)) {
+          throw new Error((up && up.error) || 'APK was not saved');
+        }
         resolve();
       } catch(e) { reject(e); }
     };
@@ -946,6 +992,7 @@ async function installApk(i) {
   prog.style.display = 'block';
   document.getElementById('progress-fill').style.width = '5%';
   installDone = 0;
+  installFailed = 0;
 
   try {
     if (!file.uploaded) {
@@ -955,8 +1002,11 @@ async function installApk(i) {
       renderApkList();
     }
     setText('progress-lbl', 'Installing ' + file.name + ' on all phones…');
-    await api('/api/install', 'POST', { apk: file.name });
-    toast('Installing ' + file.name, 'ok');
+    const started = await api('/api/install', 'POST', { apk: file.name });
+    if (!(started && started.ok && Number(started.n) > 0)) {
+      throw new Error((started && started.error) || 'No phones to install on');
+    }
+    toast('Install started on ' + started.n + ' phone(s). The bar shows each Success.');
   } catch(e) {
     toast('Install failed', 'err');
     prog.style.display = 'none';
@@ -965,14 +1015,25 @@ async function installApk(i) {
 
 function onInstallProgress(msg) {
   const pipId = 'pip-card-' + (msg.serial || '').replace(/[^a-zA-Z0-9]/g, '_');
+  if (msg.status === 'error' || msg.status === 'failed') {
+    installFailed = (installFailed || 0) + 1;
+    setText('progress-lbl', 'Install failed on ' + (msg.serial || 'a phone'));
+    toast('Install failed on ' + (msg.serial || 'a phone'), 'err');
+    const pip = document.getElementById(pipId);
+    if (pip) { pip.style.display = 'block'; pip.style.background = 'var(--r, #c0392b)'; }
+    return;
+  }
   if (msg.status === 'done') {
     installDone++;
     const runningCount = phones.filter(p => p.running).length;
-    const pct = Math.round((installDone / Math.max(runningCount, 1)) * 100);
+    const finished = installDone + (installFailed || 0);
+    const pct = runningCount > 0 ? Math.round((finished / runningCount) * 100) : 0;
     document.getElementById('progress-fill').style.width = pct + '%';
     setText('progress-lbl', 'Installed on ' + installDone + ' of ' + runningCount + ' phones');
-    if (installDone >= runningCount) {
-      setTimeout(() => { document.getElementById('install-progress').style.display = 'none'; toast('App installed on all phones!', 'ok'); }, 800);
+    if (runningCount > 0 && finished >= runningCount && !installFailed) {
+      setTimeout(() => { document.getElementById('install-progress').style.display = 'none'; toast('App installed on ' + installDone + ' phone(s)', 'ok'); }, 800);
+    } else if (runningCount > 0 && finished >= runningCount) {
+      toast('Installed on ' + installDone + ' of ' + runningCount + ' phones', 'err');
     }
     const pip = document.getElementById(pipId);
     if (pip) { pip.style.display = 'block'; pip.style.background = 'var(--g)'; }
@@ -1009,26 +1070,53 @@ async function launchUrl() {
   const autoRotate = document.getElementById('auto-rotate-toggle').checked;
   const dwellSecs  = +document.getElementById('dwell-secs').value || 30;
   try {
-    await api('/api/open_url', 'POST', { url, stagger_secs: secs, auto_rotate: autoRotate, dwell_secs: dwellSecs });
-    let msg = secs ? 'Opening on each phone, ' + secs + 's apart' : 'Opening on all phones';
-    if (autoRotate) msg += ' · identity rotates after ' + dwellSecs + 's';
-    toast(msg, 'ok');
-  } catch(e) { toast('Could not open web address', 'err'); }
+    const r = await fetch('/api/open_url', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url, stagger_secs: secs, auto_rotate: autoRotate, dwell_secs: dwellSecs }),
+    });
+    const res = await r.json().catch(function () { return {}; });
+    if (!r.ok || !res || !res.ok || res.queued !== true || !(Number(res.n) > 0)) {
+      toast((res && res.error) || 'The page was not opened', 'err');
+      return;
+    }
+    let msg = secs
+      ? ('Queued on ' + res.n + ' phone(s) that have an exit, ' + secs + 's apart. The log says when each page lands.')
+      : ('Queued on ' + res.n + ' phone(s) that have an exit. The log says when each page lands.');
+    if (autoRotate) msg += ' Identity rotates only after a page lands, then ' + dwellSecs + 's.';
+    toast(msg);
+  } catch(e) { toast('The page was not opened', 'err'); }
 }
 
 // ── Teach ────────────────────────────────────────────────────────────
 async function teachRecord() {
-  try { await api('/api/teach/start', 'POST'); }
-  catch(e) { toast('Could not start recording', 'err'); }
+  try {
+    const res = await api('/api/teach/start', 'POST');
+    if (!res || !res.ok || res.recording !== true) throw new Error('not recording');
+  } catch (e) {
+    toast('Recording did not start — getevent is not running', 'err');
+  }
 }
 async function teachStop() {
-  try { await api('/api/teach/stop', 'POST'); }
-  catch(e) { toast('Could not stop recording', 'err'); }
+  try {
+    const res = await api('/api/teach/stop', 'POST');
+    if (!res || !res.ok || !(Number(res.events) > 0)) throw new Error('no taps');
+    toast(res.events + ' tap event(s) saved', 'ok');
+  } catch (e) {
+    toast('No taps were captured', 'err');
+  }
 }
 async function teachPlay() {
   const delay = +document.getElementById('teach-delay').value || 60;
-  try { await api('/api/teach/play', 'POST', { delay_secs: delay }); toast('Playing on all phones…', 'ok'); }
-  catch(e) { toast('Could not play sequence', 'err'); }
+  try {
+    const res = await api('/api/teach/play', 'POST', { delay_secs: delay });
+    if (!res || !res.ok || !(res.n > 0) || !(Number(res.events) > 0)) {
+      toast('No captured taps to play', 'err');
+      return;
+    }
+    toast('Teach play started on ' + res.n + ' phone(s). The log says when events land.');
+  }
+  catch(e) { toast('No captured taps to play', 'err'); }
 }
 
 function onTeachStatus(msg) {
@@ -1052,22 +1140,34 @@ function onTeachStatus(msg) {
 
   dot.style.animation = msg.state === 'recording' ? 'blink .8s ease infinite' : 'none';
   statusEl.textContent = msg.state === 'recording' ? '● Recording — do your steps on Phone 1'
-    : msg.state === 'playing' ? '▶ Playing on all phones…'
-    : teachFile ? 'Recording ready — tap Play on All Phones' : '';
+    : msg.state === 'playing' ? 'Playing the recording on the other phones…'
+    : teachFile ? 'Recording ready — tap Play on other phones' : '';
 }
 
 // ── Tor ──────────────────────────────────────────────────────────────
 async function setupTor() {
   const btn = document.getElementById('btn-tor');
+  const label = btn.innerHTML;
   btn.disabled = true;
   btn.textContent = 'Setting up…';
   try {
-    await api('/api/proxy/setup', 'POST');
-    toast('Setting up different locations for each phone…', 'ok');
+    const res = await api('/api/proxy/setup', 'POST');
+    const n = Number(res && res.n) || 0;
+    const targeted = Number(res && res.targeted) || n;
+    if (!res || !res.ok || n < 1) {
+      toast('No phone got a loopback exit', 'err');
+      return;
+    }
+    if (targeted > n) {
+      toast(n + ' of ' + targeted + ' phone(s) have a loopback exit. The rest were not pinned.');
+      return;
+    }
+    toast(n + ' phone(s) have a loopback exit', 'ok');
   } catch(e) {
-    toast('Could not set up locations', 'err');
+    toast('No phone got a loopback exit', 'err');
+  } finally {
     btn.disabled = false;
-    btn.textContent = 'Set Up Now';
+    btn.innerHTML = label;
   }
 }
 
@@ -1078,7 +1178,7 @@ function addLog(msg) {
   const row = document.createElement('div');
   const lower = String(msg).toLowerCase();
   let tone = '';
-  if (/\b(error|fail|could not|unable)\b/.test(lower)) tone = 'err';
+  if (/\b(not ready|not installed|not connected|not done|not ok|did not|was not|error|fail|could not|unable)\b/.test(lower)) tone = 'err';
   else if (/\b(warn|warning|wait)\b/.test(lower)) tone = 'warn';
   else if (/\b(ok|done|ready|connected|installed|success)\b/.test(lower)) tone = 'ok';
   row.className = 'log-line' + (tone ? ' ' + tone : '');
@@ -1123,8 +1223,8 @@ async function initIp() {
   const chip = document.getElementById('ip-chip');
   try {
     const r = await api('/api/ip');
-    chip.textContent = r.ip + ':8080';
-    chip.title = 'Tap to copy';
+    chip.textContent = 'This PC ' + (r.url || (r.ip + ':' + (r.httpPort || '8080')));
+    chip.title = 'Control dashboard on this PC. Phone traffic does not use this address. Tap to copy.';
     chip.addEventListener('click', () => {
       navigator.clipboard?.writeText(r.url ?? `http://${r.ip}:8080`).then(() => toast('Address copied', 'ok'));
     });
@@ -1140,9 +1240,23 @@ dropZone.addEventListener('drop', handleDrop);
 
 // ── Button wiring ──────────────────────────────────────────────────────
 document.getElementById('btn-start-all').addEventListener('click', () =>
-  api('/api/devices/refresh','POST').then(() => toast('Finding phones…','ok')).catch(() => toast('Something went wrong','err')));
+  api('/api/devices/refresh','POST').then((r) => {
+    if (!r || !r.ok || !(Number(r.n) > 0)) {
+      toast('No phones are answering', 'err');
+      return;
+    }
+    toast(r.n + ' phone(s) answering', 'ok');
+  }).catch(() => toast('No phones are answering','err')));
 document.getElementById('btn-stop-all').addEventListener('click', () =>
-  api('/api/stop_all','POST').then(() => toast('Stopping all phones','ok')).catch(() => toast('Something went wrong','err')));
+  api('/api/stop_all','POST').then(function (r) {
+    if (!r || !r.ok) { toast('Could not stop phones', 'err'); return; }
+    const parts = [];
+    if (r.stopped) parts.push(r.stopped + ' stopped');
+    if (r.disconnected) parts.push(r.disconnected + ' disconnected (not powered off)');
+    if (r.failed) parts.push(r.failed + ' failed');
+    const stopKind = r.failed ? 'err' : (r.disconnected ? '' : 'ok');
+    toast(parts.join(', ') || 'Nothing to stop', stopKind);
+  }).catch(() => toast('Could not stop phones','err')));
 
 // Connect device bar
 document.getElementById('btn-connect').addEventListener('click', () => {
@@ -1157,6 +1271,9 @@ document.getElementById('btn-connect-do').addEventListener('click', async () => 
   if (!addr) return;
   try {
     const r = await api('/api/devices/connect', 'POST', { address: addr });
+    if (!(r && r.ok && /connected/i.test(String(r.result || '')))) {
+      throw new Error((r && r.error) || 'connect failed');
+    }
     toast('Connected: ' + (r.result || addr), 'ok');
     document.getElementById('connect-bar').style.display = 'none';
     document.getElementById('connect-addr').value = '';
@@ -1177,7 +1294,7 @@ async function loadGroups() {
     document.getElementById('btn-groups-run').disabled = loadedGroups.length === 0;
     document.getElementById('btn-groups-edit').disabled = loadedGroups.length === 0;
     toast(`Loaded ${loadedGroups.length} group(s)`, 'ok');
-  } catch(e) { toast('No saved groups found — create one with + New Group', 'err'); }
+  } catch(e) { toast('Could not load saved groups — the file was not replaced', 'err'); }
 }
 
 function renderGroups() {
@@ -1212,7 +1329,13 @@ function renderGroups() {
     stopBtn.className = 'btn-r btn-sm';
     stopBtn.id = `grp-stop-${i}`;
     stopBtn.disabled = true;
-    stopBtn.onclick = () => api('/api/groups/stop','POST',{name:g.name}).catch(()=>{});
+    stopBtn.onclick = () => api('/api/groups/stop','POST',{name:g.name}).then((r) => {
+      if (!r || !r.ok || !(Number(r.stopping) > 0)) {
+        toast('Group is not running', 'err');
+        return;
+      }
+      toast('Stop requested for ' + g.name + '. The log shows when it stops.');
+    }).catch(() => toast('Group is not running', 'err'));
     const delBtn = document.createElement('button');
     delBtn.textContent = 'Delete';
     delBtn.className = 'btn-r btn-sm';
@@ -1229,7 +1352,11 @@ function renderGroups() {
 async function deleteGroup(name) {
   if (!confirm(`Delete group "${name}"? This cannot be undone.`)) return;
   try {
-    await api('/api/groups/delete','POST',{name});
+    const res = await api('/api/groups/delete','POST',{name});
+    if (!res || !res.ok || res.deleted !== name) {
+      toast('Group was not deleted', 'err');
+      return;
+    }
     toast(`Deleted group ${name}`,'ok');
     loadedGroups = loadedGroups.filter(g => g.name !== name);
     renderGroups();
@@ -1293,12 +1420,12 @@ function openGroupEditor(idx) {
   nameIn.value = draft.name || '';
   nameIn.style.cssText = 'flex:1;min-width:160px;padding:6px 8px;background:var(--bg1,#0d1117);border:1px solid var(--bd,#30363d);border-radius:6px;color:var(--t1,#e6edf3)';
   const stagIn = document.createElement('input');
-  stagIn.type = 'number'; stagIn.min = '0'; stagIn.max = '3600';
+  stagIn.type = 'number'; stagIn.min = '0';
   stagIn.value = draft.stagger_secs ?? 5;
   stagIn.title = 'Stagger between phones (seconds)';
   stagIn.style.cssText = 'width:80px;padding:6px 8px;background:var(--bg1,#0d1117);border:1px solid var(--bd,#30363d);border-radius:6px;color:var(--t1,#e6edf3)';
   const repIn = document.createElement('input');
-  repIn.type = 'number'; repIn.min = '1'; repIn.max = '9999';
+  repIn.type = 'number'; repIn.min = '1';
   repIn.value = draft.repeat ?? 1;
   repIn.title = 'Repeat count';
   repIn.style.cssText = 'width:70px;padding:6px 8px;background:var(--bg1,#0d1117);border:1px solid var(--bd,#30363d);border-radius:6px;color:var(--t1,#e6edf3)';
@@ -1343,7 +1470,7 @@ function openGroupEditor(idx) {
     const serials = Object.keys(draft.phones);
     if (!serials.length) {
       const hint = document.createElement('div');
-      hint.style.cssText = 'font-size:.72rem;color:var(--t2,#8b949e)';
+      hint.style.cssText = 'font-size:.75rem;color:var(--t2,#8b949e)';
       hint.textContent = 'No phones yet — add one above.';
       phoneList.appendChild(hint);
     }
@@ -1439,7 +1566,11 @@ function openGroupEditor(idx) {
     try {
       const groups = loadedGroups.filter(g => g.name !== (out._replace || ''));
       groups.push(out);
-      await api('/api/groups/save','POST',{groups});
+      const res = await api('/api/groups/save','POST',{groups});
+      if (!res || !res.ok || res.saved !== true) {
+        toast('Group was not saved', 'err');
+        return;
+      }
       toast(`Saved group ${name}`,'ok');
       m.remove();
       await loadGroups();
@@ -1468,7 +1599,7 @@ function openPhoneStepsEditor(serial, ent) {
     list.innerHTML = '';
     if (!draft.length) {
       const hint = document.createElement('div');
-      hint.style.cssText = 'font-size:.72rem;color:var(--t2,#8b949e)';
+      hint.style.cssText = 'font-size:.75rem;color:var(--t2,#8b949e)';
       hint.textContent = 'No steps — every iteration will use the playlist (if configured), otherwise nothing runs.';
       list.appendChild(hint);
     }
@@ -1476,7 +1607,7 @@ function openPhoneStepsEditor(serial, ent) {
       const row = document.createElement('div');
       row.style.cssText = 'display:flex;align-items:center;gap:6px;background:var(--bg1,#0d1117);border:1px solid var(--bd,#30363d);border-radius:6px;padding:4px 6px';
       const sel = document.createElement('select');
-      sel.style.cssText = 'padding:3px 5px;background:var(--bg2,#161b22);border:1px solid var(--bd,#30363d);border-radius:4px;color:var(--t1,#e6edf3);font-size:.72rem';
+      sel.style.cssText = 'padding:3px 5px;background:var(--bg2,#161b22);border:1px solid var(--bd,#30363d);border-radius:4px;color:var(--t1,#e6edf3);font-size:.75rem';
       STEP_TYPES.forEach(t => {
         const o = document.createElement('option');
         o.value = t; o.textContent = t;
@@ -1789,10 +1920,22 @@ const _DOCK_ADB_C   = { online: '#3fb950', listen: '#d29922', dead: '#8b949e' };
 
 async function dockerAction(name, action) {
   try {
-    await api('/api/docker/action', 'POST', { name, action });
-    toast((action[0].toUpperCase() + action.slice(1)) + ' ' + name, 'ok');
+    const res = await api('/api/docker/action', 'POST', { name, action });
+    if (!res || !res.ok) {
+      toast('Docker ' + action + ' failed', 'err');
+      return;
+    }
+    if (action === 'stop') {
+      toast('Stopped ' + name, 'ok');
+      return;
+    }
+    if (!res.connected || !(res.adb_port > 0)) {
+      toast(name + ' is up, but ADB did not attach on the published port', 'err');
+      return;
+    }
+    toast(name + ' attached at 127.0.0.1:' + res.adb_port, 'ok');
   } catch (e) { toast('Docker action failed', 'err'); }
-  refreshDockerStatus();
+  finally { refreshDockerStatus(); }
 }
 
 async function refreshDockerStatus() {
@@ -1826,7 +1969,7 @@ async function refreshDockerStatus() {
       + `<td style="padding:5px 8px;border-top:1px solid var(--bd)"><span style="color:${stc}">●</span> ${esc(st)}</td>`
       + `<td style="padding:5px 8px;border-top:1px solid var(--bd)"><span style="color:${adbc}">●</span> ${esc(adb)}</td>`
       + `<td style="padding:5px 8px;border-top:1px solid var(--bd)">${c.adb_port ?? '-'}</td>`
-      + `<td style="padding:5px 8px;border-top:1px solid var(--bd);font-family:monospace;font-size:.68rem;max-width:280px;overflow:auto;white-space:pre-wrap">${esc(c.log_tail || '')}</td>`
+      + `<td style="padding:5px 8px;border-top:1px solid var(--bd);font-family:monospace;font-size:.75rem;max-width:280px;overflow:auto;white-space:pre-wrap">${esc(c.log_tail || '')}</td>`
       + `<td style="padding:5px 8px;border-top:1px solid var(--bd)">${btns}</td>`;
     body.appendChild(tr);
   });
@@ -1856,10 +1999,16 @@ async function refreshStealth() {
   const uniq = new Set(ips).size;
   const dupe = ips.length > uniq;
   if (badge) {
-    badge.textContent = dupe
-      ? `● ${uniq}/${ips.length} unique exit IPs — rotating duplicates`
-      : (uniq ? `✓ ${uniq} unique exit IPs` : 'no exit IPs yet');
-    badge.style.color = dupe ? 'var(--rd, #d29922)' : 'var(--g, #3fb950)';
+    if (dupe) {
+      badge.textContent = `● ${uniq}/${ips.length} unique exit IPs — rotating duplicates`;
+      badge.style.color = 'var(--rd, #d29922)';
+    } else if (uniq > 0) {
+      badge.textContent = `✓ ${uniq} unique exit IPs`;
+      badge.style.color = 'var(--g, #3fb950)';
+    } else {
+      badge.textContent = 'no exit IPs yet';
+      badge.style.color = 'var(--t2)';
+    }
   }
   if (asof) asof.textContent = 'Updated ' + new Date((data.updated_utc || Date.now()) * 1000).toLocaleTimeString();
   body.innerHTML = '';
@@ -1897,11 +2046,28 @@ function setBtn(id, label, on) {
   b.style.color = on ? 'var(--g, #3fb950)' : 'var(--t2)';
 }
 async function toggleStealth(field) {
-  const cfg = (await api('/api/config', 'GET', {}).catch(() => ({}))) || {};
+  let cfg;
+  try { cfg = await api('/api/config', 'GET', {}); } catch (e) {
+    toast('Could not read the current setting', 'err');
+    return;
+  }
+  if (!cfg || typeof cfg !== 'object') {
+    toast('Could not read the current setting', 'err');
+    return;
+  }
   const cur = field === 'rotate_every_sequence'
     ? (cfg.rotate_every_sequence !== undefined ? cfg.rotate_every_sequence : true)
     : (cfg.unique_exit_ips !== undefined ? cfg.unique_exit_ips : true);
-  await api('/api/stealth/settings', 'POST', { [field]: !cur }).catch(() => {});
+  try {
+    const res = await api('/api/stealth/settings', 'POST', { [field]: !cur });
+    if (!res || !res.ok || res.saved !== true) {
+      toast('Setting was not saved', 'err');
+      return;
+    }
+  } catch (e) {
+    toast('Setting was not saved', 'err');
+    return;
+  }
   syncStealthToggles();
 }
 (async () => {
@@ -1926,7 +2092,7 @@ async function refreshKpi() {
   try { dk = await api('/api/docker/status', 'GET', {}); } catch (e) {}
   try { grp = await api('/api/groups/status', 'GET', {}); } catch (e) {}
   try { money = await api('/api/money/status', 'GET', {}); } catch (e) {}
-  setKpi('kpi-phones',      phones.length);
+  setKpi('kpi-phones', phones.filter(function (p) { return p && p.running; }).length);
   setKpi('kpi-groups',      (grp && grp.running) ? (grp.running).length : 0);
   setKpi('kpi-containers',  (dk && dk.containers) ? dk.containers.filter(c => c.state === 'running').length : 0);
   setKpi('kpi-adb',         (dk && dk.containers) ? dk.containers.filter(c => c.adb_state === 'online').length : 0);
@@ -2027,27 +2193,39 @@ setTimeout(() => { if (window.addEventListener) window.addEventListener('resize'
 async function runAllGroups() {
   if (!loadedGroups.length) { toast('Load saved groups first','err'); return; }
   try {
-    await api('/api/groups/run','POST',{groups: loadedGroups});
+    const res = await api('/api/groups/run','POST',{groups: loadedGroups});
+    if (!res || !res.ok || !(res.phones_targeted > 0)) {
+      toast('Groups did not start', 'err');
+      return;
+    }
     document.getElementById('btn-groups-run').disabled = true;
     document.getElementById('btn-groups-stop').disabled = false;
     loadedGroups.forEach((_,i) => {
       const b = document.getElementById(`grp-stop-${i}`);
       if (b) b.disabled = false;
     });
-    toast(`Running ${loadedGroups.length} group(s) in parallel`, 'ok');
+    toast(res.start_note || ('Groups accepted for ' + res.phones_targeted + ' phone(s). The log shows each sequence.'));
     refreshFarmStatus();
   } catch(e) { toast('Could not start groups', 'err'); }
 }
 
 async function stopAllGroups() {
-  await api('/api/groups/stop','POST',{}).catch(()=>{});
-  document.getElementById('btn-groups-run').disabled = false;
-  document.getElementById('btn-groups-stop').disabled = true;
-  loadedGroups.forEach((_,i) => {
-    const b = document.getElementById(`grp-stop-${i}`);
-    if (b) b.disabled = true;
-  });
-  toast('Stopping all groups','ok');
+  try {
+    const res = await api('/api/groups/stop','POST',{});
+    if (!res || !res.ok || !(Number(res.stopping) > 0)) {
+      toast('No groups are running', 'err');
+      return;
+    }
+    document.getElementById('btn-groups-run').disabled = false;
+    document.getElementById('btn-groups-stop').disabled = true;
+    loadedGroups.forEach((_,i) => {
+      const b = document.getElementById(`grp-stop-${i}`);
+      if (b) b.disabled = true;
+    });
+    toast('Stop requested for ' + res.stopping + ' group(s). The log shows when each one stops.');
+  } catch (e) {
+    toast('No groups are running', 'err');
+  }
 }
 
 function onWsMessage(msg) {
@@ -2074,24 +2252,38 @@ document.getElementById('btn-stop-rec').addEventListener('click', teachStop);
 document.getElementById('btn-play-teach').addEventListener('click', teachPlay);
 document.getElementById('btn-tor').addEventListener('click', setupTor);
 document.getElementById('btn-tor-rotate').addEventListener('click', async () => {
-  try { await api('/api/proxy/rotate', 'POST'); toast('Rotating identities on all phones…', 'ok'); }
-  catch (e) { toast('Rotate identities failed', 'err'); }
+  try {
+    const res = await api('/api/proxy/rotate', 'POST');
+    const n = Number(res && res.n) || 0;
+    const targeted = Number(res && res.targeted) || n;
+    if (!(res && res.ok && n > 0)) throw new Error('nothing to rotate');
+    if (targeted > n) {
+      toast(n + ' of ' + targeted + ' phone(s) got a new exit. The rest did not.');
+      return;
+    }
+    toast(n + ' phone(s) got a new exit', 'ok');
+  }
+  catch (e) { toast('Rotate identities failed — no phone got a new exit', 'err'); }
 });
 function dockRotate(serial) {
   if (!serial) return;
-  api('/api/identity/reset', 'POST', { serial }).catch(() => {});
-  toast('Rotating ID ' + serial, 'ok');
-  setTimeout(refreshDockerStatus, 500);
+  api('/api/identity/reset', 'POST', { serial })
+    .then((res) => {
+      if (!(res && res.ok && res.rotated === true)) throw new Error('no new circuit');
+      toast(res.message || (serial + ' got a new Tor circuit'), 'ok');
+      setTimeout(refreshDockerStatus, 500);
+    })
+    .catch(() => toast('Could not rotate ID ' + serial, 'err'));
 }
 document.getElementById('btn-tor-off').addEventListener('click', async () => {
   try {
-    await api('/api/proxy/teardown', 'POST');
-    document.getElementById('tor-status').textContent = '';
-    document.getElementById('btn-tor').disabled = false;
-    document.getElementById('btn-tor').textContent = 'Set Up Now';
-    toast('Turned off', 'ok');
+    const res = await api('/api/proxy/teardown', 'POST');
+    if (!(res && res.ok && res.repinned && Number(res.n) > 0)) {
+      throw new Error((res && res.error) || 're-pin did not land');
+    }
+    toast(res.message || ('Re-pinned ' + res.n + ' phone exit(s)'), 'ok');
   } catch(e) {
-    toast('Could not turn off — If browsers stay broken, use wizard Launch → Fix phone browsers (clear proxy).', 'err');
+    toast('Could not re-pin exits — read the log. Proxies were not cleared.', 'err');
   }
 });
 document.getElementById('log-clear').addEventListener('click', () =>
@@ -2101,6 +2293,97 @@ document.getElementById('fab').addEventListener('click', () => {
   document.getElementById('connect-addr').focus();
 });
 
+function earnParams() {
+  const val = (id) => {
+    const el = document.getElementById(id);
+    return el && el.value ? String(el.value).trim() : '';
+  };
+  return {
+    phones: val('earn-phones'),
+    visits_per_phone: val('earn-visits'),
+    target_usd: val('earn-usd'),
+    ecpm: val('earn-ecpm'),
+    impressions_per_visit: val('earn-ipv'),
+    path2_share: val('earn-path2'),
+    ads_allowed: (document.getElementById('earn-ads') || {}).value === 'on',
+    visits_per_paid_action: val('earn-ratio'),
+  };
+}
+
+function fillEarn(plan) {
+  if (!plan || plan.saved !== true) return;
+  const set = (id, value) => {
+    const el = document.getElementById(id);
+    if (el && value != null && value !== '') el.value = String(value);
+  };
+  set('earn-phones', plan.phones);
+  set('earn-visits', plan.visits_per_phone);
+  set('earn-usd', plan.target_usd);
+  set('earn-ecpm', plan.ecpm);
+  set('earn-ipv', plan.impressions_per_visit);
+  set('earn-path2', plan.path2_share);
+  set('earn-ratio', plan.visits_per_paid_action);
+  const ads = document.getElementById('earn-ads');
+  if (ads) ads.value = plan.ads_allowed ? 'on' : 'off';
+}
+
+function earnText(plan) {
+  if (!plan || plan.ok === false) return (plan && plan.error) || 'Mix was not computed.';
+  const visits = Array.isArray(plan.visits_by_phone) ? plan.visits_by_phone.join(',') : String(plan.visits_per_phone);
+  const ads = Array.isArray(plan.path3_by_phone) ? plan.path3_by_phone.join(',') : String(plan.path3_per_phone);
+  return 'Per phone visits: ' + visits + '. Path 3: ' + ads + '. Means ~' +
+    plan.path1_per_phone + ' Path 1, ' + plan.path2_per_phone + ' Path 2, ' +
+    plan.path3_per_phone + ' Path 3. ' + (plan.note || '');
+}
+
+async function loadEarnPlan() {
+  const status = document.getElementById('earn-status');
+  if (!status) return;
+  try {
+    const plan = await api('/api/earn-plan');
+    fillEarn(plan);
+    if (plan && plan.saved === true) status.textContent = earnText(plan);
+  } catch (e) {
+    status.textContent = 'Could not read the saved mix.';
+  }
+}
+
+document.getElementById('btn-earn-phones').addEventListener('click', () => {
+  const n = (phones || []).filter((p) => p && p.running).length;
+  if (!(n > 0)) {
+    toast('No phones are answering. Type the phone count.', 'err');
+    return;
+  }
+  document.getElementById('earn-phones').value = String(n);
+});
+document.getElementById('btn-earn-preview').addEventListener('click', async () => {
+  const status = document.getElementById('earn-status');
+  try {
+    const plan = await api('/api/earn-plan', 'POST', Object.assign({preview: true}, earnParams()));
+    status.textContent = earnText(plan);
+    if (!plan || plan.ok === false) toast(plan && plan.error ? plan.error : 'Mix was not computed', 'err');
+    else toast('Preview only — Save mix to use these counts');
+  } catch (e) {
+    toast('Mix was not computed', 'err');
+  }
+});
+document.getElementById('btn-earn-save').addEventListener('click', async () => {
+  const status = document.getElementById('earn-status');
+  try {
+    const plan = await api('/api/earn-plan', 'POST', earnParams());
+    if (!plan || plan.ok === false || plan.saved !== true) {
+      status.textContent = (plan && plan.error) || 'Mix was not saved.';
+      toast((plan && plan.error) || 'Mix was not saved', 'err');
+      return;
+    }
+    fillEarn(plan);
+    status.textContent = earnText(plan);
+    toast('Saved mix — farm reads it while running', 'ok');
+  } catch (e) {
+    toast('Mix was not saved', 'err');
+  }
+});
+
 // ── PWA ────────────────────────────────────────────────────────────────
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
 
@@ -2108,6 +2391,7 @@ if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').cat
 connectWS();
 initIp();
 loadServerApks();
+loadEarnPlan();
 api('/api/phones').then(d => { if (!phones.length) onPhonesUpdate(d); }).catch(() => {});
 </script>
 </body>

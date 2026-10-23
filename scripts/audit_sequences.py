@@ -1,8 +1,8 @@
 """Read-only structural audit of DabFlow automation sequence JSONs.
 
-Scans C:\\CPharm\\automation\\recordings\\sequences\\base (excluding smoke/),
+Scans C:\\PharmFlow\\automation\\recordings\\sequences\\base (excluding smoke/),
 validates structure/coords/timing-variance, and writes a report to stdout
-and C:\\CPharm\\logs\\sequence_audit_structure.txt.
+and C:\\PharmFlow\\logs\\sequence_audit_structure.txt.
 
 Never modifies any sequence file.
 """
@@ -12,8 +12,8 @@ import os
 import sys
 from collections import Counter, defaultdict
 
-BASE_DIR = r"C:\CPharm\automation\recordings\sequences\base"
-REPORT_PATH = r"C:\CPharm\logs\sequence_audit_structure.txt"
+BASE_DIR = r"C:\PharmFlow\automation\recordings\sequences\base"
+REPORT_PATH = r"C:\PharmFlow\logs\sequence_audit_structure.txt"
 EXCLUDE_DIRS = {"smoke"}
 MAX_EXAMPLES = 20
 

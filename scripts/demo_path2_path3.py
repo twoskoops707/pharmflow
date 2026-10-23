@@ -15,28 +15,28 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-os.environ["CPHARM_ALLOW_SEQUENCE_RUNS"] = "1"
+os.environ["PHARMFLOW_ALLOW_SEQUENCE_RUNS"] = "1"
 # Visual demo: scramble (direct) so creatives fill; farm Tor settings unchanged.
-os.environ["CPHARM_BROWSE_PROXY_MODE"] = "scramble"
-os.environ["CPHARM_REQUIRE_UNIQUE_EXIT_IP"] = "0"
-os.environ["CPHARM_SKIP_MANTIS_PATCH"] = "0"
-os.environ["CPHARM_DABFLOW_MANTIS_PATCH"] = "1"
-os.environ["CPHARM_EMULATOR_AD_MODE"] = "1"
-os.environ["CPHARM_EMULATOR_AD_FILL_WAIT"] = "6"
-os.environ["CPHARM_EMULATOR_AD_FALLBACK"] = "1"
-os.environ["CPHARM_FARM_ALLOW_ADS"] = "1"
-os.environ["CPHARM_AGE_GATE_WAIT"] = "4.0"
-os.environ["CPHARM_DABFLOW_LOAD_WAIT"] = "3.0"
-os.environ["CPHARM_START_DAB_VERIFY_WAIT"] = "4.0"
+os.environ["PHARMFLOW_BROWSE_PROXY_MODE"] = "scramble"
+os.environ["PHARMFLOW_REQUIRE_UNIQUE_EXIT_IP"] = "0"
+os.environ["PHARMFLOW_SKIP_MANTIS_PATCH"] = "0"
+os.environ["PHARMFLOW_DABFLOW_MANTIS_PATCH"] = "1"
+os.environ["PHARMFLOW_EMULATOR_AD_MODE"] = "1"
+os.environ["PHARMFLOW_EMULATOR_AD_FILL_WAIT"] = "6"
+os.environ["PHARMFLOW_EMULATOR_AD_FALLBACK"] = "1"
+os.environ["PHARMFLOW_FARM_ALLOW_ADS"] = "1"
+os.environ["PHARMFLOW_AGE_GATE_WAIT"] = "4.0"
+os.environ["PHARMFLOW_DABFLOW_LOAD_WAIT"] = "3.0"
+os.environ["PHARMFLOW_START_DAB_VERIFY_WAIT"] = "4.0"
 
 from automation.browser_adb import clear_chromium_all_data  # noqa: E402
 from automation.config import BROWSER_CHROMIUM  # noqa: E402
 from automation.sequence_runner import Sequence, SequenceRunner  # noqa: E402
 from wizard.mumu_farm_ops import MuMuFarmOps  # noqa: E402
 
-OUT = Path(r"C:\CPharm\logs\demo_path2_path3")
+OUT = Path(r"C:\PharmFlow\logs\demo_path2_path3")
 OUT.mkdir(parents=True, exist_ok=True)
-ADB = os.environ.get("CPHARM_ADB") or r"C:\CPharm\bundled\adb.exe"
+ADB = os.environ.get("PHARMFLOW_ADB") or r"C:\PharmFlow\bundled\adb.exe"
 SEQ_ROOT = ROOT / "automation" / "recordings" / "sequences" / "base" / "ceramic"
 PATH2 = SEQ_ROOT / "ceramic_budder_butane_timer_halfway.json"
 PATH3 = SEQ_ROOT / "ceramic_budder_butane_p3a_homead2_ad.json"
@@ -53,7 +53,7 @@ log = logging.getLogger("demo_p2_p3")
 
 
 def _screencap(adb_bin: str, serial: str, local: Path) -> None:
-    remote = "/sdcard/Download/cpharm_demo.png"
+    remote = "/sdcard/Download/pharmflow_demo.png"
     try:
         subprocess.run(
             [adb_bin, "-s", serial, "shell", "screencap", "-p", remote],

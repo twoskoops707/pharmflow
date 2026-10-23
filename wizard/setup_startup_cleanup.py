@@ -6,10 +6,10 @@ the **first setup** (``mumu_setup_complete`` not yet set), also closes MuMu so
 you start from a clean slate. After setup is done, re-opening setup only clears
 duplicate PharmFlow / adb / setup instances — not running MuMu phones.
 
-Skip: ``CPHARM_SKIP_STARTUP_CLEANUP=1``
-Force MuMu kill even after setup: ``CPHARM_FORCE_STARTUP_CLEANUP=1``
+Skip: ``PHARMFLOW_SKIP_STARTUP_CLEANUP=1``
+Force MuMu kill even after setup: ``PHARMFLOW_FORCE_STARTUP_CLEANUP=1``
 
-Dev CLI: ``python tools/kill_cpharm_stale_processes.py``
+Dev CLI: ``python tools/kill_pharmflow_stale_processes.py``
 """
 
 from __future__ import annotations
@@ -40,17 +40,17 @@ MUMU_PROCESS_BASENAMES = frozenset(
     }
 )
 
-CPHARM_EXE_BASENAMES = frozenset(
+PHARMFLOW_EXE_BASENAMES = frozenset(
     {
         "pharmflow.exe",
-        "cpharmmumusetup.exe",
-        "cpharm.exe",
+        "pharmflowmumusetup.exe",
+        "pharmflow.exe",
     }
 )
 
-CPHARM_PY_CMDLINE_MARKERS = (
-    "cpharm_desktop",
-    "cpharm_mumu_setup",
+PHARMFLOW_PY_CMDLINE_MARKERS = (
+    "pharmflow_desktop",
+    "pharmflow_mumu_setup",
     "setup_wizard",
     "dashboard.py",
     "mumu_setup_webview",
@@ -66,7 +66,7 @@ def _noop_log(_msg: str) -> None:
 
 
 def _skip_cleanup() -> bool:
-    return os.environ.get("CPHARM_SKIP_STARTUP_CLEANUP", "").strip().lower() in (
+    return os.environ.get("PHARMFLOW_SKIP_STARTUP_CLEANUP", "").strip().lower() in (
         "1",
         "true",
         "yes",
@@ -74,7 +74,7 @@ def _skip_cleanup() -> bool:
 
 
 def _force_mumu_kill() -> bool:
-    return os.environ.get("CPHARM_FORCE_STARTUP_CLEANUP", "").strip().lower() in (
+    return os.environ.get("PHARMFLOW_FORCE_STARTUP_CLEANUP", "").strip().lower() in (
         "1",
         "true",
         "yes",
@@ -82,15 +82,15 @@ def _force_mumu_kill() -> bool:
 
 
 def _data_root_for_marker() -> Path:
-    from wizard_paths import cpharm_default_install_root, cpharm_install_root, has_automation_dashboard
+    from wizard_paths import pharmflow_default_install_root, pharmflow_install_root, has_automation_dashboard
 
     try:
-        root = cpharm_install_root()
+        root = pharmflow_install_root()
     except Exception:
-        root = cpharm_default_install_root()
+        root = pharmflow_default_install_root()
     if has_automation_dashboard(root):
         return root
-    home = Path.home() / "CPharm"
+    home = Path.home() / "PharmFlow"
     if has_automation_dashboard(home):
         return home
     return root
@@ -115,6 +115,28 @@ def _protected_pids(my_pid: int) -> set[int]:
     return protected
 
 
+def _adb_has_live_device(exe: str) -> bool | None:
+    """True if a phone is in the ``device`` state. None if adb did not answer."""
+    try:
+        result = subprocess.run(
+            [exe, "devices"],
+            capture_output=True,
+            text=True,
+            timeout=8,
+            creationflags=_SUBPROC_FLAGS,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    text = (result.stdout or "") + "\n" + (result.stderr or "")
+    for line in text.splitlines():
+        parts = line.split()
+        if len(parts) >= 2 and parts[1] == "device":
+            return True
+    if result.returncode not in (0, None):
+        return None
+    return False
+
+
 def _adb_kill_server(log: LogFn) -> None:
     exe: str | None = None
     try:
@@ -124,6 +146,10 @@ def _adb_kill_server(log: LogFn) -> None:
     except Exception:
         pass
     if not exe or not Path(exe).is_file():
+        return
+    live = _adb_has_live_device(exe)
+    if live is not False:
+        log("  skipped adb kill-server — phones may be answering ADB")
         return
     try:
         subprocess.run(
@@ -179,14 +205,38 @@ def _is_phone_setup_process(proc) -> bool:
     return "--phone-setup" in cmd or "phone_setup_entry" in cmd
 
 
-def _is_cpharm_exe_process(proc) -> bool:
+# Farm and service processes must survive a second window opening. adb
+# kill-server drops every phone. Killing PharmFlow.exe --start-farm / the
+# control server is how a Control Panel open used to stop earnings.
+_FARM_OWNED_MARKERS = (
+    "--start-farm",
+    "--watchdog",
+    "--cloud-agent",
+    "--agent",
+    "dashboard.py",
+    "pharmflow_unison_supervisor.py",
+    "run_mantis_inject",
+    "farm_watchdog.py",
+    "sequence_runner.py",
+    "tor_manager.py",
+)
+
+
+def _is_farm_owned_process(proc) -> bool:
+    cmd = _cmdline_text(proc)
+    if not cmd:
+        return False
+    return any(marker in cmd for marker in _FARM_OWNED_MARKERS)
+
+
+def _is_pharmflow_exe_process(proc) -> bool:
     try:
-        return _basename(proc.name()) in CPHARM_EXE_BASENAMES
+        return _basename(proc.name()) in PHARMFLOW_EXE_BASENAMES
     except Exception:
         return False
 
 
-def _is_cpharm_python_process(proc) -> bool:
+def _is_pharmflow_python_process(proc) -> bool:
     try:
         base = _basename(proc.name())
     except Exception:
@@ -194,7 +244,7 @@ def _is_cpharm_python_process(proc) -> bool:
     if base not in ("python.exe", "pythonw.exe", "python3.exe"):
         return False
     cmd = _cmdline_text(proc)
-    return any(m in cmd for m in CPHARM_PY_CMDLINE_MARKERS)
+    return any(m in cmd for m in PHARMFLOW_PY_CMDLINE_MARKERS)
 
 
 def _is_adb_process(proc) -> bool:
@@ -242,7 +292,7 @@ def run_startup_cleanup(
     """
     log = log or _noop_log
     if _skip_cleanup():
-        log("Startup cleanup skipped (CPHARM_SKIP_STARTUP_CLEANUP).")
+        log("Startup cleanup skipped (PHARMFLOW_SKIP_STARTUP_CLEANUP).")
         return {"ok": True, "first_time": False, "killed": [], "failed": [], "skipped": ["env"]}
 
     if sys.platform != "win32":
@@ -264,11 +314,12 @@ def run_startup_cleanup(
     log("")
     if first_time:
         log("First-time setup — closing previous MuMu, adb, and PharmFlow processes…")
+        # Only a first phone-setup open resets adb. A later open must not drop
+        # the farm's device list.
+        _adb_kill_server(log)
+        time.sleep(0.4)
     else:
-        log("Closing stale PharmFlow / adb / setup processes (MuMu left running)…")
-
-    _adb_kill_server(log)
-    time.sleep(0.4)
+        log("Closing duplicate setup windows (MuMu, adb, and farm lanes left running)…")
 
     try:
         import psutil
@@ -292,18 +343,24 @@ def run_startup_cleanup(
             skipped.append(f"protected:{pid}")
             continue
         try:
-            if _is_cpharm_exe_process(proc):
+            if _is_pharmflow_exe_process(proc):
                 if pid == my_pid:
                     continue
                 if _is_phone_setup_process(proc):
                     skipped.append(f"phone-setup:{pid}")
                     continue
-                targets.append((proc, "cpharm"))
-            elif _is_cpharm_python_process(proc):
+                if _is_farm_owned_process(proc):
+                    skipped.append(f"farm:{pid}")
+                    continue
+                targets.append((proc, "pharmflow"))
+            elif _is_pharmflow_python_process(proc):
                 if _is_phone_setup_process(proc):
                     skipped.append(f"phone-setup:{pid}")
                     continue
-                targets.append((proc, "cpharm_py"))
+                if _is_farm_owned_process(proc):
+                    skipped.append(f"farm:{pid}")
+                    continue
+                targets.append((proc, "pharmflow_py"))
             elif first_time and _is_adb_process(proc):
                 targets.append((proc, "adb"))
             elif first_time and _is_mumu_process(proc):
@@ -345,7 +402,7 @@ def run_startup_cleanup(
 
 
 def run_setup_startup_cleanup(log: LogFn | None = None) -> dict:
-    """Entry used by CPharmMuMuSetup.exe ``main()``."""
+    """Entry used by PharmFlow.exe ``main()``."""
     return run_startup_cleanup(log=log)
 
 

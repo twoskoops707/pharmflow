@@ -2,7 +2,7 @@
 
 ## DabFlow blueprint (v3)
 
-CPharm Studio **Builder** embeds the full combinatorial catalog:
+PharmFlow Studio **Builder** embeds the full combinatorial catalog:
 
 - **60 cores:** 3 materials × 10 concentrates (incl. `hash_rosin`) × 2 heaters
 - **Path1 A–D** (no ads): `p1a_complete_<browser>`, `p1b_<tab>_complete_<browser>`, …
@@ -19,7 +19,7 @@ Live coords (900×1600): Start Perfect Dab is **below the fold** — sequences s
 
 ## Running a Sequence
 
-### From Desktop Wizard (CPharm.exe)
+### From Desktop Wizard (PharmFlow.exe)
 
 1. **Builder → Site Interview** — answer questions for your website or APK → generate humanized sequences
 2. Open **Run** step — pick a sequence file/folder (or the site folder under sequences)
@@ -44,14 +44,14 @@ AI never auto-starts the farm. Offline Q&A works with no key. ntfy digests defau
 
 ### Farm CLI — DO NOT USE ON A NEW DESKTOP
 
-**New / transfer PCs:** start the farm only with **`C:\CPharm\CPharm.exe` → Start farm**.  
+**New / transfer PCs:** start the farm only with **`C:\PharmFlow\PharmFlow.exe` → Start farm**.  
 Do **not** run `py scripts/run_farm_354.py` from Cursor to “bring the farm up.”
 
-The CLI below is for advanced/dev use when an operator already owns the stack via CPharm — not for transfer setup.
+The CLI below is for advanced/dev use when an operator already owns the stack via PharmFlow — not for transfer setup.
 
 ```powershell
 # DEV ONLY — not the transfer / new-desktop start path
-# Prefer: CPharm.exe → Start farm
+# Prefer: PharmFlow.exe → Start farm
 ```
 
 ## Writing a custom sequence

@@ -18,16 +18,16 @@ object ProxyManager {
     private const val TAG = "ProxyManager"
 
     /**
-     * Known CPharm Tor HTTP tunnel ports (host side, exposed via adb reverse).
+     * Known PharmFlow Tor HTTP tunnel ports (host side, exposed via adb reverse).
      * Phone 0 = 8118, Phone 1 = 8119, etc. (HTTP_TUNNEL_BASE + phone_idx)
      */
-    private const val CPHARM_HTTP_BASE = 8118
+    private const val PHARMFLOW_HTTP_BASE = 8118
 
     /**
-     * Known CPharm Tor SOCKS ports (host side).
+     * Known PharmFlow Tor SOCKS ports (host side).
      * Phone 0 = 9050, Phone 1 = 9051, etc. (BASE_PORT + phone_idx)
      */
-    private const val CPHARM_SOCKS_BASE = 9050
+    private const val PHARMFLOW_SOCKS_BASE = 9050
 
     /**
      * Common local ports where Tor HTTP tunnel may be exposed via adb reverse.
@@ -181,8 +181,8 @@ object ProxyManager {
     }
 
     /**
-     * Force-set proxy from ADB (used by CPharm automation).
-     * CPharm does: settings put global http_proxy host:port
+     * Force-set proxy from ADB (used by PharmFlow automation).
+     * PharmFlow does: settings put global http_proxy host:port
      */
     fun applyFromAdbProxy(context: Context, host: String, port: Int, isSocks: Boolean = false) {
         ProxyConfig.host = host

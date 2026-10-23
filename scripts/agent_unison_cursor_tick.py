@@ -8,7 +8,7 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-LOG = Path(r"C:\CPharm\logs")
+LOG = Path(r"C:\PharmFlow\logs")
 sys.path.insert(0, str(ROOT))
 
 from automation.adb_wrapper import AdbWrapper
@@ -70,8 +70,8 @@ def main() -> int:
     heartbeat(AGENT, task="infra_tick", note="no emulator kill")
     write_runtime_overrides(
         {
-            "CPHARM_TOR_PATH": r"C:\CPharm\bundled\tor.exe",
-            "CPHARM_FARM_STOP": "0",
+            "PHARMFLOW_TOR_PATH": r"C:\PharmFlow\bundled\tor.exe",
+            "PHARMFLOW_FARM_STOP": "0",
         }
     )
     phones = _fix_serial_map()
@@ -95,7 +95,7 @@ def main() -> int:
         + format_checkin(snap)
         + "\n\nFREEBUFF lane: SSP/mantis/ntfy — read AGENT_UNISON.json"
     )
-    publish_ntfy("[FamFlow] UNISON Cursor infra", body, force=True)
+    publish_ntfy("[PharmFlow] UNISON Cursor infra", body, force=True)
     complete_task(AGENT, "infra_tick", result="ok")
     print(body, flush=True)
     return 0

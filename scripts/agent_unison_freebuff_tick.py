@@ -10,7 +10,7 @@ import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-LOG = Path(r"C:\CPharm\logs")
+LOG = Path(r"C:\PharmFlow\logs")
 sys.path.insert(0, str(ROOT))
 
 from automation.agent_unison import claim_task, complete_task, heartbeat, read_board, set_status
@@ -136,18 +136,16 @@ def main() -> int:
         ok, fail = _p3_ok_fail()
         fixes.append(f"path3_log ok={ok} fail={fail}")
         if ok == 0 and fail >= 1:
+            # Never pause/kill bottom-ads watcher — that starves money while
+            # path3 is recovering. Flag the condition only.
             fixes.append("PATH3_NO_OK_IN_LOG")
-            (LOG / "PAUSE_BOTTOM_ADS_WATCH.flag").write_text("freebuff_path3", encoding="utf-8")
-            try:
-                import psutil
-
-                for proc in psutil.process_iter(["pid", "cmdline"]):
-                    cmd = " ".join(proc.info.get("cmdline") or [])
-                    if "watch_bottom_ads" in cmd or "farm_fail_review" in cmd:
-                        proc.kill()
-                        fixes.append(f"killed_fighter={proc.info['pid']}")
-            except Exception:
-                pass
+            pause = LOG / "PAUSE_BOTTOM_ADS_WATCH.flag"
+            if pause.is_file():
+                try:
+                    pause.unlink()
+                    fixes.append("cleared_PAUSE_BOTTOM_ADS_WATCH")
+                except OSError:
+                    pass
         complete_task(AGENT, "path3_ok_monitor", result="ok")
         tasks_done.append("path3_ok_monitor")
 

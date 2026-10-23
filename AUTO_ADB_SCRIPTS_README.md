@@ -1,23 +1,23 @@
 ═══════════════════════════════════════════════════════════
-  CPHARM AUTO-ADB SCRIPTS — SUMMARY
+  PHARMFLOW AUTO-ADB SCRIPTS — SUMMARY
 ═══════════════════════════════════════════════════════════
 
 ✅ THREE SCRIPTS CREATED:
 
 1. auto_phone_adb.py
-   └─ Main integration script for CPharm wizard
-   └─ Location: C:\CPharm\auto_phone_adb.py
+   └─ Main integration script for PharmFlow wizard
+   └─ Location: C:\PharmFlow\auto_phone_adb.py
    └─ Python-based, can import into preflight checks
    └─ Command: python auto_phone_adb.py --docker
 
 2. auto_adb_connect.ps1
    └─ PowerShell wrapper (fast Windows native)
-   └─ Location: C:\CPharm\auto_adb_connect.ps1
+   └─ Location: C:\PharmFlow\auto_adb_connect.ps1
    └─ Command: powershell -ExecutionPolicy Bypass auto_adb_connect.ps1 -Docker
 
 3. auto_adb_mumu.py
    └─ Advanced CLI tool with JSON output
-   └─ Location: C:\CPharm\auto_adb_mumu.py
+   └─ Location: C:\PharmFlow\auto_adb_mumu.py
    └─ Command: python auto_adb_mumu.py --docker --json
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -30,7 +30,7 @@ Step 1: Verify Docker Redroid is running
   Expected: 8 containers (redroid-0 through redroid-7) with status "Up"
 
 Step 2: Run auto-connect
-  cd C:\CPharm
+  cd C:\PharmFlow
   python auto_phone_adb.py --docker
   
   Expected output:
@@ -43,8 +43,8 @@ Step 3: Verify with adb
   
   Expected: 8 devices listed (127.0.0.1:5555 through 127.0.0.1:5562)
 
-Step 4: Start CPharm
-  CPharm.exe
+Step 4: Start PharmFlow
+  PharmFlow.exe
   → Phones should auto-populate in Step 4 (Phones)
   → Go to Launch → all phones should show as "online"
 
@@ -64,7 +64,7 @@ Step 4: Start CPharm
 
 🔧 INTEGRATION INTO WIZARD:
 
-For CPharm developers, add this to wizard/preflight_core.py:
+For PharmFlow developers, add this to wizard/preflight_core.py:
 
   def discover_adb_phones(connect_mumu=True):
       """Existing function — enhance with auto-connect."""
@@ -120,7 +120,7 @@ Solution:
 
 Problem: "adb.exe not found"
 Solution:
-  Ensure C:\CPharm\bundled\adb.exe exists
+  Ensure C:\PharmFlow\bundled\adb.exe exists
   Or set: set ANDROID_HOME=C:\Android\Sdk
   Then: adb --version (should work)
 

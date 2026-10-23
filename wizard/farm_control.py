@@ -16,15 +16,19 @@ from typing import Any, Callable
 
 import automation.no_window  # noqa: F401  — CREATE_NO_WINDOW for farm/helper children
 from automation.site_profile import SiteProfile, load_profile
-from automation.mantis_farm_math import apply_plan_to_environ, plan_for_phones
-from automation.cpharm_farm_config import apply_farm_env, purge_legacy_override_files
-from automation.cpharm_exe_owned import (
+from automation.pharmflow_farm_config import apply_farm_env, purge_legacy_override_files
+from automation.pharmflow_exe_owned import (
     clear_exe_owned,
     exe_owns_farm,
     mark_exe_owned,
 )
 from automation.farm_visit_caps import MULTI_BROWSER, PATH3_BROWSERS, enforce_multi_browser
 from automation.win_subprocess import hidden_run_kwargs
+
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+import docker_guard  # noqa: E402
 from scripts.farm_hourly_ntfy import run_reporter
 from wizard.wizard_paths import app_data_root, bundle_root, load_config, sequences_dir
 
@@ -35,9 +39,8 @@ _digest_thread: threading.Thread | None = None
 _digest_stop = threading.Event()
 _farm_lock = threading.RLock()
 _helper_lock = threading.RLock()
-_PHONE_NAMES = tuple(f"vm{i}.gmadoa" for i in range(12))
 _TABLET_PHONE = "vm4.gmadoa"
-_STICKY_OVERRIDES = Path(r"C:\CPharm\logs\farm_runtime_overrides.json")
+_STICKY_OVERRIDES = Path(r"C:\PharmFlow\logs\farm_runtime_overrides.json")
 _EXTERNAL_FARM_NEEDLES = (
     "run_farm_354.py",
     "run_farm_cycles.py",
@@ -46,16 +49,16 @@ _EXTERNAL_FARM_NEEDLES = (
 _HELPER_SPECS: tuple[tuple[str, tuple[str, ...], str], ...] = (
     ("suppress_console_flash.py", (), "suppress_console_flash.py"),
     ("farm_operator_dash.py", (), "farm_operator_dash.py"),
-    ("cpharm_unison_supervisor.py", (), "cpharm_unison_supervisor.py"),
+    ("pharmflow_unison_supervisor.py", (), "pharmflow_unison_supervisor.py"),
 )
 # stop_farm must tear down the whole stack — start_farm never sets _farm_proc.
 _STOP_FARM_NEEDLES = (
-    "cpharm_unison_supervisor.py",
+    "pharmflow_unison_supervisor.py",
     "farm_operator_dash.py",
     "suppress_console_flash.py",
     "run_farm_354.py",
     "run_farm_cycles.py",
-    "cpharm_stealth_guard.py",
+    "pharmflow_stealth_guard.py",
     "farm_watchdog.py",
     "agent_unison_freebuff_loop.py",
     "agent_unison_freebuff_tick.py",
@@ -63,7 +66,7 @@ _STOP_FARM_NEEDLES = (
     "farm_money_monitor.py",
     "watch_bottom_ads.py",
     "ssp_paying_hunter.py",
-    "cpharm_watchdog.py",
+    "pharmflow_watchdog.py",
     "ensure_farm_24x7.py",
     "keep_farm_alive.py",
     "farm_remediate_loop.py",
@@ -71,14 +74,18 @@ _STOP_FARM_NEEDLES = (
     "_fix_tor_inject",
     "_money_arm_inject",
     "run_mantis_inject_proxies.py",
-    "cpharm_inject_keepalive.py",
+    "pharmflow_inject_keepalive.py",
 )
 _helper_procs: dict[str, subprocess.Popen[Any]] = {}
 _helper_threads: dict[str, threading.Thread] = {}
+# Set by the process that owns --start-farm / Start Farm. A helper that
+# re-execs PharmFlow.exe --start-farm inherits this and must exit, not loop.
+_START_FARM_OWNER_ENV = "PHARMFLOW_START_FARM_OWNER"
+_UNISON_PID_FILE = Path(r"C:\PharmFlow\logs\pharmflow_unison_supervisor.pid")
 
 
 def _inject_span() -> str:
-    """Inject listener count from CPharm-live VMs (vmN → N+1 ports)."""
+    """Inject listener count from PharmFlow-live VMs (vmN → N+1 ports)."""
     try:
         from automation.farm_phone_discover import inject_listener_count
 
@@ -126,7 +133,7 @@ def _python_can_import(python_exe: str, module: str) -> bool:
 def _resolve_helper_python(*, requires: str = "psutil") -> str | None:
     """Return a real python/pythonw for helper processes.
 
-    Frozen CPharm.exe cannot re-exec ``CPharm.exe -u script.py`` as a headless
+    Frozen PharmFlow.exe cannot re-exec ``PharmFlow.exe -u script.py`` as a headless
     worker. Prefer system pythonw; None means fall back to in-process threads.
     ``requires`` names a module the helper needs — candidates are probed so a
     python without the package is skipped instead of silently crashing the
@@ -156,6 +163,15 @@ def _resolve_helper_python(*, requires: str = "psutil") -> str | None:
         local / "Programs" / "Python" / f"Python{maj}{minor}" / "pythonw.exe",
         Path(f"C:\\Python{maj}{minor}\\pythonw.exe"),
     ]
+    # ARM64 freeze: prefer a same-arch pythonw so helpers do not die on x64
+    # .pyd mismatch and fall back to in-process, which re-execs this EXE.
+    arch = (os.environ.get("PROCESSOR_ARCHITECTURE") or "").upper()
+    if arch == "ARM64":
+        candidates = [
+            local / "Programs" / "Python" / f"Python{maj}{minor}-arm64" / "pythonw.exe",
+            local / "Programs" / "Python" / "Python314-arm64" / "pythonw.exe",
+            *candidates,
+        ]
     candidates += [
         local / "Python" / "pythoncore-3.14-64" / "pythonw.exe",
         local / "Python" / "pythoncore-3.13-64" / "pythonw.exe",
@@ -166,14 +182,66 @@ def _resolve_helper_python(*, requires: str = "psutil") -> str | None:
         Path(r"C:\Python311\pythonw.exe"),
     ]
     for cand in candidates:
-        if cand.is_file() and "CPharm" not in str(cand):
+        if cand.is_file() and not _is_frozen_app_exe(str(cand)):
             if _python_can_import(str(cand), requires):
                 return str(cand)
     for name in ("pythonw", "python"):
         found = shutil.which(name)
-        if found and "CPharm" not in found and _python_can_import(found, requires):
+        if found and not _is_frozen_app_exe(found) and _python_can_import(found, requires):
             return found
     return None
+
+
+def _is_frozen_app_exe(path: str) -> bool:
+    """True when *path* is this PharmFlow/CPharm EXE — never a helper interpreter."""
+    text = (path or "").strip()
+    if not text:
+        return False
+    stem = Path(text).stem.lower()
+    if stem in {"pharmflow", "cpharm"}:
+        return True
+    if (
+        "pharmflow" in text.lower() or "cpharm" in text.lower()
+    ) and text.lower().endswith(".exe"):
+        return True
+    if not getattr(sys, "frozen", False):
+        return False
+    try:
+        return Path(text).resolve() == Path(sys.executable).resolve()
+    except OSError:
+        return False
+
+
+def claim_start_farm_owner() -> None:
+    """Record this PID as the Start Farm owner if nobody live owns it yet."""
+    existing = (os.environ.get(_START_FARM_OWNER_ENV) or "").strip()
+    if existing and existing != str(os.getpid()) and _pid_alive(_safe_int(existing)):
+        return
+    os.environ[_START_FARM_OWNER_ENV] = str(os.getpid())
+
+
+def _safe_int(text: str) -> int:
+    try:
+        return int(text)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _pid_alive(pid: int) -> bool:
+    if pid <= 0 or pid == os.getpid():
+        return False
+    try:
+        import psutil
+
+        proc = psutil.Process(pid)
+        status = str(proc.status() or "")
+        return bool(proc.is_running()) and status != "zombie"
+    except Exception:
+        try:
+            os.kill(pid, 0)
+        except OSError:
+            return False
+        return True
 
 
 def _helper_already_alive(needle: str) -> bool:
@@ -241,7 +309,7 @@ def _spawn_helper_thread(
         finally:
             sys.argv = old_argv
 
-    t = threading.Thread(target=target, name=f"cpharm-{Path(name).stem}", daemon=True)
+    t = threading.Thread(target=target, name=f"pharmflow-{Path(name).stem}", daemon=True)
     _helper_threads[name] = t
     t.start()
     _log(f"spawned {name} in-process thread={t.name}", "ok")
@@ -294,8 +362,19 @@ def ensure_operator_stack(*, log: Callable[[str, str], None] | None = None) -> l
                 continue
             env = os.environ.copy()
             env["PYTHONPATH"] = str(root) + os.pathsep + env.get("PYTHONPATH", "")
-            env.setdefault("CPHARM_FARM_STOP", "0")
+            env.setdefault("PHARMFLOW_FARM_STOP", "0")
+            env.setdefault(_START_FARM_OWNER_ENV, str(os.getpid()))
             helper_py = _helper_python_for(name)
+            # Never re-exec this EXE. A frozen child inherits --start-farm and
+            # hangs in another farm CLI loop instead of running the helper.
+            if helper_py and (
+                _is_frozen_app_exe(helper_py) or "--start-farm" in argv_extra
+            ):
+                _log(
+                    f"refusing to spawn {name} via frozen EXE (--start-farm re-entry)",
+                    "err",
+                )
+                helper_py = None
             if helper_py:
                 try:
                     proc = subprocess.Popen(
@@ -328,6 +407,22 @@ def ensure_operator_stack(*, log: Callable[[str, str], None] | None = None) -> l
 
 OPERATOR_DASH_URL = "http://127.0.0.1:8091/"
 _dash_browser_opened = False
+
+
+def operator_dashboard_listening(timeout: float = 0.6) -> bool:
+    """True only when the operator dashboard answers HTTP on :8091.
+
+    A live farm worker is not a live dashboard. Do not treat a URL string,
+    a log line, or farm_process_alive as this check.
+    """
+    import urllib.error
+    import urllib.request
+
+    try:
+        with urllib.request.urlopen(OPERATOR_DASH_URL, timeout=max(0.2, float(timeout))) as resp:
+            return int(getattr(resp, "status", 200) or 200) == 200
+    except (urllib.error.URLError, OSError, TimeoutError, ValueError):
+        return False
 
 
 def open_operator_dashboard(
@@ -369,13 +464,16 @@ def open_operator_dashboard(
     if open_browser and not _dash_browser_opened:
         import webbrowser
 
-        webbrowser.open(OPERATOR_DASH_URL)
-        _dash_browser_opened = True
-        _log("Opened Farm Operator dash once in browser", "ok")
+        opened = bool(webbrowser.open(OPERATOR_DASH_URL))
+        if not opened:
+            _log("Farm Operator dash is up but the browser did not open", "warn")
+        else:
+            _dash_browser_opened = True
+            _log("Opened Farm Operator dash once in browser", "ok")
     return up
 
 
-_FARM_LOG_DIR = Path(os.environ.get("CPHARM_LOG_DIR", r"C:\CPharm\logs"))
+_FARM_LOG_DIR = Path(os.environ.get("PHARMFLOW_LOG_DIR", r"C:\PharmFlow\logs"))
 
 
 def _farm_heartbeat_alive() -> bool | None:
@@ -386,21 +484,36 @@ def _farm_heartbeat_alive() -> bool | None:
     is not. Reading file freshness is microseconds; the old psutil cmdline scan
     over every process took 5–15s per call and ran on every HUD poll, which made
     the whole deck feel dead (clicks landing during a 20s get_farm_hud).
+
+    Branding moved the default log root to C:\\PharmFlow\\logs. A live farm that
+    still writes under the previous data root must not look dead here.
     """
     try:
         now = time.time()
         fresh = False
         seen = False
-        logf = _FARM_LOG_DIR / "farm_354.log"
-        if logf.is_file():
-            seen = True
-            if now - logf.stat().st_mtime < 180:
-                fresh = True
-        ovf = _FARM_LOG_DIR / "farm_runtime_overrides.json"
-        if ovf.is_file():
-            seen = True
-            if now - ovf.stat().st_mtime < 300:
-                fresh = True
+        roots = [_FARM_LOG_DIR]
+        # Only dual-read the pre-branding root when the operator did not force
+        # PHARMFLOW_LOG_DIR / PHARMFLOW_LOGS (tests and overrides stay isolated).
+        if not (os.environ.get("PHARMFLOW_LOG_DIR") or os.environ.get("PHARMFLOW_LOGS")):
+            legacy = Path(r"C:\CPharm\logs")
+            try:
+                if legacy.resolve() != _FARM_LOG_DIR.resolve():
+                    roots.append(legacy)
+            except OSError:
+                if str(legacy) != str(_FARM_LOG_DIR):
+                    roots.append(legacy)
+        for root in roots:
+            logf = root / "farm_354.log"
+            if logf.is_file():
+                seen = True
+                if now - logf.stat().st_mtime < 180:
+                    fresh = True
+            ovf = root / "farm_runtime_overrides.json"
+            if ovf.is_file():
+                seen = True
+                if now - ovf.stat().st_mtime < 300:
+                    fresh = True
         if not seen:
             return None
         return fresh
@@ -409,10 +522,12 @@ def _farm_heartbeat_alive() -> bool | None:
 
 
 def external_python_farm_running() -> bool:
-    """True when FamFlow python money-path farm/cycles are already alive."""
-    hb = _farm_heartbeat_alive()
-    if hb is not None:
-        return hb
+    """True when a python run_farm_354 / run_farm_cycles process is alive.
+
+    A fresh farm_354.log is not a worker. The Control Panel used a positive
+    heartbeat here, then painted Farm running and refused Start farm while
+    :8091 was down and no money-path process existed. Process scan only.
+    """
     try:
         import psutil
     except ImportError:
@@ -435,7 +550,7 @@ def stop_external_python_farm(
     *,
     log: Callable[[str, str], None] | None = None,
 ) -> list[int]:
-    """Kill external run_farm_354 / run_farm_cycles so CPharm can own the path."""
+    """Kill external run_farm_354 / run_farm_cycles so PharmFlow can own the path."""
 
     def _log(msg: str, level: str = "ok") -> None:
         if log:
@@ -468,27 +583,127 @@ def stop_external_python_farm(
     return killed
 
 
-def farm_running() -> bool:
-    """True if unison supervisor or farm worker is alive."""
-    hb = _farm_heartbeat_alive()
-    if hb is not None:
-        return hb
+def _unison_supervisor_alive() -> bool:
+    """True when the supervisor pid file names a live unison process.
+
+    Heartbeat files stay positive-only. A stale farm_354.log must not hide a
+    live supervisor, and a cmdline AccessDenied must not make Start Farm
+    report that unison failed to arm.
+    """
+    try:
+        pid = int(_UNISON_PID_FILE.read_text(encoding="utf-8").strip())
+    except (OSError, ValueError):
+        return False
+    if not _pid_alive(pid):
+        return False
+    try:
+        import psutil
+
+        proc = psutil.Process(pid)
+        name = (proc.name() or "").lower()
+        if name and name not in {
+            "python.exe",
+            "pythonw.exe",
+            "pharmflow.exe",
+            "pharmflow.exe",
+        }:
+            return False
+        try:
+            cmd = " ".join(str(x) for x in (proc.cmdline() or []))
+        except psutil.Error:
+            return True
+        if "pharmflow_unison_supervisor.py" in cmd and "-c" not in cmd.split():
+            return True
+        # In-process supervisor keeps the EXE command line, not the script path.
+        return name in {"pharmflow.exe", "pharmflow.exe"} and "--start-farm" in cmd
+    except Exception:
+        return True
+
+
+def farm_process_alive() -> bool:
+    """True when a farm process or its pid file is alive.
+
+    A fresh ``farm_354.log`` is not a process. Start farm used that file as
+    proof the farm was up, then refused to start, and the Control Panel
+    reported success. Owned children and the unison pid file are enough here.
+    A full process scan belongs to the display shortcut, not this check.
+    """
     with _farm_lock:
         if _farm_proc is not None and _farm_proc.poll() is None:
             return True
         if _farm_thread is not None and _farm_thread.is_alive():
             return True
-    # In-process / owned-child unison counts — start_farm never sets _farm_proc.
-    if _helper_already_alive("cpharm_unison_supervisor.py"):
+    for needle in ("pharmflow_unison_supervisor.py", "run_farm_354.py"):
+        for name, proc in list(_helper_procs.items()):
+            if needle not in name and name not in needle:
+                continue
+            try:
+                if proc.poll() is None:
+                    return True
+            except OSError:
+                continue
+        thr = _helper_threads.get(needle)
+        if thr is not None and thr.is_alive():
+            return True
+    return _unison_supervisor_alive()
+
+
+def farm_running() -> bool:
+    """Display shortcut: a fresh log OR a live process.
+
+    Do not use this to decide whether Start farm may start. A log written in
+    the last few minutes stays true after the process dies.
+    """
+    if _farm_heartbeat_alive() is True:
+        return True
+    with _farm_lock:
+        if _farm_proc is not None and _farm_proc.poll() is None:
+            return True
+        if _farm_thread is not None and _farm_thread.is_alive():
+            return True
+    # Owned child or on-bus unison/farm counts even when heartbeat is stale.
+    if _helper_already_alive("pharmflow_unison_supervisor.py"):
+        return True
+    if _helper_already_alive("run_farm_354.py"):
         return True
     try:
-        from automation.cpharm_unison_dedupe import pids_for_script
+        from automation.pharmflow_unison_dedupe import pids_for_script
 
-        if pids_for_script("cpharm_unison_supervisor.py"):
+        if pids_for_script("pharmflow_unison_supervisor.py"):
+            return True
+        if pids_for_script("run_farm_354.py"):
             return True
     except ImportError:
         pass
+    if _unison_supervisor_alive():
+        return True
     return external_python_farm_running()
+
+
+def _wait_farm_armed(
+    *,
+    log: Callable[[str, str], None] | None = None,
+    timeout_s: float = 20.0,
+) -> bool:
+    """Poll until unison/farm is visible after ensure_operator_stack."""
+
+    def _log(msg: str, level: str = "ok") -> None:
+        if log:
+            log(msg, level)
+
+    deadline = time.time() + max(1.0, float(timeout_s))
+    while time.time() < deadline:
+        if farm_process_alive():
+            return True
+        time.sleep(0.4)
+    # One scan, not a loop. A supervisor we did not spawn still counts.
+    # A fresh log still does not.
+    if _helper_already_alive("pharmflow_unison_supervisor.py") or _helper_already_alive(
+        "run_farm_354.py"
+    ):
+        return True
+    _log("Farm arm wait timed out", "err")
+    return False
 
 
 def _kill_farm_stack(*, log: Callable[[str, str], None] | None = None) -> list[int]:
@@ -551,34 +766,53 @@ def _apply_sticky_overrides() -> None:
 
 
 def _persist_multi_browser_sticky() -> None:
-    """No-op — browsers pinned in cpharm_farm_config.py."""
+    """No-op — browsers pinned in pharmflow_farm_config.py."""
     return
 
 
 def _dabflow_sequence_root() -> Path | None:
-    """Resolve the operator dabflow pool (900x1600/no-ad + ad dabflow sequences).
+    """Resolve the operator dabflow pool (v3 ad/complete/halfway recordings).
 
     Returns None when no on-disk pool exists so callers keep the runtime
     default rather than inventing a path.
+
+    Branding split left live money sequences under ``C:\\CPharm\\...`` while
+    Start farm only probed ``C:\\PharmFlow\\...``. That dropped Path2 halfway
+    pools and silently fell back toward legacy ``sequences/900x1600`` (no
+    halfway stems) — the exact Path1/2/3 regression vs FamFlow/CPharm.
     """
-    if os.environ.get("CPHARM_FARM_SEQUENCE_ROOT", "").strip():
+    if os.environ.get("PHARMFLOW_FARM_SEQUENCE_ROOT", "").strip():
         return None
-    # dabflow money pool is the v3 runtime recordings tree (ad/complete/halfway
-    # combos per material), not the legacy v0 sequences/900x1600 matrix.
-    for cand in (
+    # Prefer the freshest tree that actually has halfway (Path2) files.
+    candidates = [
+        Path(r"C:\PharmFlow\automation\recordings\sequences"),
         Path(r"C:\CPharm\automation\recordings\sequences"),
+        Path.home() / "PharmFlow" / "automation" / "recordings" / "sequences",
         Path.home() / "CPharm" / "automation" / "recordings" / "sequences",
-    ):
-        if _dir_has_v3_sequences(cand):
-            return cand
-    for cand in (
+        Path(__file__).resolve().parents[1] / "automation" / "recordings" / "sequences",
+        Path(r"C:\PharmFlow\sequences"),
         Path(r"C:\CPharm\sequences"),
-        Path.home() / "CPharm" / "sequences",
-        Path(r"C:\Users\jsmil\CPharm\sequences"),
-    ):
-        if _dir_has_v3_sequences(cand):
-            return cand
-    return None
+        Path.home() / "PharmFlow" / "sequences",
+        Path(r"C:\Users\jsmil\PharmFlow\sequences"),
+    ]
+    scored: list[tuple[int, float, Path]] = []
+    for cand in candidates:
+        if not _dir_has_v3_sequences(cand):
+            continue
+        halfway = 0
+        try:
+            halfway = sum(1 for _ in cand.rglob("*halfway*.json"))
+        except OSError:
+            halfway = 0
+        try:
+            mtime = cand.stat().st_mtime
+        except OSError:
+            mtime = 0.0
+        scored.append((halfway, mtime, cand))
+    if not scored:
+        return None
+    scored.sort(key=lambda row: (row[0], row[1]), reverse=True)
+    return scored[0][2]
 
 
 def _dir_has_v3_sequences(cand: Path) -> bool:
@@ -604,110 +838,97 @@ def _dir_has_v3_sequences(cand: Path) -> bool:
 
 
 def _apply_dabflow_pool_env() -> None:
+    existing = (os.environ.get("PHARMFLOW_FARM_SEQUENCE_ROOT") or "").strip()
+    if existing:
+        root = Path(existing)
+        try:
+            # Operator override wins only when the tree still has Path2 halfway.
+            # A stale sticky pointing at empty/legacy 900x1600 (no halfway) must
+            # not permanently disable v3 complete/halfway/ad pools after branding.
+            if root.is_dir() and any(root.rglob("*halfway*.json")):
+                return
+        except OSError:
+            pass
+        os.environ.pop("PHARMFLOW_FARM_SEQUENCE_ROOT", None)
     pool = _dabflow_sequence_root()
     if pool is not None:
-        os.environ["CPHARM_FARM_SEQUENCE_ROOT"] = str(pool)
+        os.environ["PHARMFLOW_FARM_SEQUENCE_ROOT"] = str(pool)
 
 
 def apply_profile_farm_env(profile: SiteProfile | None) -> None:
-    """Map SiteProfile farm prefs onto CPHARM_FARM_* env for the runner.
+    """Map SiteProfile farm prefs onto PHARMFLOW_FARM_* env for the runner.
 
     Sticky overrides win. Money-day defaults: scramble + FORCE_DIRECT=0 + FALLBACK=0.
     """
     _apply_sticky_overrides()
-    os.environ["CPHARM_ALLOW_SEQUENCE_RUNS"] = "1"
+    os.environ["PHARMFLOW_ALLOW_SEQUENCE_RUNS"] = "1"
     # Keep Mantis zone refresh on so ads paint on Path1/2/3 (Path3 only clicks).
-    os.environ["CPHARM_SKIP_MANTIS_PATCH"] = "0"
-    os.environ.setdefault("CPHARM_DABFLOW_MANTIS_PATCH", "1")
-    os.environ.setdefault("CPHARM_EMULATOR_AD_FILL_WAIT", "4")
-    os.environ.setdefault("CPHARM_EMULATOR_AD_MODE", "1")
+    os.environ["PHARMFLOW_SKIP_MANTIS_PATCH"] = "0"
+    os.environ.setdefault("PHARMFLOW_DABFLOW_MANTIS_PATCH", "1")
+    os.environ.setdefault("PHARMFLOW_EMULATOR_AD_FILL_WAIT", "4")
+    os.environ.setdefault("PHARMFLOW_EMULATOR_AD_MODE", "1")
     # Money-day rails (sticky may already set these).
-    os.environ.setdefault("CPHARM_EMULATOR_AD_FORCE_DIRECT", "0")
-    os.environ.setdefault("CPHARM_EMULATOR_AD_FALLBACK", "0")
-    os.environ.setdefault("CPHARM_BROWSE_PROXY_MODE", "scramble")
-    os.environ["CPHARM_REQUIRE_UNIQUE_EXIT_IP"] = "1"
-    os.environ["CPHARM_NEVER_SHARE_EXIT_IP"] = "1"
+    os.environ.setdefault("PHARMFLOW_EMULATOR_AD_FORCE_DIRECT", "0")
+    os.environ.setdefault("PHARMFLOW_EMULATOR_AD_FALLBACK", "0")
+    os.environ.setdefault("PHARMFLOW_BROWSE_PROXY_MODE", "scramble")
+    os.environ["PHARMFLOW_REQUIRE_UNIQUE_EXIT_IP"] = "1"
+    os.environ["PHARMFLOW_NEVER_SHARE_EXIT_IP"] = "1"
     # Paths / Path3 / Allow-ads: NEVER force ON here. Operator file + dash
     # (wizard_farm_settings.json / apply_saved_to_env) are authority. Unset =
     # Path1/2 only (_farm_paths default "1,2", _ads_allowed default off).
-    os.environ.setdefault("CPHARM_FARM_UNIQUE_SEQ", "1")
+    os.environ.setdefault("PHARMFLOW_FARM_UNIQUE_SEQ", "1")
     # Unique-seq Path1/2 needs dedicated stems per browser — sticky must not lock chromium-only.
-    os.environ["CPHARM_FARM_CHROMIUM_ONLY"] = "0"
-    os.environ["CPHARM_FARM_BROWSERS"] = MULTI_BROWSER
-    os.environ["CPHARM_FARM_PATH3_BROWSERS"] = PATH3_BROWSERS
+    os.environ["PHARMFLOW_FARM_CHROMIUM_ONLY"] = "0"
+    os.environ["PHARMFLOW_FARM_BROWSERS"] = MULTI_BROWSER
+    os.environ["PHARMFLOW_FARM_PATH3_BROWSERS"] = PATH3_BROWSERS
     _persist_multi_browser_sticky()
-    os.environ.setdefault("CPHARM_SITE_SLUG", "dabflow")
+    os.environ.setdefault("PHARMFLOW_SITE_SLUG", "dabflow")
     # Force isolation every sequence — dash must not leave skip=1 sticky.
-    os.environ["CPHARM_SKIP_SEQUENCE_ISOLATION"] = "0"
-    os.environ["CPHARM_ALLOW_SEQUENCE_RUNS"] = "1"
-    # MITM inject: billing_direct + prefer-paying (no house fallback) live in
-    # automation.mantis_inject_proxy / dabflow_mantis_client_patch — keep ON.
-    os.environ.setdefault("CPHARM_MANTIS_INJECT_PROXY", "1")
-    os.environ.setdefault("CPHARM_MANTIS_INJECT_MITM", "1")
-    os.environ.setdefault("CPHARM_MANTIS_BILLING_DIRECT", "0")
+    os.environ["PHARMFLOW_SKIP_SEQUENCE_ISOLATION"] = "0"
+    os.environ["PHARMFLOW_ALLOW_SEQUENCE_RUNS"] = "1"
+    # MITM inject stays ON. billing_direct is assignment, not setdefault —
+    # standing rule 7 forbids host-IP billing even if a parent passed "1".
+    os.environ.setdefault("PHARMFLOW_MANTIS_INJECT_PROXY", "1")
+    os.environ.setdefault("PHARMFLOW_MANTIS_INJECT_MITM", "1")
+    os.environ["PHARMFLOW_MANTIS_BILLING_DIRECT"] = "0"
     # Autopilot: honor operator/dash only — do not force pause/sticky Path3 fights.
-    os.environ.setdefault("CPHARM_AUTOPILOT_PAUSE", "0")
-    os.environ.setdefault("CPHARM_GEO_TIME_WINDOW", "1")
-    os.environ.setdefault("CPHARM_GEO_WINDOW_START", "09:30")
-    os.environ.setdefault("CPHARM_GEO_WINDOW_END", "00:00")
+    os.environ.setdefault("PHARMFLOW_AUTOPILOT_PAUSE", "0")
+    os.environ.setdefault("PHARMFLOW_GEO_TIME_WINDOW", "1")
+    os.environ.setdefault("PHARMFLOW_GEO_WINDOW_START", "09:30")
+    os.environ.setdefault("PHARMFLOW_GEO_WINDOW_END", "00:00")
+    # Roster is live ADB. A site profile phone_count (dabflow defaults to 4)
+    # must not become PHARMFLOW_FARM_PHONE_COUNT or a day-plan sized for that count.
+    os.environ.pop("PHARMFLOW_FARM_PHONE_COUNT", None)
+    os.environ.pop("PHARMFLOW_FARM_EXPECT_PHONES", None)
     if profile is None:
-        # Plan fills gaps only — sticky CPHARM_* already applied above.
-        plan = plan_for_phones(int(os.environ.get("CPHARM_FARM_PHONE_COUNT") or 4))
-        _apply_plan_gaps(plan)
         # dabflow is the default site — without an active profile the lane must
         # still point at the on-disk pool, never the empty bundle recordings dir.
-        slug = os.environ.get("CPHARM_SITE_SLUG", "dabflow").strip() or "dabflow"
+        slug = os.environ.get("PHARMFLOW_SITE_SLUG", "dabflow").strip() or "dabflow"
         if slug == "dabflow":
             _apply_dabflow_pool_env()
         return
     f = profile.farm
-    phone_count = max(1, min(len(_PHONE_NAMES), int(f.phone_count)))
-    if os.environ.get("CPHARM_FARM_PHONE_COUNT"):
-        try:
-            phone_count = max(1, min(len(_PHONE_NAMES), int(os.environ["CPHARM_FARM_PHONE_COUNT"])))
-        except ValueError:
-            pass
-    plan = plan_for_phones(
-        phone_count,
-        visits_csv=str(
-            os.environ.get("CPHARM_FARM_DAILY_VISITS")
-            or getattr(f, "daily_visits_csv", "")
-            or ""
-        ),
-        ads_csv=str(
-            os.environ.get("CPHARM_FARM_DAILY_ADS")
-            or getattr(f, "daily_ads_csv", "")
-            or ""
-        ),
-        impressions_per_visit=float(
-            os.environ.get("CPHARM_FARM_IMPRESSIONS_PER_VISIT")
-            or getattr(f, "impressions_per_visit", 22.0)
-            or 22.0
-        ),
-    )
-    _apply_plan_gaps(plan)
-    os.environ.setdefault("CPHARM_FARM_ALLOW_ADS", "1" if f.allow_ads else "0")
+    os.environ.setdefault("PHARMFLOW_FARM_ALLOW_ADS", "1" if f.allow_ads else "0")
     os.environ.setdefault(
-        "CPHARM_NTFY_INTERVAL_S", str(max(300, int(f.ntfy_interval_s)))
+        "PHARMFLOW_NTFY_INTERVAL_S", str(max(300, int(f.ntfy_interval_s)))
     )
     # Money-day short stagger only. Sticky already applied above (force).
     # Never invent profile 30-min spreads (1800/306) — that stagnated actives.
-    os.environ.setdefault("CPHARM_FARM_START_STAGGER_WINDOW", "120")
-    os.environ.setdefault("CPHARM_FARM_START_STAGGER_BAND", "120")
-    os.environ.setdefault("CPHARM_FARM_START_STAGGER_MIN_GAP", "15")
-    os.environ.setdefault("CPHARM_FARM_START_STAGGER_JITTER", "40")
+    os.environ.setdefault("PHARMFLOW_FARM_START_STAGGER_WINDOW", "120")
+    os.environ.setdefault("PHARMFLOW_FARM_START_STAGGER_BAND", "120")
+    os.environ.setdefault("PHARMFLOW_FARM_START_STAGGER_MIN_GAP", "15")
+    os.environ.setdefault("PHARMFLOW_FARM_START_STAGGER_JITTER", "40")
     # If a long profile-era value leaked into process env (not sticky), snap it.
     try:
-        win_now = float(os.environ.get("CPHARM_FARM_START_STAGGER_WINDOW") or "0")
+        win_now = float(os.environ.get("PHARMFLOW_FARM_START_STAGGER_WINDOW") or "0")
     except ValueError:
         win_now = 0.0
     if win_now > 300.0:
-        os.environ["CPHARM_FARM_START_STAGGER_WINDOW"] = "120"
-        os.environ["CPHARM_FARM_START_STAGGER_BAND"] = "120"
-        os.environ["CPHARM_FARM_START_STAGGER_MIN_GAP"] = "15"
-        os.environ["CPHARM_FARM_START_STAGGER_JITTER"] = "40"
-    os.environ.setdefault("CPHARM_FARM_PHONE_COUNT", str(phone_count))
-    os.environ.setdefault("CPHARM_SITE_SLUG", profile.slug)
+        os.environ["PHARMFLOW_FARM_START_STAGGER_WINDOW"] = "120"
+        os.environ["PHARMFLOW_FARM_START_STAGGER_BAND"] = "120"
+        os.environ["PHARMFLOW_FARM_START_STAGGER_MIN_GAP"] = "15"
+        os.environ["PHARMFLOW_FARM_START_STAGGER_JITTER"] = "40"
+    os.environ.setdefault("PHARMFLOW_SITE_SLUG", profile.slug)
     if profile.adapter == "dabflow":
         # dabflow pools live on disk as <root>/900x1600/{no-ad,ad}/dabflow__*.json.
         # Never drop to the empty bundle recordings dir — that strands the farm
@@ -715,26 +936,18 @@ def apply_profile_farm_env(profile: SiteProfile | None) -> None:
         _apply_dabflow_pool_env()
     else:
         os.environ.setdefault(
-            "CPHARM_FARM_SEQUENCE_ROOT", str(sequences_dir() / profile.slug)
+            "PHARMFLOW_FARM_SEQUENCE_ROOT", str(sequences_dir() / profile.slug)
         )
     if f.ntfy_topic:
-        os.environ.setdefault("CPHARM_NTFY_TOPIC", f.ntfy_topic)
+        os.environ.setdefault("PHARMFLOW_NTFY_TOPIC", f.ntfy_topic)
     if profile.humanize.concurrent_unique_sequences:
-        os.environ["CPHARM_FARM_UNIQUE_SEQ"] = "1"
+        os.environ["PHARMFLOW_FARM_UNIQUE_SEQ"] = "1"
     else:
-        os.environ.setdefault("CPHARM_FARM_UNIQUE_SEQ", "0")
-
-
-def _apply_plan_gaps(plan: Any) -> None:
-    """Apply mantis plan env only where sticky/env has no value yet."""
-    before = {k: v for k, v in os.environ.items() if k.startswith("CPHARM_")}
-    apply_plan_to_environ(plan)
-    for key, old in before.items():
-        os.environ[key] = old
+        os.environ.setdefault("PHARMFLOW_FARM_UNIQUE_SEQ", "0")
 
 
 def _farm_args(script: Path, hours: float, profile: SiteProfile | None) -> list[str]:
-    """Hours only — live ADB phones are discovered inside run_farm_354 via CPharm."""
+    """Hours only — live ADB phones are discovered inside run_farm_354 via PharmFlow."""
     return [str(script), "--hours", str(hours)]
 
 
@@ -775,12 +988,12 @@ def _run_farm_in_thread(
             sys.argv = old_argv
             _digest_stop.set()
 
-    t = threading.Thread(target=target, name="cpharm-farm", daemon=True)
+    t = threading.Thread(target=target, name="pharmflow-farm", daemon=True)
     _farm_thread = t
     t.start()
     _log(
         f"Farm started in-process (thread={t.name}, hours={hours}, "
-        f"unique-seq={'on' if os.environ.get('CPHARM_FARM_UNIQUE_SEQ') == '1' else 'off'})",
+        f"unique-seq={'on' if os.environ.get('PHARMFLOW_FARM_UNIQUE_SEQ') == '1' else 'off'})",
         "ok",
     )
 
@@ -803,7 +1016,7 @@ def _start_digest(profile: SiteProfile | None, log: Callable[[str, str], None] |
             stop_event=_digest_stop,
         )
 
-    _digest_thread = threading.Thread(target=target, name="cpharm-ntfy-digest", daemon=True)
+    _digest_thread = threading.Thread(target=target, name="pharmflow-ntfy-digest", daemon=True)
     _digest_thread.start()
     if log:
         log(f"ntfy digest started (every {interval_s // 60} minutes)", "ok")
@@ -814,7 +1027,7 @@ def _stop_digest_when_process_exits(proc: subprocess.Popen[Any]) -> None:
         proc.wait()
         _digest_stop.set()
 
-    threading.Thread(target=target, name="cpharm-farm-monitor", daemon=True).start()
+    threading.Thread(target=target, name="pharmflow-farm-monitor", daemon=True).start()
 
 
 def start_farm(
@@ -827,7 +1040,7 @@ def start_farm(
     """Spawn farm runner + operator stack. Returns True if started.
 
     When ``takeover`` is True (default), any external python farm/cycles are
-    stopped so CPharm owns the money path independently.
+    stopped so PharmFlow owns the money path independently.
     """
     global _farm_proc
 
@@ -836,7 +1049,7 @@ def start_farm(
             log(msg, level)
 
     with _farm_lock:
-        if farm_running():
+        if farm_process_alive():
             _log("Farm already running", "warn")
             return False
         if external_python_farm_running():
@@ -858,6 +1071,12 @@ def start_farm(
                 _log(f"Applied {applied} wizard farm setting(s)", "ok")
         except Exception as exc:
             _log(f"apply wizard farm settings failed: {exc}", "warn")
+        # Saved settings must not pin a stale SEQUENCE_ROOT without Path2
+        # halfway (legacy 900x1600 / empty PharmFlow tree). Re-validate.
+        _apply_dabflow_pool_env()
+        # Saved wizard settings may still carry billing_direct=1. Standing
+        # rule 7: never inherit that. Host-IP clicks are deduped and pay $0.
+        os.environ["PHARMFLOW_MANTIS_BILLING_DIRECT"] = "0"
         # EXE self-heal BEFORE lanes arm: seed tor.exe, prune ghost serial maps,
         # adb-connect live MuMu guests. Standing rule — no external band-aids.
         try:
@@ -868,15 +1087,16 @@ def start_farm(
                 _log(f"self-heal: {note}", "ok")
         except Exception as exc:
             _log(f"self-heal failed (continuing): {exc}", "warn")
-        os.environ["CPHARM_FARM_STOP"] = "0"
+        os.environ["PHARMFLOW_FARM_STOP"] = "0"
+        claim_start_farm_owner()
         helper_py = _resolve_helper_python()
         # Prefer real pythonw workers; only use in-process farm when frozen w/o python.
         in_process = bool(getattr(sys, "frozen", False) and not helper_py)
         mark_exe_owned(in_process=in_process)
-        os.environ["CPHARM_UNISON_MODE"] = "1"
+        os.environ["PHARMFLOW_UNISON_MODE"] = "1"
         # Unison owns farm + stealth + watchdog — do not also spawn run_farm_354 here.
         ensure_operator_stack(log=log)
-        if not farm_running():
+        if not _wait_farm_armed(log=log, timeout_s=20.0):
             _log("Farm stack failed to arm (unison/helpers not alive)", "err")
             clear_exe_owned()
             return False
@@ -884,7 +1104,7 @@ def start_farm(
         _start_digest(profile, log)
         threading.Thread(
             target=lambda: open_operator_dashboard(log=log),
-            name="cpharm-open-dash",
+            name="pharmflow-open-dash",
             daemon=True,
         ).start()
         return True
@@ -899,7 +1119,7 @@ def stop_farm(*, log: Callable[[str, str], None] | None = None) -> bool:
 
     with _farm_lock:
         _digest_stop.set()
-        os.environ["CPHARM_FARM_STOP"] = "1"
+        os.environ["PHARMFLOW_FARM_STOP"] = "1"
         stopped = False
         if _farm_proc is not None and _farm_proc.poll() is None:
             pid = _farm_proc.pid
@@ -946,6 +1166,7 @@ def load_active_profile(slug: str | None) -> SiteProfile | None:
 # ---------------------------------------------------------------------------
 _test_phone_lock = threading.Lock()
 _test_phone_active = False
+_test_phone_result: dict = {"ok": True, "starting": False}
 
 
 def _docker_cli(argv: list[str], timeout: float = 40.0) -> tuple[int, str]:
@@ -963,21 +1184,78 @@ def _docker_cli(argv: list[str], timeout: float = 40.0) -> tuple[int, str]:
         return 1, str(exc)
 
 
-def _redroid_containers() -> list[tuple[int, str, bool]]:
-    """[(idx, name, is_up)] for every redroid-N container docker knows."""
+def _published_adb_serials(ports_raw: str) -> list[str]:
+    serials: list[str] = []
+    seen: set[str] = set()
+    for match in re.finditer(r"(?:0\.0\.0\.0|127\.0\.0\.1):(\d+)->", ports_raw or ""):
+        serial = f"127.0.0.1:{match.group(1)}"
+        if serial in seen:
+            continue
+        seen.add(serial)
+        serials.append(serial)
+    return serials
+
+
+def _redroid_containers() -> list[dict[str, Any]]:
+    """Every redroid container, with the ADB ports docker published.
+
+    Does not invent ``5555 + index``. Does not call docker when the engine is
+    down — that CLI shim opens Docker Desktop.
+    """
+    if not docker_guard.engine_running():
+        return []
     code, out = _docker_cli(
-        ["ps", "-a", "--filter", "name=redroid-", "--format", "{{.Names}}|{{.Status}}"]
+        [
+            "ps",
+            "-a",
+            "--filter",
+            "name=redroid-",
+            "--format",
+            "{{.Names}}|{{.Status}}|{{.Ports}}",
+        ]
     )
     if code != 0:
         return []
-    rows: list[tuple[int, str, bool]] = []
+    rows: list[dict[str, Any]] = []
     for line in out.splitlines():
-        name, _, status = line.partition("|")
-        m = re.match(r"^redroid-(\d+)$", name.strip())
+        parts = line.split("|", 2)
+        if not parts:
+            continue
+        name = parts[0].strip()
+        m = re.match(r"^redroid-(\d+)$", name)
         if not m:
             continue
-        rows.append((int(m.group(1)), name.strip(), status.strip().startswith("Up")))
-    return sorted(rows)
+        status = parts[1] if len(parts) > 1 else ""
+        ports_raw = parts[2] if len(parts) > 2 else ""
+        rows.append(
+            {
+                "idx": int(m.group(1)),
+                "name": name,
+                "up": status.strip().startswith("Up"),
+                "ports": _published_adb_serials(ports_raw),
+            }
+        )
+    return sorted(rows, key=lambda row: int(row["idx"]))
+
+
+def _set_test_phone_result(payload: dict) -> None:
+    global _test_phone_result
+    with _test_phone_lock:
+        _test_phone_result = dict(payload)
+
+
+def test_phone_status() -> dict:
+    """Last test-phone spin-up. ``starting`` means the worker is still running."""
+    with _test_phone_lock:
+        out = dict(_test_phone_result)
+        active = _test_phone_active
+    if out.get("starting") and not active:
+        return {
+            "ok": False,
+            "starting": False,
+            "error": "Test phone spin-up stopped before it reported a result.",
+        }
+    return out
 
 
 def spin_up_test_phone(*, log: Callable[[str, str], None] | None = None) -> dict:
@@ -1008,8 +1286,16 @@ def spin_up_test_phone(*, log: Callable[[str, str], None] | None = None) -> dict
                 "message": "A test phone is already coming up — wait a moment.",
             }
         _test_phone_active = True
+    _set_test_phone_result(
+        {
+            "ok": True,
+            "starting": True,
+            "message": "Spinning up one test phone — watch the Test log.",
+        }
+    )
 
     def _run() -> None:
+        global _test_phone_active, _test_phone_result
         try:
             from automation.adb_wrapper import AdbWrapper
 
@@ -1020,42 +1306,68 @@ def spin_up_test_phone(*, log: Callable[[str, str], None] | None = None) -> dict
                 if getattr(d, "online", False)
             }
             redroids = _redroid_containers()
-            # 1) Already-running redroid that is simply not adb-connected yet.
-            for idx, name, up in redroids:
-                if not up:
+            # 1) A running redroid that is not on ADB yet. One already on ADB
+            #    is not the spare this button was asked to boot.
+            #    The serial is the port docker published, never 5555+index.
+            for row in redroids:
+                if not row["up"]:
                     continue
-                target = f"127.0.0.1:{5555 + idx}"
-                if target in live:
-                    _log(f"{name} is already online ({target}) — ready to test.", "ok")
-                    return
-            for idx, name, up in redroids:
-                if not up:
+                if not row["ports"]:
+                    _log(
+                        f"{row['name']} is running but docker published no ADB port — not guessing 5555+index",
+                        "err",
+                    )
                     continue
-                target = f"127.0.0.1:{5555 + idx}"
-                _log(f"{name} is running — connecting ADB ({target})…")
-                adb.connect(target)
-                if adb.wait_for_device(target, timeout=45.0):
-                    _log(f"{name} online ({target}) — ready to test.", "ok")
-                    return
+                pending = [port for port in row["ports"] if port not in live]
+                if not pending:
+                    continue
+                for target in pending:
+                    _log(f"{row['name']} is running — connecting ADB ({target})…")
+                    adb.connect(target)
+                    if adb.wait_for_device(target, timeout=45.0):
+                        msg = f"{row['name']} online ({target}) — ready to test."
+                        _log(msg, "ok")
+                        _set_test_phone_result({"ok": True, "starting": False, "message": msg})
+                        return
             # 2) Stopped redroid container -> docker start just that one.
-            for idx, name, up in redroids:
-                if up:
+            for row in redroids:
+                if row["up"]:
                     continue
+                name = str(row["name"])
                 _log(f"{name} is stopped — starting it (docker start)…")
                 code, err = _docker_cli(["start", name], timeout=120.0)
                 if code != 0:
                     _log(f"{name} failed to start: {err}", "err")
                     continue
-                target = f"127.0.0.1:{5555 + idx}"
-                adb.connect(target)
-                if adb.wait_for_device(target, timeout=120.0):
-                    _log(f"{name} online ({target}) — ready to test.", "ok")
-                    return
-                _log(
-                    f"{name} started but no ADB yet — give it a minute, then "
-                    "press Open site on phones.",
-                    "warn",
+                ports = next(
+                    (item["ports"] for item in _redroid_containers() if item["name"] == name),
+                    [],
                 )
+                if not ports:
+                    msg = (
+                        f"{name} started but docker published no ADB port — "
+                        "not guessing 5555+index."
+                    )
+                    _log(msg, "err")
+                    _set_test_phone_result({"ok": False, "starting": False, "error": msg})
+                    return
+                online = ""
+                for target in ports:
+                    adb.connect(target)
+                    if adb.wait_for_device(target, timeout=120.0):
+                        online = target
+                        break
+                if online:
+                    msg = f"{name} online ({online}) — ready to test."
+                    _log(msg, "ok")
+                    _set_test_phone_result({"ok": True, "starting": False, "message": msg})
+                    return
+                msg = (
+                    f"{name} started but no ADB yet on {', '.join(ports)} — give it a minute, then "
+                    "press Open site on phones."
+                )
+                _log(msg, "warn")
+                _set_test_phone_result({"ok": False, "starting": False, "error": msg})
                 return
             # 3) Offline real MuMu VM (explicit user click — never automatic).
             from wizard.mumu_farm_ops import MuMuFarmOps
@@ -1084,11 +1396,13 @@ def spin_up_test_phone(*, log: Callable[[str, str], None] | None = None) -> dict
                 key=lambda i: i.index,
             )
             if not offline:
-                _log(
-                    "No stopped redroid and every MuMu phone is already online — "
-                    "nothing to spin up.",
-                    "warn",
+                msg = (
+                    "Every MuMu phone on this box is already on ADB — nothing left to "
+                    "spin up. Create another phone in MuMu Manager first (ARM has no "
+                    "CLI create), then press this button again."
                 )
+                _log(msg, "warn")
+                _set_test_phone_result({"ok": True, "starting": False, "message": msg})
                 return
             pick = offline[0]
             _log(
@@ -1101,20 +1415,65 @@ def spin_up_test_phone(*, log: Callable[[str, str], None] | None = None) -> dict
                 ok = False
                 _log(f"MuMu spin-up failed: {exc}", "err")
             if ok:
-                _log(f"{pick.name} is up — ready to test.", "ok")
+                msg = f"{pick.name} is up — ready to test."
+                _log(msg, "ok")
+                _set_test_phone_result({"ok": True, "starting": False, "message": msg})
             else:
-                _log(
-                    f"{pick.name} launch started but ADB is not up yet — wait a few "
-                    "minutes, then press Open site on phones.",
-                    "warn",
+                # Empty AdbHost after launch_timeout usually means HCS/MuMu UI wedge
+                # (see OPS_NOTES) — not "wait a bit". Be honest so Boot is not a lie.
+                from automation.mumu_shell_cli import (
+                    instance_shell_running,
+                    phone_vm_index,
                 )
+
+                idx = phone_vm_index(pick.name, getattr(pick, "index", 0) or 0)
+                shell_up = False
+                try:
+                    shell_up = bool(instance_shell_running(idx))
+                except Exception:
+                    shell_up = False
+                if shell_up:
+                    msg = (
+                        f"{pick.name} shell is up but ADB is not ready yet — wait a few "
+                        "minutes, then press Open site on phones."
+                    )
+                    _log(msg, "warn")
+                    _set_test_phone_result(
+                        {"ok": False, "starting": False, "error": msg}
+                    )
+                else:
+                    msg = (
+                        f"{pick.name} did not start (MuMu shell never stuck). On MuMu "
+                        "ARM that usually means the VM needs a Manager UI launch — "
+                        "open MuMu Manager, start that phone, then press this again. "
+                        "Do not use adb reboot -p."
+                    )
+                    _log(msg, "err")
+                    _set_test_phone_result(
+                        {"ok": False, "starting": False, "error": msg}
+                    )
         except Exception as exc:  # noqa: BLE001
-            _log(f"Test phone spin-up error: {exc}", "err")
+            msg = f"Test phone spin-up error: {exc}"
+            _log(msg, "err")
+            _set_test_phone_result({"ok": False, "starting": False, "error": msg})
         finally:
-            global _test_phone_active
+            with _test_phone_lock:
+                if _test_phone_result.get("starting"):
+                    _test_phone_result = {
+                        "ok": False,
+                        "starting": False,
+                        "error": "Test phone spin-up stopped before it reported a result.",
+                    }
             _test_phone_active = False
 
-    threading.Thread(target=_run, name="cpharm-test-phone", daemon=True).start()
+    try:
+        threading.Thread(target=_run, name="pharmflow-test-phone", daemon=True).start()
+    except Exception as exc:  # noqa: BLE001
+        with _test_phone_lock:
+            _test_phone_active = False
+        msg = f"Test phone spin-up did not start: {exc}"
+        _set_test_phone_result({"ok": False, "starting": False, "error": msg})
+        return {"ok": False, "started": False, "error": msg}
     return {
         "ok": True,
         "started": True,

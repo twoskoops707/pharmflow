@@ -46,7 +46,7 @@ tab_glass_scrolled_bottom). Skip remains (276,984) verify_dismiss + until_sessio
 REGEN
 -----
 900×1600 no-ad combo matrix only: 60 files regen_ok
-  dir=C:\Users\jsmil\CPharm\sequences\900x1600\no-ad
+  dir=C:\Users\jsmil\PharmFlow\sequences\900x1600\no-ad
   (dabflow__demo__ONE.json NOT overwritten by regen script — hand-maintained)
 
 SAMPLE JSON SPOT CHECK (post-regen)
@@ -68,7 +68,7 @@ dabflow__demo__ONE.json:
 dabflow__no_ads__mat-quartz__conc-wax__heat-butane.json:
   json_structure=PASS  timer_to_modal=PASS  skip=PASS  glass_tab=PASS  stats_tab=PASS
 
-Full log: C:\Users\jsmil\CPharm\TAIL_LIVE_2SEQ_RESULT.txt
+Full log: C:\Users\jsmil\PharmFlow\TAIL_LIVE_2SEQ_RESULT.txt
 
 NOT REGENERATED (per user request)
 ----------------------------------

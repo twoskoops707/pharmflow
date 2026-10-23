@@ -5,17 +5,17 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-_ENV = "CPHARM_SEQUENCES_DIR"
+_ENV = "PHARMFLOW_SEQUENCES_DIR"
 
 
 def default_sequences_dir() -> Path:
-    """Default local folder: ``%USERPROFILE%\\CPharm\\sequences``."""
-    return Path.home() / "CPharm" / "sequences"
+    """Default local folder: ``%USERPROFILE%\\PharmFlow\\sequences``."""
+    return Path.home() / "PharmFlow" / "sequences"
 
 
 def resolve_sequences_dir(*, create: bool = False) -> Path:
     """
-    Sequences root from ``CPHARM_SEQUENCES_DIR`` or :func:`default_sequences_dir`.
+    Sequences root from ``PHARMFLOW_SEQUENCES_DIR`` or :func:`default_sequences_dir`.
 
     Layout: ``{root}/{WxH}/{ad|no-ad}/*.json``
     """

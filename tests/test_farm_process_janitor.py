@@ -1,4 +1,4 @@
-"""Janitor classification — what CPharm is allowed to reap."""
+"""Janitor classification — what PharmFlow is allowed to reap."""
 from __future__ import annotations
 
 from automation.farm_process_janitor import (
@@ -60,8 +60,8 @@ def test_orphan_and_adb_conhost() -> None:
 
 def test_hung_azure_oneshot() -> None:
     assert should_kill_hung_oneshot(
-        "pythonw.exe", r"C:\Users\jsmil\AppData\Local\FamFlowTools\kill_azure_telemetry.py", 4000.0
+        "pythonw.exe", r"C:\Users\jsmil\AppData\Local\PharmFlowTools\kill_azure_telemetry.py", 4000.0
     )
     assert not should_kill_hung_oneshot(
-        "pythonw.exe", r"C:\Users\jsmil\AppData\Local\FamFlowTools\kill_azure_telemetry.py", 10.0
+        "pythonw.exe", r"C:\Users\jsmil\AppData\Local\PharmFlowTools\kill_azure_telemetry.py", 10.0
     )

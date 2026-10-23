@@ -13,20 +13,19 @@
 
 ## Focused watchdog
 
-`tools/cpharm_watchdog.py` is the supported connection-recovery helper. It checks Docker Compose, TCP emulator ports, and ADB connectivity, and only applies known repairs when `--apply` is provided. Use `python tools/project_agent.py watchdog -- --apply --repair-docker` for a one-shot repair or add `--watch` for monitoring.
+`tools/pharmflow_watchdog.py` is the supported connection-recovery helper. It checks Docker Compose, TCP emulator ports, and ADB connectivity, and only applies known repairs when `--apply` is provided. Use `python tools/project_agent.py watchdog -- --apply --repair-docker` for a one-shot repair or add `--watch` for monitoring.
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Build
 
-GitHub Actions builds **two** Windows exes on every push to **`main`** (see `.github/workflows/build-wizard.yml`):
+GitHub Actions builds **one** Windows exe on every push to **`main`** (see `.github/workflows/build-wizard.yml`):
 
 | Spec | Output |
 |------|--------|
-| `wizard/CPharm.spec` | **CPharm.exe** (Home + full wizard + dashboard shell) |
-| `wizard/CPharmMuMuSetup.spec` | **CPharmMuMuSetup.exe** (MuMu checklist, fingerprint, browser, launch CPharm) |
+| `wizard/PharmFlow.spec` | **PharmFlow.exe** (Control Panel + phone setup + Start farm + `--watchdog` / `--agent`) |
 
-Both attach to the same [GitHub Release](https://github.com/twoskoops707/cpharm/releases) tag `wizard-<run_number>`.
+It attaches to the [GitHub Release](https://github.com/twoskoops707/pharmflow/releases) tag `wizard-<run_number>`. Install path is `C:\PharmFlow\PharmFlow.exe`. Logs and settings stay under `C:\PharmFlow\`.
 
 There is no local PyInstaller build on Linux — CI runs on `windows-latest` only.
 
@@ -36,10 +35,10 @@ There is no local PyInstaller build on Linux — CI runs on `windows-latest` onl
 
 ```bash
 python3 -m py_compile wizard/setup_wizard.py
-python3 -m py_compile wizard/cpharm_desktop.py
+python3 -m py_compile wizard/pharmflow_desktop.py
 python3 -m py_compile automation/dashboard.py
 python3 -m py_compile automation/tor_manager.py
-python3 -m py_compile wizard/cpharm_mumu_setup.py
+python3 -m py_compile wizard/pharmflow_mumu_setup.py
 python3 -m py_compile wizard/mumu_setup_core.py
 python3 -m py_compile wizard/browser_setup.py
 python3 -m py_compile automation/mumu_fingerprint.py
@@ -55,7 +54,7 @@ Dashboard serves on port `8080` (HTTP) and `8081` (WebSocket), defined in `autom
 
 ## Architecture
 
-### Dual-exe split (MuMu first-run)
+### Phone setup (inside PharmFlow.exe)
 
 | Component | Role |
 |-----------|------|
@@ -65,16 +64,16 @@ Dashboard serves on port `8080` (HTTP) and `8081` (WebSocket), defined in `autom
 | `automation/mumu_fingerprint.py` | VM + ADB fingerprint; `ensure_fingerprint_before_browse` before each `open_url` |
 | `automation/browser_adb.py` | Runtime browser order (MuMu Browser before Chrome) |
 
-Wizard **does not** re-run full fingerprint by default — copy points users to **CPharmMuMuSetup.exe** first.
+Wizard **does not** re-run full fingerprint by default — phone setup is **PharmFlow → Phones → Set up my phones**.
 
 ### Wizard UI vs automation server
 
-**1. CPharm (wizard module)** (`wizard/setup_wizard.py`, ~12k lines — large single module)
-- Single-file tkinter GUI (**CPharm**) that walks users through first-time setup
-- Nine primary screens (`CPharmWizard.PAGES`): Welcome → Prerequisites → Android Studio → Phone Farm → Boot → Automation → Sequence Generator → Groups → Launch (`wizard/setup_wizard.py`). Extra page classes (e.g. `WebpePage`, deprecated `PlayStorePage`) exist outside that linear flow (not in `PAGES`).
-- All pages extend `PageBase(tk.Frame)` and are shown by `CPharmWizard(tk.Tk)`
+**1. PharmFlow wizard module** (`wizard/setup_wizard.py`, ~12k lines — large single module)
+- Tkinter GUI used as the classic fallback and for `--internal-tk-page`. The shipped Control Panel is the WebView deck in `wizard/pharmflow_app_webview.py`.
+- Nine primary screens (`PharmFlowWizard.PAGES`): Welcome → Prerequisites → Android Studio → Phone Farm → Boot → Automation → Sequence Generator → Groups → Launch (`wizard/setup_wizard.py`). Extra page classes (e.g. `WebpePage`, deprecated `PlayStorePage`) exist outside that linear flow (not in `PAGES`).
+- All pages extend `PageBase(tk.Frame)` and are shown by `PharmFlowWizard(tk.Tk)`
 - Phone sequences are stored **per-phone** inside groups: `group["phones"][serial]["steps"]` — not at the group level
-- Downloads: Java, Python, Android cmdline-tools, Tor expert bundle, CPharm repo ZIP
+- Downloads: Java, Python, Android cmdline-tools, Tor expert bundle, PharmFlow repo ZIP
 - `_urlretrieve(url, dest, hook)` wraps `urllib.request.urlretrieve` with per-attempt socket timeout plus bounded retries/backoff for transient download failures
 - Per-phone sequence editing uses `PerPhoneSequenceEditor` (defined at top of file, line ~114)
 - ARM64 Windows detection: checks `PROCESSOR_ARCHITEW6432` env var + registry; ARM64 emulator needs arm64-v8a system image
@@ -104,7 +103,7 @@ state = {
     "phones":     [{"serial": str, "name": str, ...}],   # booted phones
     "groups":     [{"name": str, "phones": {serial: {"steps": [...]}},
                     "stagger_secs": int, "repeat": int, "repeat_forever": bool}],
-    "cpharm_dir": str,    # path to cloned repo root
+    "pharmflow_dir": str,    # path to cloned repo root
     "python_cmd": str,    # "python" or "python3"
     "sdk_path":   str,    # Android SDK root
     "avds":       [...],  # list of AVD names
@@ -122,5 +121,5 @@ state = {
   ```
 
   After that `git symbolic-ref refs/remotes/origin/HEAD` should print `refs/remotes/origin/main`.
-- The wizard’s GitHub ZIP fallback downloads **`main`** (`CPHARM_ZIP_URL` → `.../refs/heads/main.zip`). Legacy branch name **`master`** may still exist on some forks or old clones.
+- The wizard’s GitHub ZIP fallback downloads **`main`** (`PHARMFLOW_ZIP_URL` → `.../refs/heads/main.zip`). Legacy branch name **`master`** may still exist on some forks or old clones.
 - Build triggers: push to **`main`** builds **both** exes and publishes GitHub Release (not Actions artifacts as default download).

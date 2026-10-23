@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_CPHARM = Path(r"C:\CPharm") if os.name == "nt" else Path.home() / "CPharm"
+DEFAULT_PHARMFLOW = Path(r"C:\PharmFlow") if os.name == "nt" else Path.home() / "PharmFlow"
 DEFAULT_SEQ = (
     "900x1600/ad/mantis-hardcode/"
     "dabflow__mantis_hardcode__01__mat-ceramic__conc-distillate__heat-butane.json"
@@ -21,8 +21,8 @@ DEFAULT_SEQ = (
 
 sys.path.insert(0, str(ROOT / "wizard"))
 sys.path.insert(0, str(ROOT / "automation"))
-os.environ["CPHARM_HUMAN_VARIATION"] = "0"
-os.environ.setdefault("CPHARM_USE_SHELL_WM_FOCUS_CHEAT", "1")
+os.environ["PHARMFLOW_HUMAN_VARIATION"] = "0"
+os.environ.setdefault("PHARMFLOW_USE_SHELL_WM_FOCUS_CHEAT", "1")
 
 import tor_manager
 from adb_paths import adb_executable
@@ -32,16 +32,16 @@ from setup_wizard import execute_steps
 adb = adb_executable()
 
 
-def _cpharm_root() -> Path:
-    raw = (os.environ.get("CPHARM_HOME") or os.environ.get("CPHARM_DIR") or "").strip()
+def _pharmflow_root() -> Path:
+    raw = (os.environ.get("PHARMFLOW_HOME") or os.environ.get("PHARMFLOW_DIR") or "").strip()
     if raw:
         return Path(raw).expanduser().resolve()
-    if DEFAULT_CPHARM.is_dir():
-        return DEFAULT_CPHARM
+    if DEFAULT_PHARMFLOW.is_dir():
+        return DEFAULT_PHARMFLOW
     repo_seq = ROOT / "sequences"
     if repo_seq.is_dir():
         return ROOT
-    return DEFAULT_CPHARM
+    return DEFAULT_PHARMFLOW
 
 
 def list_adb_states() -> list[tuple[str, str]]:
@@ -92,7 +92,7 @@ def pick_serial(preferred: str | None = None, *, wait_secs: float = 0.0) -> str:
             break
         if states:
             offline = ", ".join(f"{s}({st})" for s, st in states)
-            print(f"[cpharm] waiting for online device; saw: {offline}", flush=True)
+            print(f"[pharmflow] waiting for online device; saw: {offline}", flush=True)
         time.sleep(3.0)
     return _pick_online([s for s, st in list_adb_states() if st == "device"])
 
@@ -101,7 +101,7 @@ def repair_proxy(serial: str) -> None:
     """Ensure Tor HTTPTunnel + adb reverse + http_proxy before any open_url (required for farm runs)."""
     idx = tor_manager.phone_idx_from_adb_serial(serial)
     port = tor_manager.http_proxy_port_for_phone_idx(idx)
-    print(f"[cpharm] Tor setup serial={serial} phone_idx={idx} http_port={port}", flush=True)
+    print(f"[pharmflow] Tor setup serial={serial} phone_idx={idx} http_port={port}", flush=True)
     tor_manager.repair_adb_reverse_for_proxy(serial, idx)
     result = tor_manager.ensure_tor_and_proxy_for_phone(serial, idx)
     if not result.get("ok", True) and result.get("error"):
@@ -112,17 +112,17 @@ def repair_proxy(serial: str) -> None:
         text=True,
         timeout=15,
     ).stdout.strip()
-    print(f"[cpharm] device http_proxy={proxy!r} reverse={subprocess.run([adb, '-s', serial, 'reverse', '--list'], capture_output=True, text=True, timeout=15).stdout.strip()}", flush=True)
+    print(f"[pharmflow] device http_proxy={proxy!r} reverse={subprocess.run([adb, '-s', serial, 'reverse', '--list'], capture_output=True, text=True, timeout=15).stdout.strip()}", flush=True)
     if not proxy or proxy == "null":
         raise RuntimeError("http_proxy not set on device after Tor setup")
     tor_manager.kick_default_browser_after_proxy_teardown([serial])
 
 
-def resolve_sequence(seq_arg: str, cpharm: Path) -> Path:
+def resolve_sequence(seq_arg: str, pharmflow: Path) -> Path:
     p = Path(seq_arg)
     if p.is_file():
         return p.resolve()
-    for base in (cpharm / "sequences", ROOT / "sequences"):
+    for base in (pharmflow / "sequences", ROOT / "sequences"):
         candidate = base / seq_arg
         if candidate.is_file():
             return candidate.resolve()
@@ -147,16 +147,16 @@ def main() -> int:
     ap.add_argument(
         "--out",
         default=None,
-        help="Result txt path (default: CPharm/MANTIS_HARDCODE_LIVE.txt)",
+        help="Result txt path (default: PharmFlow/MANTIS_HARDCODE_LIVE.txt)",
     )
     args = ap.parse_args()
 
     if args.skip_tor_wait:
-        os.environ["CPHARM_SKIP_TOR_WAIT"] = "1"
+        os.environ["PHARMFLOW_SKIP_TOR_WAIT"] = "1"
 
-    cpharm = _cpharm_root()
-    seq_path = resolve_sequence(args.sequence, cpharm)
-    out_path = Path(args.out) if args.out else cpharm / "MANTIS_HARDCODE_LIVE.txt"
+    pharmflow = _pharmflow_root()
+    seq_path = resolve_sequence(args.sequence, pharmflow)
+    out_path = Path(args.out) if args.out else pharmflow / "MANTIS_HARDCODE_LIVE.txt"
 
     t0 = time.monotonic()
     started_at = datetime.now(timezone.utc).isoformat()
@@ -186,7 +186,7 @@ def main() -> int:
 
         prepare_for_dabflow_open(serial, "https://getdabflow.app", log=print)
     except Exception as exc:
-        print(f"[cpharm] dabflow browser prep warning: {exc}", flush=True)
+        print(f"[pharmflow] dabflow browser prep warning: {exc}", flush=True)
 
     raw = json.loads(seq_path.read_text(encoding="utf-8-sig"))
     steps, meta = unwrap_sequence_document(raw)
@@ -206,7 +206,8 @@ def main() -> int:
             print(f"{el:7.1f}s step {i + 1}/{len(steps)} {t} {cp}{extra}", flush=True)
             if t == "wait" and cp == "timer_complete":
                 print(f"  >>> TIMER WAIT {timer_wait}s START", flush=True)
-            execute_steps([step], serial)
+            if execute_steps([step], serial) is False:
+                raise RuntimeError(f"step {i + 1} {t} did not land")
             if t == "wait" and cp == "timer_complete":
                 print(f"  >>> TIMER WAIT END wall={time.monotonic() - t0 - el:.1f}s", flush=True)
         overall = "PASS"

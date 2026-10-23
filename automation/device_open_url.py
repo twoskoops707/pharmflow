@@ -7,7 +7,7 @@ route URLs through ADB.
 **Page load vs. launch:** ``am start`` only fires the intent; Chromium may show a blank
 shell then navigate. On-device ``net::ERR_TIMED_OUT`` is usually **page load** (proxy/Tor/DNS/slow
 first paint). Mitigations: host Tor + ``adb reverse`` ready before opening (see ``tor_manager``),
-env waits ``CPHARM_OPEN_URL_*``, and/or add an explicit sequence ``wait`` step after ``open_url``
+env waits ``PHARMFLOW_OPEN_URL_*``, and/or add an explicit sequence ``wait`` step after ``open_url``
 for heavy sites.
 
 Prefer a generic ``ACTION_VIEW`` intent (no ``-n`` / no package) so the device
@@ -45,7 +45,7 @@ _CHROME_PACKAGE_PREFIXES = (
     "com.google.android.apps.chrome",  # internal/dogfood Chrome packages
 )
 
-# FarmBrowser — CPharm's own stealth browser with proxy/identity rotation.
+# FarmBrowser — PharmFlow's own stealth browser with proxy/identity rotation.
 _FARMBROWSER_PACKAGES = (
     "com.farmbrowser.stealth.debug",
     "com.farmbrowser.stealth",

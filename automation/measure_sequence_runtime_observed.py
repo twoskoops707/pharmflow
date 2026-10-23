@@ -259,8 +259,8 @@ def _write_report(runs: list[RunResult], phones: list[dict]) -> None:
 
 async def _main() -> int:
     env = os.environ.copy()
-    env["CPHARM_HUMAN_VARIATION"] = "0"
-    env.setdefault("CPHARM_BIND", "127.0.0.1")
+    env["PHARMFLOW_HUMAN_VARIATION"] = "0"
+    env.setdefault("PHARMFLOW_BIND", "127.0.0.1")
     dash = subprocess.Popen(
         [sys.executable, "dashboard.py"],
         cwd=str(AUTOMATION),

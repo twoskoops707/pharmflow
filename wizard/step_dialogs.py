@@ -1,4 +1,4 @@
-"""Step add dialog + full per-phone sequence editor (prior CPharm parity)."""
+"""Step add dialog + full per-phone sequence editor (prior PharmFlow parity)."""
 
 from __future__ import annotations
 
@@ -103,7 +103,7 @@ def _safe_hits_per_day(raw: Any, default: int = 0) -> int:
 
 
 def normalize_step(step: dict[str, Any]) -> dict[str, Any]:
-    """Normalize prior flat `type` steps into FamFlow `{action, params}`."""
+    """Normalize prior flat `type` steps into PharmFlow `{action, params}`."""
     if not isinstance(step, dict):
         return {"action": "wait", "params": {"seconds": 1}}
     out = dict(step)
@@ -131,7 +131,7 @@ def _store_name(path: Path) -> str:
 
 
 class AddStepDialog(tk.Toplevel):
-    """Type-driven Add Step dialog (prior CPharm parity)."""
+    """Type-driven Add Step dialog (prior PharmFlow parity)."""
 
     def __init__(self, parent: tk.Misc, *, initial: dict[str, Any] | None = None) -> None:
         super().__init__(parent)
@@ -264,7 +264,7 @@ class AddStepDialog(tk.Toplevel):
                 except ValueError:
                     pass
             params[key] = v
-        # FamFlow runner prefers keycode int for keyevent
+        # PharmFlow runner prefers keycode int for keyevent
         if t in ("keyevent", "key") and "key" in params:
             key = str(params.pop("key")).upper()
             mapping = {"BACK": 4, "HOME": 3, "ENTER": 66, "APP_SWITCH": 187}
@@ -489,7 +489,7 @@ class PerPhoneSequenceEditor(tk.Toplevel):
                     command=self._mark_dirty,
                 ).pack(fill="x")
 
-            # Secondary playlist (Set B) + shuffle — prior CPharm parity
+            # Secondary playlist (Set B) + shuffle — prior PharmFlow parity
             set_b = tk.Frame(pl_card, bg=BG2)
             set_b.pack(fill="x", pady=(SP["md"], 0))
             tk.Checkbutton(

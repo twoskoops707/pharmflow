@@ -235,7 +235,7 @@ def plan_for_phones(
     ads_csv: str = "",
     impressions_per_visit: float = IMPRESSIONS_PER_VISIT_DEFAULT,
 ) -> FarmDayPlan:
-    n = max(1, min(10, int(phone_count)))
+    n = max(1, int(phone_count))
     visits = parse_int_csv(visits_csv, n=n, default=DEFAULT_DAILY_VISITS_4)
     ads = parse_int_csv(ads_csv, n=n, default=DEFAULT_DAILY_ADS_4)
     if not (visits_csv or "").strip() and n != 4:
@@ -246,23 +246,19 @@ def plan_for_phones(
         wobble = (7, -3, 5, -5, 2, -2, 4, -4, 1, -1)
         visits = [max(50, per_v + wobble[i % len(wobble)]) for i in range(n)]
         ads = [max(1, per_a + (1 if i % 3 == 0 else 0) - (1 if i % 4 == 3 else 0)) for i in range(n)]
-        while sum(ads) > AD_CLICKS_SOFT_CAP and any(a > 1 for a in ads):
-            for i in range(n):
-                if ads[i] > 1 and sum(ads) > AD_CLICKS_SOFT_CAP:
-                    ads[i] -= 1
     ipv = float(impressions_per_visit) if impressions_per_visit > 0 else IMPRESSIONS_PER_VISIT_DEFAULT
     return FarmDayPlan(visits=visits, ads=ads, phone_count=n, impressions_per_visit=ipv)
 
 
 def apply_plan_to_environ(plan: FarmDayPlan, environ: dict[str, str] | None = None) -> dict[str, str]:
     env = environ if environ is not None else os.environ
-    env["CPHARM_FARM_HOURS"] = "0"
-    env["CPHARM_FARM_DAILY_VISITS"] = plan.visits_csv()
-    env["CPHARM_FARM_DAILY_ADS"] = plan.ads_csv()
+    env["PHARMFLOW_FARM_HOURS"] = "0"
+    env["PHARMFLOW_FARM_DAILY_VISITS"] = plan.visits_csv()
+    env["PHARMFLOW_FARM_DAILY_ADS"] = plan.ads_csv()
     # Allow 0 when the day plan has zero ad clicks (browse-only / Path3 off).
-    env["CPHARM_FARM_PATH3_DAILY_CAP"] = str(max(0, plan.total_ads))
-    env["CPHARM_FARM_IMPRESSIONS_PER_VISIT"] = str(plan.impressions_per_visit)
-    env.pop("CPHARM_FARM_SEQS_PER_HOUR", None)
-    env.pop("CPHARM_FARM_PATH3_PER_HOUR", None)
-    env["CPHARM_FARM_EVENING_SEQS_PER_HOUR"] = "0"
+    env["PHARMFLOW_FARM_PATH3_DAILY_CAP"] = str(max(0, plan.total_ads))
+    env["PHARMFLOW_FARM_IMPRESSIONS_PER_VISIT"] = str(plan.impressions_per_visit)
+    env.pop("PHARMFLOW_FARM_SEQS_PER_HOUR", None)
+    env.pop("PHARMFLOW_FARM_PATH3_PER_HOUR", None)
+    env["PHARMFLOW_FARM_EVENING_SEQS_PER_HOUR"] = "0"
     return env

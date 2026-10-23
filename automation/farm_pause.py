@@ -1,6 +1,6 @@
 """Operator pause/resume — farm off until a wall-clock time, dash stays up.
 
-Replaces ad-hoc CPHARM_FARM_STOP fights. ensure/keepalive/remediator honor
+Replaces ad-hoc PHARMFLOW_FARM_STOP fights. ensure/keepalive/remediator honor
 FARM_PAUSED_UNTIL.json; they do not respawn farm workers while paused.
 """
 from __future__ import annotations
@@ -14,7 +14,7 @@ from zoneinfo import ZoneInfo
 
 from automation.farm_visit_caps import enforce_multi_browser
 
-LOG = Path(os.environ.get("CPHARM_LOGS") or r"C:\CPharm\logs")
+LOG = Path(os.environ.get("PHARMFLOW_LOGS") or r"C:\PharmFlow\logs")
 PAUSE_FILE = LOG / "FARM_PAUSED_UNTIL.json"
 KILL_FLAG = LOG / "FARM_KILL.flag"
 SNAPSHOT_FILE = LOG / "farm_midnight_snapshot.json"
@@ -129,10 +129,10 @@ def capture_snapshot(*, note: str = "") -> dict[str, Any]:
         "operator": {
             k: v
             for k, v in ov.items()
-            if str(k).startswith("CPHARM_") and k
+            if str(k).startswith("PHARMFLOW_") and k
             not in (
-                "CPHARM_FARM_STOP",
-                "CPHARM_AUTOPILOT_PAUSE",
+                "PHARMFLOW_FARM_STOP",
+                "PHARMFLOW_AUTOPILOT_PAUSE",
             )
         },
     }
@@ -140,20 +140,20 @@ def capture_snapshot(*, note: str = "") -> dict[str, Any]:
     config = {
         "updated": _utc(),
         "source": "farm_pause.capture_snapshot",
-        "phones_expect": len(phones) or int(ov.get("CPHARM_FARM_EXPECT_PHONES") or 6),
-        "daily_visits": ov.get("CPHARM_FARM_DAILY_VISITS"),
-        "daily_ads": ov.get("CPHARM_FARM_DAILY_ADS"),
-        "seqs_per_hour": ov.get("CPHARM_FARM_SEQS_PER_HOUR"),
-        "stagger_window": ov.get("CPHARM_FARM_START_STAGGER_WINDOW", "150"),
-        "stagger_min_gap": ov.get("CPHARM_FARM_START_STAGGER_MIN_GAP", "18"),
+        "phones_expect": len(phones) or int(ov.get("PHARMFLOW_FARM_EXPECT_PHONES") or 6),
+        "daily_visits": ov.get("PHARMFLOW_FARM_DAILY_VISITS"),
+        "daily_ads": ov.get("PHARMFLOW_FARM_DAILY_ADS"),
+        "seqs_per_hour": ov.get("PHARMFLOW_FARM_SEQS_PER_HOUR"),
+        "stagger_window": ov.get("PHARMFLOW_FARM_START_STAGGER_WINDOW", "150"),
+        "stagger_min_gap": ov.get("PHARMFLOW_FARM_START_STAGGER_MIN_GAP", "18"),
         "age_gate_wait": "2.0",
         "dabflow_load_wait": "5.5",
         "start_dab_verify_wait": "2.5",
-        "ipv_per_visit": ov.get("CPHARM_IPV_STICKY") or ov.get("CPHARM_FARM_IMPRESSIONS_PER_VISIT") or "21.64",
-        "chromium_only": ov.get("CPHARM_FARM_CHROMIUM_ONLY", "0"),
-        "unique_seq": ov.get("CPHARM_FARM_UNIQUE_SEQ", "1"),
-        "allow_ads": ov.get("CPHARM_FARM_ALLOW_ADS", "1"),
-        "path3_daily_cap": ov.get("CPHARM_FARM_PATH3_DAILY_CAP", "24"),
+        "ipv_per_visit": ov.get("PHARMFLOW_IPV_STICKY") or ov.get("PHARMFLOW_FARM_IMPRESSIONS_PER_VISIT") or "21.64",
+        "chromium_only": ov.get("PHARMFLOW_FARM_CHROMIUM_ONLY", "0"),
+        "unique_seq": ov.get("PHARMFLOW_FARM_UNIQUE_SEQ", "1"),
+        "allow_ads": ov.get("PHARMFLOW_FARM_ALLOW_ADS", "1"),
+        "path3_daily_cap": ov.get("PHARMFLOW_FARM_PATH3_DAILY_CAP", "24"),
     }
     LOG.mkdir(parents=True, exist_ok=True)
     SNAPSHOT_FILE.write_text(json.dumps(snap, indent=2) + "\n", encoding="utf-8")
@@ -185,7 +185,7 @@ def pause_until(
         ov: dict[str, Any] = {}
         if OVERRIDES.is_file():
             ov = json.loads(OVERRIDES.read_text(encoding="utf-8-sig"))
-        ov["CPHARM_FARM_STOP"] = "1"
+        ov["PHARMFLOW_FARM_STOP"] = "1"
         ov["updated"] = _utc()
         ov["pause_note"] = reason
         OVERRIDES.write_text(json.dumps(ov, indent=2) + "\n", encoding="utf-8")
@@ -214,7 +214,7 @@ def clear_pause() -> None:
         ov: dict[str, Any] = {}
         if OVERRIDES.is_file():
             ov = json.loads(OVERRIDES.read_text(encoding="utf-8-sig"))
-        ov["CPHARM_FARM_STOP"] = "0"
+        ov["PHARMFLOW_FARM_STOP"] = "0"
         ov.pop("pause_note", None)
         ov["updated"] = _utc()
         OVERRIDES.write_text(json.dumps(ov, indent=2) + "\n", encoding="utf-8")
@@ -237,19 +237,19 @@ def apply_operator_config_to_overrides() -> list[str]:
         except (OSError, json.JSONDecodeError):
             ov = {}
     mapping = {
-        "daily_visits": "CPHARM_FARM_DAILY_VISITS",
-        "daily_ads": "CPHARM_FARM_DAILY_ADS",
-        "seqs_per_hour": "CPHARM_FARM_SEQS_PER_HOUR",
-        "stagger_window": "CPHARM_FARM_START_STAGGER_WINDOW",
-        "stagger_min_gap": "CPHARM_FARM_START_STAGGER_MIN_GAP",
-        "age_gate_wait": "CPHARM_AGE_GATE_WAIT",
-        "dabflow_load_wait": "CPHARM_DABFLOW_LOAD_WAIT",
-        "start_dab_verify_wait": "CPHARM_START_DAB_VERIFY_WAIT",
-        "ipv_per_visit": "CPHARM_FARM_IMPRESSIONS_PER_VISIT",
+        "daily_visits": "PHARMFLOW_FARM_DAILY_VISITS",
+        "daily_ads": "PHARMFLOW_FARM_DAILY_ADS",
+        "seqs_per_hour": "PHARMFLOW_FARM_SEQS_PER_HOUR",
+        "stagger_window": "PHARMFLOW_FARM_START_STAGGER_WINDOW",
+        "stagger_min_gap": "PHARMFLOW_FARM_START_STAGGER_MIN_GAP",
+        "age_gate_wait": "PHARMFLOW_AGE_GATE_WAIT",
+        "dabflow_load_wait": "PHARMFLOW_DABFLOW_LOAD_WAIT",
+        "start_dab_verify_wait": "PHARMFLOW_START_DAB_VERIFY_WAIT",
+        "ipv_per_visit": "PHARMFLOW_FARM_IMPRESSIONS_PER_VISIT",
         # chromium_only omitted — unique-seq forbids locking sticky to chromium-only.
-        "unique_seq": "CPHARM_FARM_UNIQUE_SEQ",
-        "allow_ads": "CPHARM_FARM_ALLOW_ADS",
-        "path3_daily_cap": "CPHARM_FARM_PATH3_DAILY_CAP",
+        "unique_seq": "PHARMFLOW_FARM_UNIQUE_SEQ",
+        "allow_ads": "PHARMFLOW_FARM_ALLOW_ADS",
+        "path3_daily_cap": "PHARMFLOW_FARM_PATH3_DAILY_CAP",
     }
     changed: list[str] = []
     for cfg_key, env_key in mapping.items():
@@ -261,9 +261,9 @@ def apply_operator_config_to_overrides() -> list[str]:
             ov[env_key] = sval
             changed.append(env_key)
     if cfg.get("ipv_per_visit"):
-        ov["CPHARM_IPV_STICKY"] = str(cfg["ipv_per_visit"])
-    ov["CPHARM_FARM_STOP"] = "0"
-    ov["CPHARM_FARM_UNIQUE_SEQ"] = "1"
+        ov["PHARMFLOW_IPV_STICKY"] = str(cfg["ipv_per_visit"])
+    ov["PHARMFLOW_FARM_STOP"] = "0"
+    ov["PHARMFLOW_FARM_UNIQUE_SEQ"] = "1"
     if enforce_multi_browser(ov):
         changed.append("multi_browser")
     ov["updated"] = _utc()

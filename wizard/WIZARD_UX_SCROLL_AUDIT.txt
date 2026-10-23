@@ -1,6 +1,6 @@
-CPharm Wizard — UX scroll audit (2026-06-21)
+PharmFlow Wizard — UX scroll audit (2026-06-21)
 ============================================
-File: wizard/setup_wizard.py (+ wizard shell in CPharmWizard)
+File: wizard/setup_wizard.py (+ wizard shell in PharmFlowWizard)
 
 ROOT CAUSE
 ----------
@@ -18,14 +18,14 @@ PATTERN (matches existing code)
 - canvas_embed_set_width on canvas <Configure>
 - _bind_nested_canvas_mousewheel for Windows/Linux wheel
 - Bottom padding Frame (height ~16–32) so last row is not flush against edge
-- CPharmWizard._on_mousewheel: scroll nested canvas under pointer when present
+- PharmFlowWizard._on_mousewheel: scroll nested canvas under pointer when present
 
 AUDIT BY PAGE / DIALOG
 ----------------------
 
 | Component                    | Status       | Notes |
 |-----------------------------|--------------|-------|
-| CPharmWizard shell          | SCROLL_OK    | All 9 steps wrapped in per-page canvas + vsb; mousewheel routes to nested canvas under cursor |
+| PharmFlowWizard shell          | SCROLL_OK    | All 9 steps wrapped in per-page canvas + vsb; mousewheel routes to nested canvas under cursor |
 | WelcomePage                 | SCROLL_FIXED | cols: expand=True → fill=x |
 | PrerequisitesPage           | SCROLL_FIXED | install log row: expand=True → fill=x |
 | AndroidStudioPage           | SCROLL_OK    | log_fr fill=x (186d8c5); MuMu block scrolls via shell |
@@ -37,7 +37,7 @@ AUDIT BY PAGE / DIALOG
 | LaunchPage                  | SCROLL_OK    | log_fr fill=x (186d8c5); long A–E sections scroll via shell |
 | PerPhoneSequenceEditor      | SCROLL_FIXED | body/paned expand removed; paned height=720; playlist pane minsize 200; set B fill=x; main bottom pad; _refresh_per_phone_scrollregions |
 | AddStepDialog               | SCROLL_FIXED | full-dialog scroll canvas (replaces 220px-tall nested fields-only canvas); OK/Cancel in FOOTER_BG bar outside scroll |
-| WebpePage                   | N/A          | Not in CPharmWizard.PAGES (standalone applet class only) |
+| WebpePage                   | N/A          | Not in PharmFlowWizard.PAGES (standalone applet class only) |
 | PlayStorePage               | N/A          | Defined but not in active wizard flow |
 
 PRIORITY FIXES APPLIED THIS PASS

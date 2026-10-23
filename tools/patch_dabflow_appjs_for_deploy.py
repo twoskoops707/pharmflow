@@ -71,7 +71,7 @@ def patch_app_js(source: str) -> tuple[str, list[str]]:
 
 
 def main() -> int:
-    req = urllib.request.Request(APP_JS_URL, headers={"User-Agent": "CPharm-patch/1"})
+    req = urllib.request.Request(APP_JS_URL, headers={"User-Agent": "PharmFlow-patch/1"})
     with urllib.request.urlopen(req, timeout=60) as resp:
         source = resp.read().decode("utf-8", errors="replace")
 
@@ -96,8 +96,8 @@ def main() -> int:
                 "Patches applied:",
                 *[f"  - {n}" for n in notes],
                 "",
-                "Until deployed, CPharm injects a runtime fix via CDP after each open_url",
-                "(CPHARM_DABFLOW_MANTIS_PATCH=1, default on).",
+                "Until deployed, PharmFlow injects a runtime fix via CDP after each open_url",
+                "(PHARMFLOW_DABFLOW_MANTIS_PATCH=1, default on).",
                 "",
             ]
         )

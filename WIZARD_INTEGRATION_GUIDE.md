@@ -1,9 +1,9 @@
 ═══════════════════════════════════════════════════════════
-  CPHARM WIZARD INTEGRATION GUIDE
+  PHARMFLOW WIZARD INTEGRATION GUIDE
   Auto-Connect All Phones to ADB
 ═══════════════════════════════════════════════════════════
 
-✓ CREATED: Three scripts to auto-connect phones in CPharm wizard
+✓ CREATED: Three scripts to auto-connect phones in PharmFlow wizard
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -13,7 +13,7 @@
    ├─ Python-based, most portable
    ├─ Usage: python auto_phone_adb.py --docker
    ├─ Returns: List of connected phone addresses
-   └─ Integrates directly into CPharm preflight checks
+   └─ Integrates directly into PharmFlow preflight checks
 
 2. auto_adb_connect.ps1 (Windows PowerShell)
    ├─ Fast native PowerShell
@@ -32,7 +32,7 @@
 Option 1: Call from Python (Recommended)
 ─────────────────────────────────────────
 
-In: C:\CPharm\wizard\preflight_core.py or mumu_setup_core.py
+In: C:\PharmFlow\wizard\preflight_core.py or mumu_setup_core.py
 
 Add this function:
 
@@ -64,7 +64,7 @@ Usage in wizard:
 Option 2: Call from Shell (CLI Integration)
 ────────────────────────────────────────────
 
-In: setup_wizard.py or cpharm_mumu_setup.py
+In: setup_wizard.py or pharmflow_mumu_setup.py
 
   import subprocess
   result = subprocess.run(
@@ -82,7 +82,7 @@ In: setup_wizard.py or cpharm_mumu_setup.py
 Option 3: UI Button in Wizard (Tkinter/WebView)
 ────────────────────────────────────────────────
 
-In: cpharm_app_webview.py or mumu_setup_webview.py
+In: pharmflow_app_webview.py or mumu_setup_webview.py
 
 Add a button in Step 4 (Phones):
 
@@ -98,7 +98,7 @@ Add a button in Step 4 (Phones):
               capture_output=True,
               text=True,
               timeout=120,
-              cwd=cpharm_root(),
+              cwd=pharmflow_root(),
           )
           
           # Show result
@@ -146,9 +146,9 @@ HTML/JS for WebView:
 
 🚀 IMPLEMENTATION CHECKLIST:
 
-For CPharm Maintainers:
+For PharmFlow Maintainers:
 
- □ Step 1: Add auto_phone_adb.py to C:\CPharm\wizard\
+ □ Step 1: Add auto_phone_adb.py to C:\PharmFlow\wizard\
  
  □ Step 2: Patch preflight_core.py:
    ├─ Import: from auto_phone_adb import connect_all_phones
@@ -207,14 +207,14 @@ Fix:   Another process is holding the port. Run:
    docker ps | grep redroid
    
 2. Run auto-connect:
-   cd C:\CPharm
+   cd C:\PharmFlow
    python auto_phone_adb.py --docker
    
 3. Verify connections:
-   C:\CPharm\bundled\adb.exe devices
+   C:\PharmFlow\bundled\adb.exe devices
    
-4. Start CPharm wizard:
-   CPharm.exe
+4. Start PharmFlow wizard:
+   PharmFlow.exe
    → Go to Launch → Preflight should show all phones
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

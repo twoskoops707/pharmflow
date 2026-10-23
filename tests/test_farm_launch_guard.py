@@ -118,3 +118,13 @@ def test_launch_app_allows_chromium(monkeypatch) -> None:
             return AdbResult(0, "Events injected: 1", "")
 
     assert launch_app(_Fake(), "10.0.2.1:5555", "org.chromium.chrome")  # type: ignore[arg-type]
+
+
+def test_launch_app_silent_monkey_is_not_a_launch() -> None:
+    class _Fake:
+        def shell(self, cmd: str, serial: str | None = None, timeout: float = 60.0):
+            if cmd.startswith("monkey"):
+                return AdbResult(0, "", "")
+            return AdbResult(0, "com.android.chrome", "")
+
+    assert launch_app(_Fake(), "10.0.2.1:5555", "org.chromium.chrome") is False  # type: ignore[arg-type]

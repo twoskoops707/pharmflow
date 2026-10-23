@@ -1,4 +1,4 @@
-"""Built-in DabFlow Site Profile used as CPharm's reference target."""
+"""Built-in DabFlow Site Profile used as PharmFlow's reference target."""
 
 from __future__ import annotations
 

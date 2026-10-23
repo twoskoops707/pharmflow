@@ -1,7 +1,7 @@
 """
-Copy shipped DabFlow sequence JSON from the CPharm install tree to the local sequences folder.
+Copy shipped DabFlow sequence JSON from the PharmFlow install tree to the local sequences folder.
 
-Runtime resolves playlists from ``~/CPharm/sequences`` (or ``CPHARM_SEQUENCES_DIR``).
+Runtime resolves playlists from ``~/PharmFlow/sequences`` (or ``PHARMFLOW_SEQUENCES_DIR``).
 The git repo (and GitHub ZIP install) keeps canonical JSON under ``sequences/`` at repo root —
 this module syncs those files onto the operator PC.
 """
@@ -15,7 +15,7 @@ from typing import Callable
 
 LogFn = Callable[[str], None]
 
-# Playlist refs written by CPharmMuMuSetup (50/50 combined shuffle) — must exist after sync.
+# Playlist refs written by PharmFlowMuMuSetup (50/50 combined shuffle) — must exist after sync.
 DEFAULT_PLAYLIST_REFS = (
     "900x1600/no-ad/dabflow__demo__ONE.json",
     "900x1600/no-ad/dabflow__no_ads__mat-quartz__conc-shatter__heat-butane.json",
@@ -37,7 +37,7 @@ def _repo_root_from_here() -> Path | None:
 
 def find_shipped_sequences_source() -> Path | None:
     """Best ``sequences/`` tree to copy from (repo root, install dir, or env)."""
-    env = (os.environ.get("CPHARM_SEQUENCES_SOURCE") or "").strip()
+    env = (os.environ.get("PHARMFLOW_SEQUENCES_SOURCE") or "").strip()
     if env:
         p = Path(env).expanduser()
         if p.is_dir() and any(p.rglob("dabflow*.json")):
@@ -48,16 +48,16 @@ def find_shipped_sequences_source() -> Path | None:
     if repo is not None:
         roots.append(repo / "sequences")
 
-    for key in ("CPHARM_HOME",):
+    for key in ("PHARMFLOW_HOME",):
         raw = (os.environ.get(key) or "").strip()
         if raw:
             roots.append(Path(raw).expanduser().parent / "sequences")
             roots.append(Path(raw).expanduser() / "sequences")
 
     try:
-        from wizard_paths import cpharm_search_roots_ordered
+        from wizard_paths import pharmflow_search_roots_ordered
 
-        for root in cpharm_search_roots_ordered():
+        for root in pharmflow_search_roots_ordered():
             roots.append(root / "sequences")
             roots.append(root.parent / "sequences")
     except Exception:
@@ -70,7 +70,7 @@ def find_shipped_sequences_source() -> Path | None:
         if getattr(sys, "frozen", False):
             exe_parent = Path(sys.executable).resolve().parent
             roots.append(exe_parent / "sequences")
-            for name in ("cpharm-main", "cpharm", "CPharm"):
+            for name in ("pharmflow-main", "pharmflow", "PharmFlow"):
                 roots.append(exe_parent / name / "sequences")
     except Exception:
         pass
@@ -108,7 +108,7 @@ def sync_shipped_sequences(
     dst = (dest or resolve_sequences_dir(create=True)).resolve()
 
     if src is None:
-        log("  No shipped sequences source found (run CPharm Install first).")
+        log("  No shipped sequences source found (run PharmFlow Install first).")
         return {
             "ok": False,
             "copied": 0,

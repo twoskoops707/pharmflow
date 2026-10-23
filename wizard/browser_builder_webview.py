@@ -38,8 +38,8 @@ SwipeCb = Callable[[float, float, float, float, float, float, float], None]
 
 _INJECT_JS = r"""
 (function () {
-  if (window.__cpharmBbInjected) { return; }
-  window.__cpharmBbInjected = true;
+  if (window.__pharmflowBbInjected) { return; }
+  window.__pharmflowBbInjected = true;
   var api = window.pywebview && window.pywebview.api;
   if (!api) { return; }
   var st = null;
@@ -293,7 +293,7 @@ def launch_browser_builder(
                 _busy_starting = False
             started.set()
 
-    threading.Thread(target=worker, daemon=True, name="cpharm-browser-builder").start()
+    threading.Thread(target=worker, daemon=True, name="pharmflow-browser-builder").start()
     # Wait briefly to detect immediate startup failures and avoid reporting false success.
     for _ in range(20):
         if started.wait(timeout=0.1):

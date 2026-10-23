@@ -6,6 +6,7 @@ import os
 import random
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 
 from automation.site_profile import interview_defaults
@@ -98,8 +99,8 @@ class FarmSchedulingTests(unittest.TestCase):
             farm._preflight = original  # type: ignore[assignment]
 
     def test_ad_pick_never_back_to_back(self) -> None:
-        os.environ["CPHARM_FARM_ALLOW_ADS"] = "1"
-        os.environ["CPHARM_FARM_PATHS"] = "1,2,3"
+        os.environ["PHARMFLOW_FARM_ALLOW_ADS"] = "1"
+        os.environ["PHARMFLOW_FARM_PATHS"] = "1,2,3"
         pools = {
             "ad": [Path("home_homead1_ad.json"), Path("home_homead2_ad.json")],
             "complete": [],
@@ -141,6 +142,194 @@ class FarmSchedulingTests(unittest.TestCase):
             sequence_files = [path for path in files if path.name != "_generated.json"]
             self.assertTrue(sequence_files)
             self.assertTrue(all(farm._preflight(path, strict=True) is None for path in sequence_files))
+
+    def test_saved_earn_plan_overrides_visit_caps_and_a_missing_file_does_not(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            env = {
+                "PHARMFLOW_LOGS": str(root),
+                "PHARMFLOW_FARM_DAILY_VISITS": "11",
+                "PHARMFLOW_FARM_DAILY_ADS": "1",
+                "PHARMFLOW_FARM_ALLOW_ADS": "0",
+                "PHARMFLOW_FARM_PATHS": "1,2",
+            }
+            with unittest.mock.patch.dict(os.environ, env, clear=False):
+                self.assertEqual(farm._phone_visits_cap(0), 11)
+                self.assertFalse(farm._ads_allowed())
+                from automation.earn_plan import save_earn_plan
+
+                saved = save_earn_plan(
+                    {
+                        "phones": 2,
+                        "visits_per_phone": 40,
+                        "ads_allowed": True,
+                        "visits_per_paid_action": 20,
+                        "path2_share": 0.25,
+                        "spread_seed": 9,
+                    },
+                    root / "earn_plan.json",
+                )
+                self.assertTrue(saved["saved"])
+                self.assertEqual(sum(saved["visits_by_phone"]), 80)
+                self.assertNotEqual(saved["visits_by_phone"][0], saved["visits_by_phone"][1])
+                self.assertEqual(farm._phone_visits_cap(0), saved["visits_by_phone"][0])
+                self.assertEqual(farm._phone_visits_cap(1), saved["visits_by_phone"][1])
+                self.assertEqual(farm._phone_ads_cap(0), saved["path3_by_phone"][0])
+                self.assertTrue(farm._ads_allowed())
+                self.assertEqual(farm._farm_paths(), {"1", "2", "3"})
+                self.assertEqual(farm._halfway_share(), 0.25)
+                self.assertEqual(farm._path3_per_hour(0), saved["path3_by_phone"][0])
+                self.assertEqual(farm._path3_per_hour(1), saved["path3_by_phone"][1])
+                # Extra live phones still get a count around the mean, not a shrink.
+                self.assertGreater(farm._phone_visits_cap(5), 0)
+
+
+class DailyBudgetAssumesNoFleetSizeTests(unittest.TestCase):
+    """The daily budget state must not invent a fleet: rows are created on demand
+    for whatever phone indexes actually record visits (repo rule: no hardcoded
+    phone-count ceilings; cf. test_up_without_count_does_not_invent_eight)."""
+
+    def _with_budget_file(self, payload: dict | None):
+        import json as _json
+        import tempfile as _tf
+
+        tmp = _tf.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        path = Path(tmp.name) / "farm_daily_budget_state.json"
+        if payload is not None:
+            path.write_text(_json.dumps(payload), encoding="utf-8")
+        patcher = unittest.mock.patch.object(farm, "_daily_budget_path", return_value=path)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        return path
+
+    @staticmethod
+    def _today() -> str:
+        from datetime import datetime
+
+        return datetime.now().astimezone().date().isoformat()
+
+    def test_new_day_starts_with_no_invented_rows(self) -> None:
+        self._with_budget_file({"date": "1999-01-01", "phones": {"0": {"visits": 5, "ads": 2}}})
+        state = farm._load_daily_budget()
+        self.assertEqual(state["date"], self._today())
+        self.assertEqual(state["phones"], {})  # was 8 seeded rows (range(8))
+
+    def test_high_index_phone_records_and_survives_reload(self) -> None:
+        self._with_budget_file({"date": "1999-01-01", "phones": {}})
+        row = farm._record_phone_visit(39, path3=True)
+        self.assertEqual(row, {"visits": 1, "ads": 1})
+        farm._record_phone_visit(39, path3=False)
+        reloaded = farm._load_daily_budget()["phones"]
+        self.assertEqual(reloaded["39"], {"visits": 2, "ads": 1})
+
+    def test_same_day_carries_over_exactly_the_recorded_phones(self) -> None:
+        self._with_budget_file(
+            {
+                "date": self._today(),
+                "phones": {"3": {"visits": 4, "ads": 1}, "41": {"visits": 9, "ads": 3}},
+            }
+        )
+        phones = farm._load_daily_budget()["phones"]
+        # Exactly what was recorded -- no dense 0..max fill for phones that don't exist.
+        self.assertEqual(set(phones), {"3", "41"})
+        self.assertEqual(phones["41"], {"visits": 9, "ads": 3})
+
+    def test_junk_and_malformed_rows_are_tolerated(self) -> None:
+        self._with_budget_file(
+            {
+                "date": self._today(),
+                "phones": {"abc": {"visits": 1}, "7": "not-a-row", "8": {"visits": -3, "ads": 2}},
+            }
+        )
+        phones = farm._load_daily_budget()["phones"]
+        self.assertNotIn("abc", phones)
+        self.assertEqual(phones["7"], {"visits": 0, "ads": 0})
+        self.assertEqual(phones["8"], {"visits": 0, "ads": 2})  # negatives clamp to 0
+
+    def test_missing_row_reads_as_empty_not_an_error(self) -> None:
+        self._with_budget_file(None)
+        state = farm._load_daily_budget()
+        self.assertEqual(farm._phone_budget_row(state, 57), {"visits": 0, "ads": 0})
+
+    def test_loader_source_has_no_fixed_fleet_literals(self) -> None:
+        import inspect
+
+        src = inspect.getsource(farm._load_daily_budget)
+        self.assertNotIn("range(8)", src)
+        self.assertNotIn("max_idx = 5", src)
+
+
+class Path3DailyCapHasNoFixedCeilingTests(unittest.TestCase):
+    """Repo rule: no hardcoded rate caps. With no earn plan and no operator
+    setting, the Path3 daily cap must track the configured per-hour rate
+    across the real fleet -- never a fixed 9,999 (or any other magic number)
+    independent of that configuration."""
+
+    def setUp(self) -> None:
+        self._env_patch = unittest.mock.patch.dict(
+            os.environ,
+            {
+                k: v
+                for k, v in {
+                    "PHARMFLOW_FARM_PATH3_DAILY_CAP": "",
+                    "PHARMFLOW_FARM_PATH3_PER_HOUR": "",
+                    "PHARMFLOW_LOGS": "",
+                }.items()
+            },
+            clear=False,
+        )
+        self._env_patch.start()
+        for key in ("PHARMFLOW_FARM_PATH3_DAILY_CAP", "PHARMFLOW_FARM_PATH3_PER_HOUR", "PHARMFLOW_LOGS"):
+            os.environ.pop(key, None)
+        self._plan_patch = unittest.mock.patch.object(farm, "applied_path3_farm_cap", return_value=None)
+        self._plan_patch.start()
+        self.addCleanup(self._env_patch.stop)
+        self.addCleanup(self._plan_patch.stop)
+
+    def test_no_plan_no_operator_setting_derives_from_rate_and_fleet(self) -> None:
+        with unittest.mock.patch.object(farm, "canonical_expect_phones", return_value=5), \
+                unittest.mock.patch.dict(os.environ, {"PHARMFLOW_FARM_PATH3_PER_HOUR": "3"}):
+            self.assertEqual(farm._path3_farm_daily_cap(), 3 * 24 * 5)
+
+    def test_no_plan_no_rate_no_fleet_is_zero_not_9999(self) -> None:
+        with unittest.mock.patch.object(farm, "canonical_expect_phones", return_value=0):
+            self.assertEqual(farm._path3_farm_daily_cap(), 0)
+
+    def test_explicit_zero_operator_setting_is_honored_not_overridden(self) -> None:
+        with unittest.mock.patch.object(farm, "canonical_expect_phones", return_value=50), \
+                unittest.mock.patch.dict(
+                    os.environ,
+                    {"PHARMFLOW_FARM_PATH3_DAILY_CAP": "0", "PHARMFLOW_FARM_PATH3_PER_HOUR": "9"},
+                ):
+            self.assertEqual(farm._path3_farm_daily_cap(), 0)
+
+    def test_explicit_operator_setting_above_derived_default_is_honored(self) -> None:
+        with unittest.mock.patch.object(farm, "canonical_expect_phones", return_value=1), \
+                unittest.mock.patch.dict(os.environ, {"PHARMFLOW_FARM_PATH3_DAILY_CAP": "500000"}):
+            self.assertEqual(farm._path3_farm_daily_cap(), 500000)
+
+    def test_sticky_override_can_still_raise_the_derived_default(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            Path(tmp, "farm_runtime_overrides.json").write_text(
+                '{"PHARMFLOW_FARM_PATH3_DAILY_CAP": "777"}', encoding="utf-8"
+            )
+            with unittest.mock.patch.object(farm, "canonical_expect_phones", return_value=1), \
+                    unittest.mock.patch.dict(os.environ, {"PHARMFLOW_LOGS": tmp}):
+                self.assertEqual(farm._path3_farm_daily_cap(), 777)
+
+    def test_module_default_matches_the_same_derivation_not_a_duplicated_9999(self) -> None:
+        import inspect
+
+        # The module-level PATH3_DAILY_CAP and the function both route through
+        # _path3_daily_cap_env_default() -- no separate hardcoded "9999" default
+        # duplicated between them (the bug the review comment flagged).
+        for src in (
+            inspect.getsource(farm._path3_farm_daily_cap),
+            inspect.getsource(farm._path3_daily_cap_env_default),
+            inspect.getsource(farm._path3_fallback_daily_cap),
+        ):
+            self.assertNotIn("9999", src)
 
 
 if __name__ == "__main__":

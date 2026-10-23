@@ -5,8 +5,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-_HTML = Path(__file__).resolve().parent / "assets" / "cpharm_app" / "index.html"
-_CSS = Path(__file__).resolve().parent / "assets" / "cpharm_app" / "app.css"
+_HTML = Path(__file__).resolve().parent / "assets" / "pharmflow_app" / "index.html"
+_CSS = Path(__file__).resolve().parent / "assets" / "pharmflow_app" / "app.css"
 
 
 def main() -> int:

@@ -7,6 +7,7 @@ import logging
 import os
 import random
 import time
+import urllib.parse
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -32,6 +33,12 @@ from automation.emulator_ad_mode import (
     pause_tor_for_ads,
     resume_tor_after_ads,
 )
+from automation.session_notes_uia import (
+    dismiss_session_notes_verified,
+    step_wants_session_notes_dismiss,
+    step_wants_session_notes_gone,
+    wait_session_notes_gone,
+)
 from automation.browser_adb import (
     clear_browser_package,
     clear_chromium_all_data,
@@ -50,6 +57,8 @@ from automation.dabflow_overlays import (
 )
 from automation.browse_proxy import (
     browser_package_for_serial,
+    guest_proxy_healthy,
+    pin_guest_proxy,
     restore_inject_after_identity,
     sync_browse_proxy_env_from_prefs,
 )
@@ -71,16 +80,23 @@ from automation.config import (
 )
 from automation.sequence_isolation import isolate_before_sequence, isolation_skip_allowed
 from automation.ad_slot_pick import nudge_tap_off_ads, pick_live_ad_coords
-from automation.dabflow_mantis_ad_urls import is_mantis_house_bot_click_url
+from automation.dabflow_mantis_ad_urls import (
+    has_live_click_token,
+    is_mantis_house_bot_click_url,
+    phone_viewed_click_url,
+)
 from automation.dabflow_mantis_client_patch import (
     _ingest_paying_fill_file,
     cdp_creative_tap_targets,
     click_url_for_zone,
+    paying_fill_file_fresh,
     prefetch_ssp_ads_prefer_paying,
 )
 from automation.farm_launch_guard import (
     bring_browser_foreground_dabflow,
     foreground_package,
+    is_denied_launch_package,
+    is_launcher_package,
     should_skip_content_tap,
 )
 from automation.human_ad_click import human_path3_ad_engage, human_scroll_ad_landing
@@ -132,7 +148,7 @@ def _inst_phone_idx(inst: Any) -> int:
 
 def _farm_ads_allowed() -> bool:
     """Path3 / ad-tap engage only when operator explicitly allows ads."""
-    return os.environ.get("CPHARM_FARM_ALLOW_ADS", "0").strip().lower() in (
+    return os.environ.get("PHARMFLOW_FARM_ALLOW_ADS", "0").strip().lower() in (
         "1",
         "true",
         "yes",
@@ -142,7 +158,7 @@ def _farm_ads_allowed() -> bool:
 
 def _path3_require_paying() -> bool:
     """Jul 30 billed by opening live ``clicked`` URLs. Skipping 'house' kills the day."""
-    return os.environ.get("CPHARM_PATH3_REQUIRE_PAYING", "0").strip().lower() in (
+    return os.environ.get("PHARMFLOW_PATH3_REQUIRE_PAYING", "0").strip().lower() in (
         "1",
         "true",
         "yes",
@@ -161,17 +177,42 @@ def is_paying_mantis_click_url(url: str) -> bool:
     return is_mantis_clicked_tracking_url(u) and not is_mantis_house_bot_click_url(u)
 
 
+def _fresh_paying_fill_click(zone: str) -> str:
+    """File ads only when the shared fill is fresh and the URL has a live bi+bt.
+
+    A stale fill replaces the phone's impression token and pays $0.
+    """
+    if not paying_fill_file_fresh():
+        return ""
+    z = str(zone or "")
+    try:
+        rows = _ingest_paying_fill_file() or []
+    except Exception:
+        return ""
+    for ad in rows:
+        click = str(ad.get("click_url") or "").strip()
+        if not has_live_click_token(click):
+            continue
+        ad_zone = str(ad.get("zone_id") or "").strip()
+        if z and ad_zone and ad_zone != z:
+            continue
+        return click
+    return ""
+
+
 def resolve_path3_paying_click_url(zone: str, prefer_click: str = "") -> str:
     """Return a paying SSP click_url, or empty. Never returns house/bot URLs.
 
     After cache + force_refresh still miss, burst-prefetch paying fill and retry.
+    Never returns a URL unless it has a live bi+bt token. File ads only when
+    the shared fill is inside the freshness window.
     """
     click = (prefer_click or "").strip()
-    if is_paying_mantis_click_url(click):
+    if has_live_click_token(click):
         return click
     z = str(zone or "")
     click = click_url_for_zone(z, allow_any=True, prefer_paying=True) or ""
-    if is_paying_mantis_click_url(click):
+    if has_live_click_token(click):
         return click
     click = (
         click_url_for_zone(
@@ -179,7 +220,7 @@ def resolve_path3_paying_click_url(zone: str, prefer_click: str = "") -> str:
         )
         or ""
     )
-    if is_paying_mantis_click_url(click):
+    if has_live_click_token(click):
         return click
     try:
         prefetch_ssp_ads_prefer_paying(
@@ -193,38 +234,25 @@ def resolve_path3_paying_click_url(zone: str, prefer_click: str = "") -> str:
         )
         or ""
     )
-    if is_paying_mantis_click_url(click):
+    if has_live_click_token(click):
         return click
-    return ""
+    return _fresh_paying_fill_click(z)
 
 
 def resolve_path3_click_url(zone: str, prefer_click: str = "") -> str:
-    """Jul 30: open the live ``clicked`` URL from the ad. Do not wait on house skip."""
+    """Open a token-bound ``clicked`` URL. Never a stale or synthetic wrap."""
     raw = (prefer_click or "").strip()
-    if is_paying_mantis_click_url(raw):
+    if has_live_click_token(raw):
         return raw
     z = str(zone or "")
     cached = click_url_for_zone(z, allow_any=True, prefer_paying=True) or ""
-    if is_paying_mantis_click_url(cached):
+    if has_live_click_token(cached):
         return cached
     if not _path3_require_paying():
-        if is_mantis_clicked_tracking_url(raw):
-            return raw
         any_click = click_url_for_zone(z, allow_any=True, prefer_paying=False) or ""
-        if is_mantis_clicked_tracking_url(any_click):
+        if has_live_click_token(any_click):
             return any_click
-        try:
-            for ad in _ingest_paying_fill_file() or []:
-                click = str(ad.get("click_url") or "").strip()
-                if not is_mantis_clicked_tracking_url(click):
-                    continue
-                ad_zone = str(ad.get("zone_id") or "").strip()
-                if z and ad_zone and ad_zone != z:
-                    continue
-                return click
-        except Exception:
-            pass
-        return ""
+        return _fresh_paying_fill_click(z)
     return resolve_path3_paying_click_url(zone, prefer_click)
 
 
@@ -242,6 +270,7 @@ class StepAction(str, Enum):
     KEYEVENT = "keyevent"
     KEY = "key"
     BACK = "back"
+    TYPE_TEXT = "type_text"
     FULL_RESET = "full_reset"
 
 
@@ -304,6 +333,32 @@ class Sequence:
         )
 
 
+_NAMED_KEYS = {
+    "BACK": 4,
+    "HOME": 3,
+    "MENU": 82,
+    "POWER": 26,
+    "ENTER": 66,
+    "TAB": 61,
+    "APP_SWITCH": 187,
+}
+
+
+def _key_code(params: dict[str, Any]) -> int | None:
+    """Numeric code or a named Android key. None means the step cannot run."""
+    raw = params.get("code", params.get("key", params.get("keycode")))
+    if raw is None or raw == "":
+        return None
+    if isinstance(raw, bool):
+        return None
+    if isinstance(raw, int):
+        return raw
+    text = str(raw).strip()
+    if text.isdigit():
+        return int(text)
+    return _NAMED_KEYS.get(text.upper())
+
+
 def _legacy_params(step: dict[str, Any]) -> dict[str, Any]:
     """Support flat step fields from early DabFlow drafts."""
     params = dict(step.get("params", {}))
@@ -327,6 +382,10 @@ def _legacy_params(step: dict[str, Any]) -> dict[str, Any]:
         "code",
         "key",
         "package",
+        "text",
+        "checkpoint",
+        "verify_dismiss",
+        "until_session_notes_gone",
     ):
         if key in step and key not in params:
             params[key] = step[key]
@@ -388,7 +447,7 @@ class SequenceRunner:
                 "success": False,
                 "error": (
                     "Sequence runs are BLOCKED until ad code is verified. "
-                    "Set CPHARM_ALLOW_SEQUENCE_RUNS=1 to enable."
+                    "Set PHARMFLOW_ALLOW_SEQUENCE_RUNS=1 to enable."
                 ),
             }
         phone = sequence.phone
@@ -409,18 +468,18 @@ class SequenceRunner:
                     f"Sequence '{sequence.name}' is v{sequence.sequence_version} - "
                     f"rewrite required (need v{REQUIRED_SEQUENCE_VERSION}+). "
                     "Run: py scripts/generate_dabflow_sequences.py "
-                    "(or Builder ? Regenerate all sequences in CPharm.exe)"
+                    "(or Builder → Regenerate all sequences in PharmFlow.exe)"
                 ),
             }
 
         sync_browse_proxy_env_from_prefs()
 
         # Path3 => Chromium (CDP). Path1/2 use preferred browser unless
-        # CPHARM_FARM_BROWSERS / CHROMIUM_ONLY locks to chromium.
-        browsers_raw = (os.environ.get("CPHARM_FARM_BROWSERS") or "").strip().lower()
+        # PHARMFLOW_FARM_BROWSERS / CHROMIUM_ONLY locks to chromium.
+        browsers_raw = (os.environ.get("PHARMFLOW_FARM_BROWSERS") or "").strip().lower()
         browser_tags = {p.strip() for p in browsers_raw.split(",") if p.strip()}
         chromium_only = (
-            os.environ.get("CPHARM_FARM_CHROMIUM_ONLY") or ""
+            os.environ.get("PHARMFLOW_FARM_CHROMIUM_ONLY") or ""
         ).strip().lower() in ("1", "true", "yes", "on")
         # Path3: allow any MITM-capable browser (Chromium/Brave/Opera) for
         # stealth rotation. Only force Chromium when env explicitly says so.
@@ -677,7 +736,19 @@ class SequenceRunner:
                 if is_ad_tap:
                     inst = self._resolve_phone(phone)
                     phone_idx = _inst_phone_idx(inst) if inst else 0
-                    pause_tor_for_ads(self.farm.adb, serial, phone_idx)
+                    paused = pause_tor_for_ads(self.farm.adb, serial, phone_idx)
+                    if (
+                        isinstance(paused, dict)
+                        and paused.get("ok") is False
+                        and not paused.get("skipped")
+                    ):
+                        logger.warning(
+                            "ad tap refused — guest has no loopback exit serial=%s",
+                            serial,
+                        )
+                        result["ok"] = False
+                        result["error"] = "ad tap refused — guest has no loopback exit"
+                        return result
                     checkpoint = ad_checkpoint_from_description(step.description)
                 x = resolve_coordinate(p["x"], hz.coordinate_tolerance)
                 y = resolve_coordinate(p["y"], hz.coordinate_tolerance)
@@ -777,9 +848,14 @@ class SequenceRunner:
                         step.description,
                         fre_ok,
                     )
-                    result["ok"] = True
+                    # Already-past-splash returns True. A False means the sheet
+                    # is still up. Counting that as ok sends the next taps at
+                    # Stay signed out instead of the page.
+                    result["ok"] = bool(fre_ok)
                     result["fre_dismiss"] = fre_ok
                     result["coords"] = (x, y)
+                    if not result["ok"]:
+                        result["error"] = "Chromium first-run sheet is still up"
                     return result
                 # Start Perfect Dab: scroll-reveal + live bounds; verify timer; never double-tap.
                 is_start_dab = "start perfect dab" in desc_lower or (
@@ -819,15 +895,31 @@ class SequenceRunner:
                         pkg = (
                             (sequence.preferred_browser or "").strip()
                             or (br.package if br else "")
-                            or "org.chromium.chrome"
+                            or "com.farmbrowser.stealth.debug"
                         )
                     except Exception:
-                        pkg = (sequence.preferred_browser or "").strip() or "org.chromium.chrome"
-                if skip_fg and (is_ad_tap or is_age_gate):
-                    # Lawnchair often steals FG mid-Path3; recover browser then recheck.
+                        pkg = (
+                            (sequence.preferred_browser or "").strip()
+                            or "com.farmbrowser.stealth.debug"
+                        )
+                    # Gallery/Settings/Lawnchair steal FG mid-Path3. Recover on
+                    # EVERY content tap (not only ad/age) — remediator already
+                    # force-stops denylisted strays; the runner must too.
                     try:
                         was_fg = skip_fg
-                        bring_browser_foreground_dabflow(self.farm.adb, serial, pkg)
+                        if is_denied_launch_package(skip_fg) or is_launcher_package(
+                            skip_fg
+                        ):
+                            self.farm.adb.shell(
+                                f"am force-stop {skip_fg}", serial=serial
+                            )
+                            time.sleep(0.5)
+                        bring_browser_foreground_dabflow(
+                            self.farm.adb,
+                            serial,
+                            pkg,
+                            force_stop_fg=was_fg,
+                        )
                         time.sleep(0.35)
                         skip_fg = should_skip_content_tap(self.farm.adb, serial)
                         if not skip_fg:
@@ -846,23 +938,6 @@ class SequenceRunner:
                             exc,
                         )
                 if skip_fg:
-                    # Aggressive recovery: force-stop the launcher, wait, recheck.
-                    try:
-                        if "lawnchair" in skip_fg or "launcher" in skip_fg:
-                            self.farm.adb.shell(
-                                f"am force-stop {skip_fg}", serial=serial
-                            )
-                            time.sleep(0.8)
-                            bring_browser_foreground_dabflow(
-                                self.farm.adb, serial, pkg
-                            )
-                            time.sleep(0.4)
-                            skip_fg = should_skip_content_tap(
-                                self.farm.adb, serial
-                            )
-                    except Exception:
-                        pass
-                if skip_fg:
                     logger.warning(
                         "skip tap on foreign FG (%s) serial=%s desc=%s",
                         skip_fg,
@@ -871,17 +946,10 @@ class SequenceRunner:
                     )
                     result["skipped_foreign_fg"] = skip_fg
                     result["coords"] = (x, y)
-                    # Age-gate and Path3 ad taps MUST succeed (soft-OK skips billing).
-                    if is_age_gate or is_ad_tap:
-                        result["ok"] = False
-                        result["error"] = f"foreign_fg:{skip_fg}"
-                    else:
-                        logger.info(
-                            "soft-OK despite foreign FG serial=%s desc=%s",
-                            serial,
-                            step.description[:48],
-                        )
-                        result["ok"] = True
+                    # The tap did not happen. Counting it ok continues the
+                    # sequence on the wrong app.
+                    result["ok"] = False
+                    result["error"] = f"foreign_fg:{skip_fg}"
                     return result
                 # Wake screen before every tap — screen may have timed out.
                 try:
@@ -912,26 +980,61 @@ class SequenceRunner:
                         checkpoint = str(pick.get("checkpoint"))
                     zone = str(pick.get("zone") or "")
                     raw_click = str(pick.get("click_url") or "")
-                    prefer_click = resolve_path3_click_url(zone, raw_click)
-                    if not prefer_click:
-                        try:
-                            prefetch_ssp_ads_prefer_paying(
-                                attempts=14,
-                                delay_s=0.25,
-                                allow_house_fallback=True,
-                            )
-                        except Exception:
-                            pass
-                        prefer_click = resolve_path3_click_url(zone, raw_click)
+                    # Host SSP tokens do not match the impression this phone
+                    # viewed. Open only the click URL the phone itself fetched.
+                    prefer_click = ""
+                    if has_live_click_token(raw_click):
+                        prefer_click = raw_click
+                    else:
+                        # vm0 is index 0. Skipping it left the first phone with
+                        # no billed open when CDP had no href.
+                        viewed_idx = int(phone_idx)
+                        for _wait in range(8):
+                            prefer_click = phone_viewed_click_url(viewed_idx, zone)
+                            if prefer_click:
+                                break
+                            time.sleep(0.35)
                     prefer_ok = bool(prefer_click)
+                    proxy = ""
+                    try:
+                        proxy = (
+                            self.farm.adb.shell(
+                                "settings get global http_proxy", serial=serial
+                            ).stdout
+                            or ""
+                        ).strip()
+                    except Exception:
+                        proxy = ""
                     logger.info(
-                        "Path3 post-tap open_url serial=%s zone=%s prefer=%s",
+                        "Path3 click serial=%s zone=%s source=%s live_token=%s proxy=%s",
                         serial,
                         zone or "*",
-                        (prefer_click[:72] + "…") if len(prefer_click) > 72 else (prefer_click or "EMPTY"),
+                        "phone_page" if prefer_ok else "none",
+                        1 if prefer_ok else 0,
+                        proxy or "missing",
                     )
+                    if prefer_ok and prefer_click.startswith("http") and not guest_proxy_healthy(proxy):
+                        try:
+                            proxy = str(
+                                pin_guest_proxy(self.farm.adb, serial, int(phone_idx), attempts=1) or ""
+                            ).strip()
+                        except Exception as exc:
+                            logger.warning("Path3 exit pin failed serial=%s: %s", serial, exc)
+                            proxy = ""
                     fb = False
-                    if prefer_ok and prefer_click.startswith("http"):
+                    if (
+                        prefer_ok
+                        and prefer_click.startswith("http")
+                        and not guest_proxy_healthy(proxy)
+                    ):
+                        logger.error(
+                            "Path3 click refused — guest proxy %r is not a loopback exit serial=%s",
+                            proxy or "missing",
+                            serial,
+                        )
+                        result["error"] = "click refused — guest has no loopback exit"
+                        result["ad_fallback"] = False
+                    elif prefer_ok and prefer_click.startswith("http"):
                         seq_browser = get_sequence_browser(phone)
                         if seq_browser is None:
                             try:
@@ -1012,6 +1115,14 @@ class SequenceRunner:
                         pin_guest_proxy(self.farm.adb, serial, int(phone_idx))
                     except Exception as exc:
                         logger.warning("post-ad-tap proxy pin soft-fail: %s", exc)
+                if result.get("ok") and step_wants_session_notes_dismiss(p):
+                    # The next tap is the tab. A sheet that stays up eats that tap.
+                    # A dump that finds no Skip returns immediately. A dump that
+                    # sees the sheet and cannot clear it stops this sequence.
+                    if not dismiss_session_notes_verified(serial):
+                        logger.warning("popup dismiss did not land serial=%s", serial)
+                        result["ok"] = False
+                        result["error"] = "session notes sheet is still up"
             elif action == StepAction.WAIT:
                 seconds = resolve_seconds(p.get("seconds", 1.0), hz.timing_variation)
                 desc_lower = step.description.lower()
@@ -1032,17 +1143,17 @@ class SequenceRunner:
                     or "tab switch" in desc_lower
                     or desc_lower.startswith("land")
                 )
-                evcpm_push = (os.environ.get("CPHARM_EVCPM_PUSH") or "").strip().lower() in (
+                evcpm_push = (os.environ.get("PHARMFLOW_EVCPM_PUSH") or "").strip().lower() in (
                     "1",
                     "true",
                     "yes",
                     "on",
                 )
                 dwell_lo = _env_float(
-                    "CPHARM_TAB_DWELL_MIN_S", 1.5 if evcpm_push else 1.0
+                    "PHARMFLOW_TAB_DWELL_MIN_S", 1.5 if evcpm_push else 1.0
                 )
                 dwell_hi = _env_float(
-                    "CPHARM_TAB_DWELL_MAX_S", dwell_lo + (0.5 if evcpm_push else 0.5)
+                    "PHARMFLOW_TAB_DWELL_MAX_S", dwell_lo + (0.5 if evcpm_push else 0.5)
                 )
                 dwell_hi = max(dwell_hi, dwell_lo + 0.2)
                 if tab_dwell and seconds < dwell_lo:
@@ -1055,10 +1166,10 @@ class SequenceRunner:
                     and ("bottom" in desc_lower or "settle" in desc_lower or "end" in desc_lower)
                 )
                 scroll_lo = _env_float(
-                    "CPHARM_SCROLL_SETTLE_MIN_S", 0.8 if evcpm_push else 0.5
+                    "PHARMFLOW_SCROLL_SETTLE_MIN_S", 0.8 if evcpm_push else 0.5
                 )
                 scroll_hi = _env_float(
-                    "CPHARM_SCROLL_SETTLE_MAX_S", scroll_lo + (0.4 if evcpm_push else 0.4)
+                    "PHARMFLOW_SCROLL_SETTLE_MAX_S", scroll_lo + (0.4 if evcpm_push else 0.4)
                 )
                 scroll_hi = max(scroll_hi, scroll_lo + 0.2)
                 if scroll_settle and seconds < scroll_lo:
@@ -1067,6 +1178,12 @@ class SequenceRunner:
                 time.sleep(seconds)
                 result["ok"] = True
                 result["slept"] = seconds
+                if step_wants_session_notes_gone(p) and not wait_session_notes_gone(
+                    serial, timeout_sec=8.0
+                ):
+                    logger.warning("session notes still up serial=%s", serial)
+                    result["ok"] = False
+                    result["error"] = "session notes sheet is still up"
                 if "home screen" in desc_lower or "after ad re-entry" in desc_lower:
                     try:
                         hide_browser_chrome(self.farm.adb, serial)
@@ -1117,11 +1234,11 @@ class SequenceRunner:
                 # Chromium-only: never honor Brave/Firefox/DDG packages baked into
                 # older stem JSONs — launch the chosen Chromium instead.
                 browsers_raw = (
-                    os.environ.get("CPHARM_FARM_BROWSERS") or ""
+                    os.environ.get("PHARMFLOW_FARM_BROWSERS") or ""
                 ).strip().lower()
                 browser_tags = {p.strip() for p in browsers_raw.split(",") if p.strip()}
                 chromium_only = (
-                    os.environ.get("CPHARM_FARM_CHROMIUM_ONLY") or ""
+                    os.environ.get("PHARMFLOW_FARM_CHROMIUM_ONLY") or ""
                 ).strip().lower() in ("1", "true", "yes", "on")
                 if chromium_only or browser_tags == {"chromium"}:
                     chosen = get_sequence_browser(phone)
@@ -1256,18 +1373,21 @@ class SequenceRunner:
                 ).strip()
                 packages = set(self.farm.adb.pm_list_packages(serial=serial))
                 if pkg not in packages and BROWSER_CHROMIUM not in packages:
-                    result["ok"] = True
-                    result["skipped"] = True
+                    result["ok"] = False
                     result["package"] = pkg
-                    result["warning"] = f"{pkg} not installed - skipped clear_cookies"
-                    logger.warning("clear_cookies skipped on %s: %s not installed", serial, pkg)
+                    result["error"] = "browser not installed — cookies were not cleared"
+                    logger.warning("clear_cookies did not land on %s: %s not installed", serial, pkg)
                 else:
                     use_pkg = pkg if pkg in packages else BROWSER_CHROMIUM
                     ok = clear_browser_package(self.farm.adb, serial, use_pkg)
-                    result["ok"] = ok or True  # soft-fail: do not abort sequence
+                    if not ok:
+                        time.sleep(0.4)
+                        ok = clear_browser_package(self.farm.adb, serial, use_pkg)
+                        result["adb_retry"] = True
+                    result["ok"] = bool(ok)
                     result["package"] = use_pkg
                     if not ok:
-                        result["warning"] = "browser history/cookies clear incomplete - continuing"
+                        result["error"] = "browser cookies were not cleared"
             elif action == StepAction.ENSURE_FINGERPRINT:
                 if sequence.requires_fingerprint and not is_skip_fingerprint():
                     header_report = verify_before_browse(self.farm, phone)
@@ -1320,35 +1440,77 @@ class SequenceRunner:
                     result["ok"] = True
                     result["skipped"] = is_skip_fingerprint()
             elif action == StepAction.CLOSE_APP:
-                pkg = p.get("package", BROWSER_CHROMIUM)
-                r = self.farm.adb.shell(f"am force-stop {pkg}", serial=serial)
-                result["ok"] = r.ok
-                result["package"] = pkg
+                requested = str(p.get("package") or "").strip()
+                packages = set(self.farm.adb.pm_list_packages(serial=serial))
+                pkg = requested if requested in packages else ""
+                if not pkg and not requested and BROWSER_CHROMIUM in packages:
+                    pkg = BROWSER_CHROMIUM
+                if not pkg:
+                    missing = requested or BROWSER_CHROMIUM
+                    result["ok"] = False
+                    result["package"] = missing
+                    result["error"] = "browser not installed — app was not closed"
+                    logger.warning("close_app did not land on %s: %s not installed", serial, missing)
+                else:
+                    r = self.farm.adb.shell(f"am force-stop {pkg}", serial=serial)
+                    result["ok"] = bool(r.ok)
+                    result["package"] = pkg
+                    if not result["ok"]:
+                        result["error"] = "app was not closed"
             elif action == StepAction.BACK:
                 r = self.farm.adb.keyevent(ANDROID_KEY_BACK, serial=serial)
                 result["ok"] = r.ok
             elif action == StepAction.KEY:
-                code = int(p.get("code", p.get("key", 0)))
-                r = self.farm.adb.keyevent(code, serial=serial)
-                result["ok"] = r.ok
+                code = _key_code(p)
+                if code is None:
+                    result["ok"] = False
+                    result["error"] = "key step has no usable key"
+                else:
+                    r = self.farm.adb.keyevent(code, serial=serial)
+                    result["ok"] = r.ok
+                    if not result["ok"]:
+                        result["error"] = "key event did not land"
             elif action == StepAction.SHELL:
                 r = self.farm.adb.shell(p["command"], serial=serial)
                 result["ok"] = r.ok
                 result["output"] = r.stdout
             elif action == StepAction.KEYEVENT:
-                code = int(p.get("code", p.get("key", 0)))
-                r = self.farm.adb.keyevent(code, serial=serial)
-                result["ok"] = r.ok
+                code = _key_code(p)
+                if code is None:
+                    result["ok"] = False
+                    result["error"] = "keyevent step has no usable key"
+                else:
+                    r = self.farm.adb.keyevent(code, serial=serial)
+                    result["ok"] = r.ok
+                    if not result["ok"]:
+                        result["error"] = "key event did not land"
+            elif action == StepAction.TYPE_TEXT:
+                raw_text = str(p.get("text") or "")
+                if not raw_text:
+                    result["ok"] = False
+                    result["error"] = "type_text has no text"
+                else:
+                    quoted = urllib.parse.quote(raw_text, safe="").replace("%20", "%s")
+                    r = self.farm.adb.shell(f"input text {quoted}", serial=serial)
+                    result["ok"] = bool(r.ok)
+                    if not result["ok"]:
+                        result["error"] = "type_text did not land"
             elif action == StepAction.FULL_RESET:
                 _ri = self._resolve_phone(phone) or getattr(self.farm, "instances", {}).get(phone)
                 phone_idx = _inst_phone_idx(_ri) if _ri is not None else 0
                 reset = tor_manager.full_identity_reset(serial, phone_idx)
-                result["ok"] = True
-                if isinstance(reset, dict):
-                    result["reset"] = reset
-                    # Treat failed NEWNYM as soft warning — identity ADB still applied.
-                    if reset.get("tor_circuit_rotated") is False:
-                        result["warning"] = "tor_circuit_rotated=false"
+                result["reset"] = reset if isinstance(reset, dict) else {}
+                # A planned port is not a pin. MAC/IMEI stay best-effort (root).
+                result["ok"] = bool(result["reset"].get("http_proxy_applied"))
+                if not result["ok"]:
+                    result["error"] = "identity reset did not pin a loopback exit"
+                warnings: list[str] = []
+                if result["reset"].get("tor_circuit_rotated") is False:
+                    warnings.append("tor_circuit_rotated=false")
+                if not result["reset"].get("android_id_applied"):
+                    warnings.append("android_id did not stick")
+                if warnings:
+                    result["warning"] = "; ".join(warnings)
             else:
                 result["ok"] = False
                 result["error"] = f"Unknown action: {action}"

@@ -1,19 +1,23 @@
 """Background hunter: re-probe Mantis SSP until a paying creative appears.
 
 Does not invent ads. When paying inventory is found, persists full creative
-payloads to ``C:\\CPharm\\logs\\ssp_paying_fill.json`` so farm workers (separate
+payloads to ``C:\\PharmFlow\\logs\\ssp_paying_fill.json`` so farm workers (separate
 process) can ingest them. Also drops ``SSP_FORCE_REFRESH.flag`` as a wake
 signal — farm consume keeps paying fill (does not wipe it).
 """
 from __future__ import annotations
 
+import binascii
 import json
 import logging
 import os
+import re
 import socket
 import sys
 import time
 from pathlib import Path
+
+import psutil
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -32,6 +36,8 @@ from automation.dabflow_mantis_client_patch import (  # noqa: E402
 from automation.tor_manager import TorManager  # noqa: E402
 
 LOG = Path(r"C:\CPharm\logs")
+# Dual-write sticky hunter state so branded PharmFlow readers stay in sync.
+_LOG_MIRRORS = (Path(r"C:\CPharm\logs"), Path(r"C:\PharmFlow\logs"))
 HB = LOG / "ssp_paying_hunter_heartbeat.txt"
 OUT = LOG / "ssp_paying_hunter.json"
 FLAG = LOG / "SSP_FORCE_REFRESH.flag"
@@ -64,9 +70,6 @@ def _live_tor_control_ports() -> list[int]:
     config. Sockets that fail to connect are dropped, so dead entries in
     torrcs never count.
     """
-    import psutil
-    import re as _re
-
     ports: set[int] = set()
     for proc in psutil.process_iter(["name", "cmdline"]):
         try:
@@ -78,10 +81,10 @@ def _live_tor_control_ports() -> list[int]:
             torrc = Path(str(argv[argv.index("-f") + 1]))
             if not torrc.is_file():
                 continue
-            m = _re.search(
+            m = re.search(
                 r"^ControlPort\s+\S*?(\d+)$",
                 torrc.read_text(encoding="utf-8", errors="replace"),
-                _re.MULTILINE,
+                re.MULTILINE,
             )
             if m:
                 ports.add(int(m.group(1)))
@@ -98,10 +101,47 @@ def _live_tor_control_ports() -> list[int]:
 
 
 def _signal_newnym_port(port: int) -> bool:
-    """AUTHENTICATE + SIGNAL NEWNYM on a bare control port (blank-cookie lanes)."""
+    """AUTHENTICATE + SIGNAL NEWNYM on a live control port.
+
+    Restored tor.exe lanes use CookieAuthentication 1. Blank-cookie AUTH
+    fails silently, so NEWNYM stayed 0 and every probe reused the same
+    house-only exits.
+    """
+    cookie: bytes | None = None
+    try:
+        for proc in psutil.process_iter(["name", "cmdline"]):
+            try:
+                if (proc.info.get("name") or "").lower() != "tor.exe":
+                    continue
+                argv = proc.info.get("cmdline") or []
+                if "-f" not in argv:
+                    continue
+                torrc = Path(str(argv[argv.index("-f") + 1]))
+                if not torrc.is_file():
+                    continue
+                txt = torrc.read_text(encoding="utf-8", errors="replace")
+                if not re.search(
+                    rf"^ControlPort\s+\S*?{int(port)}\s*$", txt, re.MULTILINE
+                ):
+                    continue
+                m = re.search(r"^CookieAuthFile\s+(.+)$", txt, re.MULTILINE)
+                if m:
+                    cp = Path(m.group(1).strip())
+                    if cp.is_file():
+                        cookie = cp.read_bytes()
+                break
+            except (OSError, ValueError, IndexError):
+                continue
+    except Exception:
+        cookie = None
     try:
         with socket.create_connection(("127.0.0.1", port), timeout=5.0) as sock:
-            sock.sendall(b'AUTHENTICATE ""\r\n')
+            if cookie is not None:
+                sock.sendall(
+                    f"AUTHENTICATE {binascii.hexlify(cookie).decode()}\r\n".encode()
+                )
+            else:
+                sock.sendall(b'AUTHENTICATE ""\r\n')
             auth = sock.recv(256).decode("utf-8", errors="replace")
             if "250" not in auth:
                 sock.sendall(b"AUTHENTICATE\r\n")
@@ -140,6 +180,11 @@ def main() -> int:
             time.sleep(2.0)  # Tor NEWNYM settle
         else:
             nym = 0
+        # Rotate every round while house-only — blank-cookie NEWNYM used to
+        # report 0 forever and lock the same flagged exits.
+        if nym == 0:
+            nym = _newnym_all(tor)
+            time.sleep(2.0)
         # Clear this process cache only — do not delete ssp_paying_fill.json
         # here on every round (paying handoff). House streak clears it below.
         clear_ssp_cache()
@@ -197,7 +242,7 @@ def main() -> int:
             house_streak += 1
             # Live SSP is house-only — drop stale shared fill so farm does not
             # keep painting the same one paying creative (e.g. Viking) forever.
-            if house_streak >= 4:
+            if house_streak >= 2:
                 cleared = clear_ssp_paying_fill_file(
                     reason=f"hunter_house_streak={house_streak}"
                 )

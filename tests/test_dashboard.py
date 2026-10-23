@@ -6,7 +6,9 @@ import asyncio
 import io
 import json
 import sys
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import automation.dashboard as dashboard
@@ -72,7 +74,9 @@ class DashboardApiTests(unittest.TestCase):
 
     def test_post_connect_calls_adb_and_pushes(self) -> None:
         with (
-            patch.object(dashboard, "_adb_global", return_value=MagicMock(text="connected", returncode=0)) as adb,
+            # Real adb prints "connected to <addr>" on success — the handler's
+            # _adb_connect_landed requires that exact phrase (not bare "connected").
+            patch.object(dashboard, "_adb_global", return_value=MagicMock(text="connected to 127.0.0.1:16384", returncode=0)) as adb,
             patch.object(dashboard, "push_phones", new=MagicMock()) as push_mock,
         ):
             # push_phones is awaited — wrap as coroutine.
@@ -117,6 +121,108 @@ class DashboardApiTests(unittest.TestCase):
             except Exception:
                 pass
             sys.stdout = orig
+
+
+class RosterCountHonestyTests(unittest.TestCase):
+    def test_projection_uses_live_phones_and_does_not_stop_at_24(self) -> None:
+        from automation.scorecard_api import build_money_kpis, scaling_targets
+
+        zero = scaling_targets(0)
+        self.assertEqual(zero["phone_count"], 0)
+        self.assertEqual(zero["ad_clicks_hard_cap"], 0)
+        wide = scaling_targets(40)
+        self.assertEqual(wide["phone_count"], 40)
+        self.assertGreater(wide["ad_clicks_hard_cap"], scaling_targets(24)["ad_clicks_hard_cap"])
+        with tempfile.TemporaryDirectory() as tmp:
+            payload = build_money_kpis(
+                list_phones_fn=lambda: [
+                    {"serial": "10.0.2.15:5555", "running": False},
+                    {"serial": "10.0.2.16:5555", "running": True},
+                ],
+                recordings_dir=Path(tmp),
+            )
+            self.assertEqual(payload["phone_count"], 1)
+            stale = Path(tmp) / "scorecard_state.json"
+            stale.write_text(
+                '{"date": "2000-01-01", "payout_usd": 88.0, "clicks": 9, "impressions": 100}',
+                encoding="utf-8",
+            )
+            with patch("automation.scorecard_api._live_farm_facts", return_value={}):
+                stale_payload = build_money_kpis(
+                    list_phones_fn=lambda: [],
+                    recordings_dir=Path(tmp),
+                )
+            self.assertEqual(stale_payload["revenue_today_usd"], 0.0)
+            self.assertEqual(stale_payload["clicks"], 0)
+            self.assertEqual(stale_payload["impressions"], 0)
+
+    def test_watchdog_fact_from_another_day_is_not_revenue_today(self) -> None:
+        from datetime import datetime, timezone
+
+        from automation import scorecard_api
+
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "cursor_monitor_loop.log"
+            now = datetime.now(timezone.utc).isoformat()
+            log.write_text(
+                "2000-01-01T00:00:00+00:00 FACT $=99.00 clk=9 impr=900\n"
+                + now
+                + " FACT $=4.50 clk=2 impr=80\n"
+                + "FACT $=12.00 clk=3 impr=100\n",
+                encoding="utf-8",
+            )
+            with patch.object(scorecard_api, "_fact_log_paths", return_value=[log]):
+                facts = scorecard_api._live_farm_facts()
+        self.assertEqual(facts.get("payout_usd"), 4.50)
+        self.assertEqual(facts.get("clicks"), 2)
+        html = Path(dashboard.__file__).resolve().parent.joinpath("dashboard.html").read_text(encoding="utf-8")
+        self.assertIn("p && p.running", html)
+        self.assertNotIn("max=\"3600\"", html)
+        src = Path(__file__).resolve().parents[1].joinpath("automation", "scorecard_api.py").read_text(encoding="utf-8")
+        self.assertNotIn("min(int(phone_count), 24)", src)
+        self.assertNotIn("phones_default\", 4)", src)
+
+
+class PortTryCountTests(unittest.TestCase):
+    """dashboard._port_try_count must match the wizard probe's window (both
+    honor PHARMFLOW_PORT_TRY_COUNT with no ceiling), or a count that fit one
+    side let the server bind where the wizard never looked."""
+
+    def test_no_hardcoded_ceiling(self) -> None:
+        with patch.dict("os.environ", {"PHARMFLOW_PORT_TRY_COUNT": "300"}):
+            self.assertEqual(dashboard._port_try_count(), 300)  # was clamped to 256
+
+    def test_default_and_bad_values(self) -> None:
+        with patch.dict("os.environ", {}, clear=False):
+            import os as _os
+
+            _os.environ.pop("PHARMFLOW_PORT_TRY_COUNT", None)
+            self.assertEqual(dashboard._port_try_count(), 20)
+        with patch.dict("os.environ", {"PHARMFLOW_PORT_TRY_COUNT": "junk"}):
+            self.assertEqual(dashboard._port_try_count(), 20)
+        with patch.dict("os.environ", {"PHARMFLOW_PORT_TRY_COUNT": "0"}):
+            self.assertEqual(dashboard._port_try_count(), 1)
+
+    def test_bind_fallback_is_still_bounded_by_the_port_space(self) -> None:
+        """The natural bound that replaces the magic cap: a huge count near the
+        top of the port range still stops at 65535 instead of wrapping."""
+
+        async def _go() -> int:
+            attempts = 0
+
+            async def _counting(*_a, **_k):
+                nonlocal attempts
+                attempts += 1
+                raise OSError(dashboard.errno.EADDRINUSE, "in use")
+
+            with patch.object(dashboard.asyncio, "start_server", _counting):
+                with self.assertRaises(OSError):
+                    await dashboard._start_http_server_with_port_fallback(
+                        "127.0.0.1", 65530, 1_000_000
+                    )
+            return attempts
+
+        self.assertEqual(_run(_go()), 6)  # 65530..65535 inclusive, no more
 
 
 if __name__ == "__main__":

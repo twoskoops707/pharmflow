@@ -5,7 +5,7 @@ FOLDER PLAYLIST + 3-TAB TAIL — 2026-06-21
 
 ### Runtime (`automation/sequence_playlist.py`)
 - Modes: `folder` | `folder_random` (plus existing ordered/random/series)
-- `sequence_folder`: relative path under `~/CPharm/sequences` (e.g. `900x1600/no-ad`)
+- `sequence_folder`: relative path under `~/PharmFlow/sequences` (e.g. `900x1600/no-ad`)
 - Globs `*.json`, chains as series each iteration; `folder_random` shuffles per `(adb_serial, iteration)`
 - Strips per-file identity tail, appends single `_enforce_ip_id_tail` at end
 
@@ -43,7 +43,7 @@ FOLDER PLAYLIST + 3-TAB TAIL — 2026-06-21
 - Delete `automation/_proof_*.py`, `_diag_*.py`, `_tmp_*.py`, one-off `_live_*` proof scripts
 - Keep: `_run_ONE_live_direct.py`, `_build_*.py`, `_validate_*.py`, `test_*.py`, `session_notes_uia.py`
 - Delete `automation/tor/tmp*.cfg` (NOT `data_*` dirs while Tor running)
-- Delete cpharm-clone root `_patch_*.py`, `_fix_test.py`, `_e2e_reset.json`, `_tmp_*.py`
+- Delete pharmflow-clone root `_patch_*.py`, `_fix_test.py`, `_e2e_reset.json`, `_tmp_*.py`
 
 ## Stale sequence rule
 - KEEP: `900x1600/no-ad/` (fresh 60 + demo ONE)

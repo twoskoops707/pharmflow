@@ -703,17 +703,17 @@ def _apply_host_gpu_accel(data: dict[str, Any]) -> None:
     """Keep MuMu compositing on host GPU; keep guest CPU/RAM lean.
 
     GPU High / DirectX offloads *drawing*. Guest cores/RAM stay low so 4–6
-    phones do not pin the host. Override with CPHARM_MUMU_CPU_CORES /
-    CPHARM_MUMU_RAM_MB if needed.
+    phones do not pin the host. Override with PHARMFLOW_MUMU_CPU_CORES /
+    PHARMFLOW_MUMU_RAM_MB if needed.
     """
-    mode = (os.environ.get("CPHARM_MUMU_GPU_MODE") or "High").strip() or "High"
+    mode = (os.environ.get("PHARMFLOW_MUMU_GPU_MODE") or "High").strip() or "High"
     if mode.lower() in ("0", "off", "false", "no", "skip"):
         return
     gp = data.get("GpuProp") if isinstance(data.get("GpuProp"), dict) else {}
     gp = dict(gp)
     gp["Mode"] = mode
     data["GpuProp"] = gp
-    engine = (os.environ.get("CPHARM_MUMU_RENDER_ENGINE") or "").strip()
+    engine = (os.environ.get("PHARMFLOW_MUMU_RENDER_ENGINE") or "").strip()
     data["RenderEngine"] = engine or "DirectX"
     apply_farm_guest_rails(data)
 
@@ -721,11 +721,11 @@ def _apply_host_gpu_accel(data: dict[str, Any]) -> None:
 def _guest_cpu_ram() -> tuple[int, int]:
     """Lean farm default: 2 cores / 1024 MB. Env can go 1–2 CPU, 1024–2048 MB."""
     try:
-        want_cpu = int(os.environ.get("CPHARM_MUMU_CPU_CORES") or 2)
+        want_cpu = int(os.environ.get("PHARMFLOW_MUMU_CPU_CORES") or 2)
     except (TypeError, ValueError):
         want_cpu = 2
     try:
-        want_ram = int(os.environ.get("CPHARM_MUMU_RAM_MB") or 1024)
+        want_ram = int(os.environ.get("PHARMFLOW_MUMU_RAM_MB") or 1024)
     except (TypeError, ValueError):
         want_ram = 1536
     return max(1, min(2, want_cpu)), max(1024, min(2048, want_ram))
@@ -734,7 +734,7 @@ def _guest_cpu_ram() -> tuple[int, int]:
 def apply_farm_guest_rails(data: dict[str, Any]) -> dict[str, Any]:
     """Phone (not tablet), rooted, writable disk, lowest practical CPU/RAM.
 
-    Called whenever CPharm.exe creates or fingerprints a MuMu VM.
+    Called whenever PharmFlow.exe creates or fingerprints a MuMu VM.
     """
     data["DeviceRoot"] = True
     data["adb_debug"] = 1
@@ -773,7 +773,7 @@ def apply_farm_guest_rails(data: dict[str, Any]) -> dict[str, Any]:
     preset["MemoryOfMB"] = want_ram
     data["PerformancePreset"] = preset
     # Custom + lean cores; GPU Mode stays High separately (compositing).
-    perf = (os.environ.get("CPHARM_MUMU_PERFORMANCE_TYPE") or "Custom").strip() or "Custom"
+    perf = (os.environ.get("PHARMFLOW_MUMU_PERFORMANCE_TYPE") or "Custom").strip() or "Custom"
     if perf.lower() not in ("0", "off", "skip", "keep"):
         data["PerformanceType"] = perf
     return data
@@ -923,7 +923,7 @@ def ensure_windows_gpu_prefs_for_mumu(mumu_root: Path | None = None) -> list[str
     if mumu_root:
         root = Path(mumu_root)
     else:
-        env = (os.environ.get("CPHARM_MUMU_ROOT") or "").strip()
+        env = (os.environ.get("PHARMFLOW_MUMU_ROOT") or "").strip()
         root = Path(env) if env else (detect_mumu_root() or Path(r"C:\Program Files\Netease\MuMuPlayer"))
     exes = [
         root / "shell" / "MuMuManager.exe",
@@ -1048,7 +1048,7 @@ def _apply_browser_ua_shell_fn(shell_fn: Callable[[str], str], profile: Fingerpr
     shell_fn(f"settings put global user_agent '{profile.user_agent}'")
     shell_fn(f"settings put secure user_agent '{profile.user_agent}'")
     flags = browser_flags_for_profile(profile)
-    shell_fn(f"settings put global cpharm_browser_flags '{flags}'")
+    shell_fn(f"settings put global pharmflow_browser_flags '{flags}'")
 
 
 def apply_browser_fingerprint_adb(
@@ -1060,7 +1060,7 @@ def apply_browser_fingerprint_adb(
 ) -> dict:
     """Layer 4 (per-phone): write retail browser UA/flags over ADB.
 
-    Mirrors the proven CPharm implementation: profile resolution by serial
+    Mirrors the proven PharmFlow implementation: profile resolution by serial
     (with farm_index fallback), optional dabflow CDP flag, chromium flags
     push, and a fresh android_id per application.
     """
@@ -1137,7 +1137,7 @@ def apply_mumu_vm_fingerprints(
     - Optionally push browser UA/flags via ADB when shell_fn is provided
     """
     if is_skip_fingerprint():
-        logger.info("Skipping apply_mumu_vm_fingerprints (CPHARM_SKIP_FINGERPRINT)")
+        logger.info("Skipping apply_mumu_vm_fingerprints (PHARMFLOW_SKIP_FINGERPRINT)")
         names = [phone_names] if isinstance(phone_names, str) else list(phone_names)
         return {name: (profiles or {}).get(name) or random_profile() for name in names}
 
@@ -1313,7 +1313,7 @@ def ensure_fingerprint_before_browse(
     return report
 
 
-# ==== merged from cpharm automation/mumu_fingerprint.py (profile/audit helpers) ====
+# ==== merged from pharmflow automation/mumu_fingerprint.py (profile/audit helpers) ====
 
 @dataclass
 class FingerprintAudit:
@@ -1465,7 +1465,7 @@ MUMU_INSTALL_CANDIDATES: tuple[Path, ...] = (
 
 
 def find_mumu_vms_root() -> Path | None:
-    env = (os.environ.get("CPHARM_MUMU_ROOT") or "").strip()
+    env = (os.environ.get("PHARMFLOW_MUMU_ROOT") or "").strip()
     roots: list[Path] = [Path(env)] if env else []
     detected = detect_mumu_root()
     if detected:
@@ -1801,7 +1801,7 @@ def format_audit_report(serial: str, *, farm_index: int | None = None) -> str:
         for x in audit.leaks:
             lines.append(f"  ✗ {x}")
         lines.append("")
-        lines.append("Fix: run CPharmMuMuSetup.exe → GO, or CPharm → Re-apply hide emulator on ALL phones")
+        lines.append("Fix: run PharmFlow → Phones → Set up my phones, or Re-apply hide emulator on ALL phones")
         lines.append("Then fully stop and start each MuMu phone once.")
     else:
         lines.append("No obvious emulator leaks in phone settings.")

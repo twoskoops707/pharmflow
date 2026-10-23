@@ -2,7 +2,10 @@
 <network-security-config>
     <base-config cleartextTrafficPermitted="true">
         <trust-anchors>
+            <!-- System store holds the PharmFlow MITM CA (install_ca_on_device). -->
             <certificates src="system" />
+            <!-- User store fallback when system remount fails on some MuMu builds. -->
+            <certificates src="user" />
         </trust-anchors>
     </base-config>
 </network-security-config>

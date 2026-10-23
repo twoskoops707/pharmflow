@@ -35,19 +35,19 @@ from automation.farm_visit_caps import (
 )
 from automation.win_subprocess import hidden_run_kwargs
 
-LOG_DIR = Path(os.environ.get("CPHARM_LOG_DIR", r"C:\CPharm\logs"))
+LOG_DIR = Path(os.environ.get("PHARMFLOW_LOG_DIR", r"C:\PharmFlow\logs"))
 HB = LOG_DIR / "ensure_farm_24x7_heartbeat.txt"
 OVERRIDES = LOG_DIR / "farm_runtime_overrides.json"
-INTERVAL_S = float(os.environ.get("CPHARM_ENSURE_24X7_INTERVAL", "60") or "60")
+INTERVAL_S = float(os.environ.get("PHARMFLOW_ENSURE_24X7_INTERVAL", "60") or "60")
 PHONES = [
     p.strip()
     for p in (
-        os.environ.get("CPHARM_FARM_PHONES")
+        os.environ.get("PHARMFLOW_FARM_PHONES")
         or "vm0.gmadoa,vm1.gmadoa,vm2.gmadoa,vm3.gmadoa"
     ).split(",")
     if p.strip()
 ]
-HOURS = os.environ.get("CPHARM_FARM_HOURS", "0") or "0"
+HOURS = os.environ.get("PHARMFLOW_FARM_HOURS", "0") or "0"
 
 
 
@@ -60,8 +60,8 @@ def _normalize_phones_csv(raw: str) -> str:
     if s.startswith("{"):
         try:
             nested = json.loads(s)
-            if isinstance(nested, dict) and nested.get("CPHARM_FARM_PHONES"):
-                s = str(nested.get("CPHARM_FARM_PHONES") or "").strip()
+            if isinstance(nested, dict) and nested.get("PHARMFLOW_FARM_PHONES"):
+                s = str(nested.get("PHARMFLOW_FARM_PHONES") or "").strip()
         except (json.JSONDecodeError, TypeError, ValueError):
             pass
     parts = [x.strip() for x in s.replace(";", ",").split(",") if x.strip()]
@@ -91,9 +91,9 @@ def _restore_capacity_phones_lock() -> bool:
         data = {}
         if OVERRIDES.is_file():
             data = json.loads(OVERRIDES.read_text(encoding="utf-8-sig"))
-        if _normalize_phones_csv(str(data.get("CPHARM_FARM_PHONES") or "")) == raw:
+        if _normalize_phones_csv(str(data.get("PHARMFLOW_FARM_PHONES") or "")) == raw:
             return False
-        data["CPHARM_FARM_PHONES"] = raw
+        data["PHARMFLOW_FARM_PHONES"] = raw
         data["updated"] = datetime.now(timezone.utc).isoformat()
         data["tick_verify_note"] = "capacity_lock_no_vm11"
         OVERRIDES.write_text(json.dumps(data, indent=2), encoding="utf-8")
@@ -107,7 +107,7 @@ def _phones_from_overrides() -> list[str]:
     try:
         if OVERRIDES.is_file():
             ov = json.loads(OVERRIDES.read_text(encoding="utf-8-sig"))
-            raw = _normalize_phones_csv(str(ov.get("CPHARM_FARM_PHONES") or ""))
+            raw = _normalize_phones_csv(str(ov.get("PHARMFLOW_FARM_PHONES") or ""))
             if raw:
                 return [x.strip() for x in raw.split(",") if x.strip()]
     except (OSError, json.JSONDecodeError, TypeError, ValueError):
@@ -216,41 +216,41 @@ def _start_hidden(script_rel: str, *args: str) -> None:
     env = os.environ.copy()
     env["PYTHONPATH"] = str(ROOT) + os.pathsep + env.get("PYTHONPATH", "")
     # Prefer bundled adb â€” PATH platform-tools\adb.exe opens Windows Terminal flashes.
-    bundled_adb_dir = r"C:\CPharm\bundled"
+    bundled_adb_dir = r"C:\PharmFlow\bundled"
     if Path(bundled_adb_dir).is_dir():
         env["PATH"] = bundled_adb_dir + os.pathsep + env.get("PATH", "")
     _apply_overrides(env)
-    env.setdefault("CPHARM_ALLOW_SEQUENCE_RUNS", "1")
+    env.setdefault("PHARMFLOW_ALLOW_SEQUENCE_RUNS", "1")
     # Never default ads ON under overnight sticky/pause (setdefault only if unset).
-    _ap_pause = str(env.get("CPHARM_AUTOPILOT_PAUSE") or "").strip().lower() in (
+    _ap_pause = str(env.get("PHARMFLOW_AUTOPILOT_PAUSE") or "").strip().lower() in (
         "1", "true", "yes", "on",
     )
     if _ap_pause or (LOG_DIR / "DABFLOW_SITE_STICKY.flag").is_file():
-        env.setdefault("CPHARM_FARM_ALLOW_ADS", "0")
+        env.setdefault("PHARMFLOW_FARM_ALLOW_ADS", "0")
     else:
-        env.setdefault("CPHARM_FARM_ALLOW_ADS", "1")
-    env.setdefault("CPHARM_REQUIRE_UNIQUE_EXIT_IP", "1")
+        env.setdefault("PHARMFLOW_FARM_ALLOW_ADS", "1")
+    env.setdefault("PHARMFLOW_REQUIRE_UNIQUE_EXIT_IP", "1")
     # Honor overrides/desktop_prefs (scramble recommended). Do not force Tor.
-    mode = str(env.get("CPHARM_BROWSE_PROXY_MODE") or "").strip().lower()
+    mode = str(env.get("PHARMFLOW_BROWSE_PROXY_MODE") or "").strip().lower()
     if mode not in ("scramble", "tor", "direct", "upstream"):
         try:
             mode = browse_proxy_mode()
         except Exception:
             mode = "scramble"
-    env["CPHARM_BROWSE_PROXY_MODE"] = mode
-    env.setdefault("CPHARM_MANTIS_INJECT_PROXY", "1")
-    env["CPHARM_FARM_STOP"] = "0"
-    env.setdefault("CPHARM_FARM_IMMEDIATE_START", "1")
-    env.setdefault("CPHARM_FARM_SLOT_MIN_LEAD", "0")
-    env.setdefault("CPHARM_NTFY_DIGEST_INTERVAL", "10800")
-    env.setdefault("CPHARM_PROXY_WATCH_INTERVAL", "3")
-    env.setdefault("CPHARM_FARM_EXPECT_PHONES", str(len(PHONES) or 4))
+    env["PHARMFLOW_BROWSE_PROXY_MODE"] = mode
+    env.setdefault("PHARMFLOW_MANTIS_INJECT_PROXY", "1")
+    env["PHARMFLOW_FARM_STOP"] = "0"
+    env.setdefault("PHARMFLOW_FARM_IMMEDIATE_START", "1")
+    env.setdefault("PHARMFLOW_FARM_SLOT_MIN_LEAD", "0")
+    env.setdefault("PHARMFLOW_NTFY_DIGEST_INTERVAL", "10800")
+    env.setdefault("PHARMFLOW_PROXY_WATCH_INTERVAL", "3")
+    env.setdefault("PHARMFLOW_FARM_EXPECT_PHONES", str(len(PHONES) or 4))
     # Forever plan Ã¢â‚¬â€ never leave PATH3 as a bare float that old parsers choke on.
-    raw_p3 = str(env.get("CPHARM_FARM_PATH3_PER_HOUR") or "1")
+    raw_p3 = str(env.get("PHARMFLOW_FARM_PATH3_PER_HOUR") or "1")
     try:
-        env["CPHARM_FARM_PATH3_PER_HOUR"] = str(int(float(raw_p3)))
+        env["PHARMFLOW_FARM_PATH3_PER_HOUR"] = str(int(float(raw_p3)))
     except ValueError:
-        env["CPHARM_FARM_PATH3_PER_HOUR"] = "1"
+        env["PHARMFLOW_FARM_PATH3_PER_HOUR"] = "1"
     cmd = [
         sys.executable,
         "-u",
@@ -279,15 +279,15 @@ def _adb_serials_from_sticky() -> list[str]:
     try:
         if OVERRIDES.is_file():
             ov = json.loads(OVERRIDES.read_text(encoding="utf-8-sig"))
-            raw = str(ov.get("CPHARM_ADB_SERIALS") or "").strip()
+            raw = str(ov.get("PHARMFLOW_ADB_SERIALS") or "").strip()
             serials.extend([s.strip() for s in raw.split(",") if s.strip()])
-            tab = str(ov.get("CPHARM_TABLET_SERIAL") or "").strip()
+            tab = str(ov.get("PHARMFLOW_TABLET_SERIAL") or "").strip()
             if tab and tab not in serials:
                 serials.append(tab)
     except (OSError, json.JSONDecodeError, TypeError, ValueError):
         pass
     if not serials:
-        raw = os.environ.get("CPHARM_ADB_SERIALS") or ""
+        raw = os.environ.get("PHARMFLOW_ADB_SERIALS") or ""
         serials = [s.strip() for s in raw.split(",") if s.strip()]
     lock = LOG_DIR / "ADB_SERIAL_MAP.lock.json"
     try:
@@ -305,10 +305,10 @@ def _adb_serials_from_sticky() -> list[str]:
 
 def _adb_exe() -> str:
     """Prefer bundled adb — bare PATH adb often missing or flashes Terminal."""
-    bundled = Path(r"C:\CPharm\bundled\adb.exe")
+    bundled = Path(r"C:\PharmFlow\bundled\adb.exe")
     if bundled.is_file():
         return str(bundled)
-    return os.environ.get("ADB") or os.environ.get("CPHARM_ADB") or "adb"
+    return os.environ.get("ADB") or os.environ.get("PHARMFLOW_ADB") or "adb"
 
 
 def _adb_devices_state() -> dict[str, str]:
@@ -358,7 +358,7 @@ def _adb_keepalive() -> str:
     states = _adb_devices_state()
     online = 0
     touched = 0
-    max_touch = int(os.environ.get("CPHARM_ENSURE_ADB_MAX_TOUCH", "1") or "1")
+    max_touch = int(os.environ.get("PHARMFLOW_ENSURE_ADB_MAX_TOUCH", "1") or "1")
     for serial in serials:
         if states.get(serial) == "device" and _adb_serial_probe_ok(adb, serial):
             online += 1
@@ -406,20 +406,20 @@ def _suppress_thrash_watchers() -> bool:
     """Money-day ops: dash_forever_watch / farm_fail_review fight inject + ADB."""
     if (LOG_DIR / "ENSURE_NO_THRASH_WATCHERS.flag").is_file():
         return True
-    if _truthy(os.environ.get("CPHARM_ENSURE_NO_THRASH_WATCHERS")):
+    if _truthy(os.environ.get("PHARMFLOW_ENSURE_NO_THRASH_WATCHERS")):
         return True
     ov = _load_overrides_dict()
-    if _truthy(ov.get("CPHARM_ENSURE_NO_THRASH_WATCHERS")):
+    if _truthy(ov.get("PHARMFLOW_ENSURE_NO_THRASH_WATCHERS")):
         return True
     ap_paused = _truthy(
-        ov.get("CPHARM_AUTOPILOT_PAUSE") or os.environ.get("CPHARM_AUTOPILOT_PAUSE")
+        ov.get("PHARMFLOW_AUTOPILOT_PAUSE") or os.environ.get("PHARMFLOW_AUTOPILOT_PAUSE")
     )
     ap_kill = (LOG_DIR / "AUTOPILOT_OVERNIGHT_KILL.flag").is_file()
     if not (ap_paused or ap_kill):
         return False
-    if _truthy(ov.get("CPHARM_FARM_PATH3") or ov.get("CPHARM_PATH3")):
+    if _truthy(ov.get("PHARMFLOW_FARM_PATH3") or ov.get("PHARMFLOW_PATH3")):
         return True
-    if _truthy(ov.get("CPHARM_FARM_ALLOW_ADS")):
+    if _truthy(ov.get("PHARMFLOW_FARM_ALLOW_ADS")):
         return True
     if ap_kill and (LOG_DIR / "DABFLOW_SITE_STICKY.flag").is_file():
         return True
@@ -445,7 +445,7 @@ def _cull_thrash_watchers(actions: list[str]) -> None:
 def ensure_once(*, sweep_dead: bool = True) -> str:
     actions: list[str] = []
     # Unison owns the stack — do not respawn remediator/keepalive that it culls.
-    if _count("cpharm_unison_supervisor.py") >= 1:
+    if _count("pharmflow_unison_supervisor.py") >= 1:
         _hb("unison_owns_stack")
         return "unison_owns_stack"
     try:
@@ -484,7 +484,7 @@ def ensure_once(*, sweep_dead: bool = True) -> str:
                     )
                 write_site_lock(
                     "loansflow",
-                    sequence_root=r"C:\CPharm\automation\recordings\sequences\loansflow",
+                    sequence_root=r"C:\PharmFlow\automation\recordings\sequences\loansflow",
                     daily_visits_csv="120,100,90,80",
                     daily_ads_csv="3,2,2,2",
                     url="https://loansflow.loan/",
@@ -544,7 +544,7 @@ def ensure_once(*, sweep_dead: bool = True) -> str:
                     _note = "ensure_dabflow_sticky_path3_money_day"
                 write_site_lock(
                     "dabflow",
-                    sequence_root=r"C:\CPharm\automation\recordings\sequences",
+                    sequence_root=r"C:\PharmFlow\automation\recordings\sequences",
                     daily_visits_csv=_visits,
                     daily_ads_csv=_ads,
                     url="https://getdabflow.app/",
@@ -636,14 +636,14 @@ def ensure_once(*, sweep_dead: bool = True) -> str:
         if OVERRIDES.is_file():
             _ov_ntfy = json.loads(OVERRIDES.read_text(encoding="utf-8-sig"))
             _digest = str(
-                _ov_ntfy.get("CPHARM_NTFY_DIGEST_INTERVAL")
-                or os.environ.get("CPHARM_NTFY_DIGEST_INTERVAL")
+                _ov_ntfy.get("PHARMFLOW_NTFY_DIGEST_INTERVAL")
+                or os.environ.get("PHARMFLOW_NTFY_DIGEST_INTERVAL")
                 or "10800"
             ).strip() or "10800"
         else:
-            _digest = os.environ.get("CPHARM_NTFY_DIGEST_INTERVAL", "10800").strip() or "10800"
+            _digest = os.environ.get("PHARMFLOW_NTFY_DIGEST_INTERVAL", "10800").strip() or "10800"
     except Exception:
-        _digest = os.environ.get("CPHARM_NTFY_DIGEST_INTERVAL", "10800").strip() or "10800"
+        _digest = os.environ.get("PHARMFLOW_NTFY_DIGEST_INTERVAL", "10800").strip() or "10800"
     if _ntfy_off or _digest in {"0", "off", "false", "no"}:
         actions.append("hourly_ntfy_suppressed")
     elif _count("farm_hourly_ntfy.py") < 1:
@@ -662,10 +662,10 @@ def ensure_once(*, sweep_dead: bool = True) -> str:
         if OVERRIDES.is_file():
             ov = json.loads(OVERRIDES.read_text(encoding="utf-8-sig"))
         ap_paused = str(
-            ov.get("CPHARM_AUTOPILOT_PAUSE") or os.environ.get("CPHARM_AUTOPILOT_PAUSE") or "0"
+            ov.get("PHARMFLOW_AUTOPILOT_PAUSE") or os.environ.get("PHARMFLOW_AUTOPILOT_PAUSE") or "0"
         ).strip().lower() in ("1", "true", "yes", "on")
     except Exception:
-        ap_paused = str(os.environ.get("CPHARM_AUTOPILOT_PAUSE") or "0").strip().lower() in (
+        ap_paused = str(os.environ.get("PHARMFLOW_AUTOPILOT_PAUSE") or "0").strip().lower() in (
             "1", "true", "yes", "on",
         )
     # Hard kill flag: never respawn AP while present (money-day / overnight).
@@ -696,7 +696,7 @@ def ensure_once(*, sweep_dead: bool = True) -> str:
     elif _count("dash_forever_watch.py") < 1:
         _start_hidden("scripts/dash_forever_watch.py")
         actions.append("dash_forever_watch")
-    # Operator may set C:\CPharm\logs\NTFY_NO_AUTO_REPLY.flag or NTFY_OFF.flag â€”
+    # Operator may set C:\PharmFlow\logs\NTFY_NO_AUTO_REPLY.flag or NTFY_OFF.flag â€”
     # do not respawn auto-reply / agent-wake bots.
     _ntfy_no_auto = (LOG_DIR / "NTFY_NO_AUTO_REPLY.flag").is_file() or (
         LOG_DIR / "NTFY_OFF.flag"
@@ -715,7 +715,7 @@ def ensure_once(*, sweep_dead: bool = True) -> str:
         actions.append("emu_keepalive")
     # x86 AVD overnight only. MuMu farms must not spawn this — it polls adb /
     # launches emulator.exe every tick and flashes console windows.
-    _avd_watch = str(os.environ.get("CPHARM_AVD_WATCHDOG") or "").strip().lower() in (
+    _avd_watch = str(os.environ.get("PHARMFLOW_AVD_WATCHDOG") or "").strip().lower() in (
         "1", "true", "yes", "on",
     )
     if _avd_watch:
@@ -737,8 +737,8 @@ def ensure_once(*, sweep_dead: bool = True) -> str:
     # Preferred ops: cycles --no-kill supervises farm_354 (adopt/wait/respawn).
     # Keep the cycles supervisor alive even when farm_354 is already healthy Ã¢â‚¬â€
     # it adopts the live worker. Never kill cycles; cull duplicate farm_354.
-    # When CPharm.exe owns the farm, do not spawn a second farm/cycles worker.
-    from automation.cpharm_exe_owned import exe_owns_farm
+    # When PharmFlow.exe owns the farm, do not spawn a second farm/cycles worker.
+    from automation.pharmflow_exe_owned import exe_owns_farm
 
     if exe_owns_farm():
         actions.append("exe_owned_skip_farm_spawn")

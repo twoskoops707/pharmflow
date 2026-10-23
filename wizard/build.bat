@@ -1,7 +1,7 @@
 @echo off
 echo ============================================================
-echo  CPharm Wizard Builder
-echo  Builds the unified Windows app (CPharm.exe) via wizard/CPharm.spec
+echo  PharmFlow Wizard Builder
+echo  Builds the unified Windows app (PharmFlow.exe) via wizard/PharmFlow.spec
 echo  You only need to run this once on a Windows PC.
 echo ============================================================
 echo.
@@ -32,10 +32,10 @@ if errorlevel 1 (
 echo    Build tools installed. Good.
 echo.
 
-echo Step 3 of 3: Building CPharm.exe ...
+echo Step 3 of 3: Building PharmFlow.exe ...
 cd /d "%~dp0"
 rem Produces a .exe matching this machine's Python (x64 on typical PCs; native ARM64 on Windows on ARM if Python is arm64).
-pyinstaller CPharm.spec
+pyinstaller PharmFlow.spec
 if errorlevel 1 (
     echo ERROR: Build failed. Read the error above.
     pause
@@ -45,7 +45,7 @@ if errorlevel 1 (
 echo.
 echo ============================================================
 echo  SUCCESS!
-echo  Your .exe is at:  dist\CPharm.exe
+echo  Your .exe is at:  dist\PharmFlow.exe
 echo  Copy it to any Windows PC and double-click to run.
 echo ============================================================
 echo.

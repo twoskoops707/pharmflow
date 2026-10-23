@@ -81,7 +81,7 @@ object CookieIsolation {
     }
 
     /**
-     * Full wipe — used by "Clear Data" menu and CPharm broadcasts.
+     * Full wipe — used by "Clear Data" menu and PharmFlow broadcasts.
      * Also clears all persisted identity cookies.
      */
     fun wipeAll(context: Context) {

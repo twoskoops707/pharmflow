@@ -1,22 +1,20 @@
-# CPharm — Virtual Phone Farm
+# PharmFlow — Virtual Phone Farm
 
 Run many Android phones on one Windows PC and control them from one place. **No Android Studio required** if you use **MuMu**.
 
-**Download:** [GitHub Releases](https://github.com/twoskoops707/cpharm/releases/latest) — download all three files into the same folder:
+**Download:** [GitHub Releases](https://github.com/twoskoops707/pharmflow/releases/latest) — one file, `PharmFlow.exe`, into `C:\PharmFlow\`:
 
 | File | Role |
 |------|------|
-| **CPharm.exe** | Main GUI: wizard, MuMu setup, **Start farm**, operator dashboard **`:8091`**, sequences |
-| **CPharmAgent.exe** | Project status and bounded agent planning |
-| **CPharmWatchdog.exe** | ADB / inject / emulator health checks and known repairs |
+| **PharmFlow.exe** | Control Panel: wizard, phone setup, **Start farm**, operator dashboard **`:8091`**, sequences. Watchdog and agent are the same EXE (`PharmFlow.exe --watchdog`, `PharmFlow.exe --agent`). |
 
-**Automation source (CI mirror):** [github.com/twoskoops707/FamFlow](https://github.com/twoskoops707/FamFlow)
+**Automation source (CI mirror):** [github.com/twoskoops707/PharmFlow](https://github.com/twoskoops707/PharmFlow)
 
-**Run order:** Start `CPharm.exe` first. Use **Start farm** for the Mantis money farm (unison stack). Use `CPharmWatchdog.exe` for connection recovery. Keep all three EXEs in one folder.
+**Run order:** Start `PharmFlow.exe`. Use **Start farm** for the Mantis money farm (unison stack). Connection recovery is `PharmFlow.exe --watchdog` (same binary, not a second download).
 
 **Complete EXE guide:** [docs/EXE_QUICK_START.md](docs/EXE_QUICK_START.md)
 
-**From source:** `py -3 wizard/cpharm_desktop.py` from the repo root.
+**From source:** `py -3 wizard/pharmflow_desktop.py` from the repo root.
 
 ---
 
@@ -24,13 +22,13 @@ Run many Android phones on one Windows PC and control them from one place. **No 
 
 1. MuMu x64 — **8** portrait phones online (canonical vm0,1,5,7,9,10,12,13).
 2. **FarmBrowser** installed on each phone (`farmbrowser/` → debug APK).
-3. Open **CPharm.exe** → **Start farm** (spawns unison: farm + stealth + watchdog + FreeBuff money lane).
+3. Open **PharmFlow.exe** → **Start farm** (spawns unison: farm + stealth + watchdog + FreeBuff money lane).
 4. Dashboard: **`http://127.0.0.1:8091/`** (not `:8080` wizard server).
-5. **Stop farm** in CPharm when done.
+5. **Stop farm** in PharmFlow when done.
 
 Sequences under `sequences/` use `preferred_browser: com.farmbrowser.stealth.debug` for Path3/ad flows.
 
-**Never** start the farm from Cursor/Python (`ensure_farm_24x7.py`, etc.) — **CPharm.exe owns Start farm**.
+**Never** start the farm from Cursor/Python (`ensure_farm_24x7.py`, etc.) — **PharmFlow.exe owns Start farm**.
 
 ---
 
@@ -39,16 +37,16 @@ Sequences under `sequences/` use `preferred_browser: com.farmbrowser.stealth.deb
 1. Install **MuMu for Windows ARM** on Snapdragon PCs ([mumuglobal.com/download](https://www.mumuglobal.com/download)) — not the x64 installer on ARM.
 2. MuMu Multi-instance: create phones as **Phone**, **900 × 1600**, **portrait**.
 3. On each phone: **USB debugging ON** (tap Build number 7× in About).
-4. Download **CPharm.exe**, **CPharmAgent.exe**, and **CPharmWatchdog.exe** into one folder (e.g. `C:\CPharm\`).
-5. Double-click **CPharm.exe** → **Phones (step 4)** → checklist → **Set up my phones** (cold-boot phones if prompted).
+4. Download **PharmFlow.exe** into `C:\PharmFlow\`.
+5. Double-click **PharmFlow.exe** → **Phones (step 4)** → checklist → **Set up my phones** (cold-boot phones if prompted).
 6. **Install** (step 2, first time) → **Boot** → **Go** (Tor + run groups).
 7. To test an app, use **Phones → Install APK** after ADB shows the phones as `device`.
 8. Dashboard: `http://localhost:8080` (port shown in Launch log if 8080 is busy).
-9. If Docker or ADB is unhealthy, run `CPharmWatchdog.exe` from PowerShell; see the EXE guide for commands.
+9. If ADB is unhealthy, from that folder run `.\PharmFlow.exe --watchdog`; see the EXE guide for flags.
 
-**All MuMu farm logic lives in CPharm.exe** — `wizard/mumu_farm_ops.py` is bundled in the binary. The agent and watchdog are separate utilities so the main GUI stays focused and the recovery tools can be run independently.
+**All MuMu farm logic lives in PharmFlow.exe** — `wizard/mumu_farm_ops.py` is bundled in the binary. The agent and watchdog are flags on the same EXE, not extra downloads. Settings and logs stay under `C:\PharmFlow\`.
 
-**Full MuMu guide:** [docs/CPharm_emulator_MuMu_and_sequences.md](docs/CPharm_emulator_MuMu_and_sequences.md)
+**Full MuMu guide:** [docs/PharmFlow_emulator_MuMu_and_sequences.md](docs/PharmFlow_emulator_MuMu_and_sequences.md)
 
 **Agent handoff (Jul 2026):** [docs/AGENT_HANDOFF_2026-07-04.md](docs/AGENT_HANDOFF_2026-07-04.md)
 
@@ -76,10 +74,10 @@ Emulator lifecycle operations are dry-run by default; `--apply` is required befo
 
 ## Recent farm features (included in the EXEs)
 
-- **Per-group test APK** — the wizard's **Teams/group editor** card has **“Pick test APK for this group”**. CPharm copies the chosen APK into `apks/` and installs it on that group's phones before their sequence runs, so each group can test a different app.
+- **Per-group test APK** — the wizard's **Teams/group editor** card has **“Pick test APK for this group”**. PharmFlow copies the chosen APK into `apks/` and installs it on that group's phones before their sequence runs, so each group can test a different app.
 - **Live farm status panel** — the dashboard **Run** page shows a live panel (auto-refresh every 2 s) with each group, its phones, and per-phone run # / state / result / APK while automation runs. Backed by `GET /api/groups/status`.
 - **Auto-Connect All Phones** — wizard **Step 4 (Phones)** button that best-effort `adb connect`s the MuMu (16384–16393) and emulator/cloud (5555–5562) port ranges without blocking or hanging the wizard. It reuses the shared preflight helper and only runs when needed.
-- **Standalone ADB logging** — `auto_phone_adb.py` and `auto_adb_mumu.py` mirror their diagnostics to `logs/cpharm.log` (honoring `CPHARM_LOGS`, same location the wizard/watchdog use) while keeping `--json`/stdout output clean.
+- **Standalone ADB logging** — `auto_phone_adb.py` and `auto_adb_mumu.py` mirror their diagnostics to `logs/pharmflow.log` (honoring `PHARMFLOW_LOGS`, same location the wizard/watchdog use) while keeping `--json`/stdout output clean.
 
 ## Cloud phones (redroid — native Linux required)
 
@@ -108,13 +106,13 @@ Details: [cloud_phones/README.md](cloud_phones/README.md)
 ## Windows on ARM (Snapdragon)
 
 1. Install **MuMu for Windows ARM** from [mumuglobal.com/download](https://www.mumuglobal.com/download) — not the x64 installer.
-2. Use **one** `adb.exe` (the copy CPharm installs). Do not mix old SDK copies.
+2. Use **one** `adb.exe` (the copy PharmFlow installs). Do not mix old SDK copies.
 3. Each phone gets an address like `127.0.0.1:16384` — normal for MuMu.
-4. **3 phones** is typical. Addresses change when you recreate VMs — open CPharm → **Phones** → **Set up my phones** again.
+4. **3 phones** is typical. Addresses change when you recreate VMs — open PharmFlow → **Phones** → **Set up my phones** again.
 5. Browsers use **Tor on your PC** tunneled to each phone at **127.0.0.1** (ports 8118, 8119, 8120…). Do **not** use `10.0.2.2` on this ARM farm.
 6. Screen size **900×1600**, **Phone** (not Pad), **portrait**.
 
-Full guide: [docs/CPharm_emulator_MuMu_and_sequences.md](docs/CPharm_emulator_MuMu_and_sequences.md)
+Full guide: [docs/PharmFlow_emulator_MuMu_and_sequences.md](docs/PharmFlow_emulator_MuMu_and_sequences.md)
 
 ---
 
@@ -123,7 +121,7 @@ Full guide: [docs/CPharm_emulator_MuMu_and_sequences.md](docs/CPharm_emulator_Mu
 | # | Step | What you do |
 |---|------|-------------|
 | 1 | **Start** | Read the four-part roadmap |
-| 2 | **Install** | Java, Python, Tor, CPharm files on this PC |
+| 2 | **Install** | Java, Python, Tor, PharmFlow files on this PC |
 | 3 | **Android** | MuMu (recommended) or Google SDK |
 | 4 | **Phones** | Connect MuMu, hide emulator look, **Set up my phones** |
 | 5 | **Test** | Open getdabflow.app — confirm site + ads |
@@ -134,7 +132,7 @@ Full guide: [docs/CPharm_emulator_MuMu_and_sequences.md](docs/CPharm_emulator_Mu
 
 **DabFlow / getdabflow.app:** uses **FarmBrowser** on each phone for Path3/money sequences (`com.farmbrowser.stealth.debug`). Legacy Path1/2 may use Chromium/Firefox/Brave. Sequences pick browser via `preferred_browser` in JSON.
 
-**Operator docs:** [operator_sequence_quick_guide.md](docs/operator_sequence_quick_guide.md) · [MuMu guide](docs/CPharm_emulator_MuMu_and_sequences.md)
+**Operator docs:** [operator_sequence_quick_guide.md](docs/operator_sequence_quick_guide.md) · [MuMu guide](docs/PharmFlow_emulator_MuMu_and_sequences.md)
 
 ---
 
@@ -163,7 +161,7 @@ From your phone: connect to the same WiFi as your PC and use the address shown i
 
 ## Browser Intent Flow (why URL opens are reliable)
 
-CPharm opens links with Android `VIEW` intents and fallbacks, in this order:
+PharmFlow opens links with Android `VIEW` intents and fallbacks, in this order:
 
 - Step-configured target (`browser_component`, then package/activity hints)
 - Installed browsers from `browser_adb.packages_for_view_url_attempts` (**MuMu Browser first** on MuMu)
@@ -186,7 +184,7 @@ Automation runs JSON steps (`open_url`, `tap`, `wait`, `swipe`, `rotate_identity
 
 In-repo sequence samples commonly use a `900x1600` baseline. Keep emulator resolution stable to reduce drift.
 
-**Playlist files** can be assigned per phone (Set A and optional Set B) with `sequence_playlist_mode`: `ordered` (round-robin + one from B), `random` (one random file per non-empty set per repeat), or `series` (chain every file in A, then every file in B, each repeat). Optional `sequence_playlist_shuffle` reorders filenames **each repeat** before that mode runs (deterministic per phone + iteration). Allowed values: `none`, `set_a`, `set_b`, `both_sets_separately`, `combined`. Unknown strings fall back to `none`. **`combined`** merges Set A and Set B into one list, shuffles it, then treats it as a single set: `ordered` / `random` pick **one** file from that merged pool per repeat (not two); `series` runs every merged file in shuffled order. Full shuffle × mode matrix: [docs/CPharm_emulator_MuMu_and_sequences.md](docs/CPharm_emulator_MuMu_and_sequences.md).
+**Playlist files** can be assigned per phone (Set A and optional Set B) with `sequence_playlist_mode`: `ordered` (round-robin + one from B), `random` (one random file per non-empty set per repeat), or `series` (chain every file in A, then every file in B, each repeat). Optional `sequence_playlist_shuffle` reorders filenames **each repeat** before that mode runs (deterministic per phone + iteration). Allowed values: `none`, `set_a`, `set_b`, `both_sets_separately`, `combined`. Unknown strings fall back to `none`. **`combined`** merges Set A and Set B into one list, shuffles it, then treats it as a single set: `ordered` / `random` pick **one** file from that merged pool per repeat (not two); `series` runs every merged file in shuffled order. Full shuffle × mode matrix: [docs/PharmFlow_emulator_MuMu_and_sequences.md](docs/PharmFlow_emulator_MuMu_and_sequences.md).
 
 The **Generator** tab (**Sequence builder**) is one vertical scroll:
 
@@ -209,23 +207,23 @@ Each phone gets its own Tor circuit so every session looks like a different pers
 **Option A — Tor Browser (easiest)**
 1. Download and install Tor Browser from **torproject.org**
 2. Open it and click Connect
-3. Leave it running — CPharm uses it automatically
+3. Leave it running — PharmFlow uses it automatically
 
 **Option B — Expert Bundle (no browser)**
 1. Download the Tor Expert Bundle for Windows from **torproject.org/download**
-2. Unzip it and copy everything into `automation\tor\` inside the CPharm folder
-   - `tor.exe` should end up at `cpharm\automation\tor\tor.exe`
+2. Unzip it and copy everything into `automation\tor\` inside the PharmFlow folder
+   - `tor.exe` should end up at `pharmflow\automation\tor\tor.exe`
 
-### Closing CPharm (wizard clears device proxy)
+### Closing PharmFlow (wizard clears device proxy)
 
-When you exit CPharm or stop the dashboard from the wizard **Launch** step, the wizard clears each device’s **`http_proxy`** and **Tor `adb reverse`** mappings (best effort over ADB) so emulators are not left pointing at a dead tunnel. Set **`CPHARM_SKIP_EXIT_PROXY_CLEAR=1`** to opt out of that exit-time cleanup. If a phone’s browser still looks broken after a teardown error, open **Launch** in the wizard and use **Fix phone browsers (clear proxy)**.
+When you exit PharmFlow or stop the dashboard from the wizard **Launch** step, the wizard clears each device’s **`http_proxy`** and **Tor `adb reverse`** mappings (best effort over ADB) so emulators are not left pointing at a dead tunnel. Set **`PHARMFLOW_SKIP_EXIT_PROXY_CLEAR=1`** to opt out of that exit-time cleanup. If a phone’s browser still looks broken after a teardown error, open **Launch** in the wizard and use **Fix phone browsers (clear proxy)**.
 
 ---
 
 ## Folder Layout
 
 ```
-cpharm/
+pharmflow/
   automation/
     dashboard.py      ← Automation server — started by the wizard
     tor_manager.py    ← Tor identity rotation
@@ -263,7 +261,7 @@ Saved sequence JSON files normally live under **`automation\recordings\sequences
 | `sequence_playlist_mode` | `ordered` (default), `random`, or `series`. Unknown values → `ordered`. |
 | `sequence_playlist_shuffle` | `none` (default), `set_a`, `set_b`, `both_sets_separately`, or `combined`. Unknown values → `none`. |
 
-If no playlist step loads successfully, the phone falls back to its inline `steps`. Full semantics (including **`combined`** shuffle and **`series`** chaining) are in [docs/CPharm_emulator_MuMu_and_sequences.md](docs/CPharm_emulator_MuMu_and_sequences.md).
+If no playlist step loads successfully, the phone falls back to its inline `steps`. Full semantics (including **`combined`** shuffle and **`series`** chaining) are in [docs/PharmFlow_emulator_MuMu_and_sequences.md](docs/PharmFlow_emulator_MuMu_and_sequences.md).
 
 ## Scenario file naming
 
@@ -281,9 +279,9 @@ Repo presets use **event-chain basenames**: ordered phases joined with `__`, der
 | Phone not on Boot list | Start it in MuMu → **Start all phones** on Boot |
 | Browser blank / no internet | Launch → **Fix the phone's internet** |
 | Page times out | Launch → **Set up Tor** — wait until log says ready |
-| Taps miss | MuMu **Phone** model, **900×1600** portrait; re-run **CPharmMuMuSetup → GO** |
+| Taps miss | MuMu **Phone** model, **900×1600** portrait; re-run **PharmFlow → Phones → Set up my phones** |
 | Groups won't run | **Reload groups file** on Launch after editing Groups |
 | Dashboard won't open | Launch → **Start server** first |
 | Out of memory | Stop extra MuMu instances; ~2–3 GB RAM per phone |
 
-More fixes: [docs/CPharm_emulator_MuMu_and_sequences.md](docs/CPharm_emulator_MuMu_and_sequences.md) → **If something breaks**
+More fixes: [docs/PharmFlow_emulator_MuMu_and_sequences.md](docs/PharmFlow_emulator_MuMu_and_sequences.md) → **If something breaks**

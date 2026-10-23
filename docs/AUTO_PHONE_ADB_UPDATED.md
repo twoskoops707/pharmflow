@@ -1,3 +1,5 @@
+> **Superseded:** the product is a single `PharmFlow.exe` in `C:\PharmFlow\` (`--watchdog`, `--agent`, phone setup in-process). Data still lives under `C:\PharmFlow\`. Ignore EXE names below.
+
 ═══════════════════════════════════════════════════════════
   AUTO-CONNECT ALL PHONES — UPDATED
 ═══════════════════════════════════════════════════════════
@@ -51,7 +53,7 @@ MuMu Emulators (default ports 16384-16393):
 
 $ python auto_phone_adb.py --docker-only
 
-[*] Using ADB: C:\CPharm\bundled\adb.exe
+[*] Using ADB: C:\PharmFlow\bundled\adb.exe
 [*] Connecting Docker Redroid (ports 5555-5562)...
   [+] 127.0.0.1:5555
   [+] 127.0.0.1:5556
@@ -143,8 +145,8 @@ python auto_phone_adb.py --mumu-only
 adb devices -l
 # Should show all connected phones
 
-# Then start CPharm:
-CPharm.exe
+# Then start PharmFlow:
+PharmFlow.exe
 # Step 4 (Phones) should auto-populate with all detected
 
 ═══════════════════════════════════════════════════════════

@@ -14,7 +14,7 @@ import com.farmbrowser.stealth.stealth.DeviceFingerprint
 import com.farmbrowser.stealth.stealth.DnsOverHttps
 
 /**
- * BroadcastReceiver for ADB-driven control from CPharm automation.
+ * BroadcastReceiver for ADB-driven control from PharmFlow automation.
  *
  * All actions use: adb shell am broadcast -a com.farmbrowser.stealth.CONTROL
  *

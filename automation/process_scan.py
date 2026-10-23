@@ -69,8 +69,12 @@ def pids_matching(needles: tuple[str, ...] | str) -> list[int]:
     return [int(r["pid"]) for r in iter_matching_processes(needles_t)]
 
 
-def cpharm_exe_pids() -> list[int]:
-    """PIDs for CPharm.exe (in-process farm owner on 1.4.1+)."""
+# Current Control Panel plus the previous filename so a leftover process still counts.
+GUI_EXE_NAMES = frozenset({"pharmflow.exe", "pharmflow.exe"})
+
+
+def pharmflow_exe_pids() -> list[int]:
+    """PIDs for PharmFlow.exe (and a leftover PharmFlow.exe)."""
     try:
         import psutil
     except ImportError:
@@ -78,7 +82,7 @@ def cpharm_exe_pids() -> list[int]:
     out: list[int] = []
     for proc in psutil.process_iter(["pid", "name"]):
         try:
-            if str(proc.info.get("name") or "").lower() == "cpharm.exe":
+            if str(proc.info.get("name") or "").lower() in GUI_EXE_NAMES:
                 out.append(int(proc.info["pid"]))
         except (psutil.Error, TypeError, ValueError, KeyError):
             continue

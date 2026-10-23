@@ -106,5 +106,39 @@ class MuMuDiscoveryTests(unittest.TestCase):
         self.assertTrue(any("MuMu" in str(p) for p in paths))
 
 
+class FreshPrefsDoNotClaimSetupDoneTests(unittest.TestCase):
+    def test_write_desktop_prefs_does_not_mark_tor_or_setup_complete(self) -> None:
+        import json
+        import tempfile
+
+        from wizard.mumu_farm_ops import write_desktop_prefs_file
+
+        with tempfile.TemporaryDirectory() as raw:
+            path = Path(raw) / "desktop_prefs.json"
+            write_desktop_prefs_file(["10.0.2.15:5555"], path)
+            data = json.loads(path.read_text(encoding="utf-8"))
+        self.assertFalse(data.get("tor_proxy_configured"))
+        self.assertFalse(data.get("mumu_setup_complete"))
+        self.assertEqual(data.get("phone_serials"), ["10.0.2.15:5555"])
+
+
+class ArmStartDoesNotKillAdbTests(unittest.TestCase):
+    def test_start_phone_reconnects_instead_of_killing_the_server(self) -> None:
+        import inspect
+
+        src = inspect.getsource(MuMuFarmOps._start_phone_arm)
+        self.assertNotIn('adb.run("kill-server"', src)
+        self.assertNotIn("adb.run('kill-server'", src)
+        self.assertIn("_reconnect_known_serials", src)
+
+    def test_arm_cold_boot_does_not_claim_a_reboot(self) -> None:
+        import inspect
+
+        src = inspect.getsource(MuMuFarmOps.cold_boot)
+        arm = src.split("_is_arm_backend")[1].split("self.stop_phone")[0]
+        self.assertIn("return False", arm)
+        self.assertNotIn("return True", arm)
+
+
 if __name__ == "__main__":
     unittest.main()

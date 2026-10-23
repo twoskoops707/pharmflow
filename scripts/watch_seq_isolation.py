@@ -22,12 +22,12 @@ sys.path.insert(0, str(ROOT))
 from automation.farm_checkin import gather_checkin, publish_checkin
 
 
-LOG_DIR = Path(r"C:\CPharm\logs")
+LOG_DIR = Path(r"C:\PharmFlow\logs")
 STATE = LOG_DIR / "isolation_watch_state.json"
 WATCH_LOG = LOG_DIR / "isolation_watch.log"
-INTERVAL_S = int(os.environ.get("CPHARM_ISOLATION_WATCH_INTERVAL", "90") or "90")
+INTERVAL_S = int(os.environ.get("PHARMFLOW_ISOLATION_WATCH_INTERVAL", "90") or "90")
 # ntfy at most once every 2h (global throttle in farm_checkin); fixes still run every INTERVAL_S.
-NTFY_EVERY_S = int(os.environ.get("CPHARM_ISOLATION_NTFY_EVERY_S", "7200") or "7200")
+NTFY_EVERY_S = int(os.environ.get("PHARMFLOW_ISOLATION_NTFY_EVERY_S", "7200") or "7200")
 
 # Fallback map if MuMu refresh fails (index → serial) — absolute idx keys only.
 _FALLBACK_PHONES: dict[int, str] = {}
@@ -92,9 +92,11 @@ def _phone_map(log: logging.Logger) -> dict[int, str]:
 def _fix_proxies(log: logging.Logger) -> list[str]:
     """Restore Tor/inject on any phone with cleared proxy. Returns human fix lines."""
     from automation.adb_wrapper import AdbWrapper
+    from automation.browse_proxy import guest_proxy_healthy
+    from automation.mantis_inject_proxy import inject_enabled, phone_inject_port
     from automation.tor_manager import TorManager, phone_http_port
 
-    os.environ.setdefault("CPHARM_MANTIS_INJECT_PROXY", "1")
+    os.environ.setdefault("PHARMFLOW_MANTIS_INJECT_PROXY", "1")
     adb = AdbWrapper()
     tor = TorManager(adb)
     fixes: list[str] = []
@@ -103,33 +105,21 @@ def _fix_proxies(log: logging.Logger) -> list[str]:
             proxy = (
                 adb.shell("settings get global http_proxy", serial=serial, timeout=8.0).stdout or ""
             ).strip()
-            expect_tor = f"127.0.0.1:{phone_http_port(idx)}"
-            expect_inject = f"127.0.0.1:{8218 + idx}"
-            if expect_inject in proxy or expect_tor in proxy:
+            if guest_proxy_healthy(proxy, idx):
                 continue
             was = proxy or "none"
             log.info("fixing Tor/inject proxy phone%d was=%s", idx, was)
             tor.start_phone_tor(idx, serial)
-            # Prefer inject port when enabled.
-            try:
-                from automation.mantis_inject_proxy import inject_enabled, phone_inject_port
-
-                if inject_enabled():
-                    inj = phone_inject_port(idx)
-                    adb.shell(
-                        f"settings put global http_proxy 127.0.0.1:{inj}",
-                        serial=serial,
-                        timeout=8.0,
-                    )
-            except Exception:
-                pass
+            port = phone_inject_port(idx) if inject_enabled() else phone_http_port(idx)
+            if port > 0:
+                adb.set_http_proxy("127.0.0.1", port, serial=serial)
             proxy2 = (
                 adb.shell("settings get global http_proxy", serial=serial, timeout=8.0).stdout or ""
             ).strip()
-            if expect_inject in proxy2 or expect_tor in proxy2 or "127.0.0.1:" in proxy2:
+            if guest_proxy_healthy(proxy2, idx):
                 fixes.append(f"vm{idx} proxy {was}→{proxy2}")
             else:
-                fixes.append(f"vm{idx} proxy fix attempted was={was} now={proxy2 or 'none'}")
+                fixes.append(f"vm{idx} proxy was not repaired was={was} now={proxy2 or 'none'}")
         except Exception as exc:
             log.warning("proxy fix phone%d failed: %s", idx, exc)
             fixes.append(f"vm{idx} Tor proxy fix FAILED: {exc}")
@@ -139,7 +129,10 @@ def _fix_proxies(log: logging.Logger) -> list[str]:
 def run_once(log: logging.Logger, *, allow_ntfy: bool = True) -> dict:
     fixes = _fix_proxies(log)
     # Only count successful restores as "fixed" for the FIX title.
-    real_fixes = [f for f in fixes if "FAILED" not in f]
+    real_fixes = [
+        f for f in fixes
+        if "FAILED" not in f and "was not repaired" not in f
+    ]
     snap = gather_checkin(fixes=real_fixes)
 
     prev: dict = {}

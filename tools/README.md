@@ -1,12 +1,10 @@
 # Tools and Windows EXEs
 
-The GitHub Release provides three executables:
+The GitHub Release provides one executable:
 
-- `CPharm.exe` — main GUI for wizard setup, phones, APK testing, sequences, groups, dashboard, and automation.
-- `CPharmAgent.exe` — bounded project status/planning utility.
-- `CPharmWatchdog.exe` — Docker/ADB/emulator connection health utility.
+- `PharmFlow.exe` — Control Panel for wizard setup, phones, APK testing, sequences, groups, dashboard, and automation. `--agent` and `--watchdog` are the same file.
 
-Keep all three files in the same folder. Start `CPharm.exe` first. The full operator guide is [../docs/EXE_QUICK_START.md](../docs/EXE_QUICK_START.md).
+Install it at `C:\PharmFlow\PharmFlow.exe`. Start that first. The full operator guide is [../docs/EXE_QUICK_START.md](../docs/EXE_QUICK_START.md).
 
 ## Unified entrypoint
 
@@ -37,11 +35,11 @@ python tools/project_agent.py emulator logs --apply
 python tools/project_agent.py emulator down --apply
 ```
 
-The stack requires Docker with Android binder support and is intended for a Linux host or cloud VM. Windows operators can continue using MuMu and `CPharm.exe`; the automation dashboard consumes both through ADB serials.
+The stack requires Docker with Android binder support and is intended for a Linux host or cloud VM. Windows operators use MuMu and `PharmFlow.exe`; the automation dashboard consumes both through ADB serials.
 
 ## Watchdog and connection repair
 
-For the packaged Windows utility, run `CPharmWatchdog.exe` from PowerShell. For a source checkout, use the Python commands below.
+For the packaged Windows utility, run `PharmFlow.exe --watchdog` from PowerShell in `C:\PharmFlow`. For a source checkout, use the Python commands below.
 
 
 Run a diagnostic pass against the backend stack and mapped ADB ports:

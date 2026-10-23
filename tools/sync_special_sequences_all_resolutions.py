@@ -27,7 +27,7 @@ def _sequence_roots() -> list[Path]:
     for p in (
         ROOT / "sequences",
         ROOT.parent / "sequences",
-        Path.home() / "CPharm" / "sequences",
+        Path.home() / "PharmFlow" / "sequences",
     ):
         try:
             key = str(p.resolve())

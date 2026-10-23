@@ -124,7 +124,7 @@ def _copy_farmbrowser(dest: Path) -> Path:
     """Embed the prebuilt FarmBrowser APK (no public mirror exists for it)."""
     sources = [
         _ROOT / "bundled" / "farmbrowser-debug.apk",
-        Path(r"C:\CPharm\apks\farmbrowser-debug.apk"),
+        Path(r"C:\PharmFlow\apks\farmbrowser-debug.apk"),
         _ROOT / "farmbrowser" / "app" / "build" / "outputs" / "apk" / "debug" / "app-debug.apk",
         _ROOT / "farmbrowser" / "app" / "build" / "outputs" / "apk" / "release" / "app-release.apk",
     ]
@@ -134,7 +134,7 @@ def _copy_farmbrowser(dest: Path) -> Path:
             print(f"      embedded local FarmBrowser build: {s}")
             return dest
     raise RuntimeError(
-        "FarmBrowser APK not found locally (C:\\CPharm\\apks or farmbrowser build output); "
+        "FarmBrowser APK not found locally (C:\\PharmFlow\\apks or farmbrowser build output); "
         "not embedded this build"
     )
 

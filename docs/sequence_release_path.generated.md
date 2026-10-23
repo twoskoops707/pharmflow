@@ -1,6 +1,6 @@
 # Sequence push-only release path (no PR)
 
-This is the concrete path for shipping sequence changes by push only, using `c:\Users\jsmil\source\repos\cpharm` as the git source of truth (because `c:\Users\jsmil\CPharm\cpharm-clone` is not a git working tree in this environment).
+This is the concrete path for shipping sequence changes by push only, using `c:\Users\jsmil\source\repos\pharmflow` as the git source of truth (because `c:\Users\jsmil\PharmFlow\pharmflow-clone` is not a git working tree in this environment).
 
 ## 1) What to commit for sequence changes
 
@@ -11,37 +11,37 @@ Commit the sequence payload and any coupled logic/docs in the same logical chang
 - `docs/SEQUENCE_CATALOG.md` and related docs (if behavior docs changed)
 - `.github/workflows/build-wizard.yml` **if CI trigger behavior must change with this sequence ship**
 
-Current observed dirty set in `c:\Users\jsmil\source\repos\cpharm` is sequence-heavy plus `automation/sequence_geometry.py`, so the default commit should include those files together.
+Current observed dirty set in `c:\Users\jsmil\source\repos\pharmflow` is sequence-heavy plus `automation/sequence_geometry.py`, so the default commit should include those files together.
 
 ## 2) What currently triggers on push
 
-From `c:\Users\jsmil\source\repos\cpharm\.github\workflows\build-wizard.yml`:
+From `c:\Users\jsmil\source\repos\pharmflow\.github\workflows\build-wizard.yml`:
 
 - Trigger: `on.push.paths: ['wizard/**']` and `workflow_dispatch`
 - Meaning: **sequence-only pushes do not auto-run** this workflow.
 - Manual path still exists: `workflow_dispatch` can run the build without PR.
 
-From `c:\Users\jsmil\CPharm\cpharm-clone\.github\workflows\build-wizard.yml` (reference mirror):
+From `c:\Users\jsmil\PharmFlow\pharmflow-clone\.github\workflows\build-wizard.yml` (reference mirror):
 
 - Trigger: `on.push` (no path filter) + `workflow_dispatch`
 - Meaning: any push would run verify/build/release there.
 
 ## 3) Artifact and release expectations
 
-In the tracked repo (`source\repos\cpharm`) the workflow builds and publishes:
+In the tracked repo (`source\repos\pharmflow`) the workflow builds and publishes:
 
-- PyInstaller output: `wizard/dist/CPharm.exe`
-- Actions artifact: `CPharm-exe` (retention 30 days)
+- PyInstaller output: `wizard/dist/PharmFlow.exe`
+- Actions artifact: `PharmFlow-exe` (retention 30 days)
 - GitHub Release on push/manual run:
   - tag: `wizard-${{ github.run_number }}`
-  - release name: `CPharm (build ${{ github.run_number }})`
-  - attached asset: `CPharm.exe`
+  - release name: `PharmFlow (build ${{ github.run_number }})`
+  - attached asset: `PharmFlow.exe`
 
 Policy expectation: Releases are the primary download path; artifact is fallback/debug evidence.
 
 ## 4) Push-only execution path (no PR)
 
-Run in `c:\Users\jsmil\source\repos\cpharm`:
+Run in `c:\Users\jsmil\source\repos\pharmflow`:
 
 1. Review staged scope:
    - `git status`
@@ -67,7 +67,7 @@ Do not claim "done", "build exists", or "shipped" until all checks below are run
    - Expect: remote head resolves for the target branch.
 
 3. **Workflow/release status check**
-   - `gh run list --workflow "Build CPharm (.exe)" --branch main --limit 5`
+   - `gh run list --workflow "Build PharmFlow (.exe)" --branch main --limit 5`
    - If run exists, inspect latest:
      - `gh run view <run-id> --json status,conclusion,url`
    - Check releases:
@@ -75,9 +75,9 @@ Do not claim "done", "build exists", or "shipped" until all checks below are run
      - `gh release view <tag> --json url,assets`
 
 4. **Success criteria**
-   - If workflow ran and passed: latest run conclusion is `success` and release has `CPharm.exe`.
+   - If workflow ran and passed: latest run conclusion is `success` and release has `PharmFlow.exe`.
    - If workflow did not run for a sequence-only push: report that explicitly as expected due to `paths: ['wizard/**']`, then either:
-     - run manual dispatch (`gh workflow run "Build CPharm (.exe)"`), or
+     - run manual dispatch (`gh workflow run "Build PharmFlow (.exe)"`), or
      - ship a workflow trigger update in same logical change.
    - If workflow failed: report failing run URL and failure reason; do not claim release exists.
 

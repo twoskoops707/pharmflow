@@ -51,9 +51,9 @@ for /f "tokens=1" %%s in ('adb devices ^| findstr /r "device$"') do (
 echo Done!
 ```
 
-### Via CPharm (automated)
-1. Drop `app-debug.apk` into `C:\CPharm\apks\`
-2. Run CPharm → Setup → Install Apps on All Phones
+### Via PharmFlow (automated)
+1. Drop `app-debug.apk` into `C:\PharmFlow\apks\`
+2. Run PharmFlow → Setup → Install Apps on All Phones
 3. Or use the `scripts/install_app.bat` (it picks up APKs from `apks/`)
 
 ## Set as Default Browser
@@ -78,19 +78,19 @@ adb shell am start -a android.intent.action.VIEW \
 adb shell content call --uri content://com.farmbrowser.stealth/proxy \
     --method set --arg "127.0.0.1:8118"
 
-# Or via CPharm's existing http_proxy setting:
+# Or via PharmFlow's existing http_proxy setting:
 adb shell settings put global http_proxy 127.0.0.1:8118
 ```
 
-## Proxy Integration with CPharm Tor
+## Proxy Integration with PharmFlow Tor
 
 FarmBrowser auto-detects Tor proxy via:
 
-1. **System proxy** — reads `settings get global http_proxy` (set by CPharm's `tor_manager.py`)
+1. **System proxy** — reads `settings get global http_proxy` (set by PharmFlow's `tor_manager.py`)
 2. **Port scanning** — probes 127.0.0.1:8118, 8119, 9050, 9051, 9150
 3. **Manual config** — Settings screen or `FarmBrowser.setProxy(host, port, type)` JS call
 
-When CPharm runs `adb reverse tcp:8118 tcp:8118`, FarmBrowser automatically picks up the Tor tunnel.
+When PharmFlow runs `adb reverse tcp:8118 tcp:8118`, FarmBrowser automatically picks up the Tor tunnel.
 
 ## Stealth Profile
 
@@ -111,7 +111,7 @@ WebView → localhost:8199 (local HTTP tunnel)
                 ↓
     SOCKS5/HTTP proxy upstream
                 ↓
-    Tor (via CPharm host Tor instance)
+    Tor (via PharmFlow host Tor instance)
 ```
 
 For HTTP proxies (upstream residential, Tor HTTPTunnelPort), WebView uses them directly.

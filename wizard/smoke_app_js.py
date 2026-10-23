@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Verify wizard/assets/cpharm_app/app.js structure (no Node required)."""
+"""Verify wizard/assets/pharmflow_app/app.js structure (no Node required)."""
 from __future__ import annotations
 
 import sys
 from pathlib import Path
 
-_JS = Path(__file__).resolve().parent / "assets" / "cpharm_app" / "app.js"
+_JS = Path(__file__).resolve().parent / "assets" / "pharmflow_app" / "app.js"
 
 
 def main() -> int:
@@ -15,7 +15,7 @@ def main() -> int:
         "function showBackendError(msg)",
         "function wireStaticNav()",
         "function wireActionButtons()",
-        "window.CPharmSetup",
+        "window.PharmFlowSetup",
         "get_prereq_status",
         "run_install_all",
     ]

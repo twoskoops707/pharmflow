@@ -1,4 +1,4 @@
-"""Runtime sticky / visit caps — SSOT is automation.cpharm_farm_config (no JSON overrides)."""
+"""Runtime sticky / visit caps — SSOT is automation.pharmflow_farm_config (no JSON overrides)."""
 from __future__ import annotations
 
 import json
@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from automation.cpharm_farm_config import (
+from automation.pharmflow_farm_config import (
     MULTI_BROWSER,
     PATH3_BROWSERS,
     apply_farm_env,
@@ -21,7 +21,7 @@ from automation.cpharm_farm_config import (
 # Keep in sync with automation.farm_health_audit.HOUSE_SPAM_SEQ_CAP
 HOUSE_SPAM_SEQ_CAP = 36
 
-DEFAULT_LOG = Path(r"C:\CPharm\logs")
+DEFAULT_LOG = Path(r"C:\PharmFlow\logs")
 OVERRIDES_NAME = "farm_runtime_overrides.json"  # legacy — never written
 SITE_LOCK_NAME = "farm_site_lock.json"
 CAPS_LOCK_NAME = "farm_visit_caps_lock.json"
@@ -30,9 +30,9 @@ HOLD_FLAG = "LOANSFLOW_OPERATOR_HOLD.flag"
 HOLD_DISABLED = "LOANSFLOW_HOLD_WATCHDOG_DISABLED.flag"
 
 _MULTI_BROWSER_KEYS = (
-    ("CPHARM_FARM_CHROMIUM_ONLY", "0"),
-    ("CPHARM_FARM_BROWSERS", MULTI_BROWSER),
-    ("CPHARM_FARM_PATH3_BROWSERS", PATH3_BROWSERS),
+    ("PHARMFLOW_FARM_CHROMIUM_ONLY", "0"),
+    ("PHARMFLOW_FARM_BROWSERS", MULTI_BROWSER),
+    ("PHARMFLOW_FARM_PATH3_BROWSERS", PATH3_BROWSERS),
 )
 
 
@@ -41,18 +41,18 @@ def _chromium_only_lock_active(log_dir: Path | None = None) -> bool:
     log = _log_dir(log_dir)
     if (log / "CHROMIUM_ONLY_LOCK.flag").is_file():
         return True
-    return _truthy(os.environ.get("CPHARM_ALLOW_CHROMIUM_ONLY"))
+    return _truthy(os.environ.get("PHARMFLOW_ALLOW_CHROMIUM_ONLY"))
 
 
 def enforce_multi_browser(target: dict[str, Any]) -> bool:
     """Force multi-browser sticky/env. Returns True if any key changed.
 
-    Skip when ``CHROMIUM_ONLY_LOCK.flag`` or ``CPHARM_ALLOW_CHROMIUM_ONLY=1`` —
+    Skip when ``CHROMIUM_ONLY_LOCK.flag`` or ``PHARMFLOW_ALLOW_CHROMIUM_ONLY=1`` —
     needed on non-ARM hosts where only stock Chrome / chromium APKs install.
     """
     if _chromium_only_lock_active():
         return False
-    if _truthy(target.get("CPHARM_ALLOW_CHROMIUM_ONLY")):
+    if _truthy(target.get("PHARMFLOW_ALLOW_CHROMIUM_ONLY")):
         return False
     changed = False
     for key, want in _MULTI_BROWSER_KEYS:
@@ -149,7 +149,7 @@ def clear_dabflow_sticky_pin(log_dir: Path | None = None) -> bool:
 def write_site_lock(
     slug: str,
     *,
-    sequence_root: str = r"C:\CPharm\automation\recordings\sequences",
+    sequence_root: str = r"C:\PharmFlow\automation\recordings\sequences",
     daily_visits_csv: str = "500,490,480,470",
     daily_ads_csv: str = "12,12,11,11",
     url: str = "https://getdabflow.app/",
@@ -167,7 +167,7 @@ def write_site_lock(
             want = "dabflow"
             note_s = f"refuse_loansflow_under_sticky:{note_s}"
             url = "https://getdabflow.app/"
-            sequence_root = r"C:\CPharm\automation\recordings\sequences"
+            sequence_root = r"C:\PharmFlow\automation\recordings\sequences"
     payload = {
         "slug": want,
         "url": url,
@@ -249,12 +249,12 @@ def apply_runtime_overrides_to_env(
     *,
     log_dir: Path | None = None,
 ) -> dict[str, str]:
-    """Apply SSOT CPHARM_* into env (or os.environ)."""
+    """Apply SSOT PHARMFLOW_* into env (or os.environ)."""
     return apply_farm_env(env)
 
 
 def reassert_sticky_caps(log_dir: Path | None = None) -> dict[str, Any]:
-    """No-op — caps live in cpharm_farm_config.py."""
+    """No-op — caps live in pharmflow_farm_config.py."""
     return {"changed": False, "visits": "", "seqs": "", "note": "ssot_no_json"}
 
 
@@ -271,8 +271,8 @@ def path3_day_reset_blocked(
     if (
         not money_day_ads
         and (
-            _truthy(cur_m.get("CPHARM_AUTOPILOT_PAUSE"))
-            or _truthy(os.environ.get("CPHARM_AUTOPILOT_PAUSE"))
+            _truthy(cur_m.get("PHARMFLOW_AUTOPILOT_PAUSE"))
+            or _truthy(os.environ.get("PHARMFLOW_AUTOPILOT_PAUSE"))
         )
     ):
         return True, "autopilot_pause"
@@ -280,6 +280,6 @@ def path3_day_reset_blocked(
         for name in ("farm_operator_panel.json", "farm_panel_state.json"):
             panel = _load_json(log / name)
             env = panel.get("env") if isinstance(panel.get("env"), dict) else {}
-            if _truthy(env.get("CPHARM_AUTOPILOT_PAUSE")):
+            if _truthy(env.get("PHARMFLOW_AUTOPILOT_PAUSE")):
                 return True, "autopilot_pause_panel"
     return False, ""

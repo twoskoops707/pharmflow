@@ -14,6 +14,6 @@ Patches applied:
   - fixed screenZoneMap trailing-dash zone typos
   - inject cooldown-video-ad display on cool phase
 
-Until deployed, CPharm injects a runtime fix via CDP after each open_url
-(CPHARM_DABFLOW_MANTIS_PATCH=1, default on).
+Until deployed, PharmFlow injects a runtime fix via CDP after each open_url
+(PHARMFLOW_DABFLOW_MANTIS_PATCH=1, default on).
 

@@ -1,4 +1,4 @@
-"""Portable code/data roots so CPharm.exe works without a FamFlow checkout.
+"""Portable code/data roots so PharmFlow.exe works without a PharmFlow checkout.
 
 Helpers spawned from the frozen EXE must not hardcode a developer PC path.
 """
@@ -11,7 +11,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-_WINDOWS_DATA = Path(r"C:\CPharm")
+_WINDOWS_DATA = Path(r"C:\PharmFlow")
 
 
 def is_frozen() -> bool:
@@ -22,9 +22,9 @@ def code_root() -> Path:
     """Directory that contains ``automation/`` and ``scripts/``.
 
     Frozen EXE → PyInstaller MEIPASS. Dev / helper python → this repo.
-    Override with ``CPHARM_CODE_ROOT`` on unusual layouts.
+    Override with ``PHARMFLOW_CODE_ROOT`` on unusual layouts.
     """
-    env = (os.environ.get("CPHARM_CODE_ROOT") or "").strip()
+    env = (os.environ.get("PHARMFLOW_CODE_ROOT") or "").strip()
     if env:
         p = Path(env)
         if p.is_dir():
@@ -42,7 +42,7 @@ def code_root() -> Path:
 
 
 def logs_dir() -> Path:
-    env = (os.environ.get("CPHARM_LOGS") or os.environ.get("CPHARM_LOG_DIR") or "").strip()
+    env = (os.environ.get("PHARMFLOW_LOGS") or os.environ.get("PHARMFLOW_LOG_DIR") or "").strip()
     if env:
         p = Path(env)
         p.mkdir(parents=True, exist_ok=True)
@@ -53,7 +53,7 @@ def logs_dir() -> Path:
 
 
 def helper_python() -> str | None:
-    """Interpreter for spawning scripts. Never CPharm.exe (it is a GUI).
+    """Interpreter for spawning scripts. Never PharmFlow.exe (it is a GUI).
 
     Stealth/farm helpers import the ``cryptography`` stack (TLS-inject CA,
     exit-IP guard, Tor repair). Native-ARM Windows Pythons have no
@@ -64,7 +64,7 @@ def helper_python() -> str | None:
     """
     exe = Path(sys.executable)
     name = exe.name.lower()
-    if "cpharm" in name or is_frozen():
+    if "pharmflow" in name or is_frozen():
         return _deps_complete_pythonw() or _system_pythonw()
     if os.name == "nt" and name in ("python.exe", "pythonw.exe"):
         if _has_cryptography(exe):
@@ -94,7 +94,7 @@ def _has_cryptography(py: Path) -> bool:
 
 def _deps_complete_pythonw() -> str | None:
     for cand in _pythonw_candidates():
-        if not cand.is_file() or "cpharm" in str(cand).lower():
+        if not cand.is_file() or "pharmflow" in str(cand).lower():
             continue
         py = cand.with_name("python.exe")
         if py.is_file() and _has_cryptography(py):
@@ -121,10 +121,10 @@ def _pythonw_candidates() -> list[Path]:
 
 def _system_pythonw() -> str | None:
     for cand in _pythonw_candidates():
-        if cand.is_file() and "cpharm" not in str(cand).lower():
+        if cand.is_file() and "pharmflow" not in str(cand).lower():
             return str(cand)
     for name in ("pythonw", "python"):
         found = shutil.which(name)
-        if found and "cpharm" not in found.lower():
+        if found and "pharmflow" not in found.lower():
             return found
     return None

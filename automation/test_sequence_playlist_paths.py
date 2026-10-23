@@ -17,22 +17,22 @@ from sequences_paths import default_sequences_dir, resolve_sequences_dir  # noqa
 
 
 class SequencePlaylistPathTests(unittest.TestCase):
-    def test_default_sequences_dir_under_user_cpharm(self) -> None:
-        self.assertEqual(default_sequences_dir(), Path.home() / "CPharm" / "sequences")
+    def test_default_sequences_dir_under_user_pharmflow(self) -> None:
+        self.assertEqual(default_sequences_dir(), Path.home() / "PharmFlow" / "sequences")
 
     def test_resolve_sequences_dir_honors_env(self) -> None:
         import os
 
         with tempfile.TemporaryDirectory() as tmp:
-            old = os.environ.get("CPHARM_SEQUENCES_DIR")
+            old = os.environ.get("PHARMFLOW_SEQUENCES_DIR")
             try:
-                os.environ["CPHARM_SEQUENCES_DIR"] = tmp
+                os.environ["PHARMFLOW_SEQUENCES_DIR"] = tmp
                 self.assertEqual(resolve_sequences_dir(), Path(tmp).resolve())
             finally:
                 if old is None:
-                    os.environ.pop("CPHARM_SEQUENCES_DIR", None)
+                    os.environ.pop("PHARMFLOW_SEQUENCES_DIR", None)
                 else:
-                    os.environ["CPHARM_SEQUENCES_DIR"] = old
+                    os.environ["PHARMFLOW_SEQUENCES_DIR"] = old
 
     def test_normalize_playlist_ref_keeps_subpath(self) -> None:
         self.assertEqual(
@@ -120,8 +120,12 @@ class SequencePlaylistPathTests(unittest.TestCase):
                 }
                 steps, note = sp.resolve_steps(ent, 0, "127.0.0.1:16384", [])
                 self.assertEqual(note, "900x1600/no-ad/one.json")
+                # load_steps_from_filename preserves "type" and also fills "action"
+                # for callers that read the newer field name.
                 types = [s.get("type") for s in steps]
                 self.assertEqual(types, ["wait", "rotate_identity", "wait", "full_reset"])
+                actions = [s.get("action") for s in steps]
+                self.assertEqual(actions, ["wait", "rotate_identity", "wait", "full_reset"])
             finally:
                 sp.SEQUENCES_DIR = old
 
@@ -129,7 +133,9 @@ class SequencePlaylistPathTests(unittest.TestCase):
             root = Path(tmp)
             nested = root / "900x1600" / "no-ad"
             nested.mkdir(parents=True)
-            payload = [{"type": "wait", "seconds": 1.0}]
+            # Wrapped with sequence_version so discover_sequence_files' fallback search
+            # (used by load_steps_from_filename below) recognizes it as canonical v3+.
+            payload = {"sequence_version": 3, "steps": [{"type": "wait", "seconds": 1.0}]}
             (nested / "starter.json").write_text(json.dumps(payload), encoding="utf-8")
             old = sp.SEQUENCES_DIR
             try:
@@ -137,7 +143,10 @@ class SequencePlaylistPathTests(unittest.TestCase):
                 found = sp.resolve_sequence_file("starter.json", "900x1600")
                 self.assertIsNotNone(found)
                 self.assertEqual(found.name, "starter.json")
-                steps = sp.load_steps_from_filename("starter.json", "900x1600")
+                # load_steps_from_filename's 2nd arg is a directory Path (unlike
+                # resolve_sequence_file's profile_key string above) — pass SEQUENCES_DIR
+                # so the lookup honors this test's monkeypatched sequences root.
+                steps = sp.load_steps_from_filename("starter.json", sp.SEQUENCES_DIR)
                 self.assertEqual(len(steps or []), 1)
             finally:
                 sp.SEQUENCES_DIR = old

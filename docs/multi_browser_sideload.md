@@ -1,4 +1,4 @@
-# Multi-browser sideload for CPharm EXE / farm
+# Multi-browser sideload for PharmFlow EXE / farm
 
 ## FarmBrowser (primary — money / Path3)
 
@@ -7,7 +7,7 @@
 | `com.farmbrowser.stealth.debug` | **Path3 / Mantis clicks** — built-in proxy, identity rotation, JS control via ADB broadcast |
 | `com.farmbrowser.stealth` | Release package name (same app) |
 
-Source + APK build: **[github.com/twoskoops707/cpharm](https://github.com/twoskoops707/cpharm)** → `farmbrowser/`
+Source + APK build: **[github.com/twoskoops707/pharmflow](https://github.com/twoskoops707/pharmflow)** → `farmbrowser/`
 
 Install on phones:
 
@@ -18,7 +18,7 @@ py -3 scripts/remove_lawnchair_arm_farmbrowser.py
 Sequences use `preferred_browser: com.farmbrowser.stealth.debug` and `browser_tag: farmbrowser`.
 Bulk rewrite: `py -3 scripts/rewrite_sequences_farmbrowser.py`
 
-SSOT browser allow-list: `automation/cpharm_farm_config.py` (`PATH3_BROWSERS=farmbrowser,chromium`).
+SSOT browser allow-list: `automation/pharmflow_farm_config.py` (`PATH3_BROWSERS=farmbrowser,chromium`).
 
 ---
 
@@ -28,12 +28,12 @@ Farm phones must stay **unique and isolated**. The Play Store requires a Google
 account, syncs identity across devices, and phones home. **Do not sign into
 Google Play on farm VMs.**
 
-CPharm sideloads browsers with `adb install -r` from **public vendor mirrors**.
+PharmFlow sideloads browsers with `adb install -r` from **public vendor mirrors**.
 **No credentials, API keys, or Play Store tokens are required or stored.**
 
 | Browser | Package | Used on | Public source |
 |---------|---------|---------|---------------|
-| **FarmBrowser** | `com.farmbrowser.stealth.debug` | **Path3 (ads)** + preferred money browser | Built in cpharm repo (`farmbrowser/`) |
+| **FarmBrowser** | `com.farmbrowser.stealth.debug` | **Path3 (ads)** + preferred money browser | Built in pharmflow repo (`farmbrowser/`) |
 | Chromium | `org.chromium.chrome` | Path1/2 fallback | download-chromium / Chromium snapshots |
 | Firefox | `org.mozilla.firefox` | Path1/2 only | Mozilla FTP (`ftp.mozilla.org/pub/fenix/releases/`) |
 | Brave | `com.brave.browser` | Path1/2 only | GitHub `brave/brave-browser` Releases |
@@ -43,7 +43,7 @@ Path3 (ads / Mantis) uses **FarmBrowser first**, Chromium as CDP fallback per SS
 
 ## Where APKs live
 
-Default cache: `C:\CPharm\apks\`
+Default cache: `C:\PharmFlow\apks\`
 
 | File | Package |
 |------|---------|
@@ -52,16 +52,16 @@ Default cache: `C:\CPharm\apks\`
 | `brave-android-arm64.apk` | Brave |
 | `duckduckgo-android.apk` | DuckDuckGo |
 
-Override with env `CPHARM_APK_CACHE`. Legacy setup still accepts
-`C:\CPharm\bundled\ChromePublic.apk` for Chromium.
+Override with env `PHARMFLOW_APK_CACHE`. Legacy setup still accepts
+`C:\PharmFlow\bundled\ChromePublic.apk` for Chromium.
 
 ## Download + install (CLI)
 
 From the repo (or any checkout that has `scripts/` + `automation/`):
 
 ```powershell
-cd C:\Users\jsmil\FamFlow
-$env:PYTHONPATH='C:\Users\jsmil\FamFlow'
+cd C:\Users\jsmil\PharmFlow
+$env:PYTHONPATH='C:\Users\jsmil\PharmFlow'
 
 # Download only (safe; no device changes)
 py -3 scripts/sideload_farm_browsers.py --download-only
@@ -73,7 +73,7 @@ py -3 scripts/sideload_farm_browsers.py --force --install
 py -3 scripts/sideload_farm_browsers.py --print-catalog
 ```
 
-## How CPharm.exe uses this
+## How PharmFlow.exe uses this
 
 1. **First-run / Setup GO** (`wizard/mumu_setup_core.py`) calls
    `ensure_farm_browsers()` after Chromium — same catalog as the CLI.
@@ -91,7 +91,7 @@ Expected count: Path1/2 × 4 browsers + Path3 Chromium-only (see
 
 ```powershell
 py -3 scripts/generate_dabflow_sequences.py `
-  --base-dir C:\CPharm\automation\recordings\sequences\base
+  --base-dir C:\PharmFlow\automation\recordings\sequences\base
 ```
 
 Or in the EXE: **Builder → Regenerate all sequences**.
@@ -110,7 +110,7 @@ Expected count: **8280** (Path1/2 × 4 browsers + Path3 Chromium-only).
 ## Updating browsers later
 
 1. `py -3 scripts/sideload_farm_browsers.py --force --download-only`
-2. Spot-check sizes under `C:\CPharm\apks\` (each should be tens–hundreds of MB)
+2. Spot-check sizes under `C:\PharmFlow\apks\` (each should be tens–hundreds of MB)
 3. `py -3 scripts/sideload_farm_browsers.py --install`
 4. Optional: restart the farm cycle from the operator dash so running workers
    reload code (JSON stems are read from disk each pick).
@@ -118,12 +118,12 @@ Expected count: **8280** (Path1/2 × 4 browsers + Path3 Chromium-only).
 If Mozilla FTP or GitHub rate-limits you:
 
 1. Manually download the arm64 APK in a browser
-2. Save it under `C:\CPharm\apks\` with the exact filename from the table above
+2. Save it under `C:\PharmFlow\apks\` with the exact filename from the table above
 3. Re-run `--install` (skips download when cache is present unless `--force`)
 
 ## Implementing in other EXEs / forks
 
-Only one shipped EXE today (`wizard/CPharm.spec` → `CPharm.exe`). Any additional
+Only one shipped EXE today (`wizard/PharmFlow.spec` → `PharmFlow.exe`). Any additional
 EXE must:
 
 1. Keep `automation.browser_apk_catalog` and `wizard.browser_setup` in

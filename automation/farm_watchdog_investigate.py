@@ -16,11 +16,11 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
-LOG = Path(os.environ.get("CPHARM_LOGS") or r"C:\CPharm\logs")
+LOG = Path(os.environ.get("PHARMFLOW_LOGS") or r"C:\PharmFlow\logs")
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-ADB = Path(r"C:\CPharm\bundled\adb.exe")
+ADB = Path(r"C:\PharmFlow\bundled\adb.exe")
 
 # Groups state the dashboard editor serves from. Corruption here used to hard-lock
 # the operator out of group editing until manual intervention — the watchdog now
@@ -49,15 +49,9 @@ PAUSE_ADS = LOG / "PAUSE_BOTTOM_ADS_WATCH.flag"
 STICKY_7 = LOG / "FARM_STICKY_7_PHONES.lock"
 REPORT = LOG / "watchdog_farm_investigation.json"
 
-STICKY_PHONES = {
-    "vm0.gmadoa": "10.0.2.187:5555",
-    "vm3.gmadoa": "10.0.2.132:5555",
-    "vm4.gmadoa": "10.0.2.51:5555",
-    "vm5.gmadoa": "10.0.2.198:5555",
-    "vm7.gmadoa": "10.0.2.130:5555",
-    "vm12.gmadoa": "10.0.2.203:5555",
-    "vm13.gmadoa": "10.0.2.225:5555",
-}
+# HARDCODED ghost roster removed — restoring dead 10.0.2.x IPs re-poisoned the
+# farm (OPS_NOTES b7021c8 class). Sticky rebuild is live-ADB only via
+# automation.farm_exe_self_heal.
 
 
 def _utc() -> str:
@@ -211,9 +205,27 @@ def gather_evidence() -> dict[str, Any]:
     ]
     farm_pids = [pid for pid, cmd in procs if "run_farm_354" in cmd]
     dash_up = _port_listen(8091)
+    phones_map = dict(lock.get("phones") or {})
+    mapped_live = [
+        str(s).strip()
+        for s in phones_map.values()
+        if str(s).strip() and not str(s).strip().startswith("127.0.0.1:")
+    ]
+    inject_ports = []
+    for name in phones_map:
+        try:
+            idx = int(str(name).split(".")[0][2:])
+            inject_ports.append(8218 + idx)
+        except (TypeError, ValueError, IndexError):
+            continue
+    if not inject_ports:
+        inject_ports = [8218]
+    inject_any = any(_port_listen(p) for p in inject_ports)
+    tor_ports = [8118 + (p - 8218) for p in inject_ports]
+    tor_any = any(_port_listen(p) for p in tor_ports)
     tor_8118 = _port_listen(8118)
-    tor_on_inject = _port_listen(8218) and not _port_listen(8118)
-    inject_8218 = _port_listen(8218)
+    tor_on_inject = inject_any and not tor_any
+    inject_8218 = inject_any
 
     payout = float(mantis.get("payout_usd") or 0)
     clicks = int(mantis.get("clicks") or 0)
@@ -224,6 +236,14 @@ def gather_evidence() -> dict[str, Any]:
         actives = list(actives.keys())
     stale_actives = bool(actives) and log_ev.get("boot_only")
 
+    sticky = _read_json(STICKY_7)
+    sticky_serials = [
+        str(s).strip()
+        for s in dict(sticky.get("phones") or {}).values()
+        if str(s).strip()
+    ]
+    sticky_stale = bool(sticky_serials) and not any(s in adb_live for s in sticky_serials)
+
     return {
         "ts": _utc(),
         "mantis": {"payout_usd": payout, "clicks": clicks, "impressions": impr},
@@ -231,12 +251,17 @@ def gather_evidence() -> dict[str, Any]:
         "money_health_age_s": money_health_age_s,
         "adb_live_n": len(adb_live),
         "adb_live": adb_live,
-        "lock_phones_n": len((lock.get("phones") or {})),
+        "lock_phones_n": len(mapped_live),
+        "lock_entries_n": len(phones_map),
         "farm_pid_n": len(farm_pids),
         "farm_pids": farm_pids,
         "dump_fighter_pids": fighters,
         "dash_8091": dash_up,
         "tor_8118": tor_8118,
+        "tor_any": tor_any,
+        "inject_any": inject_any,
+        "inject_ports": inject_ports,
+        "sticky_stale": sticky_stale,
         "inject_8218": inject_8218,
         "tor_collision_8218": tor_on_inject,
         "log": log_ev,
@@ -316,7 +341,11 @@ def detect_problems(ev: dict[str, Any]) -> list[dict[str, str]]:
         problems.append(
             {
                 "id": "tor_on_inject_port",
-                "proof": "port 8218 listening but 8118 down (Tor stole inject port)",
+                "proof": (
+                    f"inject ports up {[min(ev.get('inject_ports') or [0]), max(ev.get('inject_ports') or [0])]} "
+                    f"but matching Tor HTTP down — possible Tor/inject collision "
+                    f"(legacy check named 8218/8118; live fleet uses lock-map ports)"
+                ),
             }
         )
 
@@ -344,11 +373,48 @@ def detect_problems(ev: dict[str, Any]) -> list[dict[str, str]]:
         )
 
     lock_n = int(ev.get("lock_phones_n") or 0)
-    if lock_n < 7 and STICKY_7.is_file():
+    adb_n = int(ev.get("adb_live_n") or 0)
+    # No phone-count ceiling — shrunk means mapped live < currently attached ADB.
+    if adb_n > 0 and lock_n < adb_n and STICKY_7.is_file():
         problems.append(
             {
                 "id": "phone_map_shrunk",
-                "proof": f"ADB_SERIAL_MAP.lock.json phones={lock_n} expected=7 (sticky lock present)",
+                "proof": (
+                    f"ADB_SERIAL_MAP mapped_live={lock_n} adb_live={adb_n} "
+                    "(sticky present — rebuild from live)"
+                ),
+            }
+        )
+
+    if ev.get("sticky_stale"):
+        problems.append(
+            {
+                "id": "sticky_stale",
+                "proof": "FARM_STICKY serials none match adb devices",
+            }
+        )
+    if ev.get("farm_pid_n") and not ev.get("inject_any"):
+        problems.append(
+            {
+                "id": "inject_down",
+                "proof": "run_farm_354 alive but no inject listener on mapped ports",
+            }
+        )
+    if ev.get("farm_pid_n") and not ev.get("tor_any") and not ev.get("tor_8118"):
+        problems.append(
+            {
+                "id": "tor_down",
+                "proof": "run_farm_354 alive but no Tor HTTP tunnel listeners",
+            }
+        )
+    if int(ev.get("lock_entries_n") or 0) > lock_n + 2:
+        problems.append(
+            {
+                "id": "ghost_map_entries",
+                "proof": (
+                    f"ADB_SERIAL_MAP entries={ev.get('lock_entries_n')} "
+                    f"mapped_live={lock_n}"
+                ),
             }
         )
 
@@ -374,39 +440,17 @@ def _kill_pids(pids: list[int]) -> list[str]:
     return fixes
 
 
+
 def _restore_sticky_7() -> list[str]:
-    fixes: list[str] = []
-    inject = {k: 8218 + int(k.split(".")[0][2:]) for k in STICKY_PHONES}
-    lock = {
-        "phones": dict(STICKY_PHONES),
-        "tablet": {},
-        "inject": inject,
-        "note": "watchdog_sticky_7",
-        "updated": _utc(),
-    }
+    """Rebuild serial map + sticky from LIVE adb only — never hardcoded ghosts."""
     try:
-        LOG.mkdir(parents=True, exist_ok=True)
-        (LOG / "ADB_SERIAL_MAP.lock.json").write_text(json.dumps(lock, indent=2) + "\n", encoding="utf-8")
-        STICKY_7.write_text(json.dumps({"phones": STICKY_PHONES, "updated": _utc()}, indent=2) + "\n", encoding="utf-8")
-        ov = _read_json(LOG / "farm_runtime_overrides.json")
-        names = sorted(STICKY_PHONES.keys(), key=lambda x: int(x.split(".")[0][2:]))
-        ov.update(
-            {
-                "CPHARM_FARM_PHONES": ",".join(names),
-                "CPHARM_ADB_SERIALS": ",".join(STICKY_PHONES[n] for n in names),
-                "CPHARM_FARM_PHONE_COUNT": "7",
-                "CPHARM_FARM_EXPECT_PHONES": "7",
-                "CPHARM_TABLET_FARM": "1",
-                "CPHARM_FARM_UNIQUE_SEQ": "1",
-                "CPHARM_SKIP_SEQUENCE_ISOLATION": "0",
-                "CPHARM_NEVER_SHARE_EXIT_IP": "1",
-            }
-        )
-        (LOG / "farm_runtime_overrides.json").write_text(json.dumps(ov, indent=2) + "\n", encoding="utf-8")
-        fixes.append("restored_sticky_7_phones")
-    except OSError as exc:
-        fixes.append(f"sticky_7_fail:{exc}")
-    return fixes
+        from automation.farm_exe_self_heal import run_self_heal
+
+        report = run_self_heal(reason="watchdog_sticky_rebuild")
+        return [f"exe_self_heal:{x}" for x in (report.get("fixes") or [])][:20]
+    except Exception as exc:  # noqa: BLE001
+        return [f"sticky_live_rebuild_fail:{exc}"]
+
 
 
 def _repair_groups_config() -> list[str]:
@@ -480,14 +524,22 @@ def apply_fixes(problems: list[dict[str, str]], ev: dict[str, Any], *, apply: bo
         "seq_all_fail_no_ok",
         "tor_on_inject_port",
     }
+    # Never write PAUSE_BOTTOM_ADS_WATCH — that flag stops ensure_watch_bottom_ads
+    # and leaves phones with proxy=null / wrong inject while Chromium is FG.
+    # Kill dump fighters only; keep the ads watcher alive for money.
     if _real_paint_problems:
-        PAUSE_ADS.write_text(_utc() + " watchdog", encoding="utf-8")
-        fixes.append("pause_bottom_ads_watch")
+        fixes.append("skip_pause_bottom_ads_watch (money)")
+        if PAUSE_ADS.is_file():
+            try:
+                PAUSE_ADS.unlink()
+                fixes.append("cleared_PAUSE_BOTTOM_ADS_WATCH")
+            except OSError:
+                pass
 
     if "dump_fighters_running" in ids or "adb_timeout_storm" in ids or "seq_all_fail_no_ok" in ids:
         fixes.extend(_kill_pids(list(ev.get("dump_fighter_pids") or [])))
 
-    if "phone_map_shrunk" in ids or "farm_stuck_boot" in ids:
+    if ids & {"phone_map_shrunk", "farm_stuck_boot", "sticky_stale", "ghost_map_entries", "inject_down", "tor_down"}:
         fixes.extend(_restore_sticky_7())
 
     if "farm_stuck_boot" in ids and ev.get("stale_active_locks"):
@@ -521,10 +573,15 @@ def apply_fixes(problems: list[dict[str, str]], ev: dict[str, Any], *, apply: bo
             fixes.append(f"money_evaluate_err:{exc}")
 
     if "tor_on_inject_port" in ids:
-        script = ROOT / "scripts" / "_fix_tor_inject_ports_now.py"
-        if script.is_file():
-            code, out = _run([_helper_py(), str(script)], timeout=120)
-            fixes.append(f"fix_tor_inject exit={code} {out[-120:]}")
+        # Never spawn roster _fix_tor_inject_ports_now (hardcoded 8218 storm +
+        # 120s timeout). Clear pause only; farm/EXE owns absolute inject ports.
+        fixes.append("skip_fix_tor_inject (use lock-map ports; no 8218 helper)")
+        if PAUSE_ADS.is_file():
+            try:
+                PAUSE_ADS.unlink()
+                fixes.append("cleared_PAUSE_BOTTOM_ADS_WATCH")
+            except OSError:
+                pass
 
     if "adb_timeout_storm" in ids or "seq_all_fail_no_ok" in ids:
         script = ROOT / "scripts" / "_unwedge_uiautomator_now.py"

@@ -53,7 +53,7 @@ def audit_mantis_ssp() -> tuple[dict[str, str], list[str]]:
 
 def run_live_smoke(phone: str, seq_path: Path) -> int:
     if not sequences_run_allowed():
-        print("ERROR: Set CPHARM_ALLOW_SEQUENCE_RUNS=1 before live smoke test.")
+        print("ERROR: Set PHARMFLOW_ALLOW_SEQUENCE_RUNS=1 before live smoke test.")
         return 1
 
     from automation.sequence_runner import Sequence, SequenceRunner
@@ -73,7 +73,7 @@ def run_live_smoke(phone: str, seq_path: Path) -> int:
     print(json.dumps(report, indent=2))
     if not report.get("success"):
         return 1
-    print("Check /sdcard/Download/cpharm_smoke_ad_home.png on device for ad proof.")
+    print("Check /sdcard/Download/pharmflow_smoke_ad_home.png on device for ad proof.")
     return 0
 
 
@@ -89,7 +89,7 @@ def main() -> int:
         action="store_true",
         help="Run smoke_ad_home_v2.json on a connected phone",
     )
-    parser.add_argument("--phone", default=os.environ.get("CPHARM_SMOKE_PHONE", "vm0.gmadoa"))
+    parser.add_argument("--phone", default=os.environ.get("PHARMFLOW_SMOKE_PHONE", "vm0.gmadoa"))
     args = parser.parse_args()
 
     seq_root = args.root
@@ -131,7 +131,7 @@ def main() -> int:
     if args.live:
         return run_live_smoke(args.phone, smoke_path)
 
-    print("Offline audit OK. For device proof: CPHARM_ALLOW_SEQUENCE_RUNS=1 py scripts/smoke_dabflow_ad_internal.py --live")
+    print("Offline audit OK. For device proof: PHARMFLOW_ALLOW_SEQUENCE_RUNS=1 py scripts/smoke_dabflow_ad_internal.py --live")
     return 0
 
 

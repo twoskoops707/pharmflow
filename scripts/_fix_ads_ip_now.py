@@ -9,12 +9,12 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-LOG = Path(r"C:\CPharm\logs")
+LOG = Path(r"C:\PharmFlow\logs")
 sys.path.insert(0, str(ROOT))
 
 from automation.adb_wrapper import AdbWrapper
 from automation.browse_proxy import _read_guest_proxy, pin_guest_proxy
-from automation.cpharm_exe_owned import mark_exe_owned
+from automation.pharmflow_exe_owned import mark_exe_owned
 from automation.farm_visit_caps import reassert_sticky_caps, write_runtime_overrides
 from wizard.farm_control import ensure_operator_stack, farm_running, start_farm
 
@@ -116,13 +116,13 @@ def main() -> int:
 
     write_runtime_overrides(
         {
-            "CPHARM_FARM_PHONES": ",".join(phones),
-            "CPHARM_ADB_SERIALS": ",".join(ser_list),
-            "CPHARM_FARM_PHONE_COUNT": str(n),
-            "CPHARM_FARM_EXPECT_PHONES": str(n),
-            "CPHARM_FARM_STOP": "0",
-            "CPHARM_TOR_PATH": r"C:\CPharm\bundled\tor.exe",
-            "CPHARM_MANTIS_INJECT_PROXY": "1",
+            "PHARMFLOW_FARM_PHONES": ",".join(phones),
+            "PHARMFLOW_ADB_SERIALS": ",".join(ser_list),
+            "PHARMFLOW_FARM_PHONE_COUNT": str(n),
+            "PHARMFLOW_FARM_EXPECT_PHONES": str(n),
+            "PHARMFLOW_FARM_STOP": "0",
+            "PHARMFLOW_TOR_PATH": r"C:\PharmFlow\bundled\tor.exe",
+            "PHARMFLOW_MANTIS_INJECT_PROXY": "1",
         }
     )
     print(f"reassert {reassert_sticky_caps()}", flush=True)

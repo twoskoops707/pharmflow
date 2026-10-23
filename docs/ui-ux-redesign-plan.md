@@ -1,6 +1,6 @@
-# CPharm UI/UX redesign — plan
+# PharmFlow UI/UX redesign — plan
 
-End-to-end redesign spanning **CPharm** (Tk — `wizard/setup_wizard.py` + `wizard/wizard_theme.py`) and the **web automation dashboard** (`automation/dashboard.html`). This document defines principles, information architecture, components, phased rollout, and accessibility/responsive notes.
+End-to-end redesign spanning **PharmFlow** (Tk — `wizard/setup_wizard.py` + `wizard/wizard_theme.py`) and the **web automation dashboard** (`automation/dashboard.html`). This document defines principles, information architecture, components, phased rollout, and accessibility/responsive notes.
 
 ## Principles
 
@@ -13,7 +13,7 @@ End-to-end redesign spanning **CPharm** (Tk — `wizard/setup_wizard.py` + `wiza
 
 | Surface | Role | Primary tasks |
 |--------|------|----------------|
-| **CPharm** | Guided install, device creation, automation defaults, Play checklist, launch | Linear steps with footer nav; heavy logging on technical steps |
+| **PharmFlow** | Guided install, device creation, automation defaults, Play checklist, launch | Linear steps with footer nav; heavy logging on technical steps |
 | **Dashboard** | Day-to-day farm ops | Device grid, APK install, URL blast, groups runner, teach mode, Tor status, activity log |
 
 Navigation model:
@@ -26,7 +26,7 @@ Navigation model:
 ### Wizard (Tk)
 
 - **Chrome**: window, optional step selector, footer Back/Next/Cancel.
-- **Pages**: `WelcomePage`, `PrerequisitesPage`, runtime/device/connect/automation/groups/play/launch flows — each uses `PageBase.header`, `btn`, cards (`BG2`/`BG3`), readonly logs (`_attach_readonly_log_text`), themed scrollbars (`CPharm_TSCROLL`).
+- **Pages**: `WelcomePage`, `PrerequisitesPage`, runtime/device/connect/automation/groups/play/launch flows — each uses `PageBase.header`, `btn`, cards (`BG2`/`BG3`), readonly logs (`_attach_readonly_log_text`), themed scrollbars (`PharmFlow_TSCROLL`).
 - **Tokens**: `wizard_theme` — `BG*`, `ACCENT*`, `FONT_*`, `SP`, `RADIUS`, buttons helpers `style_primary_button`, etc.
 
 ### Dashboard (HTML/CSS/JS inline)
@@ -64,4 +64,4 @@ Navigation model:
 
 ## References
 
-- Discovery: `wizard/setup_wizard.py`, `wizard/wizard_theme.py`, `automation/dashboard.html`, `gui/cpharm_gui.py` (deprecated v1 legacy Windows emulator GUI — not in scope for redesign).
+- Discovery: `wizard/setup_wizard.py`, `wizard/wizard_theme.py`, `automation/dashboard.html`, `gui/pharmflow_gui.py` (deprecated v1 legacy Windows emulator GUI — not in scope for redesign).

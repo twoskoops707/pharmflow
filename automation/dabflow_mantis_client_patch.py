@@ -17,7 +17,10 @@ from pathlib import Path
 from typing import Any
 
 from automation.adb_wrapper import AdbWrapper
-from automation.dabflow_mantis_ad_urls import is_mantis_house_bot_click_url
+from automation.dabflow_mantis_ad_urls import (
+    has_live_click_token,
+    is_mantis_house_bot_click_url,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -56,15 +59,35 @@ _SSP_FETCH_UA = (
 )
 # Cross-process handoff: hunter runs out-of-process; in-memory _store_ssp_ads
 # never reaches farm workers. Persist paying creatives here for farm load.
-_SSP_PAYING_FILL_PATH = Path(r"C:\CPharm\logs\ssp_paying_fill.json")
+# Dual-root: live farm sticky state is still under C:\CPharm; branding also
+# writes C:\PharmFlow. Prefer CPharm for reads; dual-write both.
+def _ssp_logs_dirs() -> list[Path]:
+    return [Path(r"C:\CPharm\logs"), Path(r"C:\PharmFlow\logs")]
+
+
+_SSP_PAYING_FILL_PATH = _ssp_logs_dirs()[0] / "ssp_paying_fill.json"
 # Inject proxy publishes each phone's real browser fingerprint here; the host
 # SSP fetches below adopt it so Mantis serves the paying tier. Measured
 # 2026-09-11: bare urllib UA → paying=0 (bot tier) on every round, while the
 # same probe with phone client hints → paying=4. Without this the hunter's
 # bare probes saw only mantis-bot fill (utm_source=mantis-bot) for hours.
-_CLIENT_HINTS_PUBLISH_PATH = Path(r"C:\CPharm\logs\client_hints_by_phone.json")
+_CLIENT_HINTS_PUBLISH_PATH = _ssp_logs_dirs()[0] / "client_hints_by_phone.json"
 _CLIENT_HINTS_CACHE: tuple[float, dict[str, dict[str, str]]] = (0.0, {})
 _CLIENT_HINTS_LOCK = threading.Lock()
+
+
+def _paying_fill_paths() -> list[Path]:
+    # Dual-root convention (CPharm + PharmFlow) by default; an explicit
+    # override of _SSP_PAYING_FILL_PATH (tests, operator pinning) wins so the
+    # module attribute stays the single source of truth it was before.
+    override = Path(_SSP_PAYING_FILL_PATH)
+    if override != _ssp_logs_dirs()[0] / override.name:
+        return [override]
+    return [d / "ssp_paying_fill.json" for d in _ssp_logs_dirs()]
+
+
+def _client_hints_paths() -> list[Path]:
+    return [d / "client_hints_by_phone.json" for d in _ssp_logs_dirs()]
 
 
 def _load_client_hints(max_age_s: float = 600.0) -> dict[str, str] | None:
@@ -80,12 +103,20 @@ def _load_client_hints(max_age_s: float = 600.0) -> dict[str, str] | None:
     now = time.time()
     if cached and now - cached_at < 30.0:
         return dict(cached)
-    try:
-        raw = _CLIENT_HINTS_PUBLISH_PATH.read_text(encoding="utf-8-sig")
-        if now - _CLIENT_HINTS_PUBLISH_PATH.stat().st_mtime > max_age_s:
-            return None
-        data = json.loads(raw)
-    except (OSError, json.JSONDecodeError, ValueError):
+    data = None
+    for path in _client_hints_paths():
+        try:
+            if not path.is_file():
+                continue
+            if now - path.stat().st_mtime > max_age_s:
+                continue
+            parsed = json.loads(path.read_text(encoding="utf-8-sig"))
+            if isinstance(parsed, dict) and parsed:
+                data = parsed
+                break
+        except (OSError, json.JSONDecodeError, ValueError):
+            continue
+    if not isinstance(data, dict):
         return None
     for row in (data or {}).values():
         if isinstance(row, dict) and str(row.get("user_agent") or ""):
@@ -138,13 +169,13 @@ def _ssp_browser_headers() -> dict[str, str]:
 _SSP_PAYING_FILL_MAX_AGE_S = 120.0
 
 
-_STICKY_OVERRIDES = Path(r"C:\CPharm\logs\farm_runtime_overrides.json")
+_STICKY_OVERRIDES = Path(r"C:\PharmFlow\logs\farm_runtime_overrides.json")
 _sticky_mtime: float = -1.0
 _sticky_cache: dict[str, str] = {}
 
 
 def _sticky_overrides() -> dict[str, str]:
-    """Mtime-cached sticky CPHARM_* so money knobs apply without Farm Start bounce."""
+    """Mtime-cached sticky PHARMFLOW_* so money knobs apply without Farm Start bounce."""
     global _sticky_mtime, _sticky_cache
     try:
         mtime = _STICKY_OVERRIDES.stat().st_mtime
@@ -159,7 +190,7 @@ def _sticky_overrides() -> dict[str, str]:
         _sticky_cache = {
             str(k): str(v)
             for k, v in (data or {}).items()
-            if str(k).startswith("CPHARM_")
+            if str(k).startswith("PHARMFLOW_")
         }
         _sticky_mtime = mtime
     except (OSError, json.JSONDecodeError, TypeError, ValueError):
@@ -181,16 +212,19 @@ def _env_or_sticky_float(name: str, default: float) -> float:
 
 def _ssp_ttl() -> float:
     # Re-read sticky/env each call so money-day TTL knobs apply without process recycle.
-    return max(15.0, min(600.0, _env_or_sticky_float("CPHARM_SSP_CACHE_TTL", 90.0)))
+    # No hardcoded min/max range — repo rule forbids artificial caps. Only guard
+    # against a literally negative duration; any positive operator value stands.
+    return max(0.0, _env_or_sticky_float("PHARMFLOW_SSP_CACHE_TTL", 90.0))
 
 
 def _ssp_refresh_s() -> float:
-    return max(8.0, min(300.0, _env_or_sticky_float("CPHARM_SSP_CACHE_REFRESH", 45.0)))
+    return max(0.0, _env_or_sticky_float("PHARMFLOW_SSP_CACHE_REFRESH", 45.0))
 
 
 def _ssp_house_only_ttl() -> float:
-    # Floor 1s — money-day sticky may set 4s so house TTL does not block paying return.
-    return max(1.0, min(300.0, _env_or_sticky_float("CPHARM_SSP_HOUSE_ONLY_TTL", 45.0)))
+    # money-day sticky may set this low (e.g. 4s) so house TTL does not block
+    # paying return — no floor imposed here beyond non-negative.
+    return max(0.0, _env_or_sticky_float("PHARMFLOW_SSP_HOUSE_ONLY_TTL", 45.0))
 
 
 def ssp_cache_age_s() -> float:
@@ -213,14 +247,17 @@ def get_cached_ssp_ads(*, allow_stale: bool = True) -> list[dict[str, Any]]:
 
 def _paying_fill_file_age_s() -> float:
     """Wall age of ssp_paying_fill.json from its original ``ts`` (not mtime)."""
-    try:
-        data = json.loads(_SSP_PAYING_FILL_PATH.read_text(encoding="utf-8"))
-        ts = float((data or {}).get("ts") or 0.0)
-    except (OSError, json.JSONDecodeError, TypeError, ValueError):
-        return 1e9
-    if ts <= 0:
-        return 1e9
-    return max(0.0, time.time() - ts)
+    best = 1e9
+    for path in _paying_fill_paths():
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            ts = float((data or {}).get("ts") or 0.0)
+        except (OSError, json.JSONDecodeError, TypeError, ValueError):
+            continue
+        if ts <= 0:
+            continue
+        best = min(best, max(0.0, time.time() - ts))
+    return best
 
 
 def paying_fill_file_fresh() -> bool:
@@ -230,18 +267,21 @@ def paying_fill_file_fresh() -> bool:
 
 def clear_ssp_paying_fill_file(*, reason: str = "") -> bool:
     """Delete stale shared paying fill so farm stops replaying one creative."""
-    try:
-        if not _SSP_PAYING_FILL_PATH.is_file():
-            return False
-        _SSP_PAYING_FILL_PATH.unlink()
+    cleared = False
+    for path in _paying_fill_paths():
+        try:
+            if not path.is_file():
+                continue
+            path.unlink()
+            cleared = True
+        except OSError as exc:
+            logger.debug("clear paying fill soft-fail path=%s: %s", path, exc)
+    if cleared:
         logger.info(
             "Cleared ssp_paying_fill.json reason=%s",
             reason or "expired",
         )
-        return True
-    except OSError as exc:
-        logger.debug("clear paying fill soft-fail: %s", exc)
-        return False
+    return cleared
 
 
 def _persist_paying_fill(ads: list[dict[str, Any]]) -> None:
@@ -256,16 +296,19 @@ def _persist_paying_fill(ads: list[dict[str, Any]]) -> None:
     """
     now = time.time()
     fresh_rows: dict[str, dict[str, Any]] = {}
-    try:  # seed from the previous file so other zones survive this write
-        prev = json.loads(_SSP_PAYING_FILL_PATH.read_text(encoding="utf-8"))
-        for row in (prev or {}).get("ads") or []:
-            if (
-                isinstance(row, dict)
-                and now - float(row.get("_ts") or 0.0) <= _SSP_PAYING_FILL_MAX_AGE_S
-            ):
-                fresh_rows[str(row.get("zone_id") or "")] = row
-    except (OSError, json.JSONDecodeError, TypeError, ValueError):
-        pass
+    for path in _paying_fill_paths():
+        try:  # seed from the previous file so other zones survive this write
+            prev = json.loads(path.read_text(encoding="utf-8"))
+            for row in (prev or {}).get("ads") or []:
+                if (
+                    isinstance(row, dict)
+                    and now - float(row.get("_ts") or 0.0) <= _SSP_PAYING_FILL_MAX_AGE_S
+                ):
+                    fresh_rows[str(row.get("zone_id") or "")] = row
+            if fresh_rows:
+                break
+        except (OSError, json.JSONDecodeError, TypeError, ValueError):
+            continue
     for a in ads or []:
         if (
             isinstance(a, dict)
@@ -283,13 +326,15 @@ def _persist_paying_fill(ads: list[dict[str, Any]]) -> None:
         "paying": len(paying_rows),
         "ads": paying_rows,
     }
-    try:
-        _SSP_PAYING_FILL_PATH.parent.mkdir(parents=True, exist_ok=True)
-        tmp = _SSP_PAYING_FILL_PATH.with_suffix(".tmp")
-        tmp.write_text(json.dumps(payload), encoding="utf-8")
-        tmp.replace(_SSP_PAYING_FILL_PATH)
-    except OSError as exc:
-        logger.debug("SSP paying-fill persist soft-fail: %s", exc)
+    text = json.dumps(payload)
+    for path in _paying_fill_paths():
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = path.with_suffix(".tmp")
+            tmp.write_text(text, encoding="utf-8")
+            tmp.replace(path)
+        except OSError as exc:
+            logger.debug("SSP paying-fill persist soft-fail path=%s: %s", path, exc)
 
 
 def _ingest_paying_fill_file(*, max_age_s: float | None = None) -> list[dict[str, Any]]:
@@ -301,23 +346,33 @@ def _ingest_paying_fill_file(*, max_age_s: float | None = None) -> list[dict[str
     age_limit = (
         _SSP_PAYING_FILL_MAX_AGE_S if max_age_s is None else max(15.0, float(max_age_s))
     )
-    try:
-        raw = _SSP_PAYING_FILL_PATH.read_text(encoding="utf-8")
-        data = json.loads(raw)
-    except (OSError, json.JSONDecodeError, TypeError, ValueError):
+    best: tuple[float, list[dict[str, Any]]] | None = None
+    for path in _paying_fill_paths():
+        try:
+            raw = path.read_text(encoding="utf-8")
+            data = json.loads(raw)
+        except (OSError, json.JSONDecodeError, TypeError, ValueError):
+            continue
+        try:
+            ts = float((data or {}).get("ts") or 0.0)
+        except (TypeError, ValueError):
+            continue
+        age = time.time() - ts if ts > 0 else 1e9
+        if ts <= 0 or age > age_limit:
+            continue
+        ads = [a for a in ((data or {}).get("ads") or []) if isinstance(a, dict)]
+        if ssp_ads_paying_count(ads) <= 0:
+            continue
+        if best is None or ts > best[0]:
+            best = (ts, ads)
+    if best is None:
+        # Expire any leftover stale files once nothing fresh remains.
+        if _paying_fill_file_age_s() < 1e8 and _paying_fill_file_age_s() > age_limit:
+            clear_ssp_paying_fill_file(
+                reason=f"expired_age={_paying_fill_file_age_s():.0f}s"
+            )
         return []
-    try:
-        ts = float((data or {}).get("ts") or 0.0)
-    except (TypeError, ValueError):
-        return []
-    age = time.time() - ts if ts > 0 else 1e9
-    if ts <= 0 or age > age_limit:
-        if ts > 0 and age > age_limit:
-            clear_ssp_paying_fill_file(reason=f"expired_age={age:.0f}s")
-        return []
-    ads = [a for a in ((data or {}).get("ads") or []) if isinstance(a, dict)]
-    if ssp_ads_paying_count(ads) <= 0:
-        return []
+    ads = best[1]
     # persist=False — keep original hunter timestamp so fill can expire.
     _store_ssp_ads(ads, persist=False)
     _clear_ssp_house_only()
@@ -501,7 +556,7 @@ def _consume_ssp_force_refresh_flag() -> bool:
     hunter just locked. Now: ingest shared paying file first; only clear memory
     when there is no paying creative to keep.
     """
-    flag = Path(r"C:\CPharm\logs\SSP_FORCE_REFRESH.flag")
+    flag = Path(r"C:\PharmFlow\logs\SSP_FORCE_REFRESH.flag")
     try:
         if not flag.is_file():
             return False
@@ -565,6 +620,58 @@ def prefetch_ssp_ads(*, force: bool = False) -> list[dict[str, Any]]:
         return get_cached_ssp_ads(allow_stale=True) or _ingest_paying_fill_file()
 
 
+def _live_tor_http_ports() -> list[int]:
+    """Tor HTTP-tunnel ports of the live phone lanes to probe for paying inventory.
+
+    Never a fixed fleet size (repo rule: no hardcoded phone-count ceilings; and
+    a guessed roster probes dead lanes on any other fleet). Sources, in order:
+
+    1. the live serial map (``ADB_SERIAL_MAP.lock.json``);
+    2. ``tor_manager.live_fleet_indices`` -- the roster Tor lane assignment
+       itself uses (serial map across every log root, then the farm config), so
+       an unreadable lock in one place does not blind this path;
+    3. whichever Tor lanes are actually listening.
+
+    Raises on import failure; the caller treats any exception as "no Tor leg".
+    """
+    lock = Path(
+        os.environ.get("PHARMFLOW_LOGS")
+        or os.environ.get("PHARMFLOW_LOG_DIR")
+        or r"C:\PharmFlow\logs"
+    ) / "ADB_SERIAL_MAP.lock.json"
+    live_idxs: list[int] = []
+    try:
+        phones = json.loads(lock.read_text(encoding="utf-8")).get("phones") or {}
+        for name in phones:
+            m = re.match(r"^vm(\d+)\.", str(name))
+            if m:
+                live_idxs.append(int(m.group(1)))
+    except Exception:
+        live_idxs = []
+    if not live_idxs:
+        try:
+            from automation.tor_manager import live_fleet_indices
+
+            live_idxs = list(live_fleet_indices())
+        except Exception:
+            live_idxs = []
+    if not live_idxs:
+        from automation.tor_manager import listening_tor_http_lane_ports
+
+        return list(listening_tor_http_lane_ports())
+    from automation.mantis_inject_proxy import upstream_tor_port
+
+    ports: list[int] = []
+    seen: set[int] = set()
+    for idx in sorted(set(live_idxs)):
+        port = int(upstream_tor_port(idx))
+        if port in seen:
+            continue
+        seen.add(port)
+        ports.append(port)
+    return ports
+
+
 def prefetch_ssp_ads_prefer_paying(
     *,
     attempts: int = 8,
@@ -589,54 +696,49 @@ def prefetch_ssp_ads_prefer_paying(
         except Exception as exc:
             logger.debug("SSP prefer-paying host fetch soft-fail: %s", exc)
             ads = prefetch_ssp_ads(force=True) or []
-        # After a few house-only host hits, probe Tor exits (phone path).
-        # Ports MUST come from the live Tor generation (bases auto-shift per
-        # boot; lanes are keyed by absolute phone index). Hardcoding
-        # ``8118 + (i % 6)`` dialed ports nobody listens on, so the Tor probe
-        # leg of the burst silently never worked.
-        tor_ports: list[int] = []
+        # Probe live fleet Tor HTTP tunnels — never hardcoded dead VM indexes.
+        # upstream_tor_port(22) with vm38-47 live returns base+22 (nobody
+        # listening), so the Tor leg never ran and host-IP paying fills were
+        # locked. Opening those after a phone house impression pays $0.
         try:
-            from automation.mantis_inject_proxy import upstream_tor_port
-
-            tor_ports = [upstream_tor_port(idx) for idx in (22, 23, 24, 25, 26, 27, 29)]
+            tor_ports = _live_tor_http_ports()
         except Exception:
             tor_ports = []
-        # Probe through a real phone Tor lane every round: browser-shaped
-        # headers now travel on the Tor leg too (``fetch_ssp_display_ads_via_tor``
-        # adopts ``_ssp_browser_headers()``), and the phone exits are the tier
-        # Mantis actually serves paying fill to. Host-direct stays in the loop
-        # for redundancy — measured 2026-09-11: host-direct bare probes returned
-        # mantis-bot fill for hours while phone-exit probes got paying tier.
-        if ssp_ads_paying_count(ads) == 0 and tor_ports:
+        # Prefer phone-exit inventory. Host-direct paying tokens must not win —
+        # Path3 opening them after a Tor impression is a silent $0 click.
+        host_ads = list(ads)
+        via_tor: list[dict[str, Any]] = []
+        if tor_ports:
             tor_port = tor_ports[i % len(tor_ports)]
             try:
                 via_tor = fetch_ssp_display_ads_via_tor(
                     tor_http_port=tor_port, timezone=tz, timeout=10.0
-                )
-                if via_tor:
-                    ads = via_tor
+                ) or []
             except Exception as exc:
                 logger.debug(
                     "SSP prefer-paying tor:%s soft-fail: %s", tor_port, exc
                 )
-            except Exception as exc:
-                logger.debug(
-                    "SSP prefer-paying tor:%s soft-fail: %s", tor_port, exc
-                )
-        if ssp_ads_paying_count(ads) > ssp_ads_paying_count(best):
-            best = ads
-        if ssp_ads_paying_count(ads) > 0:
-            if ads:
-                _store_ssp_ads(ads)
-                _clear_ssp_house_only()
+                via_tor = []
+        tor_paying = ssp_ads_paying_count(via_tor)
+        if tor_paying > 0:
+            _store_ssp_ads(via_tor)
+            _clear_ssp_house_only()
             return filter_ssp_ads_prefer_paying(
-                ads, allow_house_fallback=allow_house_fallback
+                via_tor, allow_house_fallback=allow_house_fallback
             )
+        # Tor house-only this round — keep best empty of host tokens.
+        if allow_house_fallback and via_tor:
+            if ssp_ads_paying_count(via_tor) >= ssp_ads_paying_count(best):
+                best = via_tor
+        elif allow_house_fallback and host_ads and not best:
+            best = host_ads
         if i + 1 < n_attempts:
             time.sleep(max(0.05, float(delay_s)))
+    if not allow_house_fallback:
+        return []
     return filter_ssp_ads_prefer_paying(
-        best or get_cached_ssp_ads(allow_stale=True),
-        allow_house_fallback=allow_house_fallback,
+        best or get_cached_ssp_ads(allow_stale=True) or [],
+        allow_house_fallback=True,
     )
 
 
@@ -664,9 +766,9 @@ def ensure_ssp_cache_warm() -> None:
 
 
 PATCH_JS = r"""
-(function cpharmDabflowMantisPatch() {
+(function pharmflowDabflowMantisPatch() {
   // Re-runnable: farm may re-inject after navigation / age-gate.
-  window.__cpharmMantisPatchV1 = true;
+  window.__pharmflowMantisPatchV1 = true;
   var PROPERTY_ID = '6950d5527c56c6494f189e46';
   var SSP = 'https://ssp.mantis.marketing/display';
   var fixedZones = {
@@ -679,7 +781,7 @@ PATCH_JS = r"""
   function ensureBottomTesterZone() {
     // Home lists 'tester' but dabflow HTML has no data-mantis-zone=tester.
     // Mount BELOW #recommended (not inside) — recommend.min.js wipes children.
-    var wrap = document.getElementById('cpharm-bottom-ad');
+    var wrap = document.getElementById('pharmflow-bottom-ad');
     var z = wrap && wrap.querySelector('[data-mantis-zone="tester"]');
     if (wrap && z) {
       wrap.style.cssText = 'display:block!important;visibility:visible!important;opacity:1!important;'
@@ -688,15 +790,15 @@ PATCH_JS = r"""
       return z;
     }
     wrap = document.createElement('div');
-    wrap.id = 'cpharm-bottom-ad';
-    wrap.className = 'ad-container cpharm-bottom-ad';
-    wrap.setAttribute('data-cpharm-bottom-host', '1');
+    wrap.id = 'pharmflow-bottom-ad';
+    wrap.className = 'ad-container pharmflow-bottom-ad';
+    wrap.setAttribute('data-pharmflow-bottom-host', '1');
     wrap.style.cssText = 'display:block!important;visibility:visible!important;opacity:1!important;'
       + 'min-height:250px;width:100%;max-width:320px;margin:0.75rem auto 5.5rem;text-align:center;'
       + 'overflow:visible!important;position:relative;z-index:20;';
     z = document.createElement('div');
     z.setAttribute('data-mantis-zone', 'tester');
-    z.setAttribute('data-cpharm-bottom', '1');
+    z.setAttribute('data-pharmflow-bottom', '1');
     wrap.appendChild(z);
     var rec = document.getElementById('recommended');
     var anchor = rec && (rec.parentElement || rec);
@@ -736,8 +838,8 @@ PATCH_JS = r"""
       });
       // Path1/2 may display creatives, but normal functional taps must pass
       // through no ad link. Path3 explicitly sets cssOnly=false before paint.
-      var interactive = window.__cpharmCssOnly === false;
-      document.querySelectorAll('.cpharm-mantis-creative').forEach(function(el) {
+      var interactive = window.__pharmflowCssOnly === false;
+      document.querySelectorAll('.pharmflow-mantis-creative').forEach(function(el) {
         el.style.pointerEvents = interactive ? 'auto' : 'none';
         el.style.cursor = interactive ? 'pointer' : 'default';
         if (interactive) {
@@ -774,11 +876,13 @@ PATCH_JS = r"""
     if (!ad || !ad.zone_id || !ad.creative_url) return false;
     var z = findZone(ad.zone_id);
     if (!z) return false;
-    // Do not wipe native Mantis iframes — that kills billable SDK impressions.
+    // Path1/2 must not wipe a native iframe. Path3 (cssOnly false) replaces
+    // it so the visible creative and the click token are the same fill.
     try {
-      if (z.querySelector('iframe')) return false;
-      if (z.querySelector('img[src*="mantis"], img[src*="static.mantis"]')
-          && !z.querySelector('.cpharm-mantis-creative')) return false;
+      var interactive = window.__pharmflowCssOnly === false;
+      if (!interactive && z.querySelector('iframe')) return false;
+      if (!interactive && z.querySelector('img[src*="mantis"], img[src*="static.mantis"]')
+          && !z.querySelector('.pharmflow-mantis-creative')) return false;
     } catch (eSkip) {}
     fixSlotCss();
     z.style.minWidth = '300px';
@@ -788,7 +892,7 @@ PATCH_JS = r"""
     var h = ad.creative_height || 250;
     var href = ad.click_url || '#';
     // aria-label/content markers so UIAutomator live-pick finds CDP creatives.
-    z.innerHTML = '<a class="cpharm-mantis-creative" href="' + href
+    z.innerHTML = '<a class="pharmflow-mantis-creative" href="' + href
       + '" target="_blank" rel="noopener noreferrer" aria-label="adsbymantis"'
       + ' data-mantis-zone="' + ad.zone_id + '"'
       + ' style="display:block;width:100%;text-align:center;">'
@@ -801,12 +905,96 @@ PATCH_JS = r"""
     // Path1/2 material/heater/start taps land on the creative instead.
     return true;
   }
+  function reportViewed(ads) {
+    try {
+      var slim = [];
+      (ads || []).forEach(function(ad) {
+        if (!ad || !ad.click_url || !ad.zone_id) return;
+        slim.push({zone_id: ad.zone_id, click_url: ad.click_url});
+      });
+      if (!slim.length) return;
+      fetch('https://getdabflow.app/__pharmflow_viewed', {
+        method: 'POST',
+        headers: {'Content-Type': 'text/plain'},
+        body: JSON.stringify({ads: slim}),
+        credentials: 'omit',
+        mode: 'same-origin',
+        keepalive: true
+      }).catch(function() {});
+    } catch (e) {}
+  }
+  // Host-prefetched bi/bt do not match the impression this phone's exit
+  // fetched. Capture the SSP JSON the page itself received and store that.
+  if (!window.__pharmflowSspHooked) {
+    window.__pharmflowSspHooked = true;
+    function paintPhoneBottom(ads) {
+      var ad = null;
+      (ads || []).forEach(function(item) {
+        if (ad || !item || !item.creative_url) return;
+        var h = item.creative_height || 0;
+        if (h >= 200 || !ad) ad = item;
+      });
+      if (!ad || !ad.creative_url) return;
+      var wrap = document.getElementById('pharmflow-bottom-ad');
+      if (!wrap) {
+        wrap = document.createElement('div');
+        wrap.id = 'pharmflow-bottom-ad';
+        wrap.setAttribute('data-pharmflow-bottom-host', '1');
+        var rec = document.getElementById('recommended');
+        var main = document.querySelector('main') || document.body;
+        if (rec && rec.parentElement) rec.parentElement.insertBefore(wrap, rec.nextSibling);
+        else if (main) main.appendChild(wrap);
+        else document.body.appendChild(wrap);
+      }
+      wrap.style.cssText = 'display:block!important;visibility:visible!important;opacity:1!important;'
+        + 'min-height:250px;width:100%;max-width:320px;margin:0.75rem auto 5.5rem;text-align:center;'
+        + 'overflow:visible!important;position:relative;z-index:20;';
+      var href = ad.click_url || '#';
+      wrap.innerHTML = '<a class="pharmflow-mantis-creative" href="' + href
+        + '" data-mantis-zone="tester" style="display:block;width:100%;text-align:center;">'
+        + '<img src="' + ad.creative_url + '" width="300" height="250" alt="sponsored"'
+        + ' style="max-width:100%;height:auto;display:inline-block;"></a>';
+    }
+    function captureSspPayload(data) {
+      var ads = (data && data.ads) || [];
+      try { paintPhoneBottom(ads); } catch (ePaint) {}
+      try { reportViewed(ads); } catch (eCap) {}
+    }
+    if (window.fetch) {
+      var origFetch = window.fetch;
+      window.fetch = function(input, init) {
+        var url = '';
+        try { url = (typeof input === 'string') ? input : ((input && input.url) || ''); } catch (eUrl) {}
+        var pending = origFetch.apply(this, arguments);
+        if (String(url).indexOf('ssp.mantis.marketing') !== -1 && pending && pending.then) {
+          pending.then(function(resp) {
+            try {
+              resp.clone().json().then(captureSspPayload).catch(function() {});
+            } catch (eClone) {}
+          }).catch(function() {});
+        }
+        return pending;
+      };
+    }
+    if (window.XMLHttpRequest) {
+      var origSend = XMLHttpRequest.prototype.send;
+      XMLHttpRequest.prototype.send = function(body) {
+        this.addEventListener('load', function() {
+          try {
+            var u = this.responseURL || '';
+            if (u.indexOf('ssp.mantis.marketing') === -1) return;
+            captureSspPayload(JSON.parse(this.responseText || '{}'));
+          } catch (eXhr) {}
+        });
+        return origSend.apply(this, arguments);
+      };
+    }
+  }
   function paintFromSsp(zoneList) {
     // cssOnly blocks interactive Path1/2 taps. AllowSspPaint (MITM inject) still
     // fetches SSP + fires served/viewed pixels so Mantis impressions can bill
     // when CDP /json is dead. Path3 sets cssOnly=false for clickable ads.
-    if (window.__cpharmCssOnly && !window.__cpharmAllowSspPaint) return;
-    if (window.__cpharmMantisPainted && window.__cpharmMantisPainted > 0) return;
+    if (window.__pharmflowCssOnly && !window.__pharmflowAllowSspPaint) return;
     var zones = zoneList && zoneList.length ? zoneList : ['zone-one','zone-two','zone-five','zone-nine','zone-twelve'];
     var widths = {};
     zones.forEach(function(z) { widths[z] = 300; });
@@ -828,22 +1016,28 @@ PATCH_JS = r"""
         credentials: 'omit',
         mode: 'cors'
       }).then(function(r) { return r.json(); }).then(function(data) {
-        if (window.__cpharmCssOnly && !window.__cpharmAllowSspPaint) return;
-        if (window.__cpharmMantisPainted && window.__cpharmMantisPainted > 0) return;
+        if (window.__pharmflowCssOnly && !window.__pharmflowAllowSspPaint) return;
         var ads = (data && data.ads) || [];
         var painted = 0;
-        ads.forEach(function(ad) { if (paintAd(ad)) painted += 1; });
-        window.__cpharmMantisPainted = painted;
+        ads.forEach(function(ad) {
+          if (paintAd(ad)) painted += 1;
+          else {
+            firePixels(ad && ad.served_pixels);
+            firePixels(ad && ad.viewed_pixels);
+          }
+        });
+        reportViewed(ads);
+        window.__pharmflowMantisPainted = painted;
         fixSlotCss();
       }).catch(function() {});
     } catch (e) {}
   }
   function refreshZones(zones) {
-    if (window.__cpharmCssOnly && !window.__cpharmAllowSspPaint) {
+    if (window.__pharmflowCssOnly && !window.__pharmflowAllowSspPaint) {
       fixSlotCss();
       return;
     }
-    if (window.__cpharmCssOnly && window.__cpharmAllowSspPaint) {
+    if (window.__pharmflowCssOnly && window.__pharmflowAllowSspPaint) {
       fixSlotCss();
       // Give native mantis.js first crack (billable); host/SSP paint is fallback.
       if (typeof mantis !== 'undefined' && zones) {
@@ -872,8 +1066,8 @@ PATCH_JS = r"""
       setTimeout(function() { paintFromSsp(zones); }, 2200);
     }, 40);
   }
-  if (typeof switchScreen === 'function' && !window.__cpharmSwitchWrapped) {
-    window.__cpharmSwitchWrapped = true;
+  if (typeof switchScreen === 'function' && !window.__pharmflowSwitchWrapped) {
+    window.__pharmflowSwitchWrapped = true;
     var prevSwitch = switchScreen;
     switchScreen = function(screenName) {
       prevSwitch.apply(this, arguments);
@@ -885,22 +1079,22 @@ PATCH_JS = r"""
     };
   }
   // Default: CSS-only makes a painted Path1/2 creative non-interactive.
-  // Path3 / ad-fill sets window.__cpharmCssOnly=false before enabling ad clicks.
-  // MITM sets __cpharmAllowSspPaint so impression pixels still fire without clicks.
-  if (typeof window.__cpharmCssOnly === 'undefined') {
-    window.__cpharmCssOnly = true;
+  // Path3 / ad-fill sets window.__pharmflowCssOnly=false before enabling ad clicks.
+  // MITM sets __pharmflowAllowSspPaint so impression pixels still fire without clicks.
+  if (typeof window.__pharmflowCssOnly === 'undefined') {
+    window.__pharmflowCssOnly = true;
   }
   fixSlotCss();
-  if (!window.__cpharmCssOnly || window.__cpharmAllowSspPaint) {
+  if (!window.__pharmflowCssOnly || window.__pharmflowAllowSspPaint) {
     refreshZones(fixedZones.home);
     paintFromSsp(fixedZones.home.concat(fixedZones.timer, fixedZones.stats, fixedZones.glass, fixedZones.settings));
   }
-  if (!window.__cpharmCoolAdTimer) {
-    window.__cpharmCoolAdTimer = setInterval(function() {
+  if (!window.__pharmflowCoolAdTimer) {
+    window.__pharmflowCoolAdTimer = setInterval(function() {
       try {
         // Path1/2 (cssOnly): keep re-arming pointer-events:none — native Mantis
         // iframes/SDK nodes spawn after first paint and otherwise steal taps → clicks.
-        if (window.__cpharmCssOnly) {
+        if (window.__pharmflowCssOnly) {
           fixSlotCss();
           return;
         }
@@ -925,7 +1119,7 @@ PATCH_JS = r"""
 
 
 def patch_enabled_from_env() -> bool:
-    raw = os.environ.get("CPHARM_DABFLOW_MANTIS_PATCH", "").strip().lower()
+    raw = os.environ.get("PHARMFLOW_DABFLOW_MANTIS_PATCH", "").strip().lower()
     if raw in ("0", "false", "no", "off"):
         return False
     if raw in ("1", "true", "yes", "on"):
@@ -978,6 +1172,17 @@ def cdp_abstract_sockets(browser_package: str | None = None) -> tuple[str, ...]:
     return ("chrome_devtools_remote", "com.opera.browser.devtools", "brave_devtools_remote")
 
 
+def _device_forward_targets(browser_package: str | None = None) -> list[str]:
+    """Default ``adb forward`` target order: abstract DevTools sockets first, then the
+    device tcp:DEVICE_CDP_PORT fallback. Modern Chrome binds DevTools to the abstract
+    socket, not tcp:9222 — see ensure_adb_forward, which applies this same ordering but
+    reprioritizes by what's actually live on the device via /proc/net/unix.
+    """
+    targets = [f"localabstract:{name}" for name in cdp_abstract_sockets(browser_package)]
+    targets.append(f"tcp:{DEVICE_CDP_PORT}")
+    return targets
+
+
 def _list_unix_devtools_sockets(adb: AdbWrapper, serial: str) -> list[str]:
     """Live ``@…devtools…`` abstract names from /proc/net/unix (pid-scoped too)."""
     try:
@@ -999,7 +1204,7 @@ def _list_unix_devtools_sockets(adb: AdbWrapper, serial: str) -> list[str]:
 def _probe_cdp_json(host_port: int, *, timeout: float = 3.0) -> list[dict[str, Any]] | None:
     """Return target list if /json responds; None on connection/parse failure."""
     url = f"http://127.0.0.1:{host_port}/json"
-    req = urllib.request.Request(url, headers={"User-Agent": "CPharm-cdp/1"})
+    req = urllib.request.Request(url, headers={"User-Agent": "PharmFlow-cdp/1"})
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             data = json.loads(resp.read().decode("utf-8"))
@@ -1315,10 +1520,13 @@ def inject_patch(
                 raw = prefetch_ssp_ads(force=True) or []
                 ads = filter_ssp_ads_prefer_paying(raw, allow_house_fallback=False)
         if ssp_ads_paying_count(ads) > 0:
-            try:
-                fire_ssp_impression_pixels_hostside(ads, paying_only=True)
-            except Exception as exc:
-                logger.debug("CDP host pixel relay soft-fail: %s", exc)
+            # Do not fire served/viewed pixels from the host. That is host-IP
+            # egress: Mantis dedupes them and the click cannot bind. The phone
+            # must fire the pixel through its own exit.
+            logger.debug(
+                "skip host pixel relay n=%s (phone exit must fire the impression)",
+                ssp_ads_paying_count(ads),
+            )
     css_only = not interactive if paint_creatives else True
     css_flag = "true" if css_only else "false"
     last_err = "no target"
@@ -1334,22 +1542,22 @@ def inject_patch(
             ws_url = str(target["webSocketDebuggerUrl"])
             if paint_creatives and ads:
                 expression = (
-                    f"window.__cpharmCssOnly={css_flag};\n"
-                    "window.__cpharmAllowSspPaint=true;\n"
-                    "window.__cpharmMantisPainted=0;\n"
+                    f"window.__pharmflowCssOnly={css_flag};\n"
+                    "window.__pharmflowAllowSspPaint=true;\n"
+                    "window.__pharmflowMantisPainted=0;\n"
                     + PATCH_JS
                     + "\n"
                     + _ssp_paint_expression(ads, empty_only=True)
                 )
             elif paint_creatives:
                 expression = (
-                    f"window.__cpharmCssOnly={css_flag};\n"
-                    "window.__cpharmAllowSspPaint=true;\n"
-                    "window.__cpharmMantisPainted=0;\n"
+                    f"window.__pharmflowCssOnly={css_flag};\n"
+                    "window.__pharmflowAllowSspPaint=true;\n"
+                    "window.__pharmflowMantisPainted=0;\n"
                     + PATCH_JS
                 )
             else:
-                expression = "window.__cpharmCssOnly=true;\n" + PATCH_JS
+                expression = "window.__pharmflowCssOnly=true;\n" + PATCH_JS
             result = asyncio.run(_cdp_evaluate(ws_url, expression))
             err = (result.get("result") or {}).get("exceptionDetails")
             if err:
@@ -1431,7 +1639,7 @@ def _ssp_paint_expression(
     try {{ var pre = new Image(); pre.decoding = 'async'; pre.src = ad.creative_url; }} catch (e) {{}}
   }});
   function ensureBottomTesterZone() {{
-    var wrap = document.getElementById('cpharm-bottom-ad');
+    var wrap = document.getElementById('pharmflow-bottom-ad');
     var zEl = wrap && wrap.querySelector('[data-mantis-zone=\"tester\"]');
     if (wrap && zEl) {{
       wrap.style.cssText = 'display:block!important;visibility:visible!important;opacity:1!important;'
@@ -1440,15 +1648,15 @@ def _ssp_paint_expression(
       return zEl;
     }}
     wrap = document.createElement('div');
-    wrap.id = 'cpharm-bottom-ad';
-    wrap.className = 'ad-container cpharm-bottom-ad';
-    wrap.setAttribute('data-cpharm-bottom-host', '1');
+    wrap.id = 'pharmflow-bottom-ad';
+    wrap.className = 'ad-container pharmflow-bottom-ad';
+    wrap.setAttribute('data-pharmflow-bottom-host', '1');
     wrap.style.cssText = 'display:block!important;visibility:visible!important;opacity:1!important;'
       + 'min-height:250px;width:100%;max-width:320px;margin:0.75rem auto 5.5rem;text-align:center;'
       + 'overflow:visible!important;position:relative;z-index:20;';
     zEl = document.createElement('div');
     zEl.setAttribute('data-mantis-zone', 'tester');
-    zEl.setAttribute('data-cpharm-bottom', '1');
+    zEl.setAttribute('data-pharmflow-bottom', '1');
     wrap.appendChild(zEl);
     var rec = document.getElementById('recommended');
     var anchor = rec && (rec.parentElement || rec);
@@ -1477,7 +1685,7 @@ def _ssp_paint_expression(
     try {{
       if (z.querySelector('iframe')) return true;
       if (z.querySelector('img[src*=\"mantis\"], img[src*=\"static.mantis\"]')) return true;
-      if (z.querySelector('.cpharm-mantis-creative')) return true;
+      if (z.querySelector('.pharmflow-mantis-creative')) return true;
       var html = (z.innerHTML || '').trim();
       if (html.length > 40) return true;
     }} catch (e) {{}}
@@ -1527,16 +1735,16 @@ def _ssp_paint_expression(
     var w = paintAd.creative_width || 300;
     var h = paintAd.creative_height || 250;
     var href = paintAd.click_url || '#';
-    z.innerHTML = '<a class=\"cpharm-mantis-creative\" href=\"' + href
+    z.innerHTML = '<a class=\"pharmflow-mantis-creative\" href=\"' + href
       + '\" target=\"_blank\" rel=\"noopener noreferrer\" aria-label=\"adsbymantis\"'
       + ' data-mantis-zone=\"' + paintAd.zone_id + '\"'
       + ' style=\"display:block;width:100%;text-align:center;\">'
       + '<img src=\"' + paintAd.creative_url + '\" width=\"' + w + '\" height=\"' + h
       + '\" alt=\"sponsored\" loading=\"eager\" decoding=\"async\" style=\"max-width:100%;height:auto;display:inline-block;margin:0 auto;\">'
       + '</a>';
-    var link = z.querySelector('.cpharm-mantis-creative');
+    var link = z.querySelector('.pharmflow-mantis-creative');
     if (link) {{
-      var interactive = window.__cpharmCssOnly === false;
+      var interactive = window.__pharmflowCssOnly === false;
       link.style.pointerEvents = interactive ? 'auto' : 'none';
       link.style.cursor = interactive ? 'pointer' : 'default';
       if (!interactive) {{
@@ -1550,7 +1758,7 @@ def _ssp_paint_expression(
     painted += 1;
   }});
   if (painted > 0) {{
-    window.__cpharmMantisPainted = (window.__cpharmMantisPainted || 0) + painted;
+    window.__pharmflowMantisPainted = (window.__pharmflowMantisPainted || 0) + painted;
   }}
   return painted;
 }})();
@@ -1716,7 +1924,7 @@ def paint_ssp_creatives_via_cdp(ws_url: str) -> dict[str, Any]:
     if not ads:
         return {"ok": False, "error": "no ssp ads", "painted": 0}
     try:
-        enable = "window.__cpharmCssOnly=false;\nwindow.__cpharmMantisPainted=0;\n"
+        enable = "window.__pharmflowCssOnly=false;\nwindow.__pharmflowMantisPainted=0;\n"
         result = asyncio.run(_cdp_evaluate(ws_url, enable + _ssp_paint_expression(ads)))
         painted = (result.get("result") or {}).get("result", {}).get("value")
         ok = bool(painted)
@@ -1737,6 +1945,24 @@ def paint_ssp_creatives_via_cdp(ws_url: str) -> dict[str, Any]:
         return {"ok": False, "error": str(exc), "painted": 0}
 
 
+def _fresh_paying_fill_ads() -> list[dict[str, Any]]:
+    """Shared fill only inside the freshness window. Stale file tokens pay $0."""
+    if not paying_fill_file_fresh():
+        return []
+    return _ingest_paying_fill_file() or []
+
+
+def _ads_just_prefetched() -> list[dict[str, Any]]:
+    """Ads a live fetch just stored. Never the stale ``allow_stale`` cache.
+
+    ``prefetch_ssp_ads`` / ``prefetch_ssp_ads_prefer_paying`` return
+    ``get_cached_ssp_ads(allow_stale=True)`` when the live probe misses. Those
+    bi/bt values are bound to a dead impression: HTTP 200, $0. Callers that
+    open a URL must ignore that return and read only the TTL-fresh cache.
+    """
+    return get_cached_ssp_ads(allow_stale=False) or []
+
+
 def click_url_for_zone(
     zone: str,
     *,
@@ -1746,36 +1972,29 @@ def click_url_for_zone(
 ) -> str | None:
     """Return a live Mantis SSP click_url (tracking redirect), never a landing page.
 
-    When ``prefer_paying`` is set, skip house/bot creatives (mantisadnetwork.com /
-    mantis-bot) that open as tracking redirects but do not move publisher $/clicks.
+    When ``prefer_paying`` is set, skip house/bot creatives and any clicked URL
+    without a live bi+bt token. A stale host cache or a synthetic wrap
+    (``bi=pharmflow-fallback`` / no ``bt``) returns HTTP 200 and pays $0.
     """
-    _ingest_paying_fill_file()
     want = (zone or "").strip()
     ads: list[dict[str, Any]] = []
     # Token freshness: Mantis click URLs are bound to the impression tokens
-    # (bi/bt) of the fill that produced them. A click opened from a STALE fill
-    # returns HTTP 200 but its tokens match no live impression, so the click
-    # never registers ("opens climb, clicks stay flat" symptom). Only reuse
-    # cached ads inside the fill-freshness window; beyond it, force a live
-    # prefetch so the opened token is one the phone actually just painted.
+    # (bi/bt) of the fill that produced them. Never choose a URL from
+    # get_cached_ssp_ads(allow_stale=True). Past the TTL, prefetch; if that
+    # returns nothing, leave ads empty rather than replaying a dead token.
     cached_now = get_cached_ssp_ads(allow_stale=False)
     if force_refresh or not cached_now:
         try:
-            ads = prefetch_ssp_ads(force=True) or []
+            prefetch_ssp_ads(force=True)
         except Exception:
-            ads = []
-        if not ads:
-            ads = get_cached_ssp_ads(allow_stale=True)
+            pass
+        ads = _ads_just_prefetched()
     else:
         ads = cached_now
     if prefer_paying and ssp_ads_paying_count(ads) == 0:
-        file_ads = _ingest_paying_fill_file()
+        file_ads = _fresh_paying_fill_ads()
         if ssp_ads_paying_count(file_ads) > 0:
             ads = file_ads
-        else:
-            cached = get_cached_ssp_ads(allow_stale=True)
-            if ssp_ads_paying_count(cached) > 0:
-                ads = cached
 
     def _pick(from_ads: list[dict[str, Any]], *, paying_only: bool) -> str | None:
         if want:
@@ -1785,7 +2004,7 @@ def click_url_for_zone(
                 click = str(ad.get("click_url") or "").strip()
                 if not click.startswith("http"):
                     continue
-                if paying_only and is_mantis_house_bot_click_url(click):
+                if paying_only and not has_live_click_token(click):
                     continue
                 return click
         if allow_any:
@@ -1793,7 +2012,7 @@ def click_url_for_zone(
                 click = str(ad.get("click_url") or "").strip()
                 if not click.startswith("http"):
                     continue
-                if paying_only and is_mantis_house_bot_click_url(click):
+                if paying_only and not has_live_click_token(click):
                     continue
                 return click
         return None
@@ -1808,13 +2027,20 @@ def click_url_for_zone(
         # unless caller forced refresh (Path3 open always force_refresh).
         if force_refresh or not ssp_recently_house_only():
             try:
-                ads = prefetch_ssp_ads_prefer_paying(
+                prefetch_ssp_ads_prefer_paying(
                     attempts=6 if force_refresh else 3,
                     delay_s=0.3,
                     allow_house_fallback=False,
                 )
             except Exception:
-                ads = ads or []
+                pass
+            # Burst falls back to allow_stale=True when every probe misses.
+            # Do not open that return — only a live store or a fresh fill file.
+            ads = _ads_just_prefetched()
+            if ssp_ads_paying_count(ads) == 0:
+                file_ads = _fresh_paying_fill_ads()
+                if ssp_ads_paying_count(file_ads) > 0:
+                    ads = file_ads
             hit = _pick(ads, paying_only=True)
             if hit:
                 _clear_ssp_house_only()
@@ -1833,11 +2059,11 @@ _CREATIVE_BOUNDS_JS = """
 (function() {
   var dpr = window.devicePixelRatio || 1;
   var out = [];
-  document.querySelectorAll('a.cpharm-mantis-creative').forEach(function(a) {
+  document.querySelectorAll('a.pharmflow-mantis-creative').forEach(function(a) {
     var href = a.href || '';
     if (!href || href === '#' || href.indexOf('javascript:') === 0) return;
     var pe = (a.style && a.style.pointerEvents) || '';
-    if (window.__cpharmCssOnly === true || pe === 'none') return;
+    if (window.__pharmflowCssOnly === true || pe === 'none') return;
     var r = a.getBoundingClientRect();
     if (r.width < 40 || r.height < 40) return;
     if (r.bottom < 80 || r.top > (window.innerHeight || 1600) - 40) return;

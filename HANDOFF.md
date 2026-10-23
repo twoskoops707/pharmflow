@@ -8,15 +8,15 @@
 | Who | Job |
 |-----|-----|
 | **Cursor** | Setup / diagnose **only** |
-| **`C:\CPharm\CPharm.exe`** | **Runs the farm** — Start farm in the UI |
+| **`C:\PharmFlow\PharmFlow.exe`** | **Runs the farm** — Start farm in the UI |
 | **MuMu x64** | Phones |
 
 ## Never (Cursor / Python)
 
 Do **not** start the farm with `ensure_farm_24x7.py`, `run_farm_354.py`, or `start_hidden.py`.  
-If there is no dash: open **CPharm.exe** → **Start farm**.
+If there is no dash: open **PharmFlow.exe** → **Start farm**.
 
 ## Product
 
-- Release: **[wizard-64](https://github.com/twoskoops707/FamFlow/releases/tag/wizard-64)** → `C:\CPharm\CPharm.exe` (app **1.4.9**)
-- Ship fixes as new Release EXE — not live `.py` copies onto `C:\CPharm\`
+- Product: **`C:\PharmFlow\PharmFlow.exe`** from the latest [GitHub Release](https://github.com/twoskoops707/pharmflow/releases). Logs stay under `C:\PharmFlow\`.
+- Ship fixes as a new Release EXE — not live `.py` copies onto `C:\PharmFlow\`

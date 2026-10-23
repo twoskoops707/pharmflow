@@ -52,7 +52,7 @@
             android:exported="false"
             android:foregroundServiceType="specialUse" />
 
-        <!-- CPharm ADB control: adb shell am broadcast -a com.farmbrowser.stealth.CONTROL -->
+        <!-- PharmFlow ADB control: adb shell am broadcast -a com.farmbrowser.stealth.CONTROL -->
         <receiver
             android:name=".browser.FarmBrowserReceiver"
             android:exported="true">

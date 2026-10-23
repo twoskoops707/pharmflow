@@ -7,8 +7,8 @@ import subprocess
 import time
 from pathlib import Path
 
-LOG = Path(r"C:\CPharm\logs")
-ADB = Path(r"C:\CPharm\bundled\adb.exe")
+LOG = Path(r"C:\PharmFlow\logs")
+ADB = Path(r"C:\PharmFlow\bundled\adb.exe")
 VMS = Path(r"C:\Program Files\Netease\MuMuPlayerARM\vms")
 FLAGS = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
@@ -64,16 +64,16 @@ def main() -> int:
     names = sorted(PHONES.keys(), key=lambda x: int(x.split(".")[0][2:]))
     ov.update(
         {
-            "CPHARM_FARM_PHONES": ",".join(names),
-            "CPHARM_ADB_SERIALS": ",".join(PHONES[n] for n in names),
-            "CPHARM_FARM_PHONE_COUNT": "7",
-            "CPHARM_FARM_EXPECT_PHONES": "7",
-            "CPHARM_FARM_UNIQUE_SEQ": "1",
-            "CPHARM_SKIP_SEQUENCE_ISOLATION": "0",
-            "CPHARM_NEVER_SHARE_EXIT_IP": "1",
-            "CPHARM_TABLET_FARM": "1",
-            "CPHARM_TABLET_PHONE": "",
-            "CPHARM_TABLET_SERIAL": "",
+            "PHARMFLOW_FARM_PHONES": ",".join(names),
+            "PHARMFLOW_ADB_SERIALS": ",".join(PHONES[n] for n in names),
+            "PHARMFLOW_FARM_PHONE_COUNT": "7",
+            "PHARMFLOW_FARM_EXPECT_PHONES": "7",
+            "PHARMFLOW_FARM_UNIQUE_SEQ": "1",
+            "PHARMFLOW_SKIP_SEQUENCE_ISOLATION": "0",
+            "PHARMFLOW_NEVER_SHARE_EXIT_IP": "1",
+            "PHARMFLOW_TABLET_FARM": "1",
+            "PHARMFLOW_TABLET_PHONE": "",
+            "PHARMFLOW_TABLET_SERIAL": "",
         }
     )
     ov_path.write_text(json.dumps(ov, indent=2) + "\n", encoding="utf-8")

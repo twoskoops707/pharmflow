@@ -1,4 +1,4 @@
-"""Dismiss Chromium splash, native alerts, and DabFlow HTML age gate (no CPharm GUI needed)."""
+"""Dismiss Chromium splash, native alerts, and DabFlow HTML age gate (no PharmFlow GUI needed)."""
 
 from __future__ import annotations
 
@@ -114,7 +114,7 @@ def _dump_xml(adb: AdbWrapper, serial: str) -> str:
     for attempt in range(2):
         with _UI_DUMP_SEM:
             dump = adb.shell(
-                "uiautomator dump /sdcard/cpharm_overlay.xml",
+                "uiautomator dump /sdcard/pharmflow_overlay.xml",
                 serial=serial,
                 timeout=DUMP_TIMEOUT_S,
             )
@@ -129,7 +129,7 @@ def _dump_xml(adb: AdbWrapper, serial: str) -> str:
                 continue
             body = (
                 adb.shell(
-                    "cat /sdcard/cpharm_overlay.xml", serial=serial, timeout=DUMP_CAT_TIMEOUT_S
+                    "cat /sdcard/pharmflow_overlay.xml", serial=serial, timeout=DUMP_CAT_TIMEOUT_S
                 ).stdout
                 or ""
             )
@@ -270,7 +270,7 @@ def ensure_start_perfect_dab(
     report["chromium_fg"] = _bring_chromium_dabflow(adb, serial)
     # CDP always fails on MuMu (/json closed) — skip straight to ADB tap.
     if False and _cdp_click_start_dab(adb, serial):
-        time.sleep(_env_float("CPHARM_START_DAB_VERIFY_WAIT", 1.5))
+        time.sleep(_env_float("PHARMFLOW_START_DAB_VERIFY_WAIT", 1.5))
         xml = _dump_xml(adb, serial)
         if _timer_running(xml, tapped_live_bounds=True) or (
             xml and not _find_start_dab_bounds(xml)
@@ -357,7 +357,7 @@ def ensure_start_perfect_dab(
     if not ok:
         return report
 
-    verify_wait = _env_float("CPHARM_START_DAB_VERIFY_WAIT", 2.0)
+    verify_wait = _env_float("PHARMFLOW_START_DAB_VERIFY_WAIT", 2.0)
     time.sleep(verify_wait)
     xml = _dump_xml(adb, serial)
     if not xml:

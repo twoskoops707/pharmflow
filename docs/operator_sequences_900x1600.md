@@ -5,19 +5,19 @@ Production JSON lives **on your PC only** — not in the git repo.
 ## Local folder (default)
 
 ```text
-%USERPROFILE%\CPharm\sequences\
+%USERPROFILE%\PharmFlow\sequences\
   900x1600\
     ad/          ← full DabFlow flows with ad tap + ≥30s dwell + scroll-to-bottom
     no-ad/       ← same combos without ad clicks
   720x1280/ …  (other resolutions, same layout)
 ```
 
-Override with env: `CPHARM_SEQUENCES_DIR=C:\path\to\sequences`
+Override with env: `PHARMFLOW_SEQUENCES_DIR=C:\path\to\sequences`
 
 ## Generate the matrix
 
 ```powershell
-cd C:\Users\jsmil\CPharm\cpharm-clone\automation
+cd C:\Users\jsmil\PharmFlow\pharmflow-clone\automation
 python generate_dabflow_gold_matrix.py
 ```
 

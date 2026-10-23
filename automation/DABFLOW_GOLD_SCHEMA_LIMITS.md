@@ -1,6 +1,6 @@
 # DabFlow gold sequences — schema limits vs humanization
 
-CPharm normalizes steps in `sequence_normalize.py`; the dashboard enforces the same ceilings during playback.
+PharmFlow normalizes steps in `sequence_normalize.py`; the dashboard enforces the same ceilings during playback.
 
 | Field | Limit | Humanization impact |
 |-------|-------|---------------------|

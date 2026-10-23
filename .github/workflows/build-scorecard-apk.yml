@@ -1,4 +1,4 @@
-﻿name: Build CPharm Farm Remote APK
+﻿name: Build PharmFlow Farm Remote APK
 
 on:
   push:
@@ -36,11 +36,11 @@ jobs:
         run: |
           mkdir -p scorecard-android/dist
           cp scorecard-android/app/build/outputs/apk/release/app-release.apk \
-            scorecard-android/dist/CPharmFarmRemote.apk \
+            scorecard-android/dist/PharmFlowFarmRemote.apk \
             || cp scorecard-android/app/build/outputs/apk/release/app-release-unsigned.apk \
-            scorecard-android/dist/CPharmFarmRemote.apk
-          cp scorecard-android/dist/CPharmFarmRemote.apk \
-            scorecard-android/dist/CPharmScorecard.apk
+            scorecard-android/dist/PharmFlowFarmRemote.apk
+          cp scorecard-android/dist/PharmFlowFarmRemote.apk \
+            scorecard-android/dist/PharmFlowScorecard.apk
           ls -la scorecard-android/dist/
 
       - name: Create GitHub Release
@@ -51,16 +51,16 @@ jobs:
           body: |
             ## Farm Remote (Android)
 
-            **CPharmFarmRemote.apk** — simple phone controller for your laptop farm.
+            **PharmFlowFarmRemote.apk** — simple phone controller for your laptop farm.
 
             Big buttons: Find phones, GO!, STOP, Tor, New faces, See money $.
 
-            Same Wi‑Fi as laptop, `CPHARM_BIND=0.0.0.0`, port 8080.
+            Same Wi‑Fi as laptop, `PHARMFLOW_BIND=0.0.0.0`, port 8080.
 
-            Legacy name **CPharmScorecard.apk** included (same build).
+            Legacy name **PharmFlowScorecard.apk** included (same build).
           files: |
-            scorecard-android/dist/CPharmFarmRemote.apk
-            scorecard-android/dist/CPharmScorecard.apk
+            scorecard-android/dist/PharmFlowFarmRemote.apk
+            scorecard-android/dist/PharmFlowScorecard.apk
           draft: false
           prerelease: false
 
@@ -70,5 +70,5 @@ jobs:
         continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
-          name: CPharmFarmRemote
-          path: scorecard-android/dist/CPharmFarmRemote.apk
+          name: PharmFlowFarmRemote
+          path: scorecard-android/dist/PharmFlowFarmRemote.apk

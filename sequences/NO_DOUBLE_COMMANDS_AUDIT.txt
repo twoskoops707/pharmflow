@@ -1,7 +1,7 @@
 NO_DOUBLE_COMMANDS_AUDIT
 ========================
 Date: 2026-06-21
-Scope: 69 kept sequence JSON under CPharm/sequences/ (900x1600 no-ad matrix + demo ONE + early-exit + 900x1600/ad demo TWO)
+Scope: 69 kept sequence JSON under PharmFlow/sequences/ (900x1600 no-ad matrix + demo ONE + early-exit + 900x1600/ad demo TWO)
 
 SUMMARY
 -------
@@ -50,7 +50,7 @@ CODE FIXES
 REGENERATION
 ------------
 Command:
-  py generate_dabflow_gold_matrix.py --output C:\Users\jsmil\CPharm\sequences \
+  py generate_dabflow_gold_matrix.py --output C:\Users\jsmil\PharmFlow\sequences \
     --resolution 900x1600 --flow-dir no-ad --update-demo-one --skip-purge
 
 Output: 60 no_ads combo files + dabflow__demo__ONE.json rewritten.

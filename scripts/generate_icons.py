@@ -1,4 +1,4 @@
-"""Generate custom CPharm UI icons — simple, consistent, child-readable."""
+"""Generate custom PharmFlow UI icons — simple, consistent, child-readable."""
 
 from __future__ import annotations
 

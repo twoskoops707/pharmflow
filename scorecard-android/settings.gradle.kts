@@ -12,5 +12,5 @@ dependencyResolutionManagement {
         mavenCentral()
     }
 }
-rootProject.name = "CPharmScorecard"
+rootProject.name = "PharmFlowScorecard"
 include(":app")

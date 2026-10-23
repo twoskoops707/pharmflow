@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Apply C:\\CPharm\\logs\\farm_day_plan.json when local date matches.
+"""Apply C:\\PharmFlow\\logs\\farm_day_plan.json when local date matches.
 
 Merges plan env into farm_runtime_overrides.json, syncs panel, and restarts
 run_farm_354 once per date so daily visit/ad caps + ALLOW_ADS take effect.
@@ -19,7 +19,7 @@ sys.path.insert(0, str(ROOT))
 
 import automation.no_window  # noqa: E402,F401
 
-LOG_DIR = Path(os.environ.get("CPHARM_LOG_DIR", r"C:\CPharm\logs"))
+LOG_DIR = Path(os.environ.get("PHARMFLOW_LOG_DIR", r"C:\PharmFlow\logs"))
 PLAN = LOG_DIR / "farm_day_plan.json"
 OVERRIDES = LOG_DIR / "farm_runtime_overrides.json"
 PANEL = LOG_DIR / "farm_panel_state.json"
@@ -62,7 +62,7 @@ def apply_if_due(*, force_restart: bool = True) -> dict:
     env_patch = plan.get("env") if isinstance(plan.get("env"), dict) else {}
     ov = _load(OVERRIDES)
     for key, value in env_patch.items():
-        if str(key).startswith("CPHARM_"):
+        if str(key).startswith("PHARMFLOW_"):
             ov[str(key)] = str(value)
     ov["gauge_push_note"] = str(plan.get("note") or "day plan applied")
     ov["updated"] = datetime.now(timezone.utc).isoformat()
@@ -73,7 +73,7 @@ def apply_if_due(*, force_restart: bool = True) -> dict:
     if panel:
         penv = panel.get("env") if isinstance(panel.get("env"), dict) else {}
         for key, value in env_patch.items():
-            if str(key).startswith("CPHARM_"):
+            if str(key).startswith("PHARMFLOW_"):
                 penv[str(key)] = str(value)
         panel["env"] = penv
         panel["updated"] = ov["updated"]
@@ -103,7 +103,7 @@ def apply_if_due(*, force_restart: bool = True) -> dict:
         "date": today,
         "restarted": restarted,
         "targets": plan.get("targets"),
-        "env": {k: ov.get(k) for k in env_patch if str(k).startswith("CPHARM_")},
+        "env": {k: ov.get(k) for k in env_patch if str(k).startswith("PHARMFLOW_")},
         "applied_at": datetime.now(timezone.utc).isoformat(),
     }
     _write(APPLIED, status)

@@ -12,8 +12,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "wizard"))
 sys.path.insert(0, str(ROOT / "automation"))
-os.environ["CPHARM_HUMAN_VARIATION"] = "0"
-os.environ.setdefault("CPHARM_USE_SHELL_WM_FOCUS_CHEAT", "1")
+os.environ["PHARMFLOW_HUMAN_VARIATION"] = "0"
+os.environ.setdefault("PHARMFLOW_USE_SHELL_WM_FOCUS_CHEAT", "1")
 
 import tor_manager  # noqa: E402
 from sequence_normalize import normalize_automation_steps, unwrap_sequence_document  # noqa: E402
@@ -21,11 +21,11 @@ from setup_wizard import execute_steps  # noqa: E402
 
 
 def main() -> int:
-    serial = os.environ.get("CPHARM_SERIAL", "10.0.2.108:5555")
+    serial = os.environ.get("PHARMFLOW_SERIAL", "10.0.2.108:5555")
     seq_path = Path(
         os.environ.get(
-            "CPHARM_SEQ",
-            r"C:\CPharm\sequences\900x1600\ad\dabflow__demo__TWO.json",
+            "PHARMFLOW_SEQ",
+            r"C:\PharmFlow\sequences\900x1600\ad\dabflow__demo__TWO.json",
         )
     )
 
@@ -59,7 +59,7 @@ def main() -> int:
     delta = (age_t - loaded_t) if loaded_t is not None and age_t is not None else None
     ok = delta is not None and delta <= 3.5
 
-    out = Path(r"C:\CPharm\AGE_GATE_TIMING.txt")
+    out = Path(r"C:\PharmFlow\AGE_GATE_TIMING.txt")
     out.write_text(
         "\n".join(
             [

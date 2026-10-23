@@ -1,6 +1,6 @@
 """Audit AD sequences: verify they target genuinely DIFFERENT ads.
 
-Read-only audit of C:\\CPharm\\automation\\recordings\\sequences\\base\\{ceramic,quartz,titanium}\\*_ad.json
+Read-only audit of C:\\PharmFlow\\automation\\recordings\\sequences\\base\\{ceramic,quartz,titanium}\\*_ad.json
 (the "smoke" folder is ignored). Does NOT modify sequences or touch the farm.
 
 Checks:
@@ -12,7 +12,7 @@ Checks:
   5. Per material/concentrate/heater combo: do the ad variants hit different
      spots/pages?
 
-Output: stdout + C:\\CPharm\\logs\\sequence_audit_ads.txt
+Output: stdout + C:\\PharmFlow\\logs\\sequence_audit_ads.txt
 """
 
 from __future__ import annotations
@@ -23,9 +23,9 @@ import sys
 from collections import Counter, defaultdict
 from pathlib import Path
 
-BASE = Path(r"C:\CPharm\automation\recordings\sequences\base")
+BASE = Path(r"C:\PharmFlow\automation\recordings\sequences\base")
 MATERIALS = ("ceramic", "quartz", "titanium")
-OUT_PATH = Path(r"C:\CPharm\logs\sequence_audit_ads.txt")
+OUT_PATH = Path(r"C:\PharmFlow\logs\sequence_audit_ads.txt")
 
 
 # --- exact copy of run_farm_354._parse_ad_key -------------------------------

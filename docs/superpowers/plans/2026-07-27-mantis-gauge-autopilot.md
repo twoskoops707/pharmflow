@@ -6,14 +6,14 @@
 
 **Architecture:** Shared Python modules for gauge scoring + steering; a singleton `mantis_autopilot.py` worker (timer + event); `farm_operator_dash` blocks on Mantis fetch for Reload/ntfy; writes `mantis_today_state.json` / overrides / `autopilot_*.json(l)`.
 
-**Tech Stack:** Python 3.14, Flask operator dash (`scripts/farm_operator_dash.py`), unittest, existing `automation/mantis_farm_math.py`, farm overrides at `C:\CPharm\logs\`.
+**Tech Stack:** Python 3.14, Flask operator dash (`scripts/farm_operator_dash.py`), unittest, existing `automation/mantis_farm_math.py`, farm overrides at `C:\PharmFlow\logs\`.
 
 ## Global Constraints
 
 - Spec: `docs/superpowers/specs/2026-07-27-mantis-gauge-autopilot-design.md`
-- Creds only from `C:\Users\jsmil\FamFlow\logs\MANTIS.json` (never commit / never log password)
+- Creds only from `C:\Users\jsmil\PharmFlow\logs\MANTIS.json` (never commit / never log password)
 - Hard rails: unique-seq, draw-without-replacement, isolation, Tor unique exit, clicks hard cap 40/day
-- Dry-run: `CPHARM_AUTOPILOT_DRY_RUN=1` computes/logs without applying overrides or restarts
+- Dry-run: `PHARMFLOW_AUTOPILOT_DRY_RUN=1` computes/logs without applying overrides or restarts
 - No auto-ntfy reply bots; check-in may include Mantis snapshot text only
 - Prefer small focused modules under `automation/`; do not paste secrets into tests
 
@@ -28,7 +28,7 @@
 | `scripts/mantis_autopilot.py` | Singleton loop (2–3h + yellow/red) |
 | `scripts/farm_operator_dash.py` | Wait-for-truth refresh API + UI strip |
 | `scripts/ensure_farm_24x7.py` | Ensure autopilot singleton |
-| `scripts/clear_dead_farm_procs.py` / `C:\CPharm\logs\process_janitor.py` | Keep/dedupe autopilot |
+| `scripts/clear_dead_farm_procs.py` / `C:\PharmFlow\logs\process_janitor.py` | Keep/dedupe autopilot |
 | `tests/test_mantis_gauge_score.py` | Score unit tests |
 | `tests/test_mantis_steering.py` | Steering unit tests |
 | `tests/test_mantis_fetch_creds.py` | Cred parse tests (no live login) |
@@ -130,9 +130,9 @@ class TestMantisSteering(unittest.TestCase):
             score,
             farm_ads_used=10,
             path3_count=10,
-            current_overrides={"CPHARM_FARM_ALLOW_ADS": "1", "CPHARM_FARM_PATH3_DAILY_CAP": "16"},
+            current_overrides={"PHARMFLOW_FARM_ALLOW_ADS": "1", "PHARMFLOW_FARM_PATH3_DAILY_CAP": "16"},
         )
-        self.assertEqual(plan["overrides_patch"].get("CPHARM_FARM_ALLOW_ADS"), "0")
+        self.assertEqual(plan["overrides_patch"].get("PHARMFLOW_FARM_ALLOW_ADS"), "0")
         self.assertTrue(any(a.get("type") == "browse_only" for a in plan["actions"]))
 
     def test_low_evcpm_raises_dwell_waits(self):
@@ -141,9 +141,9 @@ class TestMantisSteering(unittest.TestCase):
             score,
             farm_ads_used=8,
             path3_count=8,
-            current_overrides={"CPHARM_DABFLOW_LOAD_WAIT": "2.0", "CPHARM_AGE_GATE_WAIT": "2.0"},
+            current_overrides={"PHARMFLOW_DABFLOW_LOAD_WAIT": "2.0", "PHARMFLOW_AGE_GATE_WAIT": "2.0"},
         )
-        self.assertGreaterEqual(float(plan["overrides_patch"]["CPHARM_DABFLOW_LOAD_WAIT"]), 3.5)
+        self.assertGreaterEqual(float(plan["overrides_patch"]["PHARMFLOW_DABFLOW_LOAD_WAIT"]), 3.5)
         self.assertTrue(any(a.get("type") == "raise_dwell" for a in plan["actions"]))
 
     def test_never_raises_click_cap_above_40(self):
@@ -152,9 +152,9 @@ class TestMantisSteering(unittest.TestCase):
             score,
             farm_ads_used=5,
             path3_count=5,
-            current_overrides={"CPHARM_FARM_PATH3_DAILY_CAP": "16"},
+            current_overrides={"PHARMFLOW_FARM_PATH3_DAILY_CAP": "16"},
         )
-        cap = int(plan["overrides_patch"].get("CPHARM_FARM_PATH3_DAILY_CAP", "16"))
+        cap = int(plan["overrides_patch"].get("PHARMFLOW_FARM_PATH3_DAILY_CAP", "16"))
         self.assertLessEqual(cap, 40)
 
 if __name__ == "__main__":
@@ -170,7 +170,7 @@ Run: `py -m unittest tests.test_mantis_steering -v`
 Rules (from spec):
 - clicks ≥40 → `ALLOW_ADS=0`, cap ≤ used
 - clicks ≥35 → tighten PATH3 cap toward used+small remainder
-- evCPM out → set `CPHARM_DABFLOW_LOAD_WAIT` ≥3.5, `CPHARM_HUMAN_VARIATION=1`
+- evCPM out → set `PHARMFLOW_DABFLOW_LOAD_WAIT` ≥3.5, `PHARMFLOW_HUMAN_VARIATION=1`
 - impr low + visits low → do not bump ads; leave visit caps alone or note `prefer_multitab` action (farm already biases p1c/d)
 - Never set PATH3 cap &gt; 40
 - Never clear uniqueness-related env keys
@@ -197,7 +197,7 @@ git commit -m "feat: Mantis autopilot steering plans from gauge scores"
   - `load_mantis_credentials(path: Path | None = None) -> dict` with `url`, `user`, `password` (parse `WEB:` / `u:` / `p:` lines or JSON)
   - `fetch_mantis_today(*, creds: dict | None = None, timeout_s: float = 60) -> dict` returning `{ok, impressions, clicks, payout_usd, ecpm, evcpm, error, fetched_at}`
   - For first ship: implement real fetch behind `fetch_mantis_today`; if network/login fails, return `ok=False` without raising
-  - Optional env `CPHARM_MANTIS_FETCH_STUB=1` returns fixture numbers for local UI testing
+  - Optional env `PHARMFLOW_MANTIS_FETCH_STUB=1` returns fixture numbers for local UI testing
 
 - [ ] **Step 1: Write cred parse test**
 
@@ -228,7 +228,7 @@ if __name__ == "__main__":
 - [ ] **Step 3: Implement loader + fetch**
 
 `load_mantis_credentials`:
-- Default path `Path(r"C:\Users\jsmil\FamFlow\logs\MANTIS.json")`
+- Default path `Path(r"C:\Users\jsmil\PharmFlow\logs\MANTIS.json")`
 - Support line format and JSON `{"url","user","password"}`
 - Never print password
 
@@ -273,7 +273,7 @@ class TestApply(unittest.TestCase):
             (log / "farm_runtime_overrides.json").write_text("{}", encoding="utf-8")
             plan = {
                 "actions": [{"type": "browse_only"}],
-                "overrides_patch": {"CPHARM_FARM_ALLOW_ADS": "0"},
+                "overrides_patch": {"PHARMFLOW_FARM_ALLOW_ADS": "0"},
                 "restart_farm": False,
                 "reason": "test",
             }
@@ -305,10 +305,10 @@ git commit -m "feat: apply autopilot steering to farm overrides"
 - Create: `scripts/mantis_autopilot.py`
 
 **Interfaces:**
-- Loop: sleep until next due (randomize 120–180 min) OR wake file `C:\CPharm\logs\autopilot_wake.flag`
+- Loop: sleep until next due (randomize 120–180 min) OR wake file `C:\PharmFlow\logs\autopilot_wake.flag`
 - Each cycle: `fetch_mantis_today` → `save` into `mantis_today_state.json` (reuse dash helper or duplicate small writer) → load farm budget/path3 → `score_levers` → if tone yellow/red or timer: `plan_steering` → `apply_steering_plan`
-- Honor `CPHARM_AUTOPILOT_DRY_RUN`
-- Heartbeat: `C:\CPharm\logs\mantis_autopilot_heartbeat.txt`
+- Honor `PHARMFLOW_AUTOPILOT_DRY_RUN`
+- Heartbeat: `C:\PharmFlow\logs\mantis_autopilot_heartbeat.txt`
 
 - [ ] **Step 1: Implement script with `--once` for manual run**
 
@@ -316,7 +316,7 @@ git commit -m "feat: apply autopilot steering to farm overrides"
 py -u scripts/mantis_autopilot.py --once
 ```
 
-Expected: prints ok/fail JSON summary; updates state files under `C:\CPharm\logs` (or dry-run)
+Expected: prints ok/fail JSON summary; updates state files under `C:\PharmFlow\logs` (or dry-run)
 
 - [ ] **Step 2: Manual smoke (operator machine)**
 
@@ -395,7 +395,7 @@ git commit -m "feat: dash wait-for-truth Mantis refresh on reload and check-in"
 **Files:**
 - Modify: `scripts/ensure_farm_24x7.py`
 - Modify: `scripts/clear_dead_farm_procs.py`
-- Modify: `C:\CPharm\logs\process_janitor.py` (runtime copy; also keep FamFlow script in sync if one exists)
+- Modify: `C:\PharmFlow\logs\process_janitor.py` (runtime copy; also keep PharmFlow script in sync if one exists)
 
 - [ ] **Step 1: ensure starts singleton**
 
@@ -426,7 +426,7 @@ git add scripts/ensure_farm_24x7.py scripts/clear_dead_farm_procs.py
 git commit -m "feat: ensure and dedupe mantis autopilot keeper"
 ```
 
-(If janitor lives only under `C:\CPharm\logs`, patch there and note in commit body; prefer also adding `scripts/process_janitor.py` in-repo if missing.)
+(If janitor lives only under `C:\PharmFlow\logs`, patch there and note in commit body; prefer also adding `scripts/process_janitor.py` in-repo if missing.)
 
 ---
 
@@ -467,7 +467,7 @@ git commit -m "feat: serve shared gauge_score on dash status API"
 
 - No TBD steps; fetch live implementation is explicit in Task 3 with stub escape hatch.
 - Function names consistent: `score_levers`, `plan_steering`, `apply_steering_plan`, `fetch_mantis_today`, `load_mantis_credentials`.
-- Log dir default `C:\CPharm\logs` everywhere.
+- Log dir default `C:\PharmFlow\logs` everywhere.
 
 ---
 

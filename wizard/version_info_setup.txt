@@ -16,13 +16,13 @@ VSVersionInfo(
         StringTable(
           '040904B0',
           [
-            StringStruct('CompanyName', 'CPharm'),
-            StringStruct('FileDescription', 'CPharm MuMu Setup Wizard'),
+            StringStruct('CompanyName', 'PharmFlow'),
+            StringStruct('FileDescription', 'PharmFlow MuMu Setup'),
             StringStruct('FileVersion', '1.3.0.0'),
-            StringStruct('InternalName', 'CPharmMuMuSetup'),
-            StringStruct('LegalCopyright', 'Copyright (c) 2026 CPharm'),
-            StringStruct('OriginalFilename', 'CPharmMuMuSetup.exe'),
-            StringStruct('ProductName', 'CPharm MuMu Setup'),
+            StringStruct('InternalName', 'PharmFlowMuMuSetup'),
+            StringStruct('LegalCopyright', 'Copyright (c) 2026 PharmFlow'),
+            StringStruct('OriginalFilename', 'PharmFlowMuMuSetup.exe'),
+            StringStruct('ProductName', 'PharmFlow MuMu Setup'),
             StringStruct('ProductVersion', '1.3.0.0'),
           ],
         )

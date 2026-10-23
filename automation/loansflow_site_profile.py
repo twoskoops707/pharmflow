@@ -1,4 +1,4 @@
-"""Built-in LoansFlow Site Profile for FamFlow / CPharm farm sequences."""
+"""Built-in LoansFlow Site Profile for PharmFlow / PharmFlow farm sequences."""
 
 from __future__ import annotations
 

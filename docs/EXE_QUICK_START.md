@@ -1,73 +1,57 @@
-# CPharm Windows EXE Quick Start
+# PharmFlow Windows EXE Quick Start
 
-The GitHub Release contains three separate programs. Download all three into the same folder, such as `C:\CPharm\`.
+The GitHub Release ships **one** program: `PharmFlow.exe`. Put it in `C:\PharmFlow\`.
 
-| File | Use it for | When to run |
-|---|---|---|
-| `CPharm.exe` | Wizard, MuMu setup, **Start farm**, Mantis operator dash **`:8091`**, sequences | Run this first |
-| `CPharmAgent.exe` | Read-only project status and bounded planning | Diagnostics only |
-| `CPharmWatchdog.exe` | ADB, inject, emulator health; known connection recovery | When phones drop offline |
+Phone setup, the project agent, and the watchdog are the same binary. There is no separate setup EXE, agent EXE, or watchdog EXE.
+
+| How you start it | Use it for |
+|---|---|
+| `PharmFlow.exe` | Control Panel: wizard, phone setup, **Start farm**, dash **`:8091`** |
+| `PharmFlow.exe --watchdog` | ADB / connection check (same file) |
+| `PharmFlow.exe --agent` | Project diagnostics (same file) |
+
+Settings and logs stay under `C:\PharmFlow\` (not the EXE folder).
 
 ## Mantis money farm (most operators)
 
-1. Install **MuMu Player x64**, create portrait phones, enable USB debugging.
-2. Build/install **FarmBrowser** from `farmbrowser/` (or use cached APK under `apks/`).
-3. Open **CPharm.exe** → **Start farm**.
+1. Start your phones yourself (MuMu, AVD, or a real device). The EXE does not open or close emulators.
+2. Install **FarmBrowser** on each phone.
+3. Open **PharmFlow.exe** → **Start farm**.
 4. Open **`http://127.0.0.1:8091/`** for live money/status.
-5. **Stop farm** in CPharm when shutting down.
+5. **Stop farm** in PharmFlow when shutting down. Closing the window does not tear down phone exits.
 
-Do **not** start `ensure_farm_24x7.py` or `run_farm_354.py` from a terminal — **Start farm** in the EXE spawns the unison stack.
+Do **not** start `ensure_farm_24x7.py` or `run_farm_354.py` from a terminal — **Start farm** in PharmFlow.exe owns the unison stack.
 
-Coordination with FreeBuff agent: `C:\CPharm\logs\AGENT_UNISON.json`
+Coordination with FreeBuff agent: `C:\PharmFlow\logs\AGENT_UNISON.json`
 
 ---
 
-## Wizard / groups mode (legacy 9-step UI)
+## Wizard / groups mode
 
-Big picture first: you download three tiny programs, open the **green** one, make a few phones, and press **Play**. That's the whole job.
+1. Download **PharmFlow.exe** into `C:\PharmFlow\`.
+2. Install **MuMu Player**. Create phones. In each phone turn **ON** ADB / USB debugging. Stuck? PharmFlow → **Phones (step 4)** has the checklist and **Set up my phones**.
+3. Double-click `PharmFlow.exe`. Click **Next** through **Install** and **Android** until **Phones**.
+4. Continue to **Test (step 5)** and open the site on a phone.
+5. **Run (step 9)** → **Start service** → **Run all groups**, or **Start automation**.
 
-1. **Get the programs.** From the Release, download **all three** EXEs: `CPharm.exe`, `CPharmAgent.exe`, `CPharmWatchdog.exe`. Drop them into **one** folder (like `C:\CPharm\`).
-2. **Make the phones.** Install **MuMu Player** (a free program). Open it → top-right **multi-window** icon → **+ New Instance** → make **3** phones. In each phone: open Settings and turn **ON** ADB / USB debugging. (Stuck? CPharm → **Phones (step 4)** has a full checklist.)
-3. **Open CPharm.** Double-click `CPharm.exe`. Click **Next** through **Install** and **Android** until you reach **Phones (step 4)**. If your phones don't appear, click **Auto-Connect All Phones**.
-4. **Test a website.** Continue to **Test (step 5)**. Site loads → good, phones work.
-5. **Press GO.** Go to **Run (step 9)** → **Start server** → wait for *Server running* → **Run all groups**. Watch the big live **farm status** panel.
+The wizard dashboard is `http://localhost:8080`. The money dashboard is `http://127.0.0.1:8091/`.
 
-That's the happy path. The dashboard opens at `http://localhost:8080`. If anything looks odd, scroll down — the **watchdog**, **troubleshooting**, and **cloud** sections below are all still here (they didn't go anywhere).
+## Watchdog
 
-## First-time setup
-
-1. Install MuMu and create portrait **Phone** instances at `900 × 1600`.
-2. Enable USB debugging on each instance.
-3. Put all three EXEs in one folder.
-4. Open `CPharm.exe`.
-5. Complete **Phones** setup and confirm the phones appear as `device` in ADB.
-6. Use **Install APK** when testing an APK on connected phones.
-7. Use **Steps → Edit default sequence** or **Builder** to create a sequence.
-8. Use **Groups** to assign phones and saved sequences.
-9. Open **Run**, click **Start server**, wait for “Server running,” then click **Run all groups**.
-10. Use **CPharmWatchdog.exe** only for connection diagnostics or known repairs.
-
-## Watchdog commands
-
-The watchdog is a console EXE. From PowerShell in the CPharm folder:
+From PowerShell in `C:\PharmFlow`:
 
 ```powershell
-.\CPharmWatchdog.exe
-.\CPharmWatchdog.exe --apply --repair-docker --host 127.0.0.1 --count 1
-.\CPharmWatchdog.exe --apply --watch --interval 15
+.\PharmFlow.exe --watchdog
+.\PharmFlow.exe --watchdog --apply
+.\PharmFlow.exe --agent
 ```
 
-`--apply` is required for reconnect/recovery actions. Start with `--count 1`; scale only after one emulator is stable.
-
-## Cloud/Redroid note
-
-Redroid requires Linux Binder support. Docker Desktop/WSL may validate the Compose file but still cannot run Redroid reliably. Use MuMu on Windows, or run Redroid on a Linux host/cloud VM. Do not repeatedly restart Docker or launch eight privileged emulators while diagnosing WSL crashes.
+`--apply` is required before the watchdog changes anything. It does not replace **Start farm**.
 
 ## If a button appears to do nothing
 
-- Close older CPharm processes and launch the newest `CPharm.exe`.
-- Check the visible error banner or the Run page live log.
-- For dashboard actions, start the service first and wait for “Server running.”
-- For editor windows, check that Windows did not place the window behind the main app.
-- Run `CPharmWatchdog.exe` and inspect the ADB/Docker result.
-- If Docker crashes WSL, stop scaling and use MuMu or a Linux Redroid host.
+- Close older PharmFlow windows and launch the newest `C:\PharmFlow\PharmFlow.exe`.
+- Check the error banner or the Run page log.
+- For dashboard actions, start the service and wait for “Server running.”
+- Editor windows must be visible. If a file dialog is behind the Control Panel, Alt-Tab to it.
+- `PharmFlow.exe --watchdog` reports farm, ADB, and dashboard state. It is not a second program.

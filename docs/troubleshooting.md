@@ -1,4 +1,4 @@
-# CPharm Troubleshooting
+# PharmFlow Troubleshooting
 
 Quick fixes for the most common operator and developer issues.
 
@@ -26,12 +26,12 @@ Quick fixes for the most common operator and developer issues.
 2. Confirm `MuMuManager.exe` exists under the install root (e.g. `C:\Program Files\Netease\MuMuPlayerGlobal\`).
 3. Set an explicit path if auto-detection fails:
    ```powershell
-   set CPHARM_MUMU_ROOT=C:\Program Files\Netease\MuMuPlayerGlobal
+   set PHARMFLOW_MUMU_ROOT=C:\Program Files\Netease\MuMuPlayerGlobal
    ```
-   Or save it in **Settings** / `C:\CPharm\cpharm_config.json` as `mumu_root`.
+   Or save it in **Settings** / `C:\PharmFlow\pharmflow_config.json` as `mumu_root`.
 4. In the wizard, open **Android** → **DETECT MUMU**, or run preflight from **Start** → **CHECK SYSTEM**.
-5. Click **LOCATE MUMU** (setup wizard) or **Settings → BROWSE** to manually pick the install folder or `MuMuManager.exe`. Paths are saved to `cpharm_config.json` and `saved_paths.json`.
-6. Search paths checked by CPharm: `wizard/wizard_paths.py` → `MUMU_SEARCH_PATHS`.
+5. Click **LOCATE MUMU** (setup wizard) or **Settings → BROWSE** to manually pick the install folder or `MuMuManager.exe`. Paths are saved to `pharmflow_config.json` and `saved_paths.json`.
+6. Search paths checked by PharmFlow: `wizard/wizard_paths.py` → `MUMU_SEARCH_PATHS`.
 
 ---
 
@@ -41,9 +41,9 @@ Quick fixes for the most common operator and developer issues.
 
 **Fixes:**
 
-1. CPharm uses **bundled ADB only** — never the Android SDK on PATH.
+1. PharmFlow uses **bundled ADB only** — never the Android SDK on PATH.
    - Dev: `bundled_adb/adb.exe`
-   - Installed: `C:\CPharm\bundled\adb.exe`
+   - Installed: `C:\PharmFlow\bundled\adb.exe`
 2. Run **Install** step (or setup **GO**) to download platform-tools if missing.
 3. Start the phone first, then connect:
    - Wizard **Phones** → **Start** on the card, or dashboard `POST /api/phones/{name}/start`.
@@ -51,7 +51,7 @@ Quick fixes for the most common operator and developer issues.
 5. Enable **USB debugging** on the emulator (see **Android** step in the wizard).
 6. Verify manually:
    ```powershell
-   C:\CPharm\bundled\adb.exe devices -l
+   C:\PharmFlow\bundled\adb.exe devices -l
    ```
 
 ---
@@ -64,7 +64,7 @@ Quick fixes for the most common operator and developer issues.
 
 1. Fingerprint is written to `vms/<instance>/setting.json` — changes do **not** apply until a **cold boot** (stop → start).
 2. Use **Rotate ID** on a phone card, or a sequence step `rotate_identity` / `ensure_fingerprint` before `open_url`.
-3. Do not set `CPHARM_SKIP_FINGERPRINT=1` unless you intentionally want patching disabled.
+3. Do not set `PHARMFLOW_SKIP_FINGERPRINT=1` unless you intentionally want patching disabled.
 4. After rotate, wait for boot to finish before opening URLs (sequence `wait` steps help).
 5. Re-check on the **Test** step or **Privacy Status** tab.
 
@@ -77,8 +77,8 @@ Quick fixes for the most common operator and developer issues.
 **Fixes:**
 
 1. Use **MuMu Browser** (`com.mumudroid.browser`) — it honors `settings put global http_proxy`. Chromium may ignore proxy on some builds.
-2. Each phone needs its own **HTTPTunnelPort** in torrc (`8118`, `8119`, …). CPharm writes this in `tor_instances/phone_<n>/torrc`.
-3. CPharm maps host Tor into the guest with **`adb reverse tcp:<port> tcp:<port>`** and sets guest proxy to `127.0.0.1:<port>` — not `10.0.2.2` unless `CPHARM_PROXY_LEGACY_GATEWAY=1`.
+2. Each phone needs its own **HTTPTunnelPort** in torrc (`8118`, `8119`, …). PharmFlow writes this in `tor_instances/phone_<n>/torrc`.
+3. PharmFlow maps host Tor into the guest with **`adb reverse tcp:<port> tcp:<port>`** and sets guest proxy to `127.0.0.1:<port>` — not `10.0.2.2` unless `PHARMFLOW_PROXY_LEGACY_GATEWAY=1`.
 4. Start Tor for the phone: wizard **Tor Control** or `POST /api/tor/{name}/start`.
 5. Confirm torrc contains `HTTPTunnelPort <port>` and the Tor process is running for that index.
 6. Click **New IP** / `rotate` if the circuit is stale.
@@ -97,7 +97,7 @@ Quick fixes for the most common operator and developer issues.
    command=lambda n=inst.name: self._start_one(n)
    ```
 3. Long work must run on a **background thread**; update UI with `self.after(0, ...)`.
-4. Check `cpharm.log` under `C:\CPharm\logs\` (or project `data/logs/` in dev).
+4. Check `pharmflow.log` under `C:\PharmFlow\logs\` (or project `data/logs/` in dev).
 5. If imports fail at startup, the window may render but handlers never register — run from a terminal and read the traceback.
 
 ---
@@ -111,8 +111,8 @@ Quick fixes for the most common operator and developer issues.
 1. Build from repo root with icons generated first:
    ```bash
    python scripts/generate_icons.py
-   pyinstaller wizard/CPharm.spec --noconfirm
-   pyinstaller wizard/CPharm.spec --noconfirm
+   pyinstaller wizard/PharmFlow.spec --noconfirm
+   pyinstaller wizard/PharmFlow.spec --noconfirm
    ```
 2. Add missing modules to `wizard/pyinstaller_common.py` → `base_hiddenimports()` or `collect_package_assets()`.
 3. Ensure data folders exist before build (CI creates empty `bundled_adb/` and `tor/` placeholders).
@@ -128,7 +128,7 @@ Use **bundled ADB** (not system PATH). Replace `ADB` and `SERIAL` for your insta
 
 ```powershell
 # Windows (installed EXE)
-set ADB=C:\CPharm\bundled\adb.exe
+set ADB=C:\PharmFlow\bundled\adb.exe
 set SERIAL=127.0.0.1:16384
 
 # Dev (repo)
@@ -212,8 +212,8 @@ curl http://127.0.0.1:8080/api/tor
 
 | Resource | Location |
 |----------|----------|
-| Main log | `C:\CPharm\logs\cpharm.log` |
-| Setup log | `C:\CPharm\logs\setup.log` (standalone setup EXE) |
+| Main log | `C:\PharmFlow\logs\pharmflow.log` |
+| Setup log | `C:\PharmFlow\logs\setup.log` (standalone setup EXE) |
 | Web dashboard | http://127.0.0.1:8080 — Activity Log + `/api/logs` |
 | Preflight | Wizard **Start** → **CHECK SYSTEM** |
 
@@ -221,13 +221,13 @@ curl http://127.0.0.1:8080/api/tor
 
 | Variable | When to use |
 |----------|-------------|
-| `CPHARM_MUMU_ROOT` | MuMu not auto-detected |
-| `CPHARM_SKIP_FINGERPRINT=1` | Disable fingerprint patching (debug only) |
-| `CPHARM_PROXY_LEGACY_GATEWAY=1` | Fall back to `10.0.2.2` proxy gateway |
-| `CPHARM_TOR_PATH` | Custom `tor.exe` location |
-| `CPHARM_DASHBOARD_PORT` | Change dashboard port (default `8080`) |
+| `PHARMFLOW_MUMU_ROOT` | MuMu not auto-detected |
+| `PHARMFLOW_SKIP_FINGERPRINT=1` | Disable fingerprint patching (debug only) |
+| `PHARMFLOW_PROXY_LEGACY_GATEWAY=1` | Fall back to `10.0.2.2` proxy gateway |
+| `PHARMFLOW_TOR_PATH` | Custom `tor.exe` location |
+| `PHARMFLOW_DASHBOARD_PORT` | Change dashboard port (default `8080`) |
 
 ## Related docs
 
-- [MuMu & Sequences](CPharm_emulator_MuMu_and_sequences.md)
+- [MuMu & Sequences](PharmFlow_emulator_MuMu_and_sequences.md)
 - [Operator Quick Guide](operator_sequence_quick_guide.md)

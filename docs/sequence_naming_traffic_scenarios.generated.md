@@ -8,7 +8,7 @@ This document lists JSON sequences under `automation/recordings/sequences/` that
 
 - **Intent:** Age verification → Quartz navigation → Wax-Propane timer region → **71 s** wait → small swipe (breaks back-to-back wait validation and mimics micro-movement) → **15 s** wait → Stats tab → several **slow** upward swipes (`ms` ~1880–2100) → Back → clear Chrome cookies → close Chrome → **rotate_identity → wait → full_reset** (new ID & IP path).
 - **Customize:** Replace taps whose coordinates do not match your build (`label` in JSON has the full title). Prefer **Generator → Sequence builder → More options: layouts, browser recording, tap alignment → Record from desktop browser → Open** (optional `pywebview` / WebView2) or the **Small preview — record taps here** canvas at baseline **900×1600**, or edit `x`/`y` in the step list. Conservative `wait` values are intentional; shorten only after you measure render time on-device.
-- **Human-like tuning:** Increase `jitter` / `pre_wait_ms` on taps, or enable **`CPHARM_HUMAN_VARIATION`** so `human_variation.effective_tap_jitter` and scaled waits apply at execution time (`automation/human_variation.py`).
+- **Human-like tuning:** Increase `jitter` / `pre_wait_ms` on taps, or enable **`PHARMFLOW_HUMAN_VARIATION`** so `human_variation.effective_tap_jitter` and scaled waits apply at execution time (`automation/human_variation.py`).
 
 ### `close_chrome__open_getdabflow_app__w9s__tap_bottom_center__tap_bottom_left__tap_R_lbot__w3s.json`
 

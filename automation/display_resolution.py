@@ -1,7 +1,7 @@
 """Per-phone display resolution for farm identity uniqueness.
 
 Device resolution = ``adb shell wm size`` (Override size), NOT browser viewport.
-Portrait only. Changes throttled by CPHARM_RES_MIN_INTERVAL_MIN / CPHARM_DISPLAY_LOCK.
+Portrait only. Changes throttled by PHARMFLOW_RES_MIN_INTERVAL_MIN / PHARMFLOW_DISPLAY_LOCK.
 """
 from __future__ import annotations
 
@@ -49,7 +49,7 @@ class DisplayProfile:
 
 
 def _logs_dir() -> Path:
-    raw = (os.environ.get("CPHARM_LOGS") or r"C:\CPharm\logs").strip()
+    raw = (os.environ.get("PHARMFLOW_LOGS") or r"C:\PharmFlow\logs").strip()
     return Path(raw)
 
 
@@ -62,7 +62,7 @@ def _env_truthy(name: str) -> bool:
 
 
 def res_min_interval_minutes() -> int:
-    raw = (os.environ.get("CPHARM_RES_MIN_INTERVAL_MIN") or "").strip()
+    raw = (os.environ.get("PHARMFLOW_RES_MIN_INTERVAL_MIN") or "").strip()
     if not raw:
         return int(DEFAULT_RES_MIN_INTERVAL_MIN)
     try:
@@ -72,11 +72,11 @@ def res_min_interval_minutes() -> int:
 
 
 def display_force_assign_enabled() -> bool:
-    return _env_truthy("CPHARM_DISPLAY_FORCE_ASSIGN")
+    return _env_truthy("PHARMFLOW_DISPLAY_FORCE_ASSIGN")
 
 
 def display_lock_enabled() -> bool:
-    return _env_truthy("CPHARM_DISPLAY_LOCK")
+    return _env_truthy("PHARMFLOW_DISPLAY_LOCK")
 
 
 def parse_size_wh(size: str) -> tuple[int, int] | None:
@@ -98,7 +98,7 @@ def is_landscape_size(size: str) -> bool:
 
 def device_role(*, serial: str = "", phone: str = "") -> str:
     name = (phone or "").strip().lower()
-    if "tablet" in name or (os.environ.get("CPHARM_TABLET_SERIAL") or "").strip() == (
+    if "tablet" in name or (os.environ.get("PHARMFLOW_TABLET_SERIAL") or "").strip() == (
         serial or ""
     ).strip():
         return "tablet"

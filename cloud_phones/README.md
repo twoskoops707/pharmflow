@@ -1,18 +1,15 @@
-# CPharm Cloud Emulator Tools
+# PharmFlow Cloud Emulator Tools
 
 Unified tooling for local or hosted Android emulator instances (Redroid), including connection checks, backend recovery, and controlled phone-farm operations.
 
 ## Quick Start
 
-The primary Windows operator interface is `CPharm.exe`. The release also includes `CPharmAgent.exe` for project diagnostics and `CPharmWatchdog.exe` for Docker/ADB/emulator health checks. Keep all three EXEs in the same folder; run the main CPharm GUI first. The complete operator guide is [../docs/EXE_QUICK_START.md](../docs/EXE_QUICK_START.md).
+The Windows operator interface is `PharmFlow.exe` in `C:\PharmFlow\`. Diagnostics and the watchdog are `PharmFlow.exe --agent` and `PharmFlow.exe --watchdog` — not separate downloads. The complete operator guide is [../docs/EXE_QUICK_START.md](../docs/EXE_QUICK_START.md).
 
 The focused watchdog can repair only known Docker/ADB connection failures and does not touch unrelated processes.
 
-### 1. Build the EXE
-```batch
-cd C:\CPharm
-cloud_phones\build.bat
-```
+### 1. Use the shipped EXE
+Cloud tools run inside `C:\PharmFlow\PharmFlow.exe` (`--cloud-phones-cli`). Do not build a separate CloudPhones.exe.
 
 ### 2. Deploy to Oracle Cloud
 ```bash
@@ -22,16 +19,16 @@ bash cloud_phones/setup-oracle-cloud.sh
 
 ### 3. Connect & Apply Stealth
 ```batch
-REM One command does everything:
-CloudPhones.exe setup --host 100.x.x.x
+REM One command does everything (no separate CloudPhones.exe):
+PharmFlow.exe --cloud-phones-cli setup --host 100.x.x.x
 
 REM Watch local backend and ADB connections:
 python tools\project_agent.py watchdog -- --apply --repair-docker
 
 REM Or step by step:
-CloudPhones.exe connect --host 100.x.x.x
-CloudPhones.exe stealth --host 100.x.x.x
-CloudPhones.exe tor --host 100.x.x.x --verify
+PharmFlow.exe --cloud-phones-cli connect --host 100.x.x.x
+PharmFlow.exe --cloud-phones-cli stealth --host 100.x.x.x
+PharmFlow.exe --cloud-phones-cli tor --host 100.x.x.x --verify
 ```
 
 ## Commands
@@ -49,7 +46,7 @@ CloudPhones.exe tor --host 100.x.x.x --verify
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--host` | (required) | Cloud instance IP |
-| `--count` | 8 | Number of instances |
+| `--count` | walk until a port gap | Number of instances. No default of 8. |
 | `--start-port` | 5555 | First ADB port |
 | `--verify` | false | Verify Tor exit IPs |
 

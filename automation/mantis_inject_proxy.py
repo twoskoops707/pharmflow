@@ -3,7 +3,7 @@
 Bypasses broken Chromium --remote-debugging-port by MITM'ing getdabflow.app
 and inserting the same PATCH_JS the CDP path would run.
 
-Ports: CPHARM_MANTIS_INJECT_BASE (default 8218) + phone_index
+Ports: PHARMFLOW_MANTIS_INJECT_BASE (default 8218) + phone_index
 Upstream modes:
   tor          — Tor HTTPTunnel 8118+idx (default)
   residential  — HTTP CONNECT via provider pool (unique IP per phone)
@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import select
 import socket
 import ssl
@@ -25,15 +26,13 @@ from typing import Callable
 from urllib.parse import urlparse
 
 from automation.config import TOR_HTTP_TUNNEL_BASE
+from automation.dabflow_mantis_ad_urls import record_phone_viewed_ads
 from automation.dabflow_mantis_client_patch import (
     PATCH_JS,
     _ssp_paint_expression,
-    ensure_ssp_cache_warm,
     filter_ssp_ads_prefer_paying,
-    fire_ssp_impression_pixels_hostside,
     get_cached_ssp_ads,
     prefetch_ssp_ads_prefer_paying,
-    ssp_ads_paying_count,
 )
 logger = logging.getLogger(__name__)
 
@@ -54,12 +53,58 @@ def _ca():
 
     return ensure_ca_files, install_ca_on_device, ssl_context_for_host
 
-INJECT_BASE = int(os.environ.get("CPHARM_MANTIS_INJECT_BASE", "8218") or "8218")
+def _env_first(*names: str, default: str = "") -> str:
+    """Prefer CPHARM_* (live farm) then PHARMFLOW_* (branded) then default."""
+    for name in names:
+        raw = os.environ.get(name)
+        if raw is not None and str(raw).strip() != "":
+            return str(raw)
+    return default
+
+
+def _logs_dirs() -> list[Path]:
+    """Operator log roots for reads.
+
+    Explicit LOGS/LOG_DIR env: first non-empty wins (tests + single override).
+    Otherwise dual-read live CPharm then branded PharmFlow.
+    """
+    for name in (
+        "CPHARM_LOGS",
+        "PHARMFLOW_LOGS",
+        "CPHARM_LOG_DIR",
+        "PHARMFLOW_LOG_DIR",
+    ):
+        raw = os.environ.get(name)
+        if raw is not None and str(raw).strip() != "":
+            return [Path(raw)]
+    return [Path(r"C:\CPharm\logs"), Path(r"C:\PharmFlow\logs")]
+
+
+def _logs_dirs_write() -> list[Path]:
+    """Always dual-write sticky inject state to both operator roots."""
+    out: list[Path] = []
+    seen: set[str] = set()
+    for d in list(_logs_dirs()) + [Path(r"C:\CPharm\logs"), Path(r"C:\PharmFlow\logs")]:
+        key = str(d).lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(d)
+    return out
+
+
+def _primary_logs_dir() -> Path:
+    return _logs_dirs()[0]
+
+
+INJECT_BASE = int(
+    _env_first("CPHARM_MANTIS_INJECT_BASE", "PHARMFLOW_MANTIS_INJECT_BASE", default="8218")
+    or "8218"
+)
 DABFLOW_HOSTS = ("getdabflow.app", "www.getdabflow.app")
-INJECT_MARKER = b"__cpharmMantisPatchV1"
+INJECT_MARKER = b"__pharmflowMantisPatchV1"
 # Tor exits often get house/bot SSP only (utm_source=mantis-bot) — GraphQL $/impr stay flat.
-# Route Mantis billing hosts DIRECT so native mantis.js + pixels see paying inventory.
-# Keep getdabflow.app / other browsing on Tor (identity). Default ON.
+# Billing hosts must stay on the phone exit (Tor/residential). billing_direct defaults OFF.
 _MANTIS_BILLING_HOST_SUFFIXES = (
     "ssp.mantis.marketing",
     "bids.mantis.marketing",
@@ -67,10 +112,12 @@ _MANTIS_BILLING_HOST_SUFFIXES = (
     "mantis.marketing",
     "mantisadnetwork.com",
 )
-_STATS_PATH = Path(r"C:\CPharm\logs\mantis_inject_stats.json")
+# Inject listen base — never adopt this as Tor HTTPTunnelPort base.
+_INJECT_HTTP_BASE = 8218
+_STATS_PATH = _primary_logs_dir() / "mantis_inject_stats.json"
 # Farm publishes scrambled UA/Client Hints; inject proxy rewrites Chromium
 # request headers when MuMu Chromium has no DevTools (CDP Emulation dead).
-_CLIENT_HINTS_PATH = Path(r"C:\CPharm\logs\client_hints_by_phone.json")
+_CLIENT_HINTS_PATH = _primary_logs_dir() / "client_hints_by_phone.json"
 _CLIENT_HINTS_LOCK = threading.Lock()
 _CLIENT_HINTS_CACHE: dict[str, dict] = {}
 _CLIENT_HINTS_MTIME = 0.0
@@ -80,63 +127,213 @@ def phone_inject_port(phone_index: int) -> int:
     return INJECT_BASE + int(phone_index)
 
 
+def inject_port_open(port: int, timeout: float = 0.35) -> bool:
+    """True when the host inject listener actually accepts TCP."""
+    try:
+        with socket.create_connection(("127.0.0.1", int(port)), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+
 def mitm_enabled() -> bool:
     """MITM HTML inject — needs trusted CA on the phone (farm arms with ca=True).
 
     Default ON so Firefox/Brave/DuckDuckGo (no CDP) still get Mantis creatives.
-    Set CPHARM_MANTIS_INJECT_MITM=0 to force blind CONNECT tunnel only.
+    Set CPHARM_MANTIS_INJECT_MITM=0 / PHARMFLOW_MANTIS_INJECT_MITM=0 to force blind CONNECT.
     """
-    raw = os.environ.get("CPHARM_MANTIS_INJECT_MITM", "1").strip().lower()
+    raw = _env_first("CPHARM_MANTIS_INJECT_MITM", "PHARMFLOW_MANTIS_INJECT_MITM", default="1").strip().lower()
     return raw not in ("0", "false", "no", "off")
 
 
 def inject_enabled() -> bool:
-    raw = os.environ.get("CPHARM_MANTIS_INJECT_PROXY", "1").strip().lower()
+    raw = _env_first(
+        "CPHARM_MANTIS_INJECT_PROXY", "PHARMFLOW_MANTIS_INJECT_PROXY", default="1"
+    ).strip().lower()
     return raw not in ("0", "false", "no", "off")
 
 
 def upstream_mode() -> str:
-    return (os.environ.get("CPHARM_MANTIS_INJECT_UPSTREAM") or "tor").strip().lower()
+    return _env_first(
+        "CPHARM_MANTIS_INJECT_UPSTREAM", "PHARMFLOW_MANTIS_INJECT_UPSTREAM", default="tor"
+    ).strip().lower()
+
+
+def _slot_from_env(phone_index: int) -> int | None:
+    """Slot map the farm owner exports at arm time (CPHARM_/PHARMFLOW_INJECT_SLOT_MAP).
+
+    JSON object {"<absolute idx>": <slot>}. The farm knows its live fleet, so
+    this is the authoritative mapping — file-based roster scans are a fallback
+    and can be re-polluted by rescans mid-flight.
+    """
+    raw = _env_first("CPHARM_INJECT_SLOT_MAP", "PHARMFLOW_INJECT_SLOT_MAP")
+    if not raw.strip():
+        return None
+    try:
+        m = json.loads(raw)
+        val = m.get(str(int(phone_index)))
+        return int(val) if val is not None else None
+    except Exception:
+        return None
+
+
+def _fleet_slot(phone_index: int) -> int | None:
+    """Roster slot for a phone: its position among the LIVE vm fleet.
+
+    Slot = absolute index minus the fleet's minimum live index (the historical
+    working scheme: vm27 = Tor base + roster slot). Sources, in order: the
+    live rows of ADB_SERIAL_MAP.lock.json, then pharmflow_config.json /
+    cpharm_config.json. Returns None when the phone is not on the live roster
+    or the roster has no vm rows.
+    """
+    idx = int(phone_index)
+    names: list[str] = []
+    for logs_dir in _logs_dirs():
+        try:
+            data = json.loads((logs_dir / "ADB_SERIAL_MAP.lock.json").read_text(encoding="utf-8"))
+            names = [
+                str(k)
+                for k, v in dict(data.get("phones") or {}).items()
+                if str(v or "").strip()
+            ]
+        except Exception:
+            names = []
+        if names:
+            break
+        for cfg_name in ("cpharm_config.json", "pharmflow_config.json"):
+            try:
+                cfg = json.loads((logs_dir.parent / cfg_name).read_text(encoding="utf-8"))
+                names = [str(x) for x in (cfg.get("phones") or [])]
+            except Exception:
+                names = []
+            if names:
+                break
+        if names:
+            break
+    if not names:
+        return None
+    idxs = sorted(int(m.group(1)) for n in names if (m := re.match(r"^vm(\d+)\.", n)))
+    if not idxs or idx not in idxs:
+        return None
+    return idxs.index(idx)
+
+
+def _is_poison_tor_http_base(base: int) -> bool:
+    """True when ``base`` is the mantis inject listen base, not Tor HTTPTunnel."""
+    return int(base) == int(INJECT_BASE) or int(base) == int(_INJECT_HTTP_BASE)
+
+
+def _read_live_tor_http_base() -> int | None:
+    """Freshest tor_port_bases.json http_base that is not the inject listen base."""
+    best: tuple[float, int] | None = None
+    now = time.time()
+    for logs_dir in _logs_dirs():
+        state = logs_dir / "tor_port_bases.json"
+        try:
+            data = json.loads(state.read_text(encoding="utf-8"))
+            age = now - float(data.get("ts") or 0)
+            base = int(data.get("http_base") or 0)
+            if age >= 120 or base <= 0 or _is_poison_tor_http_base(base):
+                continue
+            ts = float(data.get("ts") or 0)
+            if best is None or ts > best[0]:
+                best = (ts, base)
+        except Exception:
+            continue
+    return None if best is None else best[1]
+
+
+def _tor_port_for_slot(base: int, phone_index: int) -> int:
+    idx = int(phone_index)
+    slot = _slot_from_env(idx)
+    if slot is None:
+        slot = _fleet_slot(idx)
+    if slot is not None:
+        return int(base) + int(slot)
+    return int(base) + idx
 
 
 def upstream_tor_port(phone_index: int) -> int:
     """Host Tor HTTPTunnelPort this phone's traffic must dial upstream.
 
-    Tor lanes listen at the **runtime-shifted** HTTP base + the phone's absolute
-    index (vm22 → base+22). The base auto-shifts per boot, so resolve it live
-    from tor_manager when we share its process; otherwise read the bases file
-    the Tor owner broadcasts at spawn. Never dial the raw config constant: the
-    shift means ``8118 + idx`` is usually nobody — that bug presented as total
-    phone internet loss while every Tor lane sat on shifted ports.
+    Tor lanes are prewarmed for a contiguous SLOT range (0..N-1) at the runtime
+    HTTP base. Dialing ``base + absolute_index`` only works when slot 0 is
+    live; with vm39-47 as the fleet it produced 8118+39=8157 — nobody listening
+    — 10061 TLS storm + fleet-wide dead internet (2026-09-13 incident). The
+    base is resolved live from the Tor owner's broadcast file; the SLOT is
+    resolved from the live roster (idx - min live idx). Unmapped phones keep
+    the legacy absolute behavior rather than risk sharing another lane.
+
+    Never returns a port in the inject listen window (8218+): desktop_prefs
+    still carries the old PharmFlow-evasion pair 9150/8218, and branding
+    rename briefly pointed logs at a stale PharmFlow broadcast so inject
+    fell through to ``phone_http_port`` = 8218+slot (inject dialing inject).
     """
     idx = int(phone_index)
     # 1) Broadcast file first: the Tor-owning process heartbeats it while its
     #    lanes live, and it is the only truth shared across processes. An
     #    in-process tor_manager import here would compute *this* process's own
     #    shifted base — correct only when we own the lanes.
+    base = _read_live_tor_http_base()
+    if base is not None:
+        return _tor_port_for_slot(base, idx)
+    # 2) Align in-process bases to the live broadcast (or 8118 when prefs say 8218).
     try:
-        import json
-        from pathlib import Path
+        from automation.tor_manager import align_bases_to_live_broadcast, phone_http_port
 
-        state = Path(
-            os.environ.get("CPHARM_LOGS") or os.environ.get("CPHARM_LOG_DIR") or r"C:\CPharm\logs"
-        ) / "tor_port_bases.json"
-        data = json.loads(state.read_text(encoding="utf-8"))
-        if time.time() - float(data.get("ts") or 0) < 120:
-            base = int(data.get("http_base") or 0)
-            if base > 0:
-                return base + idx
-    except Exception:
-        pass
-    # 2) In-process resolver — authoritative when this process spawned the lanes.
-    try:
-        from automation.tor_manager import phone_http_port
-
-        return int(phone_http_port(idx))
+        align_bases_to_live_broadcast()
+        port = int(phone_http_port(idx))
+        # Reject dialing this phone's inject listener as if it were Tor.
+        if port != phone_inject_port(idx):
+            slot = _slot_from_env(idx)
+            if slot is None:
+                slot = _fleet_slot(idx)
+            inferred_base = port - (int(slot) if slot is not None else idx)
+            if not _is_poison_tor_http_base(inferred_base):
+                return port
     except Exception:
         pass
     # 3) Raw constant — last resort; matches unshifted default spawns.
-    return TOR_HTTP_TUNNEL_BASE + idx
+    safe_base = int(TOR_HTTP_TUNNEL_BASE)
+    if _is_poison_tor_http_base(safe_base):
+        safe_base = 8118
+    return _tor_port_for_slot(safe_base, idx)
+
+
+def _store_viewed_beacon(phone_index: int, body: bytes) -> None:
+    """Save click URLs the phone fetched so Path3 does not open a host token."""
+    try:
+        data = json.loads(body.decode("utf-8", "replace") or "{}")
+    except json.JSONDecodeError:
+        return
+    ads = data.get("ads") if isinstance(data, dict) else None
+    if not isinstance(ads, list):
+        return
+    try:
+        n = record_phone_viewed_ads(phone_index, ads)
+    except Exception as exc:
+        logger.warning("viewed-click store failed phone=%s: %s", phone_index, exc)
+        _beacon_note(f"store-fail phone={phone_index} {exc}")
+        return
+    sample = ""
+    if not n and ads:
+        first = next((a for a in ads if isinstance(a, dict)), {})
+        sample = " url=" + str(first.get("click_url") or "")[:90].replace(" ", "")
+    _beacon_note(f"store phone={phone_index} n={n} ads={len(ads)}{sample}")
+    if n:
+        logger.info("stored phone-viewed clicks phone=%s n=%s", phone_index, n)
+
+
+def _beacon_note(line: str) -> None:
+    try:
+        for logs_dir in _logs_dirs():
+            path = logs_dir / "inject_beacon.log"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with path.open("a", encoding="utf-8") as fh:
+                fh.write(time.strftime("%H:%M:%S ") + line + "\n")
+            break
+    except OSError:
+        pass
 
 
 def _is_dabflow_host(host: str) -> bool:
@@ -152,7 +349,9 @@ def billing_direct_enabled() -> bool:
     farm as single-IP bot traffic. Tor exits are the billing path; if Mantis
     406s an exit, rotate the exit — never fall back to the host IP.
     """
-    raw = os.environ.get("CPHARM_MANTIS_BILLING_DIRECT", "0").strip().lower()
+    raw = _env_first(
+        "CPHARM_MANTIS_BILLING_DIRECT", "PHARMFLOW_MANTIS_BILLING_DIRECT", default="0"
+    ).strip().lower()
     return raw in ("1", "true", "yes")
 
 
@@ -167,17 +366,33 @@ def _is_mantis_billing_host(host: str) -> bool:
 
 
 def _publish_inject_stats(proxies: list) -> None:
-    """Write live MITM counters so dash/agents can see inject rising."""
+    """Write live MITM counters so dash/agents can see inject rising.
+
+    Only owned listeners publish. Adopted zero-stat stubs from a second process
+    (farm adopting keepalive ports) used to overwrite real counters with 0.
+    """
     try:
+        owned = [
+            p
+            for p in proxies
+            if getattr(p, "owns_listener", False) and getattr(p, "_sock", None) is not None
+        ]
+        if not owned:
+            return
         rows = {}
-        for p in proxies:
+        for p in owned:
             rows[str(int(getattr(p, "phone_index", -1)))] = {
                 "listen": int(getattr(p, "listen_port", 0) or 0),
                 "stats": dict(getattr(p, "stats", {}) or {}),
             }
         payload = {"updated": time.time(), "phones": rows}
-        _STATS_PATH.parent.mkdir(parents=True, exist_ok=True)
-        _STATS_PATH.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+        text = json.dumps(payload, indent=2) + "\n"
+        for logs_dir in _logs_dirs_write():
+            try:
+                logs_dir.mkdir(parents=True, exist_ok=True)
+                (logs_dir / "mantis_inject_stats.json").write_text(text, encoding="utf-8")
+            except OSError:
+                continue
     except OSError as exc:
         logger.debug("publish inject stats soft-fail: %s", exc)
 
@@ -229,20 +444,27 @@ def publish_client_hints_for_phone(phone_index: int, profile: object) -> None:
         "updated": time.time(),
     }
     try:
-        _CLIENT_HINTS_PATH.parent.mkdir(parents=True, exist_ok=True)
         with _CLIENT_HINTS_LOCK:
             data: dict = {}
-            if _CLIENT_HINTS_PATH.is_file():
+            for logs_dir in _logs_dirs():
+                path = logs_dir / "client_hints_by_phone.json"
+                if not path.is_file():
+                    continue
                 try:
-                    raw = json.loads(_CLIENT_HINTS_PATH.read_text(encoding="utf-8"))
+                    raw = json.loads(path.read_text(encoding="utf-8"))
                     if isinstance(raw, dict):
                         data = raw
+                        break
                 except (OSError, ValueError, TypeError):
-                    data = {}
+                    continue
             data[str(int(phone_index))] = row
-            _CLIENT_HINTS_PATH.write_text(
-                json.dumps(data, indent=2) + "\n", encoding="utf-8"
-            )
+            text = json.dumps(data, indent=2) + "\n"
+            for logs_dir in _logs_dirs_write():
+                try:
+                    logs_dir.mkdir(parents=True, exist_ok=True)
+                    (logs_dir / "client_hints_by_phone.json").write_text(text, encoding="utf-8")
+                except OSError:
+                    continue
             _CLIENT_HINTS_CACHE.clear()
             _CLIENT_HINTS_CACHE.update(
                 {str(k): v for k, v in data.items() if isinstance(v, dict)}
@@ -260,17 +482,24 @@ def _client_hints_for_phone(phone_index: int) -> dict:
     """Load published Client Hints for this inject phone (mtime-cached)."""
     global _CLIENT_HINTS_MTIME
     key = str(int(phone_index))
-    try:
-        mtime = _CLIENT_HINTS_PATH.stat().st_mtime if _CLIENT_HINTS_PATH.is_file() else 0.0
-    except OSError:
-        mtime = 0.0
+    path: Path | None = None
+    mtime = 0.0
+    for logs_dir in _logs_dirs():
+        cand = logs_dir / "client_hints_by_phone.json"
+        try:
+            if cand.is_file():
+                path = cand
+                mtime = cand.stat().st_mtime
+                break
+        except OSError:
+            continue
     with _CLIENT_HINTS_LOCK:
         if mtime and mtime == _CLIENT_HINTS_MTIME and key in _CLIENT_HINTS_CACHE:
             return dict(_CLIENT_HINTS_CACHE[key])
-        if not _CLIENT_HINTS_PATH.is_file():
+        if path is None:
             return {}
         try:
-            raw = json.loads(_CLIENT_HINTS_PATH.read_text(encoding="utf-8"))
+            raw = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, ValueError, TypeError):
             return {}
         if not isinstance(raw, dict):
@@ -320,58 +549,44 @@ def _apply_client_hints_headers(
 def _build_inject_script() -> bytes:
     """PATCH_JS + delayed host SSP paint fallback (CDP /json often dead).
 
-    Keep ``__cpharmCssOnly=true`` so Path1/2 creatives stay non-clickable
+    Keep ``__pharmflowCssOnly=true`` so Path1/2 creatives stay non-clickable
     (pointer-events:none). Prefer paying host creatives; delay host-paint so
     native mantis.js can fill zones first (billable path). Host-paint only
     fills still-empty zones. Path3 flips cssOnly=false via CDP for clicks.
     """
-    ensure_ssp_cache_warm()
+    # Paint the bottom creative so the page is not empty. Do not store these
+    # host tokens for Path3 — their bi/bt were issued to this PC. The page's
+    # own SSP fetch is what Path3 opens.
     ads: list = []
     try:
-        # Paying only — house host-paint freezes the same 8 bot creatives all day
-        # and crowds out native mantis.js if a paying fill arrives late.
-        ads = prefetch_ssp_ads_prefer_paying(
-            attempts=8, delay_s=0.35, allow_house_fallback=False
-        )
-    except Exception as exc:
-        logger.debug("SSP prefer-paying prefetch failed: %s", exc)
         ads = filter_ssp_ads_prefer_paying(
             get_cached_ssp_ads(allow_stale=True) or [],
-            allow_house_fallback=False,
+            allow_house_fallback=True,
         )
-    paying_n = ssp_ads_paying_count(ads)        # DISABLED — host-side pixel firing routes ALL impressions through the
-        # HOST IP instead of each phone's Tor exit. Mantis flags single-IP
-        # traffic as bot. Impression pixels must fire from each phone's browser
-        # through its own Tor exit to appear as unique visitors.
-        # if paying_n:
-        #     fire_ssp_impression_pixels_hostside(ads, paying_only=True)
+        if not ads:
+            ads = prefetch_ssp_ads_prefer_paying(
+                attempts=4, delay_s=0.2, allow_house_fallback=True
+            )
+    except Exception as exc:
+        logger.debug("bottom-ad paint prefetch failed: %s", exc)
+        ads = []
     paint_js = ""
     if ads:
-        # Delayed empty-only host-paint: give native SDK time first; fill gaps.
-        expr = _ssp_paint_expression(ads, empty_only=True).strip()
+        expr = _ssp_paint_expression(ads, empty_only=False).strip()
         if expr.endswith(";"):
             expr = expr[:-1]
         paint_js = (
-            "window.__cpharmRunHostPaint=function(){"
+            "window.__pharmflowRunHostPaint=function(){"
             "return "
             + expr
             + ";};\n"
-            "setTimeout(function(){try{window.__cpharmRunHostPaint();}catch(e){}},2200);\n"
-            "setTimeout(function(){try{window.__cpharmRunHostPaint();}catch(e){}},4500);\n"
-            "setTimeout(function(){try{window.__cpharmRunHostPaint();}catch(e){}},7500);\n"
+            "setTimeout(function(){try{window.__pharmflowRunHostPaint();}catch(e){}},0);\n"
+            "setTimeout(function(){try{window.__pharmflowRunHostPaint();}catch(e){}},400);\n"
         )
-        logger.info(
-            "inject script embedding %d SSP creatives paying=%d zones=%s",
-            len(ads),
-            paying_n,
-            [a.get("zone_id") for a in ads[:8]],
-        )
-    else:
-        logger.info("inject script: no SSP creatives for host-paint")
     return (
-        "<script data-cpharm-mantis-inject=\"1\" data-cpharm-ssp-paint=\"1\">\n"
-        "window.__cpharmCssOnly=true;\n"
-        "window.__cpharmAllowSspPaint=true;\n"
+        "<script data-pharmflow-mantis-inject=\"1\" data-pharmflow-ssp-paint=\"1\">\n"
+        "window.__pharmflowCssOnly=true;\n"
+        "window.__pharmflowAllowSspPaint=true;\n"
         + PATCH_JS
         + "\n"
         + paint_js
@@ -605,29 +820,46 @@ class MantisInjectProxy:
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._sock: socket.socket | None = None
+        # False when another process already owns the listen port (keepalive).
+        # Adopted stubs must never enter _PROXIES — they publish connect=0 forever
+        # and wipe the owner process's live counters from disk.
+        self.owns_listener = False
         self.stats = {"connect": 0, "inject": 0, "tunnel": 0, "errors": 0}
 
-    def start(self) -> None:
+    def start(self) -> bool:
+        """Bind+serve this phone's inject port. Return True only when we own it."""
         _ca()[0]()  # ensure_ca_files — lazy: needs cryptography wheel
+        # Drop pre-AKI leaf certs so Chromium stops CERTIFICATE_UNKNOWN on MITM.
+        try:
+            from automation.mantis_inject_ca import clear_host_cert_cache
+
+            clear_host_cert_cache()
+        except Exception:
+            pass
         self._sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         # Do NOT set SO_REUSEADDR: on Windows it allows farm + watch_proxy to both
         # LISTEN on 8218+, and guest CONNECT randomly hits a dead/half peer → ads die.
         try:
             self._sock.bind(("127.0.0.1", self.listen_port))
         except OSError as exc:
-            # Another process (usually farm_354) already owns inject — adopt it.
             try:
                 self._sock.close()
             except OSError:
                 pass
             self._sock = None
-            logger.info(
-                "Mantis inject proxy phone=%d port %d already bound — adopting existing listener (%s)",
-                self.phone_index,
-                self.listen_port,
-                exc,
-            )
-            return
+            # Bind failure is an adopt only when something is actually
+            # accepting. A dead/half socket used to be treated as success and
+            # the heal tick reported the phone armed.
+            if inject_port_open(self.listen_port):
+                self.owns_listener = False
+                logger.info(
+                    "Mantis inject proxy phone=%d port %d already bound — adopting existing listener (%s)",
+                    self.phone_index,
+                    self.listen_port,
+                    exc,
+                )
+                return False
+            raise
         self._sock.listen(64)
         self._sock.settimeout(1.0)
         self._thread = threading.Thread(
@@ -636,12 +868,14 @@ class MantisInjectProxy:
             daemon=True,
         )
         self._thread.start()
+        self.owns_listener = True
         logger.info(
             "Mantis inject proxy phone=%d listen=127.0.0.1:%d upstream=%s",
             self.phone_index,
             self.listen_port,
             self.upstream,
         )
+        return True
 
     def stop(self) -> None:
         self._stop.set()
@@ -701,6 +935,8 @@ class MantisInjectProxy:
             if method == "CONNECT":
                 self.stats["connect"] += 1
                 host, port = _host_port_from_target(target, 443)
+                if "bids.mantis.marketing" in (host or ""):
+                    _beacon_note(f"click-connect phone={self.phone_index} host={host}")
                 if mitm_enabled() and _is_dabflow_host(host) and port == 443:
                     self._handle_mitm(client, host, port, head)
                 else:
@@ -735,6 +971,7 @@ class MantisInjectProxy:
         except ssl.SSLError as exc:
             self.stats["errors"] += 1
             logger.warning("MITM handshake failed host=%s: %s", host, exc)
+            _beacon_note(f"handshake-fail phone={self.phone_index} host={host} {exc}")
             try:
                 client.close()
             except OSError:
@@ -775,13 +1012,25 @@ class MantisInjectProxy:
                             break
                         body += chunk
                         need -= len(chunk)
+                if method == "POST" and "__pharmflow_viewed" in target:
+                    _store_viewed_beacon(self.phone_index, body)
+                    tls_client.sendall(
+                        b"HTTP/1.1 204 No Content\r\n"
+                        b"Content-Length: 0\r\n"
+                        b"Connection: keep-alive\r\n\r\n"
+                    )
+                    continue
                 # Chromium on MuMu often has no DevTools — rewrite Client Hints here.
-                hints = _client_hints_for_phone(self.phone_index)
-                if hints and _is_dabflow_host(host):
+                # Strip brotli. We cannot rewrite br HTML, so the phone never gets
+                # the click-beacon script and Path3 has no token to open.
+                if _is_dabflow_host(host):
+                    req_headers["accept-encoding"] = "gzip, identity"
+                    hints = _client_hints_for_phone(self.phone_index)
+                    if hints:
+                        req_headers = _apply_client_hints_headers(req_headers, hints)
+                        self.stats["client_hints"] = int(self.stats.get("client_hints", 0)) + 1
                     status_line = headers_part.split(b"\r\n", 1)[0]
-                    req_headers = _apply_client_hints_headers(req_headers, hints)
                     remote.sendall(_rebuild_request(status_line, req_headers, body))
-                    self.stats["client_hints"] = int(self.stats.get("client_hints", 0)) + 1
                 else:
                     remote.sendall(headers_part + b"\r\n\r\n" + body)
 
@@ -804,6 +1053,10 @@ class MantisInjectProxy:
                                 len(decompressed),
                                 len(new_body),
                             )
+                        # Inline inject must run or the viewed-click beacon never
+                        # posts. A page CSP that blocks script tags drops Path3.
+                        resp_headers.pop("content-security-policy", None)
+                        resp_headers.pop("content-security-policy-report-only", None)
                         # HTML rewritten — always serve uncompressed plaintext.
                         out = _rebuild_response(
                             status_line,
@@ -813,7 +1066,15 @@ class MantisInjectProxy:
                         )
                         tls_client.sendall(out)
                     else:
-                        # Still compressed (unsupported codec) — keep encoding.
+                        self.stats["inject_skipped_encoding"] = (
+                            int(self.stats.get("inject_skipped_encoding", 0)) + 1
+                        )
+                        logger.warning(
+                            "inject skipped phone=%d host=%s encoding=%s",
+                            self.phone_index,
+                            host,
+                            encoding,
+                        )
                         out = _rebuild_response(
                             status_line,
                             resp_headers,
@@ -945,11 +1206,52 @@ def start_inject_proxies(phone_indices: list[int] | None = None) -> list[MantisI
     out: list[MantisInjectProxy] = []
     with _LOCK:
         for i in idxs:
-            if i in _PROXIES:
-                out.append(_PROXIES[i])
+            existing = _PROXIES.get(i)
+            if (
+                existing is not None
+                and getattr(existing, "owns_listener", False)
+                and inject_port_open(existing.listen_port)
+            ):
+                out.append(existing)
                 continue
+            if existing is not None:
+                try:
+                    existing.stop()
+                except Exception:
+                    pass
+                _PROXIES.pop(i, None)
             p = MantisInjectProxy(i)
-            p.start()
+            try:
+                owned = p.start()
+            except OSError as exc:
+                logger.warning(
+                    "inject listen failed phone=%s port=%s: %s",
+                    i,
+                    p.listen_port,
+                    exc,
+                )
+                continue
+            # Another process (keepalive) owns the port — leave _PROXIES empty
+            # so we do not publish zero counters over the owner's live stats.
+            if not owned or not getattr(p, "owns_listener", False):
+                if inject_port_open(p.listen_port):
+                    logger.info(
+                        "inject port %s owned elsewhere — not registering zero-stat stub phone=%s",
+                        p.listen_port,
+                        i,
+                    )
+                continue
+            if not inject_port_open(p.listen_port):
+                logger.warning(
+                    "inject not accepting phone=%s port=%s after start",
+                    i,
+                    p.listen_port,
+                )
+                try:
+                    p.stop()
+                except Exception:
+                    pass
+                continue
             _PROXIES[i] = p
             out.append(p)
     _ensure_stats_publisher()
@@ -982,9 +1284,47 @@ def verify_reverse_tunnel(adb: object, serial: str, port: int) -> bool:
     return False
 
 
+def _reverse_line_count(adb: object, serial: str) -> int:
+    """Count live ``adb reverse`` entries for this serial. Best-effort; -1 on error."""
+    try:
+        result = adb.run("reverse", "--list", serial=serial, timeout=8.0)  # type: ignore[attr-defined]
+        return len([ln for ln in (result.stdout or "").splitlines() if "tcp:" in ln])
+    except Exception:
+        return -1
+
+
 def point_phone_at_inject(adb: object, serial: str, phone_index: int) -> str:
-    """adb reverse + http_proxy -> inject port.  Verifies tunnel exists."""
+    """adb reverse + http_proxy -> inject port.  Verifies tunnel exists.
+
+    Strip every existing reverse first. Tor/isolation used to stack
+    ``tcp:81xx`` beside inject; guest traffic then bypassed MITM and bottom
+    ads died (CERTIFICATE_UNKNOWN / empty Sponsored slot). ``--remove-all``
+    is fire-and-forget (times out silently on a slow/wedged ADB transport —
+    see OPS_NOTES), so a stray reverse can survive it; verify the strip
+    actually landed (nrev==0) before adding the inject reverse back, same
+    check as farm_money_monitor.repin_all_inject's nrev==1 post-check.
+    """
     port = phone_inject_port(phone_index)
+    try:
+        adb.run("reverse", "--remove-all", serial=serial, timeout=10.0)  # type: ignore[attr-defined]
+    except Exception:
+        pass
+    if _reverse_line_count(adb, serial) != 0:
+        logger.warning("stale reverse survived remove-all serial=%s -- retrying strip", serial)
+        try:
+            adb.run("reverse", "--remove-all", serial=serial, timeout=10.0)  # type: ignore[attr-defined]
+        except Exception:
+            pass
+        n = _reverse_line_count(adb, serial)
+        if n != 0:
+            # Nonzero or unverifiable (-1): do not proceed to arm inject on top
+            # of a reverse state that might still carry a live Tor mapping --
+            # that is exactly the "guest bypasses MITM" condition this function
+            # exists to prevent. Fail loudly; every caller already wraps this
+            # call in try/except and treats an exception as pin failure.
+            raise RuntimeError(
+                f"reverse strip unverified serial={serial} nrev={n} -- refusing to arm inject"
+            )
     # Always (re)establish reverse tunnel -- ADB server restarts destroy them.
     adb.run("reverse", f"tcp:{port}", f"tcp:{port}", serial=serial, timeout=10.0)  # type: ignore[attr-defined]
     # Verify it actually landed -- if not, retry once after a brief pause.
@@ -993,13 +1333,127 @@ def point_phone_at_inject(adb: object, serial: str, phone_index: int) -> str:
         time.sleep(1.0)
         adb.run("reverse", f"tcp:{port}", f"tcp:{port}", serial=serial, timeout=10.0)  # type: ignore[attr-defined]
         if not verify_reverse_tunnel(adb, serial, port):
-            logger.warning(
-                "reverse tunnel still missing after retry port=%d serial=%s",
-                port,
-                serial,
+            raise RuntimeError(
+                f"reverse tunnel missing after retry port={port} serial={serial}"
             )
+    nrev = _reverse_line_count(adb, serial)
+    if nrev != 1:
+        # Nonzero-beyond-one or unverifiable (-1): the desired port is present
+        # (verify_reverse_tunnel passed above) but something else is stacked
+        # beside it, or we can't prove otherwise -- same MITM-bypass risk.
+        raise RuntimeError(
+            f"unexpected reverse count after setup port={port} serial={serial} nrev={nrev} "
+            "-- possible stacked tunnel (MITM bypass risk)"
+        )
     adb.set_http_proxy("127.0.0.1", port, serial=serial)  # type: ignore[attr-defined]
     return f"127.0.0.1:{port}"
+
+def _device_has_inject_ca(adb: object, serial: str) -> bool:
+    """True when the MITM CA hash file exists in any guest trust store.
+
+    Presence alone is not trust — ``ensure_inject_for_phone`` also runs
+    ``_device_trusts_inject_ca`` after the guest proxy is pinned.
+    """
+    try:
+        from cryptography import x509
+
+        from automation.mantis_inject_ca import (
+            CA_CERT,
+            android_cacert_hash,
+            ensure_ca_files,
+        )
+
+        ensure_ca_files()
+        cert_path = Path(CA_CERT)
+        if not cert_path.is_file():
+            for cand in (
+                Path(r"C:\PharmFlow\certs\mantis_inject\ca.cert.pem"),
+                Path(r"C:\CPharm\certs\mantis_inject\ca.cert.pem"),
+            ):
+                if cand.is_file():
+                    cert_path = cand
+                    break
+            else:
+                return False
+        cert = x509.load_pem_x509_certificate(cert_path.read_bytes())
+        name = f"{android_cacert_hash(cert)}.0"
+    except Exception:
+        return False
+    try:
+        verify = adb.shell(  # type: ignore[attr-defined]
+            f"(test -f /apex/com.android.conscrypt/cacerts/{name} && echo PRESENT) || "
+            f"(test -f /system/etc/security/cacerts/{name} && echo PRESENT) || "
+            f"(test -f /data/misc/user/0/cacerts-added/{name} && echo PRESENT)",
+            serial=serial,
+            timeout=8,
+        )
+        return "PRESENT" in (getattr(verify, "stdout", "") or "")
+    except Exception:
+        return False
+
+
+def _device_trusts_inject_ca(adb: object, serial: str, inject_port: int) -> bool:
+    """Functional TLS verify: guest curl --cacert through the MITM inject port."""
+    try:
+        from cryptography import x509
+
+        from automation.mantis_inject_ca import (
+            CA_CERT,
+            android_cacert_hash,
+            ensure_ca_files,
+        )
+
+        ensure_ca_files()
+        cert_path = Path(CA_CERT)
+        if not cert_path.is_file():
+            for cand in (
+                Path(r"C:\PharmFlow\certs\mantis_inject\ca.cert.pem"),
+                Path(r"C:\CPharm\certs\mantis_inject\ca.cert.pem"),
+            ):
+                if cand.is_file():
+                    cert_path = cand
+                    break
+            else:
+                return False
+        cert = x509.load_pem_x509_certificate(cert_path.read_bytes())
+        name = f"{android_cacert_hash(cert)}.0"
+    except Exception:
+        return False
+    for ca_file in (
+        f"/system/etc/security/cacerts/{name}",
+        f"/data/misc/user/0/cacerts-added/{name}",
+        f"/apex/com.android.conscrypt/cacerts/{name}",
+    ):
+        try:
+            probe = adb.shell(  # type: ignore[attr-defined]
+                f"test -f {ca_file} || exit 9; "
+                f"curl -sS -m 10 --cacert {ca_file} -x http://127.0.0.1:{int(inject_port)} "
+                f"-o /dev/null -w '%{{http_code}}' https://getdabflow.app/",
+                serial=serial,
+                timeout=18,
+            )
+            text = (getattr(probe, "stdout", "") or "") + (getattr(probe, "stderr", "") or "")
+            code = "".join(ch for ch in text.strip().splitlines()[-1] if ch.isdigit())[:3]
+            if code.startswith(("2", "3")):
+                return True
+        except Exception:
+            continue
+    return False
+
+
+def _force_stop_money_browsers(adb: object, serial: str) -> None:
+    """Drop FarmBrowser/Chromium so they reload trust stores after CA install."""
+    for pkg in (
+        "com.farmbrowser.stealth.debug",
+        "com.farmbrowser.stealth",
+        "org.chromium.chrome",
+        "com.android.chrome",
+    ):
+        try:
+            adb.shell(f"am force-stop {pkg}", serial=serial, timeout=6)  # type: ignore[attr-defined]
+        except Exception:
+            pass
+
 
 def ensure_inject_for_phone(
     adb: object,
@@ -1008,20 +1462,88 @@ def ensure_inject_for_phone(
     *,
     install_ca: bool = True,
 ) -> dict:
+    """Bind the inject listener, pin the guest, and (by default) install the CA.
+
+    ``ok`` is True only when the listener accepts and, if ``install_ca``, the
+    guest functionally trusts the MITM CA (curl --cacert through inject).
+    ``install_ca`` stays True by default (CERTIFICATE_UNKNOWN root cause).
+    """
+    port = phone_inject_port(phone_index)
     if not inject_enabled():
-        return {"skipped": True, "reason": "disabled"}
-    start_inject_proxies([phone_index])
+        return {
+            "ok": False,
+            "skipped": True,
+            "reason": "disabled",
+            "ca_installed": False,
+            "port": port,
+        }
+    try:
+        start_inject_proxies([phone_index])
+    except Exception as exc:
+        logger.warning(
+            "inject start failed serial=%s phone=%s: %s", serial, phone_index, exc
+        )
+        return {
+            "ok": False,
+            "endpoint": "",
+            "ca_installed": False,
+            "port": port,
+            "error": f"start:{exc}",
+        }
+    listening = inject_port_open(port)
     ca_ok = True
     if install_ca:
-        try:
-            ca_ok = _ca()[1](adb, serial)  # install_ca_on_device — lazy import
-        except Exception as exc:
-            logger.warning("CA install failed serial=%s: %s", serial, exc)
-            ca_ok = False
-    endpoint = point_phone_at_inject(adb, serial, phone_index)
+        if not _device_has_inject_ca(adb, serial):
+            try:
+                ca_ok = bool(_ca()[1](adb, serial))  # install_ca_on_device
+            except Exception as exc:
+                logger.warning("CA install failed serial=%s: %s", serial, exc)
+                ca_ok = False
+    if not listening:
+        return {
+            "ok": False,
+            "endpoint": "",
+            "ca_installed": ca_ok,
+            "port": port,
+            "error": "inject_listener_down",
+        }
+    try:
+        endpoint = point_phone_at_inject(adb, serial, phone_index)
+    except Exception as exc:
+        logger.warning("inject pin failed serial=%s: %s", serial, exc)
+        return {
+            "ok": False,
+            "endpoint": "",
+            "ca_installed": ca_ok,
+            "port": port,
+            "error": f"pin:{exc}",
+        }
+    if install_ca:
+        trusts = _device_trusts_inject_ca(adb, serial, port)
+        if not trusts:
+            try:
+                ca_ok = bool(_ca()[1](adb, serial))
+            except Exception as exc:
+                logger.warning("CA reinstall failed serial=%s: %s", serial, exc)
+                ca_ok = False
+            _force_stop_money_browsers(adb, serial)
+            try:
+                endpoint = point_phone_at_inject(adb, serial, phone_index)
+            except Exception:
+                pass
+            trusts = _device_trusts_inject_ca(adb, serial, port)
+        ca_ok = bool(ca_ok and trusts)
+        if not ca_ok:
+            return {
+                "ok": False,
+                "endpoint": endpoint,
+                "ca_installed": False,
+                "port": port,
+                "error": "ca_trust_probe_failed",
+            }
     return {
         "ok": True,
         "endpoint": endpoint,
-        "ca_installed": ca_ok,
-        "port": phone_inject_port(phone_index),
+        "ca_installed": ca_ok if install_ca else False,
+        "port": port,
     }

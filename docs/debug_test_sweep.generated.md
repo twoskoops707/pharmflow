@@ -1,6 +1,6 @@
 # Debug / test sweep (generated)
 
-**Repo:** `C:\Users\jsmil\source\repos\cpharm`  
+**Repo:** `C:\Users\jsmil\source\repos\pharmflow`  
 **Date:** 2026-05-06  
 **Python:** `py -3` (Windows)
 
@@ -18,7 +18,7 @@
 **Command:**
 
 ```text
-py -3 -m py_compile wizard/setup_wizard.py wizard/cpharm_desktop.py wizard/wizard_theme.py gui/cpharm_gui.py automation/dashboard.py
+py -3 -m py_compile wizard/setup_wizard.py wizard/pharmflow_desktop.py wizard/wizard_theme.py gui/pharmflow_gui.py automation/dashboard.py
 ```
 
 **Result:** **PASS** — exit code **0**
@@ -33,7 +33,7 @@ py -3 -m py_compile wizard/setup_wizard.py wizard/cpharm_desktop.py wizard/wizar
 
 | Location | Notes |
 |----------|--------|
-| `wizard/setup_wizard.py` | `WebpePage` class and related `webpe_*` strings remain in source for legacy/import paths; **not** included in `CPharmWizard.PAGES` — operators do not see a WebPE tab in the shipping wizard. |
+| `wizard/setup_wizard.py` | `WebpePage` class and related `webpe_*` strings remain in source for legacy/import paths; **not** included in `PharmFlowWizard.PAGES` — operators do not see a WebPE tab in the shipping wizard. |
 
 **Exception / interpretation:** A text search for `webpe` is **expected to be non-zero** until dead code is deleted. **Product UX:** use the **Generator** tab (**Sequence builder**); WebPE is not part of the navigable wizard flow.
 

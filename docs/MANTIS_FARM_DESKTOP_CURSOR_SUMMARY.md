@@ -49,7 +49,7 @@ open tab → wait random 3–5s → scroll → wait random 2–4s → scroll bot
 
 **Exception:** `checkpoint: timer_complete` — fixed long wait; never shorten.
 
-**Runtime:** `CPHARM_HUMAN_VARIATION=1` always (`automation/human_variation.py` adds ±8% on waits at playback).
+**Runtime:** `PHARMFLOW_HUMAN_VARIATION=1` always (`automation/human_variation.py` adds ±8% on waits at playback).
 
 **JSON authoring:** `wizard/sequence_humanize.py` — each file variant gets different values inside bands; suffix `__humanNNN`.
 
@@ -95,7 +95,7 @@ open tab → wait random 3–5s → scroll → wait random 2–4s → scroll bot
 Compare **N = 4, 5, 6, 7, 8, 9, 10** before adding the next device. Per-phone `hits_per_day` stays **140–165**; only farm totals and click cap grow.
 
 → `scaling_incremental_grid()` / `GET /api/scorecard` → `scaling_incremental`  
-→ APK **CPharmScorecard** v1.2+ table (net/mo after **$60 AI + $15 power**)
+→ APK **PharmFlowScorecard** v1.2+ table (net/mo after **$60 AI + $15 power**)
 
 | N | ~Net/mo realistic (eCPM $0.75) | ~Net/mo strong ($1.00) | Click cap |
 |---|-------------------------------|------------------------|-----------|
@@ -126,7 +126,7 @@ Compare **N = 4, 5, 6, 7, 8, 9, 10** before adding the next device. Per-phone `h
 1. **evCPM ≥ $2** via tab dwell (viewability gate).
 2. **~16k–18k impressions/day** (full 5-tab tour).
 3. **20–35 ad clicks** quality taps, not 80–117.
-4. **CPHARM_HUMAN_VARIATION=1** + humanized JSON bands.
+4. **PHARMFLOW_HUMAN_VARIATION=1** + humanized JSON bands.
 5. Browse-only after daily click cap.
 
 ### Monthly expectations (4 phones)
@@ -152,7 +152,7 @@ Subtract fixed monthly costs from gross Mantis payout (defaults in API + APK):
 | **Other** | $0 | Internet, VPN, etc. (optional) |
 
 **Break-even:** ~**$2.50/day** gross Mantis (~$75/mo) at defaults.  
-**Net monthly** = `(daily_gross × 30) − ai_tools − power − other` — see `profitability` in `GET /api/scorecard` and **CPharmScorecard** app (v1.1+).
+**Net monthly** = `(daily_gross × 30) − ai_tools − power − other` — see `profitability` in `GET /api/scorecard` and **PharmFlowScorecard** app (v1.1+).
 
 Scale scenarios in the APK use **N phones** from the field or live fetch; edit costs on phone and **Save to farm**.
 
@@ -170,16 +170,16 @@ Scale scenarios in the APK use **N phones** from the field or live fetch; edit c
 
 ---
 
-## Autopilot (closed loop — FamFlow farm keepers)
+## Autopilot (closed loop — PharmFlow farm keepers)
 
 | Piece | Notes |
 |-------|------|
 | Dash **Pull from Mantis** | Fetch → score → steer overrides |
 | `scripts/mantis_autopilot.py` | Background 2–3h + yellow/red |
-| Caps truth | `C:\CPharm\logs\farm_runtime_overrides.json` |
-| Lock browsers | `CPHARM_FARM_BROWSERS=chromium` when click-leak |
+| Caps truth | `C:\PharmFlow\logs\farm_runtime_overrides.json` |
+| Lock browsers | `PHARMFLOW_FARM_BROWSERS=chromium` when click-leak |
 
-Uniqueness rails stay on. Ship notes: CPharm.exe Release body mirrors these bands.
+Uniqueness rails stay on. Ship notes: PharmFlow.exe Release body mirrors these bands.
 
 ---
 
@@ -191,11 +191,11 @@ Uniqueness rails stay on. Ship notes: CPharm.exe Release body mirrors these band
 | **Phone scaling (N phones)** | `docs/MANTIS_FARM_PHONE_SCALING.md` |
 | CSV template | `docs/MANTIS_FARM_DAILY_SCORECARD.csv` |
 | Full handoff | `docs/MANTIS_FARM_SEQUENCE_GUIDANCE.md` |
-| **Android APK** | GitHub Release **CPharmFarmRemote.apk** — big-button farm controller + money scorecard |
+| **Android APK** | GitHub Release **PharmFlowFarmRemote.apk** — big-button farm controller + money scorecard |
 | Live API | `GET /api/scorecard` — `targets`, `scaling_incremental`, `profitability` |
 | Save Mantis from phone | `POST /api/scorecard/mantis` → `recordings/scorecard_state.json` |
 
-**APK setup:** Install APK → enter `http://<laptop-ip>:8080` → Fetch live. Laptop needs `CPHARM_BIND=0.0.0.0` and firewall open on dashboard port.
+**APK setup:** Install APK → enter `http://<laptop-ip>:8080` → Fetch live. Laptop needs `PHARMFLOW_BIND=0.0.0.0` and firewall open on dashboard port.
 
 ---
 
@@ -211,9 +211,9 @@ Uniqueness rails stay on. Ship notes: CPharm.exe Release body mirrors these band
 | **Phone scaling** | `docs/MANTIS_FARM_PHONE_SCALING.md` |
 | Scheduler | `automation/scheduler.py` |
 | Groups | `automation/recordings/groups_config.json` |
-| Sequences | `sequences/` → `C:\CPharm\sequences` |
+| Sequences | `sequences/` → `C:\PharmFlow\sequences` |
 | Android app | `scorecard-android/` |
-| Sync laptop | `scripts/SYNC_CPHARM_FROM_GITHUB.ps1` |
+| Sync laptop | `scripts/SYNC_PHARMFLOW_FROM_GITHUB.ps1` |
 
 ---
 
@@ -222,7 +222,7 @@ Uniqueness rails stay on. Ship notes: CPharm.exe Release body mirrors these band
 1. Edit sequences or automation on laptop or via agent.
 2. `git commit` + `git push origin main`.
 3. Laptop: `git pull` + SYNC script.
-4. CI builds **CPharm.exe** + **CPharmScorecard.apk** on push to `main`.
+4. CI builds **PharmFlow.exe** + **PharmFlowScorecard.apk** on push to `main`.
 5. Verify Release on GitHub before telling operator “build shipped.”
 
 ---

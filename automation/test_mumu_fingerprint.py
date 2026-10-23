@@ -149,7 +149,7 @@ class MumuFingerprintTests(unittest.TestCase):
         self.assertEqual(mock_apply.call_count, 3)
 
     def test_skip_env_disables_ensure(self):
-        with mock.patch.dict("os.environ", {"CPHARM_SKIP_FINGERPRINT": "1"}):
+        with mock.patch.dict("os.environ", {"PHARMFLOW_SKIP_FINGERPRINT": "1"}):
             r = mf.ensure_fingerprint_before_browse("serial")
         self.assertTrue(r.get("skipped"))
 

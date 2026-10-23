@@ -189,7 +189,7 @@
             android:fontFamily="monospace"
             android:text="" />
 
-        <!-- CPharm Integration Section -->
+        <!-- PharmFlow Integration Section -->
         <View
             android:layout_width="match_parent"
             android:layout_height="1dp"
@@ -200,7 +200,7 @@
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="CPharm Integration"
+            android:text="PharmFlow Integration"
             android:textColor="#FF44FF88"
             android:textSize="16sp"
             android:textStyle="bold"

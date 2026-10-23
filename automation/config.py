@@ -13,20 +13,31 @@ AUTHOR_HEIGHT = 1600
 # Bump when sequence JSON schema/coords change; runner refuses older files.
 REQUIRED_SEQUENCE_VERSION = 3
 
-DASHBOARD_HOST = os.environ.get("CPHARM_DASHBOARD_HOST", "127.0.0.1")
-# Prefer CPHARM_PORT (dashboard listen) so CPHARM_DASHBOARD_PORT alone cannot drift.
-DASHBOARD_PORT = int(
-    os.environ.get("CPHARM_PORT")
-    or os.environ.get("CPHARM_DASHBOARD_PORT", "8080")
-)
 
-TOR_HTTP_TUNNEL_BASE = int(os.environ.get("CPHARM_TOR_HTTP_BASE", "8118"))
-TOR_SOCKS_BASE = int(os.environ.get("CPHARM_TOR_SOCKS_BASE", "9050"))
-TOR_CONTROL_BASE = int(os.environ.get("CPHARM_TOR_CONTROL_BASE", "9151"))
-_tor_raw = os.environ.get("CPHARM_TOR_DATA", "tor_instances")
+def _env(suffix: str, default: str = "") -> str:
+    """CPHARM_<suffix> (pre-rebrand, existing deployments) then PHARMFLOW_<suffix>,
+    then default. Same precedence as mantis_inject_proxy._env_first, so an
+    upgraded install that still sets the legacy CPHARM_* name keeps working
+    instead of silently falling back to defaults (bind address, port, sequence
+    execution, Tor bases, etc.)."""
+    for name in (f"CPHARM_{suffix}", f"PHARMFLOW_{suffix}"):
+        raw = os.environ.get(name)
+        if raw is not None and str(raw).strip() != "":
+            return str(raw)
+    return default
+
+
+DASHBOARD_HOST = _env("DASHBOARD_HOST", "127.0.0.1")
+# Prefer PORT (dashboard listen) so DASHBOARD_PORT alone cannot drift.
+DASHBOARD_PORT = int(_env("PORT") or _env("DASHBOARD_PORT", "8080"))
+
+TOR_HTTP_TUNNEL_BASE = int(_env("TOR_HTTP_BASE", "8118"))
+TOR_SOCKS_BASE = int(_env("TOR_SOCKS_BASE", "9050"))
+TOR_CONTROL_BASE = int(_env("TOR_CONTROL_BASE", "9151"))
+_tor_raw = _env("TOR_DATA", "tor_instances")
 TOR_DATA_DIR = Path(_tor_raw) if Path(_tor_raw).is_absolute() else Path(__file__).resolve().parent.parent / "tor_instances"
 # Default on: farm must prove exit IP changed, not blind-rotate.
-UNIQUE_EXIT_IP_RETRIES = int(os.environ.get("CPHARM_UNIQUE_EXIT_IP_RETRIES", "10") or "10")
+UNIQUE_EXIT_IP_RETRIES = int(_env("UNIQUE_EXIT_IP_RETRIES", "10") or "10")
 
 MUMU_DEFAULT_WIDTH = 900
 MUMU_DEFAULT_HEIGHT = 1600
@@ -51,28 +62,29 @@ BROWSER_PATH12_WEIGHTS: dict[str, int] = {
 }
 
 def is_skip_fingerprint() -> bool:
-    return os.environ.get("CPHARM_SKIP_FINGERPRINT", "").strip() in ("1", "true", "yes")
+    return _env("SKIP_FINGERPRINT").strip() in ("1", "true", "yes")
 
 
 def sequences_run_allowed() -> bool:
-    """False by default — set CPHARM_ALLOW_SEQUENCE_RUNS=1 to execute sequences on devices."""
-    return os.environ.get("CPHARM_ALLOW_SEQUENCE_RUNS", "").strip().lower() in ("1", "true", "yes")
+    """False by default — set PHARMFLOW_ALLOW_SEQUENCE_RUNS=1 (or legacy
+    CPHARM_ALLOW_SEQUENCE_RUNS=1) to execute sequences on devices."""
+    return _env("ALLOW_SEQUENCE_RUNS").strip().lower() in ("1", "true", "yes")
 
 
 def is_browser_only_identity() -> bool:
     """Browser UA via chrome-command-line only — no MuMu setting.json patching on browse."""
-    raw = os.environ.get("CPHARM_BROWSER_ONLY_IDENTITY", "1").strip().lower()
+    raw = _env("BROWSER_ONLY_IDENTITY", "1").strip().lower()
     if raw in ("0", "false", "no", "off"):
         return False
     return True
 
 
 def is_skip_exit_proxy_clear() -> bool:
-    return os.environ.get("CPHARM_SKIP_EXIT_PROXY_CLEAR", "").strip() in ("1", "true", "yes")
+    return _env("SKIP_EXIT_PROXY_CLEAR").strip() in ("1", "true", "yes")
 
 
 def is_proxy_legacy_gateway() -> bool:
-    return os.environ.get("CPHARM_PROXY_LEGACY_GATEWAY", "").strip() in ("1", "true", "yes")
+    return _env("PROXY_LEGACY_GATEWAY").strip() in ("1", "true", "yes")
 
 
 def require_unique_exit_ip() -> bool:
@@ -136,27 +148,27 @@ def tor_data_path(phone_index: int, base: Path | None = None) -> Path:
     return Path(root) / f"phone_{phone_index}" / "data"
 
 
-# ==== merged from cpharm automation/config.py (dashboard/scheduler constants) ====
+# ==== merged from pharmflow automation/config.py (dashboard/scheduler constants) ====
 
-def _env_int(name: str, default: int, *, lo: int = 1, hi: int = 65535) -> int:
+def _env_int(suffix: str, default: int, *, lo: int = 1, hi: int = 65535) -> int:
     try:
-        v = int(os.environ.get(name, str(default)))
+        v = int(_env(suffix, str(default)))
         return max(lo, min(hi, v))
     except (TypeError, ValueError):
         return max(lo, min(hi, default))
 
 
 
-PORT = _env_int("CPHARM_PORT", 8080)
+PORT = _env_int("PORT", 8080)
 
-WS_PORT = _env_int("CPHARM_WS_PORT", PORT + 1)
+WS_PORT = _env_int("WS_PORT", PORT + 1)
 
-# CPHARM_OFFLINE=1: wizard server start skips pip (use when deps already installed / no network).
-# CPHARM_WIZARD_AUTO_INSTALL=0: disable hands-free install on the “Install tools” wizard page.
+# PHARMFLOW_OFFLINE=1: wizard server start skips pip (use when deps already installed / no network).
+# PHARMFLOW_WIZARD_AUTO_INSTALL=0: disable hands-free install on the “Install tools” wizard page.
 # Does not disable the dashboard itself — still requires websockets + psutil in the Python env.
 
 # Listen address for HTTP + WebSocket (127.0.0.1 default). Use 0.0.0.0 for LAN phones — firewall permitting.
-_BIND_RAW = os.environ.get("CPHARM_BIND") or os.environ.get("CPHARM_HOST") or "127.0.0.1"
+_BIND_RAW = _env("BIND") or _env("HOST") or "127.0.0.1"
 
 BIND = _BIND_RAW.strip() or "127.0.0.1"
 
@@ -169,13 +181,13 @@ def _automation_data_base() -> Path:
     here = Path(__file__).resolve().parent
     if not getattr(sys, "frozen", False):
         return here
-    env = (os.environ.get("CPHARM_HOME") or "").strip()
+    env = _env("HOME").strip()
     if env:
         p = Path(env).expanduser() / "automation"
         if p.is_dir():
             return p
     exe_dir = Path(sys.executable).resolve().parent
-    for p in (exe_dir / "automation", Path.home() / "CPharm" / "automation"):
+    for p in (exe_dir / "automation", Path.home() / "PharmFlow" / "automation"):
         try:
             if (p / "dashboard.py").is_file() or (p / "recordings").exists():
                 return p
@@ -196,12 +208,12 @@ TOR_DIR = _auto_data / "tor"
 # Other emulators: BlueStacks 5 (5555), BlueStacks instances (5565-5585),
 #   MEmu (21503), NOX (62001), Genymotion (7555)
 # Same JSON sequences; per-device timing/tap variance. Default ON for wizard/dashboard runs.
-# Override with CPHARM_HUMAN_VARIATION=0 to disable.
+# Override with PHARMFLOW_HUMAN_VARIATION=0 to disable.
 
 HUMAN_VARIATION_FORCE = True
 
 def _human_variation_enabled() -> bool:
-    env = (os.environ.get("CPHARM_HUMAN_VARIATION") or "").strip().lower()
+    env = _env("HUMAN_VARIATION").strip().lower()
     if env in ("0", "false", "no", "off"):
         return False
     if env in ("1", "true", "yes", "on"):
@@ -215,33 +227,33 @@ HUMAN_VARIATION = _human_variation_enabled()
 # Daily scheduler: how fire times are placed in the 24h local window.
 # "organic" = uneven bursts (Dirichlet/Gamma spacings — not equal intervals).
 # "uniform" = classic random points then sort (legacy).
-_ss = os.environ.get("CPHARM_SCHEDULE_SPREAD", "organic").strip().lower()
+_ss = _env("SCHEDULE_SPREAD", "organic").strip().lower()
 
 SCHEDULE_SPREAD = "uniform" if _ss in ("uniform", "classic", "flat") else "organic"
 
 # When true, daily fire times are only placed in “daytime” in the *Tor exit country* (see scheduler + tor_manager).
 # Avoids 3am US local fire times when the exit is in Europe/Asia, etc. Requires PySocks + working Tor per phone.
 
-SCHED_TOR_LOCAL = os.environ.get("CPHARM_SCHED_TOR_LOCAL", "0").lower() in (
+SCHED_TOR_LOCAL = _env("SCHED_TOR_LOCAL", "0").lower() in (
     "1", "true", "yes", "on",
 )
 # Inclusive local hours in the exit country (0–23). Default ≈ wake → late evening.
 
-def _ih(name: str, default: int) -> int:
+def _ih(suffix: str, default: int) -> int:
     try:
-        v = int(os.environ.get(name, str(default)))
+        v = int(_env(suffix, str(default)))
         return max(0, min(23, v))
     except (TypeError, ValueError):
         return default
 
 
 
-SCHED_ACTIVE_HOUR_START = _ih("CPHARM_SCHED_ACTIVE_START", 7)
+SCHED_ACTIVE_HOUR_START = _ih("SCHED_ACTIVE_START", 7)
 
-SCHED_ACTIVE_HOUR_END = _ih("CPHARM_SCHED_ACTIVE_END", 23)
+SCHED_ACTIVE_HOUR_END = _ih("SCHED_ACTIVE_END", 23)
 # If geo lookup fails, use this IANA zone for the active-hour filter (default UTC band).
 
-SCHED_FALLBACK_TZ = os.environ.get("CPHARM_SCHED_FALLBACK_TZ", "Etc/UTC").strip() or "Etc/UTC"
+SCHED_FALLBACK_TZ = _env("SCHED_FALLBACK_TZ", "Etc/UTC").strip() or "Etc/UTC"
 
 
 EMULATOR_PORTS = [

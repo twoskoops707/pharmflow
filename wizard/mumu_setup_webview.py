@@ -1,8 +1,8 @@
 """
-Modern pywebview (WebView2) shell for CPharmMuMuSetup.
+Modern pywebview (WebView2) shell for PharmFlowMuMuSetup.
 
 Uses bundled HTML/CSS under ``assets/mumu_setup/``. Falls back to tkinter when pywebview
-is unavailable (see ``cpharm_mumu_setup.main``).
+is unavailable (see ``pharmflow_mumu_setup.main``).
 """
 
 from __future__ import annotations
@@ -50,11 +50,11 @@ def _js_call(window: Any, expr: str) -> None:
 
 def _emit(window: Any, fn: str, payload: dict | list | str | bool | None = None) -> None:
     if payload is None:
-        _js_call(window, f"window.CPharmSetup && window.CPharmSetup.{fn}()")
+        _js_call(window, f"window.PharmFlowSetup && window.PharmFlowSetup.{fn}()")
     else:
         _js_call(
             window,
-            f"window.CPharmSetup && window.CPharmSetup.{fn}({json.dumps(payload)})",
+            f"window.PharmFlowSetup && window.PharmFlowSetup.{fn}({json.dumps(payload)})",
         )
 
 
@@ -77,9 +77,9 @@ _APK_ALIASES: dict[str, tuple[str, ...]] = {
 
 def _browser_apk_path(apk_name: str) -> Path | None:
     """Resolve a browser APK: embedded in the EXE first, then <root>/apks."""
-    from wizard_paths import cpharm_default_install_root, meipass_dir
+    from wizard_paths import pharmflow_default_install_root, meipass_dir
 
-    root = cpharm_default_install_root()
+    root = pharmflow_default_install_root()
     embedded = meipass_dir()
     for base in ((embedded,) if embedded is not None else ()) + (root,):
         p = base / "bundled" / "apks" / apk_name
@@ -112,11 +112,58 @@ def _live_adb_serials() -> list[str]:
 
 
 class MuMuSetupApi:
-    def __init__(self, *, skip_launch_cpharm: bool = False) -> None:
+    def __init__(self, *, skip_launch_pharmflow: bool = False) -> None:
         self._window: Any = None
         self._busy = False
+        self._worker: threading.Thread | None = None
         self._lock = threading.Lock()
-        self._skip_launch_cpharm = skip_launch_cpharm
+        self._skip_launch_pharmflow = skip_launch_pharmflow
+
+    def _busy_or_claim(self) -> dict | None:
+        """Claim the setup lock, or report that a live worker already has it.
+
+        A dead worker must not leave ``_busy`` stuck — that made Install
+        browser return ``busy`` forever after a crashed setup thread.
+        """
+        with self._lock:
+            worker = self._worker
+            if self._busy and worker is not None and not worker.is_alive():
+                self._busy = False
+                self._worker = None
+            if self._busy:
+                return {
+                    "ok": True,
+                    "started": False,
+                    "already_running": True,
+                    "message": "A phone setup/install is already running.",
+                }
+            self._busy = True
+            return None
+
+    def _spawn_worker(self, target) -> dict:
+        held = self._busy_or_claim()
+        if held is not None:
+            return held
+
+        def wrapped() -> None:
+            try:
+                target()
+            finally:
+                with self._lock:
+                    self._busy = False
+                    self._worker = None
+
+        thread = threading.Thread(target=wrapped, name="pharmflow-setup", daemon=True)
+        with self._lock:
+            self._worker = thread
+        try:
+            thread.start()
+        except Exception as exc:
+            with self._lock:
+                self._busy = False
+                self._worker = None
+            return {"ok": False, "error": f"Could not start setup worker: {exc}"}
+        return {"ok": True, "started": True}
 
     def bind_window(self, window: Any) -> None:
         self._window = window
@@ -137,6 +184,8 @@ class MuMuSetupApi:
                 _emit(window, "appendLog", m)
 
         result = core.run_check_action(action, log)
+        if result.get("ok") is False and not result.get("error"):
+            result["error"] = str(result.get("message") or f"{action} failed")
         result["checklist"] = core.get_checklist()
         if logs:
             result["log"] = "\n".join(logs)
@@ -147,16 +196,11 @@ class MuMuSetupApi:
             _emit(window, "setChecklist", result["checklist"])
         return result
 
-    def launch_cpharm_only(self) -> dict:
-        ok, msg = core.launch_cpharm()
+    def launch_pharmflow_only(self) -> dict:
+        ok, msg = core.launch_pharmflow()
         return {"ok": ok, "message": msg}
 
     def run_setup(self) -> dict:
-        with self._lock:
-            if self._busy:
-                return {"ok": False, "error": "busy"}
-            self._busy = True
-
         window = self._window
 
         def log(msg: str) -> None:
@@ -180,8 +224,6 @@ class MuMuSetupApi:
                 msg = f"Setup failed: {exc}"
                 log(msg)
             finally:
-                with self._lock:
-                    self._busy = False
                 if window is not None:
                     _emit(
                         window,
@@ -193,18 +235,12 @@ class MuMuSetupApi:
                             "go_label": core.go_button_label(),
                         },
                     )
-                if ok and not self._skip_launch_cpharm and core.cpharm_exe_path().is_file():
-                    core.launch_cpharm()
+                if ok and not self._skip_launch_pharmflow and core.pharmflow_exe_path().is_file():
+                    core.launch_pharmflow()
 
-        threading.Thread(target=work, daemon=True).start()
-        return {"ok": True, "started": True}
+        return self._spawn_worker(work)
 
     def install_chromium(self) -> dict:
-        with self._lock:
-            if self._busy:
-                return {"ok": False, "error": "busy"}
-            self._busy = True
-
         window = self._window
 
         def log(msg: str) -> None:
@@ -231,8 +267,6 @@ class MuMuSetupApi:
                 msg = f"Chromium install failed: {exc}"
                 log(msg)
             finally:
-                with self._lock:
-                    self._busy = False
                 if window is not None:
                     _emit(
                         window,
@@ -240,27 +274,23 @@ class MuMuSetupApi:
                         {"ok": ok, "message": msg},
                     )
 
-        threading.Thread(target=work, daemon=True).start()
-        return {"ok": True, "started": True}
+        return self._spawn_worker(work)
 
     def live_phone_options(self) -> list:
-        """ADB-live phones the browser picker can target."""
-        try:
-            return [{"serial": s, "label": s} for s in _live_adb_serials()]
-        except Exception:
-            return []
+        """ADB-live phones the browser picker can target.
+
+        An ADB failure must raise. Returning [] made a dead ADB look like
+        "no phones," and the page offered no error.
+        """
+        return [{"serial": s, "label": s} for s in _live_adb_serials()]
 
     def browser_apk_options(self) -> list:
         """Available browsers to sideload: id, label, package, size, has_apk, installed."""
         from wizard import browser_setup  # noqa: F401
 
         out: list[dict] = []
-        serials: list[str] = []
-        try:
-            serials = _live_adb_serials()
-        except Exception:
-            serials = []
-        probe = serials[:3]
+        serials = _live_adb_serials()
+        probe = serials
         for bid, label, pkg, apk_name in _BROWSER_APKS:
             path = _browser_apk_path(apk_name)
             size_mb = round(path.stat().st_size / 1048576.0, 1) if path.is_file() else 0
@@ -291,11 +321,6 @@ class MuMuSetupApi:
         ``serial`` of "" / "all" targets every ADB-live phone; any other value
         must match a live serial or the install refuses with a clear message.
         """
-        with self._lock:
-            if self._busy:
-                return {"ok": False, "error": "busy"}
-            self._busy = True
-
         window = self._window
 
         def log(msg: str) -> None:
@@ -336,21 +361,26 @@ class MuMuSetupApi:
                 log(f"Installing on {target if target and target != 'all' else str(len(serials)) + ' phone(s)'}")
                 for ser in serials:
                     installed_ok, note = browser_setup.install_apk(ser, apk, log)
+                    confirmed = False
                     if installed_ok:
                         log(f"    Verify {pkg} on {ser}…")
                         try:
-                            seen = browser_setup.pkg_installed(ser, pkg)
-                        except Exception:
-                            seen = False
-                        if seen:
+                            confirmed = bool(browser_setup.pkg_installed(ser, pkg))
+                        except Exception as exc:
+                            confirmed = False
+                            note = f"could not confirm {pkg}: {exc}"
+                        if confirmed:
                             log(f"    -> {pkg} confirmed on {ser}")
                         else:
-                            note = "installed but package not confirmed"
-                    if installed_ok:
+                            note = note or (
+                                "adb install returned success but the package is not on the phone"
+                            )
+                            log(f"    -> {pkg} not confirmed on {ser}")
+                    if confirmed:
                         removed = browser_setup.remove_lawnchair(ser, log)
                         if removed:
                             log(f"    Lawnchair deleted on {ser}: {', '.join(removed)}")
-                    results.append({"serial": ser, "ok": bool(installed_ok), "note": note})
+                    results.append({"serial": ser, "ok": confirmed, "note": note})
                 ok = all(r["ok"] for r in results)
                 msg = (
                     f"{label}: {len([r for r in results if r['ok']])}/{len(results)} phones OK"
@@ -363,8 +393,6 @@ class MuMuSetupApi:
                 msg = f"Browser install failed: {exc}"
                 log(msg)
             finally:
-                with self._lock:
-                    self._busy = False
                 if window is not None:
                     _emit(
                         window,
@@ -372,14 +400,13 @@ class MuMuSetupApi:
                         {"ok": ok, "message": msg, "serials": serials, "results": results},
                     )
 
-        threading.Thread(target=work, daemon=True).start()
-        return {"ok": True, "started": True}
+        return self._spawn_worker(work)
 
 
-def run_webview_app(*, skip_launch_cpharm: bool = False) -> None:
+def run_webview_app(*, skip_launch_pharmflow: bool = False) -> None:
     import webview
 
-    api = MuMuSetupApi(skip_launch_cpharm=skip_launch_cpharm)
+    api = MuMuSetupApi(skip_launch_pharmflow=skip_launch_pharmflow)
     window = webview.create_window(
         "PharmFlow — Phone Setup",
         _html_url(),

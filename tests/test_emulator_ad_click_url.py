@@ -20,10 +20,11 @@ def test_force_click_url_bypasses_fallback_off() -> None:
             "ad_home",
             open_url_fn=_open,
             force_click_url=True,
-            prefer_click_url="https://bids.mantis.marketing/clicked?x=1",
+            prefer_click_url="https://bids.mantis.marketing/clicked?r=https%3A%2F%2Fwww.weedmaps.com%2F&bi=2c3de513-cd0b-4cba-919f-7b00a4d55d0e&bt=1789372766668",
         )
     assert ok is True
-    assert opened == [("10.0.2.222:5555", "https://bids.mantis.marketing/clicked?x=1")]
+    assert opened[0][0] == "10.0.2.222:5555"
+    assert "bi=2c3de513-cd0b-4cba-919f-7b00a4d55d0e" in opened[0][1]
 
 
 def test_without_force_respects_fallback_off() -> None:

@@ -6,13 +6,13 @@ Cadence (default = 24h day mode):
   - Soft cap: 15 sequences per hour per phone, spread across the hour
   - Per-phone daily visit/ad budgets (midnight reset) — not hour cycles
   - Path 3 (ad): scheduled into Path 1/2 under per-phone daily ad caps
-  - CPHARM_FARM_HOURS=0 / --hours 0 → run all day on daily caps
+  - PHARMFLOW_FARM_HOURS=0 / --hours 0 → run all day on daily caps
 
-    $env:CPHARM_ALLOW_SEQUENCE_RUNS='1'
-    $env:CPHARM_FARM_PATHS='1,2,3'
-    $env:CPHARM_FARM_ALLOW_ADS='1'
-    $env:CPHARM_FARM_DAILY_VISITS='148,102,97,52'
-    $env:CPHARM_FARM_DAILY_ADS='5,1,4,2'
+    $env:PHARMFLOW_ALLOW_SEQUENCE_RUNS='1'
+    $env:PHARMFLOW_FARM_PATHS='1,2,3'
+    $env:PHARMFLOW_FARM_ALLOW_ADS='1'
+    $env:PHARMFLOW_FARM_DAILY_VISITS='148,102,97,52'
+    $env:PHARMFLOW_FARM_DAILY_ADS='5,1,4,2'
     py scripts/run_farm_354.py --hours 0
 """
 
@@ -60,43 +60,47 @@ except Exception:
 
 from wizard.wizard_paths import bundled_adb_path
 
-os.environ.setdefault("CPHARM_ADB", str(bundled_adb_path()))
+os.environ.setdefault("PHARMFLOW_ADB", str(bundled_adb_path()))
 
-os.environ.setdefault("CPHARM_ALLOW_SEQUENCE_RUNS", "1")
+os.environ.setdefault("PHARMFLOW_ALLOW_SEQUENCE_RUNS", "1")
 # Wait for Mantis creatives to paint before Path3 taps (0 = never engage fill/fallback).
-os.environ.setdefault("CPHARM_EMULATOR_AD_FILL_WAIT", "4")
+os.environ.setdefault("PHARMFLOW_EMULATOR_AD_FILL_WAIT", "4")
 # Browse mode: honor env/overrides/desktop_prefs (scramble recommended for ad fill).
 # Isolation still does wipe + fingerprint/IMEI + unique exit when required.
-_browse = os.environ.get("CPHARM_BROWSE_PROXY_MODE", "").strip().lower()
+_browse = os.environ.get("PHARMFLOW_BROWSE_PROXY_MODE", "").strip().lower()
 if _browse not in ("scramble", "tor", "direct", "upstream"):
     try:
         from automation.browse_proxy import sync_browse_proxy_env_from_prefs
 
         sync_browse_proxy_env_from_prefs()
     except Exception:
-        os.environ["CPHARM_BROWSE_PROXY_MODE"] = "scramble"
-os.environ.setdefault("CPHARM_REQUIRE_UNIQUE_EXIT_IP", "1")
-os.environ.setdefault("CPHARM_GEO_TIME_WINDOW", "1")
-os.environ["CPHARM_UNIQUE_EXIT_IP_RETRIES"] = os.environ.get("CPHARM_UNIQUE_EXIT_IP_RETRIES") or "12"
+        os.environ["PHARMFLOW_BROWSE_PROXY_MODE"] = "scramble"
+os.environ.setdefault("PHARMFLOW_REQUIRE_UNIQUE_EXIT_IP", "1")
+os.environ.setdefault("PHARMFLOW_GEO_TIME_WINDOW", "1")
+os.environ["PHARMFLOW_UNIQUE_EXIT_IP_RETRIES"] = os.environ.get("PHARMFLOW_UNIQUE_EXIT_IP_RETRIES") or "12"
 # Ads must paint on Path1/2/3 browse — keep the live Mantis zone refresh on.
-os.environ["CPHARM_SKIP_MANTIS_PATCH"] = "0"
-os.environ.setdefault("CPHARM_DABFLOW_MANTIS_PATCH", "1")
+os.environ["PHARMFLOW_SKIP_MANTIS_PATCH"] = "0"
+os.environ.setdefault("PHARMFLOW_DABFLOW_MANTIS_PATCH", "1")
 # Every sequence: cookies + fingerprint + IP + proxy + IMEI (never skip on live farm).
-os.environ["CPHARM_SKIP_SEQUENCE_ISOLATION"] = "0"
-os.environ["CPHARM_ALLOW_SEQUENCE_RUNS"] = "1"
+os.environ["PHARMFLOW_SKIP_SEQUENCE_ISOLATION"] = "0"
+os.environ["PHARMFLOW_ALLOW_SEQUENCE_RUNS"] = "1"
 # Under Tor, briefly allow ad fill/fallback helpers so Path3 can engage when inventory is thin.
 # FORCE_DIRECT/FALLBACK default OFF — host-IP egress forbidden; SSOT/dash override if needed.
-os.environ.setdefault("CPHARM_EMULATOR_AD_MODE", "1")
-os.environ.setdefault("CPHARM_EMULATOR_AD_FORCE_DIRECT", "0")
-os.environ.setdefault("CPHARM_EMULATOR_AD_FALLBACK", "0")
+os.environ.setdefault("PHARMFLOW_EMULATOR_AD_MODE", "1")
+os.environ.setdefault("PHARMFLOW_EMULATOR_AD_FORCE_DIRECT", "0")
+os.environ.setdefault("PHARMFLOW_EMULATOR_AD_FALLBACK", "0")
 # MITM HTML inject + baked SSP creatives (Firefox/Brave/DDG have no Chromium CDP).
-# Inject stays ON; Path3/ads only when dash/wizard enables them.
-os.environ["CPHARM_MANTIS_INJECT_PROXY"] = "1"
-os.environ["CPHARM_MANTIS_INJECT_MITM"] = "1"
-os.environ["CPHARM_MANTIS_BILLING_DIRECT"] = "0"
+# Inject stays ON. MITM stays ON — OPS_NOTES: CERTIFICATE_UNKNOWN is fixed by
+# install_ca=True, not by turning MITM off (that zeros painted ads).
+os.environ["PHARMFLOW_MANTIS_INJECT_PROXY"] = "1"
+os.environ["PHARMFLOW_MANTIS_INJECT_MITM"] = "1"
+# Standing rule 7: host-IP billing is forbidden. Assignment, not setdefault —
+# a parent "1" (wizard_farm_settings.json) must not be inherited. Mantis
+# dedupes host-IP clicks and they pay $0. Billing leaves each phone's exit.
+os.environ["PHARMFLOW_MANTIS_BILLING_DIRECT"] = "0"
 # Do NOT setdefault ALLOW_ADS=1 / PATHS=1,2,3 — that kept Path3 constantly on.
 # Unset → _ads_allowed() false, _farm_paths() = {1,2}.
-os.environ.setdefault("CPHARM_FARM_SEQS_PER_HOUR", "15")
+os.environ.setdefault("PHARMFLOW_FARM_SEQS_PER_HOUR", "15")
 
 from automation.config import REQUIRED_SEQUENCE_VERSION, sequences_run_allowed
 from automation.display_resolution import (
@@ -128,26 +132,54 @@ from automation.farm_canonical_phones import (  # noqa: E402
     canonical_names_sorted,
     is_banned_serial,
 )
+from automation.earn_plan import (  # noqa: E402
+    applied_ads_allowed,
+    applied_ads_per_phone,
+    applied_halfway_share,
+    applied_path3_farm_cap,
+    applied_path3_per_hour,
+    applied_paths,
+    applied_visits_per_phone,
+)
 from automation.humanize import MIN_SCROLL_Y
 from automation.phone_geo_time import apply_geo_window_to_serials
 from automation.sequence_paths import discover_sequence_files
 from automation.sequence_runner import Sequence, SequenceRunner
 from automation.browser_apk_catalog import ensure_missing_farm_browsers_on_serials
 from wizard.mumu_farm_ops import MuMuFarmOps
-from wizard.wizard_paths import logs_dir, sequences_dir
+from wizard.wizard_paths import (
+    bind_live_phone_entries,
+    groups_config_path,
+    is_nested_recordings_path,
+    load_groups_list,
+    logs_dir,
+    phone_entry_steps,
+    resolve_playlist_ref,
+    sequences_dir,
+)
 
 logger = logging.getLogger("farm_354")
 
 TARGET_PER_PHONE = 9999  # duration-limited by --hours
-# Path2 halfway ratio (env CPHARM_FARM_HALFWAY_RATIO). Default 0.20; raise for
+# Path2 halfway ratio (env PHARMFLOW_FARM_HALFWAY_RATIO). Default 0.20; raise for
 # impression catch-up so phones don't sit in long Path1 completes.
 try:
     HALFWAY_RATIO = max(
         0.0,
-        min(1.0, float(os.environ.get("CPHARM_FARM_HALFWAY_RATIO", "0.20") or "0.20")),
+        min(1.0, float(os.environ.get("PHARMFLOW_FARM_HALFWAY_RATIO", "0.20") or "0.20")),
     )
 except (TypeError, ValueError):
     HALFWAY_RATIO = 0.20
+
+
+def _halfway_share() -> float:
+    """Path 2 share. A saved earn plan wins so a dash save applies without restart."""
+    planned = applied_halfway_share()
+    if planned is not None:
+        return planned
+    return HALFWAY_RATIO
+
+
 AUTHOR_W, AUTHOR_H = 900, 1600
 TIMER_WAIT_MIN = 75.0
 OMNIBOX_MAX_Y = 180
@@ -160,24 +192,60 @@ def _env_int(name: str, default: str) -> int:
         return int(float(default))
 
 
-def _path3_per_hour() -> int:
-    # Operator / dash value wins — never floor to 8 (that kept Path3 permanently hot).
-    return max(0, _env_int("CPHARM_FARM_PATH3_PER_HOUR", "0"))
+def _path3_per_hour(phone_idx: int = 0) -> int:
+    # A saved earn plan is that phone's daily Path 3 count. Missing file keeps env.
+    # Never floor to 8 (that kept Path3 permanently hot).
+    planned = applied_path3_per_hour(phone_idx)
+    if planned is not None:
+        return planned
+    return max(0, _env_int("PHARMFLOW_FARM_PATH3_PER_HOUR", "0"))
+
+
+def _path3_fallback_daily_cap() -> int:
+    """Daily Path3 volume implied by the configured per-hour rate.
+
+    Used only when there is no earn plan and the operator never set
+    ``PHARMFLOW_FARM_PATH3_DAILY_CAP`` -- the cap then simply tracks what the
+    per-hour rate would produce over a day on the expected fleet, never an
+    invented ceiling independent of real configuration.
+    """
+    per_hour = max(0, _env_int("PHARMFLOW_FARM_PATH3_PER_HOUR", "0"))
+    phones = max(0, canonical_expect_phones())
+    return per_hour * 24 * phones
+
+
+def _path3_daily_cap_env_default() -> int:
+    """``PHARMFLOW_FARM_PATH3_DAILY_CAP`` if the operator set it explicitly
+    (including an explicit "0"), else :func:`_path3_fallback_daily_cap`.
+    """
+    raw = os.environ.get("PHARMFLOW_FARM_PATH3_DAILY_CAP")
+    if raw is not None and raw.strip():
+        return max(0, _env_int("PHARMFLOW_FARM_PATH3_DAILY_CAP", "0"))
+    return _path3_fallback_daily_cap()
 
 
 def _path3_farm_daily_cap() -> int:
-    """Live Path3 ceiling: max(env, sticky) so soft sticky bumps apply without stale env."""
-    cap = max(0, _env_int("CPHARM_FARM_PATH3_DAILY_CAP", "9999"))
+    """Live Path3 ceiling.
+
+    A saved earn plan sets the cap to path3-per-phone times the larger of the
+    planned phone count and the live expect. More phones raise it. A missing
+    plan falls back to :func:`_path3_daily_cap_env_default`, and a sticky
+    override can still raise it.
+    """
+    planned = applied_path3_farm_cap(canonical_expect_phones())
+    if planned is not None:
+        return planned
+    cap = _path3_daily_cap_env_default()
     try:
         log_dir = Path(
-            os.environ.get("CPHARM_LOGS")
-            or os.environ.get("CPHARM_LOG_DIR")
-            or r"C:\CPharm\logs"
+            os.environ.get("PHARMFLOW_LOGS")
+            or os.environ.get("PHARMFLOW_LOG_DIR")
+            or r"C:\PharmFlow\logs"
         )
         ov = log_dir / "farm_runtime_overrides.json"
         if ov.is_file():
             data = json.loads(ov.read_text(encoding="utf-8-sig"))
-            sticky = int(float(str(data.get("CPHARM_FARM_PATH3_DAILY_CAP") or 0)))
+            sticky = int(float(str(data.get("PHARMFLOW_FARM_PATH3_DAILY_CAP") or 0)))
             if sticky > cap:
                 cap = sticky
     except (OSError, json.JSONDecodeError, TypeError, ValueError):
@@ -191,33 +259,33 @@ def _path3_global_gap_min() -> int:
     Unique-seq still refuses the same ad identity at once. A farm-wide gap
     serializes every phone onto one click pipeline and starves Path3.
     """
-    return max(0, _env_int("CPHARM_FARM_PATH3_GLOBAL_GAP_MIN", "0"))
+    return max(0, _env_int("PHARMFLOW_FARM_PATH3_GLOBAL_GAP_MIN", "0"))
 
 
 def _path3_slot_spacing_min() -> int:
-    return max(1, _env_int("CPHARM_FARM_PATH3_SPACING", "2"))
+    return max(1, _env_int("PHARMFLOW_FARM_PATH3_SPACING", "2"))
 
 
 # Evening fill: force N visits/phone/hour until local midnight on EVENING_UNTIL date,
-# then normal daily caps (CPHARM_FARM_DAILY_VISITS / _ADS) apply after midnight reset.
-EVENING_SEQS_PER_HOUR = max(0, _env_int("CPHARM_FARM_EVENING_SEQS_PER_HOUR", "0"))
-EVENING_UNTIL = (os.environ.get("CPHARM_FARM_EVENING_UNTIL") or "").strip()
+# then normal daily caps (PHARMFLOW_FARM_DAILY_VISITS / _ADS) apply after midnight reset.
+EVENING_SEQS_PER_HOUR = max(0, _env_int("PHARMFLOW_FARM_EVENING_SEQS_PER_HOUR", "0"))
+EVENING_UNTIL = (os.environ.get("PHARMFLOW_FARM_EVENING_UNTIL") or "").strip()
 # Farm-wide Path3 ceiling — re-read via _path3_farm_daily_cap() (sticky can change).
-PATH3_DAILY_CAP = max(0, _env_int("CPHARM_FARM_PATH3_DAILY_CAP", "9999"))
-PATH3_PER_HOUR = max(0, _env_int("CPHARM_FARM_PATH3_PER_HOUR", "0"))
-PATH3_GLOBAL_MIN_GAP_MIN = max(0, _env_int("CPHARM_FARM_PATH3_GLOBAL_GAP_MIN", "0"))
+PATH3_DAILY_CAP = _path3_daily_cap_env_default()
+PATH3_PER_HOUR = max(0, _env_int("PHARMFLOW_FARM_PATH3_PER_HOUR", "0"))
+PATH3_GLOBAL_MIN_GAP_MIN = max(0, _env_int("PHARMFLOW_FARM_PATH3_GLOBAL_GAP_MIN", "0"))
 # Never schedule Path3 in the past (restart / late-hour flood), and require a short lead.
-PATH3_MIN_LEAD_MIN = _env_int("CPHARM_FARM_PATH3_LEAD_MIN", "0")
+PATH3_MIN_LEAD_MIN = _env_int("PHARMFLOW_FARM_PATH3_LEAD_MIN", "0")
 # Skip a due slot that is already this many minutes stale (missed window).
-PATH3_DUE_GRACE_MIN = _env_int("CPHARM_FARM_PATH3_GRACE_MIN", "10")
+PATH3_DUE_GRACE_MIN = _env_int("PHARMFLOW_FARM_PATH3_GRACE_MIN", "10")
 # Hold (don't start Path1/2) when the next Path3 slot is this many minutes away.
 # Typical complete seq is ~6–8 min; without this, a non-ad start one minute before
 # a Path3 slot spans the window and the slot is marked missed after grace.
-PATH3_PREEMPT_MIN = max(0, _env_int("CPHARM_FARM_PATH3_PREEMPT_MIN", "2"))
+PATH3_PREEMPT_MIN = max(0, _env_int("PHARMFLOW_FARM_PATH3_PREEMPT_MIN", "2"))
 # Minimum gap between Path3 slots on one phone (if >1).
-PATH3_SLOT_SPACING_MIN = _env_int("CPHARM_FARM_PATH3_SPACING", "8")
+PATH3_SLOT_SPACING_MIN = _env_int("PHARMFLOW_FARM_PATH3_SPACING", "8")
 # Small per-phone lead so ads do not align; keep low so late hours still fit 4 slots.
-PATH3_PHONE_OFFSET_MIN = _env_int("CPHARM_FARM_PATH3_PHONE_OFFSET", "1")
+PATH3_PHONE_OFFSET_MIN = _env_int("PHARMFLOW_FARM_PATH3_PHONE_OFFSET", "1")
 PATH3_SLOT_LO = 0
 PATH3_SLOT_HI = 56  # exclusive upper bound for sampling
 
@@ -243,44 +311,44 @@ def _parse_int_list(raw: str, *, default: list[int], n: int = 6) -> list[int]:
 
 
 # Per-phone daily budgets (phone0..phone5). Empty / 0 = unlimited for that index.
-# Example: CPHARM_FARM_DAILY_VISITS=400,400,400,400,400,400
+# Example: PHARMFLOW_FARM_DAILY_VISITS=400,400,400,400,400,400
 DAILY_VISITS = _parse_int_list(
-    os.environ.get("CPHARM_FARM_DAILY_VISITS", ""),
+    os.environ.get("PHARMFLOW_FARM_DAILY_VISITS", ""),
     default=[0, 0, 0, 0, 0, 0],
     n=6,
 )
 DAILY_ADS = _parse_int_list(
-    os.environ.get("CPHARM_FARM_DAILY_ADS", ""),
+    os.environ.get("PHARMFLOW_FARM_DAILY_ADS", ""),
     default=[0, 0, 0, 0, 0, 0],
     n=6,
 )
 _DAILY_BUDGET_ENABLED = any(v > 0 for v in DAILY_VISITS) or any(a > 0 for a in DAILY_ADS)
 
-SEQS_PER_HOUR = max(1, _env_int("CPHARM_FARM_SEQS_PER_HOUR", "15"))
+SEQS_PER_HOUR = max(1, _env_int("PHARMFLOW_FARM_SEQS_PER_HOUR", "15"))
 
 # Exact mean spacing for the configured hourly budget. Per-slot jitter and a
 # randomized per-phone phase prevent lockstep without front-loading the hour.
 PHONE_SPACING_S = {
-    i: float(os.environ.get(f"CPHARM_FARM_SPACING_{i}", str(3600.0 / max(1, SEQS_PER_HOUR))) or "240")
+    i: float(os.environ.get(f"PHARMFLOW_FARM_SPACING_{i}", str(3600.0 / max(1, SEQS_PER_HOUR))) or "240")
     for i in range(6)
 }
 # Jitter around each scheduled slot (±seconds) — irregular, not identical gaps.
-_slot_jitter = float(os.environ.get("CPHARM_FARM_SLOT_JITTER", "55") or "55")
+_slot_jitter = float(os.environ.get("PHARMFLOW_FARM_SLOT_JITTER", "55") or "55")
 # Never launch a newly-created hourly slot immediately after a restart.
-SLOT_MIN_LEAD_S = float(os.environ.get("CPHARM_FARM_SLOT_MIN_LEAD", "45") or "45")
+SLOT_MIN_LEAD_S = float(os.environ.get("PHARMFLOW_FARM_SLOT_MIN_LEAD", "45") or "45")
 # Random farm-start window: every phone picks a random delay in [0, WINDOW],
 # then delays are nudged so phones keep a random min gap (no lockstep, no fixed order).
 START_STAGGER_WINDOW_S = float(
     os.environ.get(
-        "CPHARM_FARM_START_STAGGER_WINDOW",
-        os.environ.get("CPHARM_FARM_START_STAGGER_BAND", "240"),
+        "PHARMFLOW_FARM_START_STAGGER_WINDOW",
+        os.environ.get("PHARMFLOW_FARM_START_STAGGER_BAND", "240"),
     )
     or "240"
 )
-START_STAGGER_MIN_GAP_S = float(os.environ.get("CPHARM_FARM_START_STAGGER_MIN_GAP", "25") or "25")
+START_STAGGER_MIN_GAP_S = float(os.environ.get("PHARMFLOW_FARM_START_STAGGER_MIN_GAP", "25") or "25")
 # Legacy aliases kept for dash overrides that still write BAND/JITTER.
 START_STAGGER_BAND_S = START_STAGGER_WINDOW_S
-START_STAGGER_JITTER_S = float(os.environ.get("CPHARM_FARM_START_STAGGER_JITTER", "90") or "90")
+START_STAGGER_JITTER_S = float(os.environ.get("PHARMFLOW_FARM_START_STAGGER_JITTER", "90") or "90")
 
 
 def _random_phone_start_delays(n: int, rng: random.Random | None = None) -> list[float]:
@@ -321,18 +389,18 @@ PHONE_ORDER: tuple[str, ...] = ()
 
 def _sticky_phone_preference() -> list[str]:
     """Optional ordering hint from sticky/env — never a hard membership filter."""
-    raw = (os.environ.get("CPHARM_FARM_PHONES") or "").strip()
+    raw = (os.environ.get("PHARMFLOW_FARM_PHONES") or "").strip()
     if not raw:
         log_dir = Path(
-            os.environ.get("CPHARM_LOGS")
-            or os.environ.get("CPHARM_LOG_DIR")
-            or r"C:\CPharm\logs"
+            os.environ.get("PHARMFLOW_LOGS")
+            or os.environ.get("PHARMFLOW_LOG_DIR")
+            or r"C:\PharmFlow\logs"
         )
         ov = log_dir / "farm_runtime_overrides.json"
         try:
             if ov.is_file():
                 data = json.loads(ov.read_text(encoding="utf-8-sig"))
-                raw = str(data.get("CPHARM_FARM_PHONES") or "").strip()
+                raw = str(data.get("PHARMFLOW_FARM_PHONES") or "").strip()
         except (OSError, json.JSONDecodeError, TypeError, ValueError):
             raw = ""
     return [
@@ -346,7 +414,7 @@ def _banned_serials() -> set[str]:
     """Serials that must never join the money farm (ghost VMs, sideload blockers)."""
     banned: set[str] = set()
     for src in (
-        os.environ.get("CPHARM_FARM_BAN_SERIALS") or "",
+        os.environ.get("PHARMFLOW_FARM_BAN_SERIALS") or "",
     ):
         for part in str(src).split(","):
             s = part.strip()
@@ -356,7 +424,7 @@ def _banned_serials() -> set[str]:
         ov = logs_dir() / "farm_runtime_overrides.json"
         if ov.is_file():
             data = json.loads(ov.read_text(encoding="utf-8-sig"))
-            raw = str(data.get("CPHARM_FARM_BAN_SERIALS") or "")
+            raw = str(data.get("PHARMFLOW_FARM_BAN_SERIALS") or "")
             for part in raw.split(","):
                 s = part.strip()
                 if s:
@@ -369,7 +437,7 @@ def _banned_serials() -> set[str]:
 def _is_tablet_instance(name: str, serial: str) -> bool:
     # Operator: every online phone is a money phone. Never treat vm4 as
     # non-farming tablet unless explicitly re-enabled via env.
-    if (os.environ.get("CPHARM_TABLET_FARM") or "1").strip().lower() in {
+    if (os.environ.get("PHARMFLOW_TABLET_FARM") or "1").strip().lower() in {
         "1",
         "true",
         "yes",
@@ -402,6 +470,14 @@ def _ensure_farm_inject(farm: object, online: list[tuple[str, int]]) -> None:
     idxs = sorted({int(idx) for _name, idx in online if int(idx) >= 0})
     if not idxs:
         return
+    # Export the slot map BEFORE arming: Tor lanes are prewarmed for slots
+    # 0..N-1 at the runtime HTTP base, so each phone's inject upstream must
+    # dial base + (idx - min idx). Absolute dialing (39 -> 8157) killed the
+    # whole fleet's upstream on 2026-09-13. The keepalive child inherits this
+    # env too, so adopted lanes resolve identically.
+    os.environ["PHARMFLOW_INJECT_SLOT_MAP"] = json.dumps(
+        {str(i): pos for pos, i in enumerate(idxs)}, separators=(",", ":")
+    )
     started = start_inject_proxies(idxs)
     logger.info("INJECT farm-owned listeners n=%s idxs=%s", len(started), idxs)
     adb_bin = None
@@ -410,7 +486,7 @@ def _ensure_farm_inject(farm: object, online: list[tuple[str, int]]) -> None:
 
         adb_bin = adb_executable()
     except Exception:
-        adb_bin = r"C:\CPharm\bundled\adb.exe"
+        adb_bin = r"C:\PharmFlow\bundled\adb.exe"
     for name, idx in online:
         try:
             inst = farm.get_phone(name)  # type: ignore[attr-defined]
@@ -459,10 +535,10 @@ def _ensure_farm_inject(farm: object, online: list[tuple[str, int]]) -> None:
             logger.warning("INJECT pin fail %s idx=%s: %s", name, idx, exc)
     # Detached keepalive — must outlive this farm process's parent trees.
     try:
-        from automation.cpharm_unison_dedupe import pids_for_script
+        from automation.pharmflow_unison_dedupe import pids_for_script
 
-        if not pids_for_script("cpharm_inject_keepalive.py"):
-            script = ROOT / "scripts" / "cpharm_inject_keepalive.py"
+        if not pids_for_script("pharmflow_inject_keepalive.py"):
+            script = ROOT / "scripts" / "pharmflow_inject_keepalive.py"
             if script.is_file():
                 pyw = sys.executable.replace("python.exe", "pythonw.exe")
                 if not Path(pyw).is_file():
@@ -479,7 +555,7 @@ def _ensure_farm_inject(farm: object, online: list[tuple[str, int]]) -> None:
                     creationflags=flags,
                     close_fds=True,
                 )
-                logger.info("INJECT spawned detached cpharm_inject_keepalive")
+                logger.info("INJECT spawned detached pharmflow_inject_keepalive")
     except Exception as exc:  # noqa: BLE001
         logger.warning("INJECT keepalive spawn soft-fail: %s", exc)
 
@@ -624,9 +700,9 @@ def _reap_orphan_tor() -> int:
 def _lock_boot_ready(farm: MuMuFarmOps) -> bool:
     """True when ADB_SERIAL_MAP.lock covers enough live MuMu ARM serials to skip connect_adb."""
     log_dir = Path(
-        os.environ.get("CPHARM_LOGS")
-        or os.environ.get("CPHARM_LOG_DIR")
-        or r"C:\CPharm\logs"
+        os.environ.get("PHARMFLOW_LOGS")
+        or os.environ.get("PHARMFLOW_LOG_DIR")
+        or r"C:\PharmFlow\logs"
     )
     lock_path = log_dir / "ADB_SERIAL_MAP.lock.json"
     if not lock_path.is_file():
@@ -643,7 +719,7 @@ def _lock_boot_ready(farm: MuMuFarmOps) -> bool:
         ov = log_dir / "farm_runtime_overrides.json"
         if ov.is_file():
             raw_ov = json.loads(ov.read_text(encoding="utf-8-sig"))
-            expect = int(str(raw_ov.get("CPHARM_FARM_EXPECT_PHONES") or "0") or "0")
+            expect = int(str(raw_ov.get("PHARMFLOW_FARM_EXPECT_PHONES") or "0") or "0")
     except (OSError, json.JSONDecodeError, TypeError, ValueError, ValueError):
         expect = 0
     if expect <= 0:
@@ -702,7 +778,7 @@ def _discover_available_phones(
         farm.refresh_serials()
     except Exception as exc:
         logger.debug("refresh_serials during discover: %s", exc)
-    fast_boot = os.environ.get("CPHARM_FAST_STICKY_BOOT", "1").strip().lower() not in (
+    fast_boot = os.environ.get("PHARMFLOW_FAST_STICKY_BOOT", "1").strip().lower() not in (
         "0",
         "false",
         "no",
@@ -874,7 +950,7 @@ def _rewire_missing_phones(farm: MuMuFarmOps, missing: list[str]) -> list[str]:
 
 
 def _order_phones(available: list[str], preferred: list[str] | None = None) -> list[str]:
-    """Order CPharm-online phones; preferred is sort hint only, never a cap."""
+    """Order PharmFlow-online phones; preferred is sort hint only, never a cap."""
     avail_set = {p for p in available if p}
     preferred = [p for p in (preferred or []) if p]
     ordered: list[str] = []
@@ -918,9 +994,9 @@ def _persist_live_phones(phones: list[str], farm: MuMuFarmOps) -> None:
         return
     expect = len(names)
     log_dir = Path(
-        os.environ.get("CPHARM_LOGS")
-        or os.environ.get("CPHARM_LOG_DIR")
-        or r"C:\CPharm\logs"
+        os.environ.get("PHARMFLOW_LOGS")
+        or os.environ.get("PHARMFLOW_LOG_DIR")
+        or r"C:\PharmFlow\logs"
     )
     # LIVE ONLY — empty canonical slots re-poison rewire/inject/watchers.
     serials: dict[str, str] = {}
@@ -953,21 +1029,21 @@ def _persist_live_phones(phones: list[str], farm: MuMuFarmOps) -> None:
             raw = json.loads(ov_path.read_text(encoding="utf-8-sig"))
             if isinstance(raw, dict):
                 data = raw
-        data["CPHARM_FARM_PHONES"] = ",".join(names)
-        data["CPHARM_FARM_PHONE_COUNT"] = str(expect)
-        data["CPHARM_FARM_EXPECT_PHONES"] = str(expect)
-        data["CPHARM_ADB_SERIALS"] = ",".join(
+        data["PHARMFLOW_FARM_PHONES"] = ",".join(names)
+        data["PHARMFLOW_FARM_PHONE_COUNT"] = str(expect)
+        data["PHARMFLOW_FARM_EXPECT_PHONES"] = str(expect)
+        data["PHARMFLOW_ADB_SERIALS"] = ",".join(
             serials[n] for n in names if (serials.get(n) or "").strip()
         )
-        data["CPHARM_FARM_BAN_SERIALS"] = ban_serials_csv()
+        data["PHARMFLOW_FARM_BAN_SERIALS"] = ban_serials_csv()
         data["updated"] = now
         data["tick_verify_note"] = (
             f"live_only sticky live={len(live)} expect={expect}"
         )
         ov_path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-        os.environ["CPHARM_FARM_PHONES"] = str(data["CPHARM_FARM_PHONES"])
-        os.environ["CPHARM_ADB_SERIALS"] = str(data.get("CPHARM_ADB_SERIALS") or "")
-        os.environ["CPHARM_FARM_EXPECT_PHONES"] = str(expect)
+        os.environ["PHARMFLOW_FARM_PHONES"] = str(data["PHARMFLOW_FARM_PHONES"])
+        os.environ["PHARMFLOW_ADB_SERIALS"] = str(data.get("PHARMFLOW_ADB_SERIALS") or "")
+        os.environ["PHARMFLOW_FARM_EXPECT_PHONES"] = str(expect)
     except OSError as exc:
         logger.warning("persist sticky phones failed: %s", exc)
     try:
@@ -1005,11 +1081,11 @@ def _persist_live_phones(phones: list[str], farm: MuMuFarmOps) -> None:
                 panel["phones"] = list(phones)
                 panel["updated"] = now
                 env = panel.get("env") if isinstance(panel.get("env"), dict) else {}
-                env["CPHARM_FARM_PHONES"] = ",".join(phones)
-                env["CPHARM_FARM_PHONE_COUNT"] = str(len(phones))
-                env["CPHARM_FARM_EXPECT_PHONES"] = str(len(phones))
+                env["PHARMFLOW_FARM_PHONES"] = ",".join(phones)
+                env["PHARMFLOW_FARM_PHONE_COUNT"] = str(len(phones))
+                env["PHARMFLOW_FARM_EXPECT_PHONES"] = str(len(phones))
                 if serials:
-                    env["CPHARM_ADB_SERIALS"] = ",".join(
+                    env["PHARMFLOW_ADB_SERIALS"] = ",".join(
                         serials[p] for p in phones if serials.get(p)
                     )
                 panel["env"] = env
@@ -1040,18 +1116,24 @@ _RUNTIME_FAIL_MARKERS = (
 )
 
 def _farm_paths() -> set[str]:
-    raw = os.environ.get("CPHARM_FARM_PATHS", "1,2").strip().lower()
+    planned = applied_paths()
+    if planned:
+        return planned
+    raw = os.environ.get("PHARMFLOW_FARM_PATHS", "1,2").strip().lower()
     if raw in ("all", "*"):
         return {"1", "2", "3"}
     return {p.strip() for p in raw.split(",") if p.strip()}
 
 
 def _ads_allowed() -> bool:
-    return os.environ.get("CPHARM_FARM_ALLOW_ADS", "0").strip().lower() in ("1", "true", "yes")
+    planned = applied_ads_allowed()
+    if planned is not None:
+        return planned
+    return os.environ.get("PHARMFLOW_FARM_ALLOW_ADS", "0").strip().lower() in ("1", "true", "yes")
 
 
 def _visible_ads_required() -> bool:
-    return os.environ.get("CPHARM_REQUIRE_VISIBLE_ADS", "1").strip().lower() in (
+    return os.environ.get("PHARMFLOW_REQUIRE_VISIBLE_ADS", "1").strip().lower() in (
         "1",
         "true",
         "yes",
@@ -1140,7 +1222,7 @@ def _path3_forced_click_ok(report: dict | None) -> bool | None:
 
 # How many times to re-run a failed slot before giving up and moving on.
 # Failures do NOT count toward daily visit/ad budgets — only OK does.
-FAIL_RETRY_MAX = max(1, _env_int("CPHARM_FARM_FAIL_RETRY", "2"))
+FAIL_RETRY_MAX = max(1, _env_int("PHARMFLOW_FARM_FAIL_RETRY", "2"))
 
 
 def _daily_budget_path() -> Path:
@@ -1158,26 +1240,28 @@ def _load_daily_budget() -> dict[str, object]:
         raw = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError, TypeError):
         raw = {}
+    # No fleet size is assumed here. Rows are created on demand by
+    # _record_phone_visit and a missing row reads as empty (_phone_budget_row),
+    # so a new day starts with no rows and a phone of ANY index gets one the
+    # moment it records a visit. (Pre-seeding a fixed eight-row roster, with a
+    # floor of six, was a fixed-fleet-size literal; the other readers of this
+    # file -- the operator dash and autopilot -- already treat an empty map as
+    # "nothing used yet".)
     if str(raw.get("date") or "") != today:
-        return {"date": today, "phones": {str(i): _empty_phone_budget() for i in range(8)}}
+        return {"date": today, "phones": {}}
     phones_raw = raw.get("phones") if isinstance(raw.get("phones"), dict) else {}
     phones: dict[str, dict[str, int]] = {}
-    # Preserve every phone index on disk (8+ phone farms used to lose idx>=6
-    # every load, resetting visit/ad counters mid-day).
-    max_idx = 5
-    if isinstance(phones_raw, dict):
-        for key in phones_raw:
-            try:
-                max_idx = max(max_idx, int(str(key)))
-            except (TypeError, ValueError):
-                continue
-    for i in range(max_idx + 1):
-        key = str(i)
-        row = phones_raw.get(key) if isinstance(phones_raw, dict) else None
+    # Preserve every phone index on disk, whatever it is (8+ phone farms used to
+    # lose idx>=6 every load, resetting visit/ad counters mid-day).
+    for key, row in phones_raw.items():
+        try:
+            idx_key = str(int(str(key)))
+        except (TypeError, ValueError):
+            continue
         if not isinstance(row, dict):
-            phones[key] = _empty_phone_budget()
+            phones[idx_key] = _empty_phone_budget()
         else:
-            phones[key] = {
+            phones[idx_key] = {
                 "visits": max(0, int(row.get("visits") or 0)),
                 "ads": max(0, int(row.get("ads") or 0)),
             }
@@ -1204,9 +1288,14 @@ def _phone_budget_row(state: dict[str, object], phone_idx: int) -> dict[str, int
 
 
 def _phone_visits_cap(phone_idx: int) -> int:
+    # A saved earn plan uses a random per-phone list. Extra live phones draw
+    # around the mean. It does not replay a short CSV that would shrink a fleet.
+    planned = applied_visits_per_phone(phone_idx)
+    if planned is not None:
+        return planned if phone_idx >= 0 else 0
     # Re-read env so midnight day-plan / panel bumps take effect without stale import caps.
     visits = _parse_int_list(
-        os.environ.get("CPHARM_FARM_DAILY_VISITS", ""),
+        os.environ.get("PHARMFLOW_FARM_DAILY_VISITS", ""),
         default=list(DAILY_VISITS) if DAILY_VISITS else [0] * 6,
         n=max(6, phone_idx + 1, len(DAILY_VISITS)),
     )
@@ -1218,8 +1307,11 @@ def _phone_visits_cap(phone_idx: int) -> int:
 
 
 def _phone_ads_cap(phone_idx: int) -> int:
+    planned = applied_ads_per_phone(phone_idx)
+    if planned is not None:
+        return planned if phone_idx >= 0 else 0
     ads = _parse_int_list(
-        os.environ.get("CPHARM_FARM_DAILY_ADS", ""),
+        os.environ.get("PHARMFLOW_FARM_DAILY_ADS", ""),
         default=list(DAILY_ADS) if DAILY_ADS else [0] * 6,
         n=max(6, phone_idx + 1, len(DAILY_ADS)),
     )
@@ -1312,7 +1404,7 @@ def _phone_seqs_this_hour(phone_idx: int, rng: random.Random | None = None) -> i
 def _phone_path3_this_hour(phone_idx: int, rng: random.Random | None = None) -> int:
     """Path3 slots this hour from remaining ads + operator per-hour CAP.
 
-    Cap is CPHARM_FARM_PATH3_PER_HOUR (0 = no Path3). Never invent a floor
+    Cap is PHARMFLOW_FARM_PATH3_PER_HOUR (0 = no Path3). Never invent a floor
     above the operator value — that kept Path3 on constantly.
     """
     if not _ads_allowed():
@@ -1322,7 +1414,7 @@ def _phone_path3_this_hour(phone_idx: int, rng: random.Random | None = None) -> 
     ads_left = _phone_ads_remaining(phone_idx)
     if ads_left <= 0:
         return 0
-    cap = _path3_per_hour()
+    cap = _path3_per_hour(phone_idx)
     if cap <= 0:
         return 0
     if not _DAILY_BUDGET_ENABLED or _phone_ads_cap(phone_idx) <= 0:
@@ -1376,11 +1468,11 @@ def _secs_until_local_midnight() -> float:
 def _stop_requested() -> bool:
     """True when env, sticky overrides, or pause/kill-switch ask the farm to stop.
 
-    Dash/kill-switch write CPHARM_FARM_STOP into farm_runtime_overrides.json and
+    Dash/kill-switch write PHARMFLOW_FARM_STOP into farm_runtime_overrides.json and
     engage farm_halted(); the worker process env is not rewritten mid-run, so
     env-only checks left sequences running after soft stop.
     """
-    if os.environ.get("CPHARM_FARM_STOP", "0").strip().lower() in ("1", "true", "yes", "on"):
+    if os.environ.get("PHARMFLOW_FARM_STOP", "0").strip().lower() in ("1", "true", "yes", "on"):
         return True
     try:
         if farm_halted():
@@ -1389,14 +1481,14 @@ def _stop_requested() -> bool:
         pass
     try:
         log_dir = Path(
-            os.environ.get("CPHARM_LOGS")
-            or os.environ.get("CPHARM_LOG_DIR")
-            or r"C:\CPharm\logs"
+            os.environ.get("PHARMFLOW_LOGS")
+            or os.environ.get("PHARMFLOW_LOG_DIR")
+            or r"C:\PharmFlow\logs"
         )
         ov_path = log_dir / "farm_runtime_overrides.json"
         if ov_path.is_file():
             ov = json.loads(ov_path.read_text(encoding="utf-8-sig"))
-            if isinstance(ov, dict) and str(ov.get("CPHARM_FARM_STOP") or "").strip().lower() in (
+            if isinstance(ov, dict) and str(ov.get("PHARMFLOW_FARM_STOP") or "").strip().lower() in (
                 "1",
                 "true",
                 "yes",
@@ -1438,17 +1530,17 @@ def _stem_browser_tag(raw_stem: str) -> str | None:
 
 
 def _allowed_browser_tags() -> set[str] | None:
-    """Optional CPHARM_FARM_BROWSERS=chromium,brave,... Restrict Path1/2 stems.
+    """Optional PHARMFLOW_FARM_BROWSERS=chromium,brave,... Restrict Path1/2 stems.
 
     None = all browsers. Used for overnight click-leak lockdown / profit locks.
-    CPHARM_FARM_CHROMIUM_ONLY=1 always locks to chromium even if BROWSERS unset.
+    PHARMFLOW_FARM_CHROMIUM_ONLY=1 always locks to chromium even if BROWSERS unset.
     """
     chromium_only = (
-        os.environ.get("CPHARM_FARM_CHROMIUM_ONLY") or ""
+        os.environ.get("PHARMFLOW_FARM_CHROMIUM_ONLY") or ""
     ).strip().lower() in ("1", "true", "yes", "on")
     if chromium_only:
         return {"chromium"}
-    raw = (os.environ.get("CPHARM_FARM_BROWSERS") or "").strip().lower()
+    raw = (os.environ.get("PHARMFLOW_FARM_BROWSERS") or "").strip().lower()
     if not raw:
         return None
     tags = {p.strip() for p in raw.split(",") if p.strip()}
@@ -1529,8 +1621,63 @@ def _is_generic_site_path(path: Path) -> bool:
 
 
 def _sequence_root() -> Path:
-    configured = os.environ.get("CPHARM_FARM_SEQUENCE_ROOT", "").strip()
-    return Path(configured) if configured else sequences_dir()
+    configured = os.environ.get("PHARMFLOW_FARM_SEQUENCE_ROOT", "").strip()
+    if configured:
+        path = Path(configured)
+        if not is_nested_recordings_path(path):
+            return path
+        logger.warning("ignoring nested sequence root %s", path)
+    return sequences_dir()
+
+
+def _playlist_files_for_serials(live_serials: list[str]) -> tuple[list[Path], list[str]]:
+    """Bind each live ADB serial to its groups playlist. Never invent phones.
+
+    Empty serials are skipped. If ADB has no serials, return no files — boot
+    stays blocked on HNS rather than a fabricated roster.
+    """
+    cfg, groups = load_groups_list(groups_config_path())
+    if not live_serials:
+        return [], [
+            f"ADB empty — not inventing phones; groups={cfg} boot blocked on HNS"
+        ]
+    def _accepts(path: Path) -> bool:
+        return _preflight(path, strict=True) is None
+
+    bound = bind_live_phone_entries(groups, live_serials)
+    files: list[Path] = []
+    seen: set[str] = set()
+    notes: list[str] = [f"groups={cfg} live={len(live_serials)} bound={len(bound)}"]
+    for serial, ent, source in bound:
+        refs: list[str] = []
+        for field in ("sequence_playlist", "sequence_playlist_secondary"):
+            raw = ent.get(field)
+            if isinstance(raw, list):
+                refs.extend(str(item).strip() for item in raw if str(item).strip())
+        resolved: list[str] = []
+        misses: list[str] = []
+        for ref in refs:
+            path = resolve_playlist_ref(ref, accept=_accepts)
+            if path is None:
+                misses.append(ref)
+                continue
+            resolved.append(path.name)
+            token = str(path.resolve()).lower()
+            if token not in seen:
+                seen.add(token)
+                files.append(path)
+        via = f" via {source}" if source != serial else ""
+        if not resolved:
+            why = "no v3 file passed preflight"
+            if misses:
+                why = f"{why} ({'; '.join(misses)})"
+            notes.append(f"{serial}{via} FAIL {why}")
+            continue
+        notes.append(
+            f"{serial}{via} steps={len(phone_entry_steps(ent, serial))} "
+            f"playlist={len(refs)} v3={len(resolved)} {', '.join(resolved)}"
+        )
+    return files, notes
 
 
 def _used_stems_path() -> Path:
@@ -1538,7 +1685,7 @@ def _used_stems_path() -> Path:
 
     Scoped per sequence root so different site profiles keep separate passes.
     """
-    slug = os.environ.get("CPHARM_SITE_SLUG", "dabflow").strip() or "dabflow"
+    slug = os.environ.get("PHARMFLOW_SITE_SLUG", "dabflow").strip() or "dabflow"
     return logs_dir() / f"farm_used_stems_{slug}.json"
 
 
@@ -1587,9 +1734,9 @@ def _sticky_adb_serial_for_phone(phone: str) -> str:
     """Prefer operator-locked 10.0.2.x serials over stale MuMu 127.0.0.1:16xxx."""
     canonical = str(CANONICAL_FARM_PHONES.get(phone) or "").strip()
     log_dir = Path(
-        os.environ.get("CPHARM_LOGS")
-        or os.environ.get("CPHARM_LOG_DIR")
-        or r"C:\CPharm\logs"
+        os.environ.get("PHARMFLOW_LOGS")
+        or os.environ.get("PHARMFLOW_LOG_DIR")
+        or r"C:\PharmFlow\logs"
     )
     lock_path = log_dir / "ADB_SERIAL_MAP.lock.json"
     try:
@@ -1937,7 +2084,7 @@ def _schedule_path3_slots(
     Mid-hour restart / late join: if the offset would wipe the hour, still
     schedule at least one click in the remaining minutes when count>=1.
     """
-    k = max(0, int(count) if count is not None else _path3_per_hour())
+    k = max(0, int(count) if count is not None else _path3_per_hour(phone_idx))
     if k == 0:
         return []
     # Small per-phone lead so ads do not align — keep it small enough that
@@ -1984,7 +2131,7 @@ def _schedule_hour_seq_slots(
     # Old hard 90s floor capped income at ~40 seq/hr even when overrides said 72.
     rate_floor = max(
         45.0,
-        float(os.environ.get("CPHARM_FARM_MIN_SEQ_SPACING_S", "0") or "0")
+        float(os.environ.get("PHARMFLOW_FARM_MIN_SEQ_SPACING_S", "0") or "0")
         or (3600.0 / max(n, 1)) * 0.72,
     )
     spacing = max(rate_floor, base_spacing * rng.uniform(0.82, 1.22))
@@ -2022,7 +2169,7 @@ def _schedule_hour_seq_slots(
     future = [t for t in cleaned if t >= cutoff]
     # Mid-hour restart / operator "clear+restart": don't sit idle 2–3 minutes
     # waiting for a random phase. Kick the first sequence within a few seconds.
-    immediate = os.environ.get("CPHARM_FARM_IMMEDIATE_START", "").strip().lower() in (
+    immediate = os.environ.get("PHARMFLOW_FARM_IMMEDIATE_START", "").strip().lower() in (
         "1",
         "true",
         "yes",
@@ -2168,7 +2315,11 @@ def _pick(
     point the pool's pass resets. Ad (Path 3) sequences stay random but never
     repeat the same file concurrently (identity lock) or back-to-back farm-wide.
     """
-    if _ads_allowed() and pools.get("ad"):
+    # Pool selection follows the PER-SLOT want_ads flag, not the global ads
+    # switch. _ads_allowed() alone made every pick draw from the ad pool even
+    # on normal visit slots; the Path3 farm-cap guard then refused them all →
+    # 24×None → "no unique sequence available" → phones idle (2026-09-13).
+    if want_ads and _ads_allowed() and pools.get("ad"):
         candidates = list(pools["ad"])
         # Never the same ad file back-to-back across the whole farm.
         if last_ad and last_ad[0]:
@@ -2176,7 +2327,7 @@ def _pick(
             if filtered:
                 candidates = filtered
     else:
-        if rng.random() < HALFWAY_RATIO and pools["halfway"]:
+        if rng.random() < _halfway_share() and pools["halfway"]:
             candidates = list(pools["halfway"])
         elif pools["complete"]:
             candidates = list(pools["complete"])
@@ -2226,7 +2377,7 @@ def _pick(
                 for p in candidates
                 if "_p1d_" in p.stem or "_p1c_" in p.stem or "_p2" in p.stem
             ]
-            prefer = 1.0 if (os.environ.get("CPHARM_EVCPM_PUSH") or "").strip().lower() in (
+            prefer = 1.0 if (os.environ.get("PHARMFLOW_EVCPM_PUSH") or "").strip().lower() in (
                 "1",
                 "true",
                 "yes",
@@ -2475,7 +2626,7 @@ def _worker(
                 # can actually schedule (~40/hr theoretical); was hardcoded 2.5 → max 24/hr.
                 try:
                     evening_floor = float(
-                        os.environ.get("CPHARM_FARM_EVENING_MIN_PER_VISIT", "1.5")
+                        os.environ.get("PHARMFLOW_FARM_EVENING_MIN_PER_VISIT", "1.5")
                         or "1.5"
                     )
                 except (TypeError, ValueError):
@@ -2867,7 +3018,7 @@ def _worker(
                                 phone,
                                 due_slot,
                                 len(path3_fired),
-                                _path3_per_hour(),
+                                _path3_per_hour(phone_idx),
                             )
         except Exception as exc:
             entry["success"] = False
@@ -3196,8 +3347,8 @@ def main() -> int:
     logging.getLogger("farm_354").info(
         "farm logging ready path=%s unique_exit_ip=%s browse=%s",
         log_path,
-        os.environ.get("CPHARM_REQUIRE_UNIQUE_EXIT_IP", "1"),
-        os.environ.get("CPHARM_BROWSE_PROXY_MODE", ""),
+        os.environ.get("PHARMFLOW_REQUIRE_UNIQUE_EXIT_IP", "1"),
+        os.environ.get("PHARMFLOW_BROWSE_PROXY_MODE", ""),
     )
     parser = argparse.ArgumentParser()
     parser.add_argument("--per-phone", type=int, default=TARGET_PER_PHONE)
@@ -3222,14 +3373,14 @@ def main() -> int:
     ]
 
     if not sequences_run_allowed():
-        print("ERROR: set CPHARM_ALLOW_SEQUENCE_RUNS=1")
+        print("ERROR: set PHARMFLOW_ALLOW_SEQUENCE_RUNS=1")
         return 1
 
     per_phone = int(args.per_phone)
     hours_raw = (
         args.hours
         if args.hours is not None
-        else float(os.environ.get("CPHARM_FARM_HOURS") or "0")
+        else float(os.environ.get("PHARMFLOW_FARM_HOURS") or "0")
     )
     # Per-day budgets replace hour cycles. hours<=0 OR daily caps set → day mode.
     day_mode = bool(_DAILY_BUDGET_ENABLED) or float(hours_raw) <= 0
@@ -3270,7 +3421,7 @@ def main() -> int:
             logger.info("TOR REAP: %d orphan tor instance(s) reaped at startup", n)
     except Exception as exc:  # noqa: BLE001
         logger.warning("TOR REAP failed: %s", exc)
-    fast_boot = os.environ.get("CPHARM_FAST_STICKY_BOOT", "1").strip().lower() not in (
+    fast_boot = os.environ.get("PHARMFLOW_FAST_STICKY_BOOT", "1").strip().lower() not in (
         "0",
         "false",
         "no",
@@ -3334,14 +3485,14 @@ def main() -> int:
         # Zero phones is a standby state, not a crash: keep scanning ADB for
         # any emulator/device to appear (MuMu, Android Studio AVD, docker,
         # cloud) instead of exiting non-zero and crash-looping under unison.
-        # Bounded by CPHARM_WAIT_PHONES_MIN (default 20); exit 2 = still none.
+        # Bounded by PHARMFLOW_WAIT_PHONES_MIN (default 20); exit 2 = still none.
         try:
-            wait_min = float(os.environ.get("CPHARM_WAIT_PHONES_MIN", "20").strip() or 0)
+            wait_min = float(os.environ.get("PHARMFLOW_WAIT_PHONES_MIN", "20").strip() or 0)
         except (TypeError, ValueError):
             wait_min = 20.0
         phone_deadline = time.time() + max(0.0, wait_min) * 60.0
         logger.warning(
-            "no online farm phones (ADB) — scanning every 30s for devices (up to %.0f min; CPHARM_WAIT_PHONES_MIN to change)",
+            "no online farm phones (ADB) — scanning every 30s for devices (up to %.0f min; PHARMFLOW_WAIT_PHONES_MIN to change)",
             wait_min,
         )
         while not _stop_requested() and time.time() < phone_deadline:
@@ -3388,7 +3539,17 @@ def main() -> int:
             # so it probed ports belonging to nobody — "fetch_exit_ip failed
             # phone=0 ... 8138 refused" while every lane actually listened.
             stem = name.split(".", 1)[0]
-            idx = int(stem[2:]) if stem.startswith("vm") and stem[2:].isdigit() else roster_i
+            # Absolute vm index only. roster enumerate() for a leftover
+            # serial (adb-10.0.2.141) becomes idx 7, sorts before vm39, and
+            # shifts every phone onto a Tor port nobody is listening on.
+            if not (stem.startswith("vm") and stem[2:].isdigit()):
+                logger.warning(
+                    "ONLINE %s serial=%s has no vm index — excluded from Tor slot map",
+                    name,
+                    inst.adb_serial,
+                )
+                continue
+            idx = int(stem[2:])
             online.append((name, idx))
             logger.info("ONLINE %s serial=%s idx=%d", name, inst.adb_serial, idx)
         else:
@@ -3419,8 +3580,8 @@ def main() -> int:
         logger.warning("exit_ip_guard startup failed: %s", exc)
 
     # New / wiped phones must have Path1/2 browsers sideloaded before farming.
-    # Default ON — set CPHARM_REQUIRE_FARM_BROWSERS=0 only for emergency bypass.
-    require_browsers = os.environ.get("CPHARM_REQUIRE_FARM_BROWSERS", "1").strip().lower() not in (
+    # Default ON — set PHARMFLOW_REQUIRE_FARM_BROWSERS=0 only for emergency bypass.
+    require_browsers = os.environ.get("PHARMFLOW_REQUIRE_FARM_BROWSERS", "1").strip().lower() not in (
         "0",
         "false",
         "no",
@@ -3491,14 +3652,14 @@ def main() -> int:
     # Place phones where local time is currently 09:30–midnight (awake hours on Earth).
     # Skip on soft restart — isolate_before_sequence applies fresh geo every seq;
     # sequential boot geo was 3–4 minutes of dead wall clock (actives=0 stagnation).
-    skip_boot_geo = os.environ.get("CPHARM_SKIP_BOOT_GEO", "").strip().lower() in (
+    skip_boot_geo = os.environ.get("PHARMFLOW_SKIP_BOOT_GEO", "").strip().lower() in (
         "1",
         "true",
         "yes",
         "on",
     )
     if skip_boot_geo:
-        logger.info("SKIP boot geo (CPHARM_SKIP_BOOT_GEO=1) — per-seq isolate owns geo")
+        logger.info("SKIP boot geo (PHARMFLOW_SKIP_BOOT_GEO=1) — per-seq isolate owns geo")
     else:
         try:
             serials: list[str] = []
@@ -3519,7 +3680,28 @@ def main() -> int:
 
     seq_root = _sequence_root()
     files = discover_sequence_files(seq_root)
-    logger.info("sequence root=%s site=%s", seq_root, os.environ.get("CPHARM_SITE_SLUG", "dabflow"))
+    live_serials: list[str] = []
+    for name, _idx in online:
+        inst = farm.get_phone(name)
+        ser = str(getattr(inst, "adb_serial", "") or "").strip() if inst else ""
+        if ser:
+            live_serials.append(ser)
+    playlist_files, playlist_notes = _playlist_files_for_serials(live_serials)
+    if playlist_files:
+        have = {str(path.resolve()).lower() for path in files}
+        for path in playlist_files:
+            token = str(path.resolve()).lower()
+            if token not in have:
+                files.append(path)
+                have.add(token)
+    logger.info(
+        "sequence root=%s groups=%s site=%s",
+        seq_root,
+        groups_config_path(),
+        os.environ.get("PHARMFLOW_SITE_SLUG", "dabflow"),
+    )
+    for note in playlist_notes:
+        logger.info("playlist %s", note)
     pools = _classify(files)
     logger.info(
         "farm mode paths=%s ads_allowed=%s pacing=daily_visits÷hours_left "
@@ -3725,17 +3907,15 @@ def main() -> int:
                     continue
                 if inst.adb_serial in live_serials:
                     continue
-                # Host-wedge guard: a wedged adb server (even `adb devices`
-                # times out) makes every phone look offline. Restart server +
-                # reconnect known serials once before churning any VM — healthy
-                # VMs were being restart-looped on this false signal.
+                # Host-wedge guard: an empty ADB list is not proof the server is
+                # dead. kill-server drops every live phone. start-server only,
+                # then reconnect known serials before churning any VM.
                 if not live_serials:
                     try:
                         logger.warning(
-                            "SELF-HEAL %s: zero live ADB devices — restarting wedged adb server + reconnecting fleet",
+                            "SELF-HEAL %s: zero live ADB devices — start-server + reconnecting fleet (no kill-server)",
                             phone,
                         )
-                        farm.adb.run("kill-server", timeout=15.0)
                         farm.adb.run("start-server", timeout=20.0)
                         farm._reconnect_known_serials()
                         live_serials = {

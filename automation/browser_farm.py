@@ -26,6 +26,8 @@ from automation.browser_identity import (
 from automation.browse_proxy import (
     browser_package_for_serial,
     dabflow_browse_active,
+    guest_proxy_healthy,
+    pin_guest_proxy,
     prepare_browse_session,
     restore_inject_after_identity,
 )
@@ -416,6 +418,36 @@ def browse_url(farm: Any, name: str, url: str) -> bool:
         except Exception as exc:
             logger.warning("[%s] post-pause proxy pin soft-fail: %s", name, exc)
 
+    exit_proxy = ""
+    try:
+        exit_proxy = (
+            farm.adb.shell("settings get global http_proxy", serial=serial).stdout or ""
+        ).strip()
+    except Exception:
+        exit_proxy = ""
+    if not guest_proxy_healthy(exit_proxy):
+        try:
+            exit_proxy = str(
+                pin_guest_proxy(
+                    farm.adb,
+                    serial,
+                    phone_idx,
+                    attempts=1,
+                    browser_package=browser.package,
+                )
+                or ""
+            ).strip()
+        except Exception as exc:
+            logger.warning("[%s] exit pin before open failed: %s", name, exc)
+            exit_proxy = ""
+    if not guest_proxy_healthy(exit_proxy):
+        logger.error(
+            "[%s] refusing browse — guest proxy %r is not a loopback exit",
+            name,
+            exit_proxy or "missing",
+        )
+        return False
+
     ok = open_url(farm.adb, serial, url, browser=browser, profile=profile)
     # If non-Chromium open failed, fall back once to Chromium (Path1/2 soft fail).
     if not ok and browser.package != BROWSER_CHROMIUM:
@@ -507,7 +539,7 @@ def browse_url(farm: Any, name: str, url: str) -> bool:
             except Exception:
                 pass
         # CRITICAL: Mantis CDP/SSP paint must run on SUCCESS (was wrongly only on open_url fail).
-        if os.environ.get("CPHARM_SKIP_MANTIS_PATCH", "").strip().lower() not in (
+        if os.environ.get("PHARMFLOW_SKIP_MANTIS_PATCH", "").strip().lower() not in (
             "1",
             "true",
             "yes",
