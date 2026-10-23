@@ -622,7 +622,19 @@ def install_chromium_on_phones(
     ok_all = True
     for i, serial in enumerate(serials):
         log(f"  Phone {i + 1} ({serial}):")
-        phone_apk = browser_setup.resolve_chromium_apk(serial, log) if download_if_missing else apk
+        # Resolve first: an already-known/sideloaded APK must not trigger a
+        # fresh 230 MB download, and must not fall through to ensure_browser.
+        phone_apk = browser_setup.resolve_chromium_apk(serial, log) if download_if_missing else None
+        if not phone_apk or not phone_apk.is_file():
+            if download_if_missing:
+                phone_apk = browser_setup.download_official_chromium_apk(
+                    log, abi=abi_hint or None, serial=serial
+                )
+            if not phone_apk or not phone_apk.is_file():
+                sideload = browser_setup.find_sideload_apk(serial=serial)
+                if sideload:
+                    phone_apk = sideload[0]
+                    log(f"  Using existing APK: {phone_apk}")
         if not phone_apk or not phone_apk.is_file():
             log(f"    ✗ Could not get Chromium APK for this phone")
             ok_all = False

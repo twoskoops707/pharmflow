@@ -6,13 +6,17 @@ import importlib
 import json
 import os
 import platform
-import psutil
 import queue
 import re
 import subprocess
 import sys
 import threading
 import time
+
+try:
+    import psutil
+except ImportError:  # psutil is an optional dep; fall back to a minimal local scan.
+    psutil = None  # type: ignore[assignment]
 import tkinter as tk
 import urllib.request
 from datetime import datetime
@@ -2565,6 +2569,8 @@ def _boot_stopped_redroid(log: Callable[[str], None]) -> dict[str, Any]:
 def _running_avd_names() -> set[str]:
     """AVD names already launched (emulator -avd NAME)."""
     names: set[str] = set()
+    if psutil is None:
+        return names
     for proc in psutil.process_iter(["cmdline"]):
         try:
             parts = [str(part) for part in (proc.info.get("cmdline") or [])]
