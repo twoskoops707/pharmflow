@@ -220,6 +220,7 @@ def base_hiddenimports() -> list[str]:
         "apscheduler.executors",
         "tzlocal",
         "zoneinfo",
+        "tzdata",  # data package: Windows zoneinfo needs it; hooks-contrib collects its data files
         # Flask / Werkzeug stack
         "flask",
         "werkzeug",

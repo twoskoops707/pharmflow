@@ -1,4 +1,4 @@
-﻿# -*- mode: python ; coding: utf-8 -*-
+# -*- mode: python ; coding: utf-8 -*-
 #
 # Single frozen Windows binary: ``pharmflow_desktop.py`` → ``PharmFlow.exe``.
 # One exe: 9-step wizard, phone setup (step 4), install, boot, go, dashboard.
@@ -6,9 +6,10 @@
 #
 import os
 import platform
+import sys
 from pathlib import Path
 
-from PyInstaller.utils.hooks import collect_all, collect_submodules
+from PyInstaller.utils.hooks import collect_all, collect_data_files, collect_submodules
 
 # Diagnostics: PyInstaller's CArchiveWriter._write_file raises PermissionError
 # on read with no filename in the traceback. Wrap it so the exact source that
@@ -29,6 +30,35 @@ def _write_file_trace(self, fp, src_name, dest_name, typecode, compress=False):
 _pw.CArchiveWriter._write_file = _write_file_trace
 
 _webview_datas, _webview_binaries, _webview_hidden = collect_all("webview")
+
+# zoneinfo on Windows needs the IANA database (tzdata package) inside the
+# freeze — without it every ZoneInfo("America/Los_Angeles") in the farm path
+# raises ZoneInfoNotFoundError (seen live in deck_api.log on 2026-10-23).
+_tz_datas: list = []
+try:
+    import tzdata as _tzmod  # noqa: F401
+    _tz_datas = collect_data_files("tzdata")
+except Exception:
+    _tz_datas = []
+
+# ARM64 WebView2 deck needs pythonnet + clr_loader inside the freeze.
+# collect_all("webview") does not always pull them as binaries on Python 3.14
+# arm64 — missing pythonnet surfaces as:
+#   WebViewException: You must have pythonnet installed in order to use pywebview
+# and the Control Panel never paints (see pharmflow_webview_fallback.log).
+_pynet_parts = [
+    collect_all(name)
+    for name in ("pythonnet", "clr_loader")
+]
+_webview_datas = list(_webview_datas) + [
+    item for _d, _b, _h in _pynet_parts for item in _d
+]
+_webview_binaries = list(_webview_binaries) + [
+    item for _d, _b, _h in _pynet_parts for item in _b
+]
+_webview_hidden = list(_webview_hidden) + [
+    item for _d, _b, _h in _pynet_parts for item in _h
+] + ["pythonnet", "clr", "clr_loader"]
 
 # Farm operator dash (scripts/farm_operator_dash.py) runs in-process when no
 # capable system python is found, so flask + deps must ship inside the EXE.
@@ -193,6 +223,7 @@ _hidden = (
     + collect_submodules("webview")
     + list(_webview_hidden)
     + _dash_hidden
+    + ["tzdata"],
 )
 
 # Stamp the real build identity at build time so the frozen EXE's window header
@@ -227,11 +258,27 @@ _build_info_path.write_text(
 )
 print(f"BUILD_INFO: {_json.dumps(_build_info)}")
 
+# Tcl9 (Python 3.14 arm64) embeds its Tk/Tcl libraries as zipfs archives
+# (libtcl9*.zip / libtk9*.zip). Older PyInstaller hooks only collect the bare
+# DLLs, so frozen tkinter fails with 'Can't find a usable init.tcl' / Tk init
+# errors. Ship the zips beside the DLLs — tcl90.dll auto-mounts them.
+_tcl_zip_binaries: list = []
+try:
+    _tcl_dir = Path(sys.prefix) / "tcl"
+    if _tcl_dir.is_dir():
+        _tcl_zip_binaries = [
+            (str(_z), ".")
+            for _z in sorted(_tcl_dir.glob("libt*.zip"))
+        ]
+except (OSError, AttributeError, NameError):
+    _tcl_zip_binaries = []
+
 a = Analysis(
     ["pharmflow_desktop.py"],
     pathex=[".", "..", "../automation", "../tools"],
     binaries=list(_webview_binaries) + list(_webview_root_binaries)
-    + _dash_binaries,
+    + _dash_binaries
+    + _tcl_zip_binaries,
     datas=[
         ("assets", "assets"),
         ("assets/pharmflow_app", "assets/pharmflow_app"),
@@ -251,7 +298,8 @@ a = Analysis(
     + list(_webview_datas)
     + _dash_datas
     + _browser_apk_datas
-    + _wizard_py_datas,
+    + _wizard_py_datas
+    + _tz_datas,
     hiddenimports=_hidden,
     hookspath=[],
     hooksconfig={},

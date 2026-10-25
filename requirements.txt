@@ -5,3 +5,5 @@ flask>=3.0
 # TLS-MITM CA stack — wheels exist for x64 Windows only (no native-ARM py3.14
 # wheel; see runtime_paths.helper_python). Marked so ARM64 CI/pip skips it.
 cryptography>=42.0; platform_machine == "x86_64" or platform_machine == "AMD64"
+# Windows zoneinfo needs the IANA database (ZoneInfoNotFoundError in frozen builds without it)
+tzdata>=2024.1; sys_platform == "win32"
