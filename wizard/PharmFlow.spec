@@ -223,8 +223,15 @@ _hidden = (
     + collect_submodules("webview")
     + list(_webview_hidden)
     + _dash_hidden
-    + ["tzdata"],
+    + ["tzdata"]
 )
+# A trailing comma above turns this into a 1-tuple. PyInstaller then calls
+# hiddenimports.extend(...) and the ARM64 build dies with
+# AttributeError: 'tuple' object has no attribute 'extend'.
+if not isinstance(_hidden, list):
+    raise SystemExit(
+        "PharmFlow.spec: _hidden must be a list so Analysis can extend it"
+    )
 
 # Stamp the real build identity at build time so the frozen EXE's window header
 # shows which commit/build it actually is (git is not available at runtime).
