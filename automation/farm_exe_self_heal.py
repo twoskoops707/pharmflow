@@ -918,7 +918,12 @@ def _inject_owner_class(pid: int) -> str:
     cmd = _cmdline_for_pid(pid).lower()
     if _is_inject_keepalive_cmd(cmd):
         return "keepalive"
-    if _farm_lane_alive_cmd(cmd):
+    # PharmFlow.exe --start-farm is the onefile owner of in-process inject.
+    # taskkill on that PID makes the bootloader delete the extract, and every
+    # helper then fails with "No module named automation.mantis_inject_proxy".
+    if _farm_lane_alive_cmd(cmd) or "--start-farm" in cmd:
+        return "farm"
+    if "pharmflow.exe" in cmd or "cpharm.exe" in cmd:
         return "farm"
     if "farm_money_monitor" in cmd:
         return "money_monitor"
