@@ -51,11 +51,20 @@ _crypto_binaries = [item for _d, _b, _h in _crypto_parts for item in _b]
 _crypto_hidden = [item for _d, _b, _h in _crypto_parts for item in _h] + [
     "cryptography",
     "cffi",
+    "_cffi_backend",
 ]
-if not _crypto_binaries:
-    raise SystemExit(
-        "PharmFlow.spec: cryptography/cffi native binaries were not collected"
-    )
+# PyInstaller 6.22 collect_all leaves the extension modules out of binaries
+# (cryptography/_rust.pyd and top-level _cffi_backend*.pyd). Ship them explicitly.
+import cryptography as _crypto_mod
+import _cffi_backend as _cffi_backend_mod
+
+_site = Path(_crypto_mod.__file__).resolve().parent.parent
+for _pyd in Path(_crypto_mod.__file__).resolve().parent.rglob("*.pyd"):
+    _crypto_binaries.append((str(_pyd), _pyd.parent.relative_to(_site).as_posix()))
+_backend = Path(_cffi_backend_mod.__file__).resolve()
+_crypto_binaries.append((str(_backend), "."))
+if not any(str(_src).lower().endswith(".pyd") for _src, _dest in _crypto_binaries):
+    raise SystemExit("PharmFlow.spec: no cryptography/cffi .pyd collected")
 
 # ARM64 WebView2 deck needs pythonnet + clr_loader inside the freeze.
 # collect_all("webview") does not always pull them as binaries on Python 3.14
