@@ -40,6 +40,22 @@ try:
     _tz_datas = collect_data_files("tzdata")
 except Exception:
     _tz_datas = []
+if not _tz_datas:
+    raise SystemExit("PharmFlow.spec: tzdata zone files were not collected")
+
+# TLS inject runs inside the frozen EXE. cryptography + cffi must be collected
+# or every phone fails with "No module named 'cryptography'".
+_crypto_parts = [collect_all(name) for name in ("cryptography", "cffi")]
+_crypto_datas = [item for _d, _b, _h in _crypto_parts for item in _d]
+_crypto_binaries = [item for _d, _b, _h in _crypto_parts for item in _b]
+_crypto_hidden = [item for _d, _b, _h in _crypto_parts for item in _h] + [
+    "cryptography",
+    "cffi",
+]
+if not _crypto_binaries:
+    raise SystemExit(
+        "PharmFlow.spec: cryptography/cffi native binaries were not collected"
+    )
 
 # ARM64 WebView2 deck needs pythonnet + clr_loader inside the freeze.
 # collect_all("webview") does not always pull them as binaries on Python 3.14
@@ -224,6 +240,7 @@ _hidden = (
     + list(_webview_hidden)
     + _dash_hidden
     + ["tzdata"]
+    + _crypto_hidden
 )
 # A trailing comma above turns this into a 1-tuple. PyInstaller then calls
 # hiddenimports.extend(...) and the ARM64 build dies with
@@ -285,7 +302,8 @@ a = Analysis(
     pathex=[".", "..", "../automation", "../tools"],
     binaries=list(_webview_binaries) + list(_webview_root_binaries)
     + _dash_binaries
-    + _tcl_zip_binaries,
+    + _tcl_zip_binaries
+    + _crypto_binaries,
     datas=[
         ("assets", "assets"),
         ("assets/pharmflow_app", "assets/pharmflow_app"),
@@ -306,7 +324,8 @@ a = Analysis(
     + _dash_datas
     + _browser_apk_datas
     + _wizard_py_datas
-    + _tz_datas,
+    + _tz_datas
+    + _crypto_datas,
     hiddenimports=_hidden,
     hookspath=[],
     hooksconfig={},
