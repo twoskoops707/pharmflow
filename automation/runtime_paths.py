@@ -56,11 +56,10 @@ def helper_python() -> str | None:
     """Interpreter for spawning scripts. Never PharmFlow.exe (it is a GUI).
 
     Stealth/farm helpers import the ``cryptography`` stack (TLS-inject CA,
-    exit-IP guard, Tor repair). Native-ARM Windows Pythons have no
-    cryptography wheel for 3.14, so spawning with ``sys.executable`` on an ARM
-    box silently kills every fix child (``ModuleNotFoundError: cryptography``).
-    Prefer a deps-complete interpreter: the current one when it works, else a
-    system pythonw that can import the full stack.
+    exit-IP guard, Tor repair). Never return PharmFlow.exe: a frozen onefile
+    parent deletes its extract when a second copy of the EXE exits, which
+    kills every helper still running out of that folder. Prefer a same-arch
+    system pythonw that can import cryptography.
     """
     exe = Path(sys.executable)
     name = exe.name.lower()
@@ -104,7 +103,7 @@ def _deps_complete_pythonw() -> str | None:
 
 def _pythonw_candidates() -> list[Path]:
     local = Path(os.environ.get("LOCALAPPDATA", ""))
-    return [
+    candidates = [
         local / "Python" / "pythoncore-3.14-64" / "pythonw.exe",
         local / "Python" / "pythoncore-3.13-64" / "pythonw.exe",
         local / "Python" / "pythoncore-3.12-64" / "pythonw.exe",
@@ -117,6 +116,15 @@ def _pythonw_candidates() -> list[Path]:
         Path(r"C:\Python312\pythonw.exe"),
         Path(r"C:\Python311\pythonw.exe"),
     ]
+    # The frozen bundle's .pyds match the build arch. An x64 helper cannot
+    # load them, so on ARM64 the native interpreter has to win.
+    if (os.environ.get("PROCESSOR_ARCHITECTURE") or "").upper() == "ARM64":
+        arm = [
+            local / "Programs" / "Python" / "Python314-arm64" / "pythonw.exe",
+            local / "Programs" / "Python" / "Python313-arm64" / "pythonw.exe",
+        ]
+        return arm + candidates
+    return candidates
 
 
 def _system_pythonw() -> str | None:

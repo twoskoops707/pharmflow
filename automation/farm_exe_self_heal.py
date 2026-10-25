@@ -31,6 +31,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from automation.runtime_paths import helper_python
+
 log = logging.getLogger("farm_exe_self_heal")
 
 LOG = Path(os.environ.get("PHARMFLOW_LOGS") or os.environ.get("PHARMFLOW_LOG_DIR") or r"C:\PharmFlow\logs")
@@ -566,10 +568,12 @@ def _ensure_inject_keepalive_process(*, idxs: list[int]) -> list[str]:
     script = Path(__file__).resolve().parents[1] / "scripts" / "pharmflow_inject_keepalive.py"
     if not script.is_file():
         return [f"inject_keepalive_script_missing:{script}"]
-    py = sys.executable
-    pyw = py.replace("python.exe", "pythonw.exe")
-    if not Path(pyw).is_file():
-        pyw = py
+    # sys.executable inside the frozen EXE is PharmFlow.exe. Spawning it
+    # starts a second onefile copy that exits immediately and makes the
+    # bootloader delete the extract the farm helpers are still using.
+    pyw = helper_python()
+    if not pyw or Path(pyw).stem.lower() in {"pharmflow", "cpharm"}:
+        return ["inject_keepalive_no_helper_python"]
     env = os.environ.copy()
     env["PYTHONPATH"] = str(script.parents[1]) + os.pathsep + env.get("PYTHONPATH", "")
     try:

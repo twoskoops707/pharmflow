@@ -1387,18 +1387,22 @@ def run_farm_cli() -> int:
     _ensure_console()
     if "--stop-farm" in sys.argv:
         stopped = _stop()
+        _bootlog("farm-cli: stop")
         print("Farm stopped" if stopped else "Farm was not running")
         return 0
     if _fr():
+        _bootlog("farm-cli: already-running")
         print("Farm already running — dashboard http://127.0.0.1:8091/")
         return 0
     ok = _sf(profile=_load_profile(None), hours=None, takeover=True)
     if not ok and _fr():
         # start_farm returns False when unison is already up. That is not a
         # failed arm — the stale-log path used to take this branch by mistake.
+        _bootlog("farm-cli: already-running-after-start")
         print("Farm already running — dashboard http://127.0.0.1:8091/")
         return 0
     if not ok:
+        _bootlog("farm-cli: refused")
         print("Start farm refused (see farm log)", file=sys.stderr)
         return 1
     print("Farm started — dashboard http://127.0.0.1:8091/")
