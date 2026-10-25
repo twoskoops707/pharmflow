@@ -2,9 +2,9 @@ websockets>=12.0
 psutil>=5.9.0
 pywebview>=5.0
 flask>=3.0
-# TLS-MITM CA stack. Native wheels exist for Windows x64 and ARM64 CPython 3.14.
-# The frozen EXE imports cryptography in-process; skipping it on ARM64 made
-# Start farm die with "No module named cryptography".
-cryptography>=42.0; sys_platform == "win32"
+# TLS-MITM CA stack. The frozen EXE imports cryptography in-process.
+# 46.0.3 is the newest release with a win_arm64 abi3 wheel. 47+ is source-only
+# on ARM64 and the CI build dies in openssl-sys. Do not float this pin.
+cryptography==46.0.3; sys_platform == "win32"
 # Windows zoneinfo needs the IANA database (ZoneInfoNotFoundError in frozen builds without it)
 tzdata>=2024.1; sys_platform == "win32"
