@@ -238,39 +238,51 @@ def android_cacert_hash(cert: x509.Certificate) -> str:
     return f"{int.from_bytes(digest[:4], 'little'):08x}"
 
 
-def _propagate_ca_into_app_namespaces(adb: object, serial: str, remote_name: str) -> None:
-    """Bind the CA store into zygote and browser mount namespaces.
+def _ca_namespace_script(remote_name: str) -> str:
+    """Shell that puts the inject CA into the mount Chromium actually uses.
 
-    A file that ``test -f`` sees from the shell is invisible to Chromium.
-    Conscrypt keeps its own mount of ``/apex/com.android.conscrypt/cacerts``.
-    Copying into the shell namespace leaves CERTIFICATE_UNKNOWN in place.
-    The bind is skipped when the prepared store has fewer than 10 certs, so
-    a partial copy cannot replace the system trust set.
+    ``/proc/<pid>/cmdline`` is NUL-separated. Reading it with ``tr`` or a
+    shell variable stops at the first NUL, so the word ``zygote`` (an
+    argument, not the executable path) is invisible and the bind never runs.
+    ``pidof`` and ``grep -a`` see past those NULs. The cert set is copied
+    from inside zygote's mount, because the shell's view of the apex store
+    is not the one Conscrypt loaded. A store with 10 or fewer files is
+    refused so a partial copy cannot replace the system trust set.
     """
-    script = (
-        f"NAME={remote_name}; "
+    name = str(remote_name or "").strip()
+    return (
+        f"NAME={name}; "
         "APEX=/apex/com.android.conscrypt/cacerts; "
         "STORE=/data/local/tmp/cacerts_store; "
         "mkdir -p \"$STORE\"; "
         "if [ -d \"$APEX\" ]; then cp \"$APEX\"/* \"$STORE\"/ 2>/dev/null; fi; "
+        "Z=$(pidof zygote64 || true); "
+        "if [ -z \"$Z\" ]; then Z=$(pidof zygote || true); fi; "
+        "for z in $Z; do "
+        "  nsenter --mount=/proc/$z/ns/mnt -- cp \"$APEX\"/* \"$STORE\"/ 2>/dev/null; "
+        "done; "
         "if [ -f /data/local/tmp/$NAME ]; then cp /data/local/tmp/$NAME \"$STORE\"/; fi; "
         "chmod 644 \"$STORE\"/* 2>/dev/null; "
         "n=$(ls \"$STORE\" 2>/dev/null | wc -l); "
         "test \"$n\" -gt 10 || { echo SKIP_SMALL; exit 0; }; "
         "test -f \"$STORE/$NAME\" || { echo SKIP_MISSING; exit 0; }; "
         "hit=0; "
+        "for z in $Z; do "
+        "  if nsenter --mount=/proc/$z/ns/mnt -- mount --bind \"$STORE\" \"$APEX\"; then hit=$((hit+1)); fi; "
+        "done; "
         "for pid in $(ls /proc | grep -E '^[0-9]+$'); do "
-        "  cmd=$(tr '\\0' ' ' < /proc/$pid/cmdline 2>/dev/null); "
-        "  case \"$cmd\" in "
-        "    *zygote*|*chrom*|*farmbrowser*) "
-        "      if nsenter --mount=/proc/$pid/ns/mnt -- mount --bind \"$STORE\" \"$APEX\"; then hit=$((hit+1)); fi; "
-        "      ;; "
-        "  esac; "
+        "  grep -a -q -E 'chrom|farmbrowser' /proc/$pid/cmdline 2>/dev/null || continue; "
+        "  if nsenter --mount=/proc/$pid/ns/mnt -- mount --bind \"$STORE\" \"$APEX\"; then hit=$((hit+1)); fi; "
         "done; "
         "echo PROP:$hit"
     )
+
+
+def _propagate_ca_into_app_namespaces(adb: object, serial: str, remote_name: str) -> None:
+    """Bind the CA store into zygote and browser mount namespaces."""
+    script = _ca_namespace_script(remote_name)
     try:
-        result = adb.shell(script, serial=serial, timeout=25.0)  # type: ignore[attr-defined]
+        result = adb.shell(script, serial=serial, timeout=40.0)  # type: ignore[attr-defined]
     except Exception as exc:
         logger.warning("CA namespace propagate failed serial=%s: %s", serial, exc)
         return
