@@ -13,6 +13,7 @@ from typing import Any
 from automation.adb_wrapper import AdbWrapper
 from automation.browser_privacy import append_privacy_flags
 from automation.config import BROWSER_CHROMIUM
+from automation.mantis_inject_proxy import publish_client_hints_for_phone
 
 logger = logging.getLogger(__name__)
 
@@ -727,6 +728,9 @@ def scramble_browser_session(
         applied.get("user_agent_written"),
         profile.source,
     )
+    # The first SSP fetch happens as soon as the page opens. Hints published
+    # after open_url miss that request, and Mantis answers with the house tier.
+    publish_client_hints_for_phone(phone_index, profile)
     return profile, applied
 
 
@@ -747,4 +751,5 @@ def ensure_browser_identity_before_browse(
         logger.warning("Browser header verify failed serial=%s: %s", serial, report.failures)
         apply_browser_session(adb, serial, profile, phone_index=phone_index)
         report = verify_browser_headers(adb, serial, profile)
+    publish_client_hints_for_phone(phone_index, profile)
     return profile, report
