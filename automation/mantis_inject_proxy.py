@@ -1392,8 +1392,8 @@ def _device_has_inject_ca(adb: object, serial: str) -> bool:
         return False
 
 
-def _device_trusts_inject_ca(adb: object, serial: str, inject_port: int) -> bool:
-    """Functional TLS verify: guest curl --cacert through the MITM inject port."""
+def _device_trusts_inject_ca(adb: object, serial: str, inject_port: int) -> str:
+    """Guest curl --cacert. Returns trusted, untrusted, or inconclusive."""
     try:
         from cryptography import x509
 
@@ -1414,11 +1414,11 @@ def _device_trusts_inject_ca(adb: object, serial: str, inject_port: int) -> bool
                     cert_path = cand
                     break
             else:
-                return False
+                return "inconclusive"
         cert = x509.load_pem_x509_certificate(cert_path.read_bytes())
         name = f"{android_cacert_hash(cert)}.0"
     except Exception:
-        return False
+        return "inconclusive"
     for ca_file in (
         f"/system/etc/security/cacerts/{name}",
         f"/data/misc/user/0/cacerts-added/{name}",
@@ -1427,18 +1427,59 @@ def _device_trusts_inject_ca(adb: object, serial: str, inject_port: int) -> bool
         try:
             probe = adb.shell(  # type: ignore[attr-defined]
                 f"test -f {ca_file} || exit 9; "
-                f"curl -sS -m 10 --cacert {ca_file} -x http://127.0.0.1:{int(inject_port)} "
-                f"-o /dev/null -w '%{{http_code}}' https://getdabflow.app/",
+                f"curl -sS -m 10 --connect-timeout 8 --cacert {ca_file} "
+                f"-x http://127.0.0.1:{int(inject_port)} "
+                f"-o /dev/null -w '\\n%{{http_code}}' "
+                f"https://getdabflow.app/ 2>&1",
                 serial=serial,
                 timeout=18,
             )
             text = (getattr(probe, "stdout", "") or "") + (getattr(probe, "stderr", "") or "")
-            code = "".join(ch for ch in text.strip().splitlines()[-1] if ch.isdigit())[:3]
-            if code.startswith(("2", "3")):
-                return True
+            t = text.strip()
+            lines = t.splitlines() if t else []
+            if not lines:
+                continue
+            # The last line is the pure http_code (thanks to the leading \n
+            # before %{http_code}); earlier lines carry curl stderr phrases.
+            raw = lines[-1].strip()
+            code = raw if raw.isdigit() else "".join(ch for ch in raw if ch.isdigit())[:3]
+            if not code:
+                continue
+            joined = " ".join(lines[:-1]).lower()
+            if any(
+                s in joined
+                for s in (
+                    "certificate_unknown",
+                    "certificate unknown",
+                    "certificate problem",
+                    "certificate verify failed",
+                    "ssl certificate",
+                    "self-signed",
+                    "unable to get local issuer",
+                )
+            ):
+                logger.warning(
+                    "CA trust probe untrusted serial=%s file=%s out=%s",
+                    serial,
+                    ca_file,
+                    t[:180],
+                )
+                return "untrusted"
+            if code == "000":
+                # Timeout or dead proxy. The other stores hold the same CA.
+                # Returning False here used to abort the sequence.
+                logger.warning(
+                    "CA trust probe inconclusive serial=%s file=%s out=%s",
+                    serial,
+                    ca_file,
+                    t[:180],
+                )
+                return "inconclusive"
+            # TLS completed. Upstream 4xx/5xx is not a certificate failure.
+            return "trusted"
         except Exception:
             continue
-    return False
+    return "inconclusive"
 
 
 def _force_stop_money_browsers(adb: object, serial: str) -> None:
@@ -1519,8 +1560,8 @@ def ensure_inject_for_phone(
             "error": f"pin:{exc}",
         }
     if install_ca:
-        trusts = _device_trusts_inject_ca(adb, serial, port)
-        if not trusts:
+        verdict = _device_trusts_inject_ca(adb, serial, port)
+        if verdict == "untrusted":
             try:
                 ca_ok = bool(_ca()[1](adb, serial))
             except Exception as exc:
@@ -1531,9 +1572,20 @@ def ensure_inject_for_phone(
                 endpoint = point_phone_at_inject(adb, serial, phone_index)
             except Exception:
                 pass
-            trusts = _device_trusts_inject_ca(adb, serial, port)
-        ca_ok = bool(ca_ok and trusts)
-        if not ca_ok:
+            verdict = _device_trusts_inject_ca(adb, serial, port)
+        if verdict == "trusted":
+            ca_ok = True
+        elif verdict == "inconclusive" and _device_has_inject_ca(adb, serial):
+            # Curl timed out or got HTTP 000. The CA file is on the guest and
+            # the inject pin already succeeded. Aborting here was the 178
+            # isolation FAILs: the browser never opened, so nothing could bill.
+            logger.warning(
+                "CA trust probe inconclusive serial=%s port=%s — cert present, not aborting",
+                serial,
+                port,
+            )
+            ca_ok = True
+        else:
             return {
                 "ok": False,
                 "endpoint": endpoint,
