@@ -352,6 +352,19 @@ def _is_ssp_display_host(host: str) -> bool:
     return h == "ssp.mantis.marketing"
 
 
+def _mitm_connect_host(host: str, port: int) -> bool:
+    """True when this CONNECT must be decrypted so we can stamp headers.
+
+    The page host needs the click-beacon script. The SSP host needs the
+    phone's Client Hints; a blind tunnel leaves the WebView user-agent in
+    place and Mantis answers with house inventory. The click host stays a
+    blind tunnel so the billed click is the phone's own TLS session.
+    """
+    return int(port) == 443 and (
+        _is_dabflow_host(host) or _is_ssp_display_host(host)
+    )
+
+
 def billing_direct_enabled() -> bool:
     """True when billing traffic should go direct (host IP) instead of Tor.
 
@@ -951,7 +964,7 @@ class MantisInjectProxy:
                 host, port = _host_port_from_target(target, 443)
                 if "bids.mantis.marketing" in (host or ""):
                     _beacon_note(f"click-connect phone={self.phone_index} host={host}")
-                if mitm_enabled() and _is_dabflow_host(host) and port == 443:
+                if mitm_enabled() and _mitm_connect_host(host, port):
                     self._handle_mitm(client, host, port, head)
                 else:
                     self._handle_blind_connect(client, host, port)

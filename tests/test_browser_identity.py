@@ -28,7 +28,10 @@ class BrowserIdentityTests(unittest.TestCase):
         ua = build_mobile_user_agent(identity, "119.0.6045.163")
         self.assertIn("CPH2449", ua)
         self.assertIn("Android 13", ua)
+        self.assertIn("Chrome/119.0.6045.163", ua)
         self.assertNotIn("SM-S918B", ua)
+        self.assertNotIn("; wv", ua)
+        self.assertNotIn("Version/4.0", ua)
 
     def test_read_device_identity_from_getprop(self) -> None:
         adb = MagicMock()

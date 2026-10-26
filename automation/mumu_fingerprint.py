@@ -1406,14 +1406,12 @@ def profile_by_farm_index(index: int) -> dict:
 def build_mobile_user_agent(profile: dict) -> str:
     fp = str(profile.get("fingerprint", ""))
     m_release = re.search(r":(\d{1,2})/", fp)
-    m_build = re.search(r":\d{1,2}/([^/]+)/", fp)
     release = profile.get("android_release") or (m_release.group(1) if m_release else "13")
-    build_id = profile.get("build_id") or (m_build.group(1) if m_build else "TP1A.220624.014")
     chrome = profile.get("chrome_version") or _chrome_version_for_model(str(profile.get("model", "")))
     return (
-        f"Mozilla/5.0 (Linux; Android {release}; {profile['model']} "
-        f"Build/{build_id}; wv) AppleWebKit/537.36 (KHTML, like Gecko) "
-        f"Version/4.0 Chrome/{chrome} Mobile Safari/537.36"
+        f"Mozilla/5.0 (Linux; Android {release}; {profile['model']}) "
+        f"AppleWebKit/537.36 (KHTML, like Gecko) "
+        f"Chrome/{chrome} Mobile Safari/537.36"
     )
 
 

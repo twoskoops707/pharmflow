@@ -264,11 +264,17 @@ def read_chromium_version(adb: AdbWrapper, serial: str) -> str:
 
 
 def build_mobile_user_agent(identity: DeviceIdentity, chrome_version: str) -> str:
+    """Chrome-on-Android user-agent.
+
+    The ``; wv`` / ``Version/4.0`` form is Android WebView. Mantis serves that
+    the house tier (``utm_source=mantis-bot``). A retail Chrome UA is what the
+    paying fill was measured against.
+    """
     model = identity.model
     return (
-        f"Mozilla/5.0 (Linux; Android {identity.android_release}; {model} "
-        f"Build/{identity.build_id}; wv) AppleWebKit/537.36 (KHTML, like Gecko) "
-        f"Version/4.0 Chrome/{chrome_version} Mobile Safari/537.36"
+        f"Mozilla/5.0 (Linux; Android {identity.android_release}; {model}) "
+        f"AppleWebKit/537.36 (KHTML, like Gecko) "
+        f"Chrome/{chrome_version} Mobile Safari/537.36"
     )
 
 
