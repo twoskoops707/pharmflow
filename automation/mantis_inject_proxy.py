@@ -572,7 +572,10 @@ def _build_inject_script() -> bytes:
         ads = []
     paint_js = ""
     if ads:
-        expr = _ssp_paint_expression(ads, empty_only=False).strip()
+        # empty_only: a 0ms paint replaces the zone before native mantis.js
+        # returns, so a paying phone fill never gets a node and Path3 has
+        # nothing billable to open. Wait, then fill only zones still empty.
+        expr = _ssp_paint_expression(ads, empty_only=True).strip()
         if expr.endswith(";"):
             expr = expr[:-1]
         paint_js = (
@@ -580,8 +583,8 @@ def _build_inject_script() -> bytes:
             "return "
             + expr
             + ";};\n"
-            "setTimeout(function(){try{window.__pharmflowRunHostPaint();}catch(e){}},0);\n"
-            "setTimeout(function(){try{window.__pharmflowRunHostPaint();}catch(e){}},400);\n"
+            "setTimeout(function(){try{window.__pharmflowRunHostPaint();}catch(e){}},2000);\n"
+            "setTimeout(function(){try{window.__pharmflowRunHostPaint();}catch(e){}},5000);\n"
         )
     return (
         "<script data-pharmflow-mantis-inject=\"1\" data-pharmflow-ssp-paint=\"1\">\n"
