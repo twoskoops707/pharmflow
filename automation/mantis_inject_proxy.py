@@ -341,6 +341,17 @@ def _is_dabflow_host(host: str) -> bool:
     return h in DABFLOW_HOSTS or h.endswith(".getdabflow.app")
 
 
+def _is_ssp_display_host(host: str) -> bool:
+    """True for the SSP host that chooses paying vs house inventory.
+
+    Bare emulator headers on this request are the bot tier (mantis-bot).
+    The phone's scrambled Client Hints are what previously returned paying
+    creatives. The request still leaves through that phone's own exit.
+    """
+    h = (host or "").split(":")[0].lower().strip(".")
+    return h == "ssp.mantis.marketing"
+
+
 def billing_direct_enabled() -> bool:
     """True when billing traffic should go direct (host IP) instead of Tor.
 
@@ -1024,16 +1035,23 @@ class MantisInjectProxy:
                     )
                     continue
                 # Chromium on MuMu often has no DevTools — rewrite Client Hints here.
-                # Strip brotli. We cannot rewrite br HTML, so the phone never gets
-                # the click-beacon script and Path3 has no token to open.
-                if _is_dabflow_host(host):
-                    req_headers["accept-encoding"] = "gzip, identity"
+                # Strip brotli on the page only. We cannot rewrite br HTML, so the
+                # phone never gets the click-beacon script and Path3 has no token.
+                # SSP display gets the same phone hints: a bare emulator UA on
+                # ssp.mantis.marketing is the house/bot tier.
+                stamp_hints = _is_dabflow_host(host) or _is_ssp_display_host(host)
+                if stamp_hints:
+                    if _is_dabflow_host(host):
+                        req_headers["accept-encoding"] = "gzip, identity"
                     hints = _client_hints_for_phone(self.phone_index)
                     if hints:
                         req_headers = _apply_client_hints_headers(req_headers, hints)
                         self.stats["client_hints"] = int(self.stats.get("client_hints", 0)) + 1
-                    status_line = headers_part.split(b"\r\n", 1)[0]
-                    remote.sendall(_rebuild_request(status_line, req_headers, body))
+                    if _is_dabflow_host(host) or hints:
+                        status_line = headers_part.split(b"\r\n", 1)[0]
+                        remote.sendall(_rebuild_request(status_line, req_headers, body))
+                    else:
+                        remote.sendall(headers_part + b"\r\n\r\n" + body)
                 else:
                     remote.sendall(headers_part + b"\r\n\r\n" + body)
 
