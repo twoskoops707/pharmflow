@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from urllib.parse import quote
 
-from automation.dabflow_mantis_ad_urls import has_live_click_token
+from automation.dabflow_mantis_ad_urls import _zone_lookup_keys, has_live_click_token
 
 _LIVE_BI = "6f1c2a90-4b3e-4d11-9c2a-1e8b7a0d44c1"
 _LIVE_BT = "1712345678"
@@ -141,3 +141,9 @@ def test_phone_zero_viewed_click_is_used(tmp_path, monkeypatch) -> None:
     )[0]
     assert "int(phone_idx) > 0" not in block
     assert "phone_viewed_click_url(viewed_idx, zone)" in block
+
+
+def test_zone_lookup_accepts_trailing_hyphen() -> None:
+    assert _zone_lookup_keys("zone-twelve") == ("zone-twelve", "zone-twelve-")
+    assert _zone_lookup_keys("zone-twelve-") == ("zone-twelve-", "zone-twelve")
+    assert _zone_lookup_keys("") == ()

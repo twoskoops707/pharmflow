@@ -238,6 +238,46 @@ def android_cacert_hash(cert: x509.Certificate) -> str:
     return f"{int.from_bytes(digest[:4], 'little'):08x}"
 
 
+def _propagate_ca_into_app_namespaces(adb: object, serial: str, remote_name: str) -> None:
+    """Bind the CA store into zygote and browser mount namespaces.
+
+    A file that ``test -f`` sees from the shell is invisible to Chromium.
+    Conscrypt keeps its own mount of ``/apex/com.android.conscrypt/cacerts``.
+    Copying into the shell namespace leaves CERTIFICATE_UNKNOWN in place.
+    The bind is skipped when the prepared store has fewer than 10 certs, so
+    a partial copy cannot replace the system trust set.
+    """
+    script = (
+        f"NAME={remote_name}; "
+        "APEX=/apex/com.android.conscrypt/cacerts; "
+        "STORE=/data/local/tmp/cacerts_store; "
+        "mkdir -p \"$STORE\"; "
+        "if [ -d \"$APEX\" ]; then cp \"$APEX\"/* \"$STORE\"/ 2>/dev/null; fi; "
+        "if [ -f /data/local/tmp/$NAME ]; then cp /data/local/tmp/$NAME \"$STORE\"/; fi; "
+        "chmod 644 \"$STORE\"/* 2>/dev/null; "
+        "n=$(ls \"$STORE\" 2>/dev/null | wc -l); "
+        "test \"$n\" -gt 10 || { echo SKIP_SMALL; exit 0; }; "
+        "test -f \"$STORE/$NAME\" || { echo SKIP_MISSING; exit 0; }; "
+        "hit=0; "
+        "for pid in $(ls /proc | grep -E '^[0-9]+$'); do "
+        "  cmd=$(tr '\\0' ' ' < /proc/$pid/cmdline 2>/dev/null); "
+        "  case \"$cmd\" in "
+        "    *zygote*|*chrom*|*farmbrowser*) "
+        "      if nsenter --mount=/proc/$pid/ns/mnt -- mount --bind \"$STORE\" \"$APEX\"; then hit=$((hit+1)); fi; "
+        "      ;; "
+        "  esac; "
+        "done; "
+        "echo PROP:$hit"
+    )
+    try:
+        result = adb.shell(script, serial=serial, timeout=25.0)  # type: ignore[attr-defined]
+    except Exception as exc:
+        logger.warning("CA namespace propagate failed serial=%s: %s", serial, exc)
+        return
+    text = ((getattr(result, "stdout", "") or "") + " " + (getattr(result, "stderr", "") or "")).strip()
+    logger.info("CA namespace propagate serial=%s %s", serial, text[:180])
+
+
 def install_ca_on_device(adb: object, serial: str) -> bool:
     """Install MITM CA into every guest trust store that exists.
 
@@ -246,6 +286,7 @@ def install_ca_on_device(adb: object, serial: str) -> bool:
     system file → CERTIFICATE_UNKNOWN while ``test -f`` still looked green.
     Apex is optional on MuMu (often missing); user store is the hot-reload path.
     """
+    clear_host_cert_cache()
     ensure_ca_files()
     cert = x509.load_pem_x509_certificate(CA_CERT.read_bytes())
     h = android_cacert_hash(cert)
@@ -371,6 +412,7 @@ def install_ca_on_device(adb: object, serial: str) -> bool:
         if not installed:
             logger.warning("CA install could not land on any store serial=%s", serial)
             return False
+        _propagate_ca_into_app_namespaces(adb, serial, remote_name)
         return True
     except Exception as exc:
         logger.warning("CA install error serial=%s: %s", serial, exc)

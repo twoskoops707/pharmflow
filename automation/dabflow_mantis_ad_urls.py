@@ -172,6 +172,21 @@ def record_phone_viewed_ads(phone_index: int, ads: list) -> int:
     return stored
 
 
+def _zone_lookup_keys(zone: str) -> tuple[str, ...]:
+    """SSP zone ids arrive with and without a trailing hyphen.
+
+    The page stores ``zone-twelve-``. Path3 asks for ``zone-twelve``.
+    An exact match misses the click the phone just fetched.
+    """
+    want = str(zone or "").strip()
+    if not want:
+        return ()
+    alt = want[:-1] if want.endswith("-") else want + "-"
+    if alt == want:
+        return (want,)
+    return (want, alt)
+
+
 def phone_viewed_click_url(
     phone_index: int,
     zone: str,
@@ -179,8 +194,8 @@ def phone_viewed_click_url(
     max_age_s: float = _VIEWED_CLICK_TTL_S,
 ) -> str:
     """Click URL from this phone's own fill, or empty if missing/stale."""
-    want = str(zone or "").strip()
-    if not want:
+    keys = _zone_lookup_keys(zone)
+    if not keys:
         return ""
     for path in _viewed_clicks_paths():
         try:
@@ -189,19 +204,23 @@ def phone_viewed_click_url(
             continue
         if not isinstance(data, dict):
             continue
-        row = (data.get(str(int(phone_index))) or {}).get(want) or {}
-        if not isinstance(row, dict):
+        bucket = data.get(str(int(phone_index))) or {}
+        if not isinstance(bucket, dict):
             continue
-        url = str(row.get("url") or "").strip()
-        try:
-            ts = float(row.get("ts") or 0)
-        except (TypeError, ValueError):
-            ts = 0.0
-        if not url or (time.time() - ts) > float(max_age_s):
-            continue
-        if not has_live_click_token(url):
-            continue
-        return url
+        for want in keys:
+            row = bucket.get(want) or {}
+            if not isinstance(row, dict):
+                continue
+            url = str(row.get("url") or "").strip()
+            try:
+                ts = float(row.get("ts") or 0)
+            except (TypeError, ValueError):
+                ts = 0.0
+            if not url or (time.time() - ts) > float(max_age_s):
+                continue
+            if not has_live_click_token(url):
+                continue
+            return url
     return ""
 
 

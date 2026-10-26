@@ -41,9 +41,15 @@ for _p in _path_candidates:
         sys.path.insert(0, _sd)
 
 try:
-    from wizard_paths import automation_on_sys_path
+    from wizard_paths import automation_on_sys_path, ensure_sys_path
 except ImportError:  # frozen datas layout: wizard.wizard_paths
-    from wizard.wizard_paths import automation_on_sys_path  # type: ignore[no-redef]
+    from wizard.wizard_paths import automation_on_sys_path, ensure_sys_path  # type: ignore[no-redef]
+
+# Pin Console Host and CREATE_NO_WINDOW before any adb/tor/helper child.
+# A windowed EXE has no console to inherit, so each console-subsystem child
+# otherwise allocates a new terminal and flashes it on the desktop.
+ensure_sys_path()
+import automation.no_window  # noqa: E402,F401
 
 try:
     from pharmflow_version import build_label, instance_title
