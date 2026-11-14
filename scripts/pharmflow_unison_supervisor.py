@@ -28,11 +28,11 @@ import automation.no_window  # noqa: F401
 
 from automation.pharmflow_farm_config import (  # noqa: E402
     apply_farm_env,
-    purge_legacy_override_files,
     reset_runtime,
 )
 
 from automation.pharmflow_unison_dedupe import dedupe_keep_newest  # noqa: E402
+from automation.singleton_liveness import check_tick  # noqa: E402
 
 LANES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     # ADB bond keeper: holds/repairs/starts the adb connection to every known
@@ -55,6 +55,14 @@ LANES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     # the EXE self-heals them like every other lane.
     ("ads-watch", "watch_bottom_ads.py", ()),
     ("ssp-hunter", "ssp_paying_hunter.py", ()),
+    # Mantis autopilot — the closed earning loop (fetch real Mantis payouts →
+    # gauge → steer → apply overrides → wake on red). This is the loop that
+    # drove the Jul/Aug earning months in FamFlow's ensure_farm_24x7 manager.
+    # The unison supervisor never learned this lane, so it went dormant at the
+    # cutover and the farm lost its tuning + paying-window capture. Supervised
+    # like every other lane; loop mode sleeps 120-180min but wakes early on
+    # yellow/red tones or the autopilot_wake.flag file.
+    ("autopilot", "mantis_autopilot.py", ()),
     # Money monitor as its own lane: keeps FARM_MONEY_HEALTH.json fresh even
     # when the operator dash is down — stale $0.00 data made the watchdog
     # panic-fix (kill watcher) over ghost problems. Runs the module directly
@@ -65,6 +73,9 @@ LANES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     # clients stuck >180s, duplicate Tor data dirs). Never touches farm-owned
     # or adopted processes. Keeps the machine lean while the farm earns.
     ("reaper", "pharmflow_watchdog.py", ("--watch", "--apply", "--reap-interval", "60")),
+    # LLM farm manager (FreeLLMAPI via cloud_agent.json). EXE-owned monitor that
+    # inspects ADB/farm logs and applies safe repairs — no emu kill.
+    ("ai-farm", "pharmflow_ai_farm_loop.py", ()),
 )
 INTERVAL_S = float(os.environ.get("PHARMFLOW_UNISON_INTERVAL_S", "45"))
 FLAGS = 0x08000000  # CREATE_NO_WINDOW
@@ -124,15 +135,21 @@ def _lane_pids() -> dict[str, list[int]]:
     except ImportError:
         return out
     needles = {name: script for name, script, _ in LANES}
-    for proc in psutil.process_iter(["pid", "cmdline"]):
-        try:
-            cmd = " ".join(str(x) for x in (proc.info.get("cmdline") or []))
-            pid = int(proc.info.get("pid") or 0)
-        except (TypeError, ValueError, psutil.Error):
-            continue
-        for name, script in needles.items():
-            if script in cmd and "-c" not in cmd:
-                out[name].append(pid)
+    try:
+        for proc in psutil.process_iter(["pid", "cmdline"]):
+            try:
+                cmd = " ".join(str(x) for x in (proc.info.get("cmdline") or []))
+                pid = int(proc.info.get("pid") or 0)
+            except (TypeError, ValueError, psutil.Error):
+                continue
+            for name, script in needles.items():
+                if script in cmd and "-c" not in cmd:
+                    out[name].append(pid)
+    except Exception:
+        # A process can die while process_iter materializes attrs — psutil then
+        # raises from the iterator itself. Partial results are fine; a scan must
+        # NEVER take the supervisor down (2026-09-19 crash loop).
+        pass
     return out
 
 
@@ -172,6 +189,32 @@ def _spawn_lane(name: str, script: str, args: tuple[str, ...] = ()) -> int | Non
     return proc.pid
 
 
+def _stealth_gate_blocks_farm() -> bool:
+    """HARD RULE (2026-10-09): do not respawn farm while stealth gate is down."""
+    gate = LOG / "FARM_STEALTH_GATE_STOP.json"
+    stop = LOG / "PHARMFLOW_FARM_STOP.flag"
+    if gate.is_file():
+        return True
+    if stop.is_file():
+        try:
+            return "stealth_gate" in stop.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return False
+    return False
+
+
+_STEALTH_GATE_BLOCKED_LANES = frozenset(
+    {
+        "farm",
+        "ads-watch",
+        "ssp-hunter",
+        "autopilot",
+        "freebuff",
+        "ai-farm",
+    }
+)
+
+
 def _ensure_lanes() -> list[str]:
     notes: list[str] = []
     # Without a process scanner, refuse to spawn — otherwise every interval
@@ -184,7 +227,12 @@ def _ensure_lanes() -> list[str]:
         for pid in extras:
             notes.append(f"dedupe_{script}:{pid}")
     pids = _lane_pids()
+    gate_block = _stealth_gate_blocks_farm()
+    if gate_block:
+        notes.append("stealth_gate_active")
     for name, script, args in LANES:
+        if gate_block and name in _STEALTH_GATE_BLOCKED_LANES:
+            continue
         if pids.get(name):
             continue
         pid = _spawn_lane(name, script, args)
@@ -235,12 +283,18 @@ def _kill_legacy_stack() -> list[str]:
         "farm_remediate_loop.py",
         "farm_health_monitor.py",
         "emu_overnight_watchdog.py",
+        "farm_midnight_watch.py",
+        "agent_unison_freebuff_tick.py",
+        "cpharm_unison_supervisor.py",
+        "automation.dashboard",
+        "-m automation.dashboard",
+        "run_farm_cycles.py",
         "_fix_tor_inject",
         "_money_arm_inject",
         "scripts/_fix_",
         "scripts/_flash_",
         "run_mantis_inject_proxies.py",
-        # FREEBUFF lane 4 owns agent_unison_freebuff_loop; do not kill it here.
+        # FREEBUFF lane owns agent_unison_freebuff_loop; do not kill it here.
         # watch_bottom_ads / ssp_paying_hunter are supervised LANES now.
     )
     try:
@@ -280,7 +334,6 @@ def main() -> int:
             PID_FILE.unlink(missing_ok=True)
     PID_FILE.write_text(str(os.getpid()), encoding="utf-8")
     reset_runtime(note="unison_start")
-    removed = purge_legacy_override_files()
     apply_farm_env()
     # Dash/EXE operator file wins over code SSOT (Path3 off until operator enables).
     try:
@@ -306,7 +359,7 @@ def main() -> int:
         boot_notes.append(f"self_heal_boot_err:{exc}")
     print(
         f"pharmflow_unison_supervisor pid={os.getpid()} "
-        f"purged={removed} lanes={[n for n, _s, _a in LANES]} "
+        f"lanes={[n for n, _s, _a in LANES]} "
         f"{' '.join(boot_notes)}",
         flush=True,
     )
@@ -316,6 +369,15 @@ def main() -> int:
             try:
                 notes = _kill_legacy_stack() + _ensure_lanes()
                 tick += 1
+                # Singleton liveness metric: alert when any pidfile-gated
+                # singleton has zero running instances for more than one
+                # tick (the keep-newest dedupe kill/revive signature).
+                try:
+                    live = check_tick(tick_s=INTERVAL_S)
+                    if live.get("alert"):
+                        notes.extend(f"singleton_down:{a}" for a in live.get("alerts") or [])
+                except Exception as exc:
+                    notes.append(f"singleton_liveness_err:{exc}")
                 # Self-heal every other interval — tor seed, ghost prune, inject/tor down.
                 if tick % 2 == 0:
                     try:
@@ -335,9 +397,13 @@ def main() -> int:
                 continue
             if notes:
                 try:
+                    try:
+                        pids_now = _lane_pids()
+                    except Exception:
+                        pids_now = {}
                     STATE_FILE.write_text(
                         json.dumps(
-                            {"ts": _utc(), "notes": notes, "pids": _lane_pids()},
+                            {"ts": _utc(), "notes": notes, "pids": pids_now},
                             indent=2,
                         )
                         + "\n",

@@ -617,7 +617,9 @@ def _unison_supervisor_alive() -> bool:
         # In-process supervisor keeps the EXE command line, not the script path.
         return name in {"pharmflow.exe", "pharmflow.exe"} and "--start-farm" in cmd
     except Exception:
-        return True
+        # Never treat AccessDenied / race as "alive" — that made Start Farm
+        # report success while unison was dead and left FARM OFF.
+        return False
 
 
 def farm_process_alive() -> bool:

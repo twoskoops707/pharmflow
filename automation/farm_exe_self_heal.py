@@ -833,12 +833,20 @@ _STALE_SCRIPT_MARKERS = (
     "scripts/_flash_",
 )
 
-# Competing babysitters — only legacy one-shots that fight the live stack.
-# NEVER list farm_remediate_loop / keep_farm_alive here: they own :8091 keep-alive
-# and EXE self-heal. (Unison may also run; those two are allowlisted keep-scripts.)
+# Competing babysitters — retired once PharmFlow.exe + unison own the farm.
+# Unison's _kill_legacy_stack and this list must agree: remediator / keep_alive /
+# ensure_24x7 / midnight / emu overnight are NOT the money stack anymore.
 _STALE_COMPETING_SCRIPTS = (
     "ensure_farm_24x7.py",
+    "keep_farm_alive.py",
+    "farm_remediate_loop.py",
     "farm_health_monitor.py",
+    "farm_midnight_watch.py",
+    "emu_overnight_watchdog.py",
+    "agent_unison_freebuff_tick.py",
+    "cpharm_unison_supervisor.py",
+    "automation.dashboard",
+    "-m automation.dashboard",
 )
 
 # Detached inject keepalive — holds lock-map ports; never roster poison.
@@ -902,34 +910,26 @@ _AZURE_TELEMETRY_MARKERS = (
 # Detached farm sidecars (CREATE_NO_WINDOW / dead powershell parent) MUST stay —
 # same contract as tools.cpharm_watchdog.FARM_KEEP_SCRIPTS. Only cull true debris
 # (telemetry, empty shells, non-farm MEI leftovers).
+# ONLY the EXE → unison money stack. Everything else is debris and must die
+# as soon as it is not needed (standing operator rule). Do NOT keep remediator /
+# keep_alive / ensure_24x7 / midnight / emu overnight / freebuff_tick / dashboard.
 _MEI_ORPHAN_KEEP_BASENAMES = frozenset(
     {
-        "run_farm_354.py",
-        "farm_money_monitor.py",
-        "adb_bond_keeper.py",
-        "agent_unison_freebuff_loop.py",
-        "agent_unison_freebuff_tick.py",
-        "cpharm_inject_keepalive.py",
-        "pharmflow_inject_keepalive.py",
-        "watch_bottom_ads.py",
-        "watch_proxy_inject.py",
-        "cpharm_stealth_guard.py",
-        "pharmflow_stealth_guard.py",
-        "cpharm_unison_supervisor.py",
         "pharmflow_unison_supervisor.py",
-        "farm_watchdog.py",
-        "cpharm_watchdog.py",
-        "pharmflow_watchdog.py",
+        "suppress_console_flash.py",
         "farm_operator_dash.py",
-        "farm_remediate_loop.py",
-        "keep_farm_alive.py",
-        "ensure_farm_24x7.py",
+        "run_farm_354.py",
+        "adb_bond_keeper.py",
+        "farm_money_monitor.py",
+        "pharmflow_inject_keepalive.py",
+        "pharmflow_stealth_guard.py",
+        "farm_watchdog.py",
+        "pharmflow_watchdog.py",
+        "agent_unison_freebuff_loop.py",
+        "watch_bottom_ads.py",
         "ssp_paying_hunter.py",
-        "run_farm_cycles.py",
-        "dashboard.py",
-        "farm_midnight_watch.py",
-        "ensure_farm_24x7.py",
-        "emu_overnight_watchdog.py",
+        "mantis_autopilot.py",
+        "pharmflow_ai_farm_loop.py",
     }
 )
 
@@ -1625,13 +1625,18 @@ def run_self_heal(*, reason: str = "tick") -> dict[str, Any]:
         # start_farm must arm the unison stack immediately. Cold-booting dead
         # MuMu VMs here stalled the EXE for minutes on stale --T tokens and
         # left the farm "OFF" with flashing ADB. Remediator owns cold boots.
-        allow_boot = str(reason or "").strip().lower() not in {
+        # Never block Start Farm / unison arm on MuMu cold-boot. Stale --T
+        # tokens hung the supervisor for minutes and left zero money lanes.
+        # Remediator/tick owns cold boots with short timeouts only.
+        reason_l = str(reason or "").strip().lower()
+        allow_boot = reason_l not in {
             "start_farm",
             "start",
             "arm",
+            "unison_boot",
         }
         if not allow_boot:
-            fixes.append("boot_lane_skipped_for_start_farm")
+            fixes.append(f"boot_lane_skipped_reason={reason_l or 'empty'}")
         fixes.extend(connect_live_fleet(allow_boot=allow_boot))
         live = adb_live_serials()
         fixes.append(f"adb_live_n={len(live)}")
