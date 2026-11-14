@@ -14,14 +14,23 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-LOG = Path(r"C:\CPharm\logs")
+# Live farm root is C:\PharmFlow — never split state into C:\CPharm\logs.
+_LOG_CANDIDATES = (
+    Path(os.environ.get("CPHARM_LOG_DIR") or os.environ.get("PHARMFLOW_LOG_DIR") or ""),
+    Path(r"C:\PharmFlow\logs"),
+    Path(r"C:\CPharm\logs"),
+)
+LOG = next((p for p in _LOG_CANDIDATES if str(p) and (p.is_dir() or p.parent.is_dir())), Path(r"C:\PharmFlow\logs"))
+LOG.mkdir(parents=True, exist_ok=True)
 OUT = LOG / "_keep_farm_alive.json"
 REMEDIATOR = ROOT / "scripts" / "farm_remediate_loop.py"
 DASH = ROOT / "scripts" / "farm_operator_dash.py"
 HUNTER = ROOT / "scripts" / "ssp_paying_hunter.py"
-ADB = r"C:\CPharm\bundled\adb.exe"
-if not Path(ADB).is_file():
-    ADB = "adb"
+_ADB_CANDIDATES = (
+    Path(r"C:\PharmFlow\bundled\adb.exe"),
+    Path(r"C:\CPharm\bundled\adb.exe"),
+)
+ADB = str(next((p for p in _ADB_CANDIDATES if p.is_file()), Path("adb")))
 
 INTERVAL_S = float(os.environ.get("CPHARM_KEEPALIVE_INTERVAL_S", "90"))
 sys.path.insert(0, str(ROOT))
@@ -62,11 +71,17 @@ def _run_shell_fix_if_needed() -> list[str]:
             pass
         return []
     try:
+        import automation.no_window  # noqa: F401 — CREATE_NO_WINDOW for child
+
+        pyw = sys.executable.replace("python.exe", "pythonw.exe")
+        if not Path(pyw).is_file():
+            pyw = sys.executable
         subprocess.run(
-            [sys.executable, str(script)],
+            [pyw, "-u", str(script)],
             cwd=str(ROOT),
             timeout=60,
             capture_output=True,
+            creationflags=int(getattr(subprocess, "CREATE_NO_WINDOW", 0) or 0x08000000),
         )
         flag.unlink(missing_ok=True)
         return ["shell_fix_ran"]
