@@ -103,15 +103,17 @@ def bundled_adb_path() -> Path:
         p = Path(manual)
         if p.is_file():
             return p
+    # Prefer ONE farm adb (PharmFlow) — mixing CPharm vs PharmFlow binaries
+    # restarts the shared server and flashes console windows on every reconnect.
     candidates = [
-        bundled_dir(create=False) / "adb.exe",
-        Path(r"C:\CPharm\bundled\adb.exe"),
         Path(r"C:\PharmFlow\bundled\adb.exe"),
+        bundled_dir(create=False) / "adb.exe",
         bundle_root() / "bundled" / "adb.exe",
         bundle_root() / "bundled_adb" / "adb.exe",
         app_data_root() / "adb" / "adb.exe",
         Path(r"C:\Program Files\Netease\MuMuPlayerARM\shell\adb.exe"),
         Path(r"C:\Program Files\Netease\MuMuPlayer\shell\adb.exe"),
+        Path(r"C:\CPharm\bundled\adb.exe"),
     ]
     for p in candidates:
         if p.is_file():

@@ -22,7 +22,23 @@ from datetime import datetime, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-LOG = Path(r"C:\CPharm\logs")
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+if str(ROOT / "wizard") not in sys.path:
+    sys.path.insert(0, str(ROOT / "wizard"))
+
+# Live farm state lives under C:\PharmFlow\logs (not the legacy CPharm tree).
+_LOG_CANDIDATES = (
+    Path(os.environ.get("CPHARM_LOG_DIR") or os.environ.get("PHARMFLOW_LOG_DIR") or ""),
+    Path(r"C:\PharmFlow\logs"),
+    Path(r"C:\CPharm\logs"),
+)
+LOG = next(
+    (p for p in _LOG_CANDIDATES if str(p) and (p.is_dir() or p.parent.is_dir())),
+    Path(r"C:\PharmFlow\logs"),
+)
+LOG.mkdir(parents=True, exist_ok=True)
 HONEST = LOG / "FARM_HONEST_NOW.txt"
 TICK_LOG = LOG / "farm_remediate_loop.jsonl"
 PROFIT_JSON = LOG / "farm_remediator_profit.json"
@@ -34,9 +50,9 @@ ADS_WATCH = LOG / "ads_watch_state.json"
 DASH_URL = "http://127.0.0.1:8091"
 DASH_PORT = 8091
 
-ADB = r"C:\CPharm\bundled\adb.exe"
-if not Path(ADB).is_file():
-    ADB = "adb"
+from wizard.wizard_paths import bundled_adb_path as _bundled_adb_path  # noqa: E402
+
+ADB = str(_bundled_adb_path())
 
 # Fallback seed if discover returns empty (cold start).
 _FALLBACK_PHONES: tuple[tuple[str, str, str], ...] = (
@@ -58,11 +74,8 @@ TARGET_STRONG_USD = 55.0
 TARGET_STRETCH_USD = 100.0
 
 INTERVAL_S = float(os.environ.get("CPHARM_REMEDIATE_INTERVAL_S", "60"))
-ROOT = Path(__file__).resolve().parents[1]
 DASH_SCRIPT = ROOT / "scripts" / "farm_operator_dash.py"
 _FAIL_REVIEW_MOD = None
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
 import automation.no_window  # noqa: E402,F401  — CREATE_NO_WINDOW (cull WT-adb flash)
 from automation.farm_phone_discover import (  # noqa: E402
     discover_live_phones,
