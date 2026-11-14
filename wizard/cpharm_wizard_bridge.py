@@ -17,6 +17,7 @@ from wizard_theme import _style_scrollbars
 # Boot-order host gates (scaling plan): CPU/RAM headroom before each VM launch.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from automation import boot_gates as boot_gate  # noqa: E402
+from automation.win_subprocess import hidden_run_kwargs  # noqa: E402
 
 # Mirrors CPharmWizard.PAGE_NAMES / PAGE_SUBTITLES (order matters).
 # Nine steps in four parts — sidebar shows phase headers; ids are stable for code.
@@ -2948,6 +2949,7 @@ def get_farm_hud() -> dict:
             text=True,
             timeout=6,
             errors="replace",
+            **hidden_run_kwargs(),
         )
         n = 0
         for line in (r.stdout or "").splitlines()[1:]:

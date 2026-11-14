@@ -725,9 +725,11 @@ def _boot_mumu_instance(idx: int) -> tuple[bool, str]:
         from automation.mumu_shell_cli import launch_instance_index
     except Exception as exc:  # noqa: BLE001
         return False, f"import_fail:{type(exc).__name__}:{exc}"
+    # Keep this short: start_farm / HUD must not stall on a 60s*N cold-boot
+    # loop when MuMu auth tokens are stale. Remediator owns longer boots.
     try:
         with _BOOT_LOCK:
-            return launch_instance_index(idx, timeout=60.0)
+            return launch_instance_index(idx, timeout=22.0)
     except Exception as exc:  # noqa: BLE001
         return False, f"launch_exc:{type(exc).__name__}:{exc}"
 
@@ -748,9 +750,9 @@ def _boot_blocked_by_headroom() -> str:
     return "" if ok else str(why)
 
 
-def connect_live_fleet() -> list[str]:
+def connect_live_fleet(*, allow_boot: bool = True) -> list[str]:
     fixes: list[str] = []
-    boot_disabled = _boot_lane_disabled()
+    boot_disabled = _boot_lane_disabled() or (not allow_boot)
     boot_state: dict[str, dict[str, Any]] = (
         {} if boot_disabled else _load_boot_state()
     )
@@ -1620,7 +1622,17 @@ def run_self_heal(*, reason: str = "tick") -> dict[str, Any]:
         # Kill dead/stale/unused helpers FIRST so port/map heal is not racing junk.
         fixes.extend(reap_stale_processes(apply=True))
         fixes.extend(ensure_tor_binary())
-        fixes.extend(connect_live_fleet())
+        # start_farm must arm the unison stack immediately. Cold-booting dead
+        # MuMu VMs here stalled the EXE for minutes on stale --T tokens and
+        # left the farm "OFF" with flashing ADB. Remediator owns cold boots.
+        allow_boot = str(reason or "").strip().lower() not in {
+            "start_farm",
+            "start",
+            "arm",
+        }
+        if not allow_boot:
+            fixes.append("boot_lane_skipped_for_start_farm")
+        fixes.extend(connect_live_fleet(allow_boot=allow_boot))
         live = adb_live_serials()
         fixes.append(f"adb_live_n={len(live)}")
         fixes.extend(prune_serial_map(live=live))

@@ -1051,8 +1051,22 @@ def start_farm(
     with _farm_lock:
         if farm_process_alive():
             _log("Farm already running", "warn")
-            return False
+            return True
         if external_python_farm_running():
+            # Healthy live money workers already earn. Claim ownership and keep
+            # them — do NOT stop_external then fail to re-arm (that killed the
+            # farm and left FARM OFF with zero phones earning).
+            if _unison_supervisor_alive() or _helper_already_alive("run_farm_354"):
+                claim_start_farm_owner()
+                try:
+                    mark_exe_owned(in_process=False)
+                except Exception:
+                    pass
+                os.environ["PHARMFLOW_FARM_STOP"] = "0"
+                os.environ["PHARMFLOW_UNISON_MODE"] = "1"
+                ensure_operator_stack(log=log)
+                _log("Adopted live external farm stack (no kill/re-arm)", "ok")
+                return True
             if not takeover:
                 _log(
                     "External python farm/cycles already UP — refuse duplicate start",
