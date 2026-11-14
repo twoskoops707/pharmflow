@@ -1,4 +1,4 @@
-"""PharmFlow/dash self-monitor: money-health + flat-$ detection + auto-remediation.
+"""CPharm/dash self-monitor: money-health + flat-$ detection + auto-remediation.
 
 ALERTS on junk eCPM, house-only SSP, impression dilution, and flat $ — not only
 when payout has been unchanged for 25 minutes. last_ok / money_ok require paying
@@ -8,7 +8,7 @@ Safe remediations: re-pin inject, SSP refresh, heat_down on house/dilution,
 ensure bottom-ads watcher, cull hung adb / dup hunters. Does NOT start
 ensure_farm / farm_354 dual-run.
 
-State files under C:\\PharmFlow\\logs\\:
+State files under C:\\CPharm\\logs\\:
   farm_money_monitor_state.json
   farm_money_history.jsonl
   FARM_MONEY_HEALTH.json
@@ -48,7 +48,47 @@ from automation.farm_exe_self_heal import (  # noqa: E402
 )
 from automation.farm_health_audit import apply_money_rails, behind_on_path3_clicks  # noqa: E402
 
-LOG = Path(r"C:\PharmFlow\logs")
+try:
+    from wizard.wizard_paths import logs_dir as _wizard_logs_dir
+except Exception:  # pragma: no cover — wizard may be absent in tiny bundles
+    _wizard_logs_dir = None  # type: ignore[assignment]
+
+
+def _resolve_log_dir() -> Path:
+    """Prefer live farm log root (PharmFlow) over legacy C:\\CPharm\\logs."""
+    env = (os.environ.get("CPHARM_LOG_DIR") or os.environ.get("PHARMFLOW_LOG_DIR") or "").strip()
+    if env:
+        p = Path(env)
+        p.mkdir(parents=True, exist_ok=True)
+        return p
+    markers = (
+        "farm_354_progress.json",
+        "farm_money_history.jsonl",
+        "mantis_today_state.json",
+        "FARM_MONEY_HEALTH.json",
+    )
+    candidates = (
+        Path(r"C:\PharmFlow\logs"),
+        Path(r"C:\CPharm\logs"),
+    )
+    for cand in candidates:
+        try:
+            if any((cand / m).is_file() for m in markers):
+                cand.mkdir(parents=True, exist_ok=True)
+                return cand
+        except OSError:
+            continue
+    if _wizard_logs_dir is not None:
+        try:
+            return _wizard_logs_dir()
+        except Exception:
+            pass
+    fallback = Path(r"C:\PharmFlow\logs")
+    fallback.mkdir(parents=True, exist_ok=True)
+    return fallback
+
+
+LOG = _resolve_log_dir()
 STATE = LOG / "farm_money_monitor_state.json"
 HISTORY = LOG / "farm_money_history.jsonl"
 FLAT_FLAG = LOG / "FARM_FLAT_DOLLAR.flag"
@@ -59,6 +99,8 @@ MANTIS = LOG / "mantis_today_state.json"
 HONEST = LOG / "FARM_HONEST_NOW.txt"
 
 _ADB = str(Path(r"C:\PharmFlow\bundled\adb.exe"))
+if not Path(_ADB).is_file():
+    _ADB = str(Path(r"C:\CPharm\bundled\adb.exe"))
 if not Path(_ADB).is_file():
     _ADB = "adb"
 
@@ -276,11 +318,20 @@ def cull_hung_adb(*, max_kill: int = 24, min_age_s: float = 60.0) -> list[str]:
     return fixes
 
 
+def _lane_thread_alive(name: str) -> bool:
+    for thr in threading.enumerate():
+        if thr.is_alive() and thr.name == name:
+            return True
+    return False
+
+
 def ensure_watch_bottom_ads() -> list[str]:
     fixes: list[str] = []
     pause = LOG / "PAUSE_BOTTOM_ADS_WATCH.flag"
     if pause.is_file():
         return ["watch_bottom_ads_paused"]
+    if _lane_thread_alive("lane-ads-watch"):
+        return ["watch_bottom_ads_lane"]
     try:
         import psutil
 
@@ -354,11 +405,7 @@ def soft_restart_inject_if_needed() -> list[str]:
 
 
 def repin_all_inject() -> list[str]:
-    """Inject-only adb reverse + http_proxy. Never stack Tor reverse on guest.
-
-    Tor stays host-side upstream of inject. Guest Tor reverse bypasses MITM and
-    kills bottom-ad paint (CERTIFICATE_UNKNOWN / empty Sponsored).
-    """
+    """adb reverse inject port (+tor) then pin http_proxy. Tor-only reverse caused ERR_PROXY."""
     fixes: list[str] = []
     for serial, port, name in live_phone_ports():
         if not serial or not serial.startswith("10.0.2."):
@@ -372,19 +419,32 @@ def repin_all_inject() -> list[str]:
                 continue
         except Exception:
             pass
-        _adb(serial, "reverse", "--remove-all", timeout=8.0)
+        tor = 8118 + (port - 8218)
+        cur = _adb(serial, "shell", "settings", "get", "global", "http_proxy", timeout=5.0).strip()
+        cur_port = None
+        mcur = re.search(r"127\.0\.0\.1:(\d+)", cur or "")
+        if mcur:
+            cur_port = int(mcur.group(1))
+        listing = _adb(serial, "reverse", "--list", timeout=6.0)
+        keep = {port}
+        if cur_port and _INJECT_LO <= cur_port <= _INJECT_HI:
+            keep.add(cur_port)
+        for m in re.finditer(r"tcp:(\d+)\s+tcp:\d+", listing or ""):
+            g = int(m.group(1))
+            if _INJECT_LO <= g <= _INJECT_HI and g not in keep:
+                _adb(serial, "reverse", "--remove", f"tcp:{g}", timeout=5.0)
         _adb(serial, "reverse", f"tcp:{port}", f"tcp:{port}", timeout=8.0)
+        _adb(serial, "reverse", f"tcp:{tor}", f"tcp:{tor}", timeout=6.0)
+        if cur_port and cur_port != port and _INJECT_LO <= cur_port <= _INJECT_HI:
+            _adb(serial, "reverse", f"tcp:{cur_port}", f"tcp:{cur_port}", timeout=6.0)
         want = f"127.0.0.1:{port}"
         _adb(serial, "shell", "settings", "put", "global", "http_proxy", want, timeout=6.0)
         time.sleep(0.15)
         _adb(serial, "shell", "settings", "put", "global", "http_proxy", want, timeout=6.0)
         got = _adb(serial, "shell", "settings", "get", "global", "http_proxy", timeout=6.0).strip()
         listing2 = _adb(serial, "reverse", "--list", timeout=6.0)
-        nrev = len([ln for ln in (listing2 or "").splitlines() if "tcp:" in ln])
-        rev_ok = f"tcp:{port}" in (listing2 or "") and nrev == 1
-        fixes.append(
-            f"repin {name} {serial}->{want} got={got} reverse_ok={rev_ok} nrev={nrev}"
-        )
+        rev_ok = f"tcp:{port}" in (listing2 or "")
+        fixes.append(f"repin {name} {serial}->{want} got={got} reverse_ok={rev_ok}")
     return fixes
 
 
@@ -583,6 +643,9 @@ def _cull_duplicate_hunters() -> list[str]:
         except (psutil.Error, OSError):
             pass
         pids = []
+    if _lane_thread_alive("lane-ssp-hunter"):
+        fixes.append("hunter_lane")
+        return fixes
     if not pids:
         spawned = _spawn_paying_hunter()
         if spawned:
@@ -672,6 +735,11 @@ def evaluate(*, flat_min: float = DEFAULT_FLAT_MIN, do_fix: bool = True) -> dict
         except (TypeError, ValueError):
             flat_minutes = 0.0
         flat = flat_minutes >= effective_flat_min
+        # $0 / 0 impr is "no Mantis day yet" (pull failed / not earning), not a
+        # flat-dollar stall — alerting here made HUD show FLAT for 10000+ empty minutes.
+        if payout <= _MIN_DELTA_USD and impr <= 0:
+            flat = False
+            flat_minutes = 0.0
 
     impr_delta = 0
     if len(hist) >= 2:
@@ -854,8 +922,8 @@ def start_background(
         if _thread is not None and _thread.is_alive():
             return {"ok": True, "already": True, "pid_thread": _thread.name}
         _stop.clear()
-        fm = float(flat_min if flat_min is not None else os.environ.get("PHARMFLOW_FLAT_DOLLAR_MIN", DEFAULT_FLAT_MIN))
-        ts = float(tick_s if tick_s is not None else os.environ.get("PHARMFLOW_MONEY_MON_TICK_S", DEFAULT_TICK_S))
+        fm = float(flat_min if flat_min is not None else os.environ.get("CPHARM_FLAT_DOLLAR_MIN", DEFAULT_FLAT_MIN))
+        ts = float(tick_s if tick_s is not None else os.environ.get("CPHARM_MONEY_MON_TICK_S", DEFAULT_TICK_S))
         _thread = threading.Thread(
             target=_loop,
             kwargs={"flat_min": fm, "tick_s": ts},

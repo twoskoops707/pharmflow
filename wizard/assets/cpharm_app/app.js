@@ -8,11 +8,74 @@
     "phones",
     "boot",
     "map",
-    "steps",
     "builder",
     "teams",
     "go",
   ];
+
+  /* CPharm 514 SequenceGenerator toolbox — Category → action labels */
+  const SEQ_TOOLBOX = {
+    Navigation: {
+      "Open website": function (ctx) {
+        return { type: "open_url", url: ctx.url || "https://getdabflow.app" };
+      },
+      "Launch installed app": function (ctx) {
+        return { type: "launch_app", package: ctx.pkg || "com.example.app" };
+      },
+      "Tap age confirmation (if the site asks)": function () {
+        return {
+          type: "tap",
+          x: 359,
+          y: 912,
+          base_w: 900,
+          base_h: 1600,
+          retries: 5,
+          jitter: 6,
+          pre_wait_ms: 750,
+          age_verification: true,
+          checkpoint: "age_verification",
+        };
+      },
+      "Press back": function () {
+        return { type: "keyevent", key: "4" };
+      },
+      "Close browser": function () {
+        return { type: "close_app" };
+      },
+    },
+    Timing: {
+      "Wait 2 seconds": function () {
+        return { type: "wait", seconds: 2.0 };
+      },
+      "Wait 8 seconds (stay on screen)": function () {
+        return { type: "wait", seconds: 8.0 };
+      },
+    },
+    Gestures: {
+      "Tap center": function () {
+        return { type: "tap", x: 450, y: 800, base_w: 900, base_h: 1600 };
+      },
+      "Swipe up": function () {
+        return { type: "swipe", x1: 450, y1: 1300, x2: 460, y2: 700, ms: 900 };
+      },
+    },
+    Identity: {
+      "Switch profile": function () {
+        return { type: "rotate_identity" };
+      },
+      "Reset session completely": function () {
+        return { type: "full_reset" };
+      },
+    },
+    Device: {
+      "Type text": function () {
+        return { type: "type_text", text: "hello" };
+      },
+      "Clear browser cookies": function () {
+        return { type: "clear_cookies" };
+      },
+    },
+  };
 
   const views = Array.from(document.querySelectorAll(".view"));
   const stepNav = document.getElementById("step-nav");
@@ -367,12 +430,15 @@
     phones: refreshSetup,
     boot: refreshBoot,
     map: refreshMap,
-    steps: refreshSteps,
+    steps: refreshBuilder,
     builder: refreshBuilder,
     teams: refreshTeams,
     go: refreshGo,
     health: refreshHealth,
   };
+
+  let builderTargetKind = null;
+  let phoneSeqDraft = null;
 
   /* ── In-deck sequence builder (cursor_* bridge) ───────── */
   let builderSelectedIndex = -1;
@@ -624,12 +690,74 @@
     setBuilderUpdateVisible(builderSelectedIndex >= 0);
   }
 
+  function builderCtx() {
+    const urlEl = document.getElementById("builder-url");
+    const pkgEl = document.getElementById("builder-package");
+    return {
+      url: (urlEl && urlEl.value.trim()) || "https://getdabflow.app",
+      pkg: (pkgEl && pkgEl.value.trim()) || "",
+    };
+  }
+
+  function fillToolboxCats() {
+    const cat = document.getElementById("builder-tool-cat");
+    const name = document.getElementById("builder-tool-name");
+    if (!cat || !name) return;
+    const cats = Object.keys(SEQ_TOOLBOX);
+    if (!cat.options.length) {
+      cats.forEach(function (c) {
+        const o = document.createElement("option");
+        o.value = c;
+        o.textContent = c;
+        cat.appendChild(o);
+      });
+    }
+    function refreshNames() {
+      name.innerHTML = "";
+      const map = SEQ_TOOLBOX[cat.value] || {};
+      Object.keys(map).forEach(function (label) {
+        const o = document.createElement("option");
+        o.value = label;
+        o.textContent = label;
+        name.appendChild(o);
+      });
+    }
+    cat.onchange = refreshNames;
+    refreshNames();
+  }
+
+  function enterBuilderWorkspace(kind) {
+    builderTargetKind = kind || "website";
+    const gate = document.getElementById("builder-gate");
+    const ws = document.getElementById("builder-workspace");
+    if (gate) gate.hidden = true;
+    if (ws) ws.hidden = false;
+    const ctx = builderCtx();
+    const sum = document.getElementById("builder-summary");
+    const toolsCtx = document.getElementById("builder-tools-context");
+    const status = document.getElementById("builder-status");
+    if (builderTargetKind === "app") {
+      if (sum) sum.textContent = "App: " + (ctx.pkg || "(package)") + " — taps use screen 900×1600";
+      if (toolsCtx) toolsCtx.textContent = "App steps launch " + (ctx.pkg || "package") + " • taps use screen 900×1600.";
+    } else {
+      if (sum) sum.textContent = "Website: " + ctx.url + " — taps use screen 900×1600";
+      if (toolsCtx) toolsCtx.textContent = "Website steps use " + ctx.url + " at screen 900×1600.";
+    }
+    if (status) {
+      status.textContent = "Add steps below, then save your file.";
+      status.classList.add("ok");
+    }
+    fillToolboxCats();
+  }
+
   async function refreshBuilder() {
     ensureAdvanced("builder");
-    const dom = ensureBuilderDom();
     wireBuilderControls();
-    if (!dom) return;
+    wireSeq514Controls();
+    const dom = ensureBuilderDom();
     const a = api();
+    const gate = document.getElementById("builder-gate");
+    const ws = document.getElementById("builder-workspace");
     if (!a || typeof a.cursor_get_sequence !== "function") {
       renderBuilderStepList([]);
       showToast("Sequence bridge not ready yet");
@@ -639,8 +767,19 @@
       const res = await a.cursor_get_sequence();
       const steps = (res && res.steps) || [];
       if (builderSelectedIndex >= steps.length) builderSelectedIndex = -1;
+      if (steps.length && !builderTargetKind) {
+        const hasLaunch = steps.some(function (s) {
+          return s && s.type === "launch_app";
+        });
+        enterBuilderWorkspace(hasLaunch ? "app" : "website");
+      } else if (!builderTargetKind) {
+        if (gate) gate.hidden = false;
+        if (ws) ws.hidden = true;
+      } else {
+        enterBuilderWorkspace(builderTargetKind);
+      }
       renderBuilderStepList(steps);
-      if (!dom.typeSel.dataset.fieldsInit) {
+      if (dom && dom.typeSel && !dom.typeSel.dataset.fieldsInit) {
         rebuildBuilderFields(dom.typeSel.value || "open_url", {});
         dom.typeSel.dataset.fieldsInit = "1";
       }
@@ -649,6 +788,227 @@
     } catch (e) {
       renderBuilderStepList([]);
       showToast("Could not load sequence: " + e);
+    }
+  }
+
+  function wireSeq514Controls() {
+    if (wireSeq514Controls._done) return;
+    wireSeq514Controls._done = true;
+
+    function showGateFields(which) {
+      const w = document.getElementById("gate-web-fields");
+      const a = document.getElementById("gate-app-fields");
+      if (w) w.hidden = which !== "web";
+      if (a) a.hidden = which !== "app";
+    }
+
+    const btnWeb = document.getElementById("btn-gate-website");
+    if (btnWeb) btnWeb.addEventListener("click", function () { showGateFields("web"); });
+    const btnApp = document.getElementById("btn-gate-app");
+    if (btnApp) btnApp.addEventListener("click", function () { showGateFields("app"); });
+    const contW = document.getElementById("btn-gate-web-continue");
+    if (contW) {
+      contW.addEventListener("click", async function () {
+        enterBuilderWorkspace("website");
+        const a = api();
+        if (a && a.cursor_get_sequence) {
+          const res = await a.cursor_get_sequence();
+          if (!(res && res.steps && res.steps.length) && a.cursor_add_step) {
+            await a.cursor_add_step({ type: "open_url", url: builderCtx().url });
+            await refreshBuilder();
+          }
+        }
+      });
+    }
+    const contA = document.getElementById("btn-gate-app-continue");
+    if (contA) {
+      contA.addEventListener("click", async function () {
+        enterBuilderWorkspace("app");
+        const a = api();
+        if (a && a.cursor_add_step) {
+          const res = await a.cursor_get_sequence();
+          if (!(res && res.steps && res.steps.length)) {
+            await a.cursor_add_step({ type: "launch_app", package: builderCtx().pkg || "com.example.app" });
+            await refreshBuilder();
+          }
+        }
+      });
+    }
+    const change = document.getElementById("btn-change-target");
+    if (change) {
+      change.addEventListener("click", function () {
+        if (!confirm("Go back and choose website or app? Your step list stays.")) return;
+        builderTargetKind = null;
+        const gate = document.getElementById("builder-gate");
+        const ws = document.getElementById("builder-workspace");
+        if (gate) gate.hidden = false;
+        if (ws) ws.hidden = true;
+      });
+    }
+    const more = document.getElementById("btn-more-options");
+    const panel = document.getElementById("more-options-panel");
+    if (more && panel) {
+      more.addEventListener("click", function () {
+        const open = panel.hidden;
+        panel.hidden = !open;
+        more.textContent = open
+          ? "Hide extra options"
+          : "More options: layouts, browser recording, tap alignment";
+      });
+    }
+    const addAct = document.getElementById("btn-builder-add-action");
+    if (addAct) {
+      addAct.addEventListener("click", async function () {
+        const cat = document.getElementById("builder-tool-cat");
+        const name = document.getElementById("builder-tool-name");
+        const fn = cat && name && SEQ_TOOLBOX[cat.value] && SEQ_TOOLBOX[cat.value][name.value];
+        if (!fn) return;
+        const step = fn(builderCtx());
+        const a = requireApi("Add action");
+        if (!a || !a.cursor_add_step) return;
+        await a.cursor_add_step(step);
+        await refreshBuilder();
+        showToast("Added: " + (name.value || step.type));
+      });
+    }
+    async function moveSel(dir) {
+      if (builderSelectedIndex < 0) return;
+      const a = requireApi("Move step");
+      if (!a || !a.cursor_move_step) return;
+      await a.cursor_move_step(builderSelectedIndex, dir);
+      builderSelectedIndex = Math.max(0, builderSelectedIndex + dir);
+      await refreshBuilder();
+    }
+    const up = document.getElementById("btn-builder-up");
+    if (up) up.addEventListener("click", function () { moveSel(-1); });
+    const down = document.getElementById("btn-builder-down");
+    if (down) down.addEventListener("click", function () { moveSel(1); });
+    const del = document.getElementById("btn-builder-del");
+    if (del) {
+      del.addEventListener("click", async function () {
+        if (builderSelectedIndex < 0) return;
+        const a = requireApi("Delete step");
+        if (!a || !a.cursor_remove_step) return;
+        await a.cursor_remove_step(builderSelectedIndex);
+        builderSelectedIndex = -1;
+        await refreshBuilder();
+      });
+    }
+    const dup = document.getElementById("btn-builder-dup");
+    if (dup) {
+      dup.addEventListener("click", async function () {
+        const a = requireApi("Duplicate");
+        if (!a || !a.cursor_get_sequence || !a.cursor_add_step) return;
+        const res = await a.cursor_get_sequence();
+        const steps = (res && res.steps) || [];
+        if (builderSelectedIndex < 0 || !steps[builderSelectedIndex]) return;
+        await a.cursor_add_step(Object.assign({}, steps[builderSelectedIndex]));
+        await refreshBuilder();
+      });
+    }
+    document.querySelectorAll("[data-quick]").forEach(function (btn) {
+      btn.addEventListener("click", async function () {
+        const q = btn.getAttribute("data-quick");
+        let step = { type: "wait", seconds: 2 };
+        if (q === "tap") step = { type: "tap", x: 450, y: 800, base_w: 900, base_h: 1600 };
+        if (q === "swipe") step = { type: "swipe", x1: 450, y1: 1300, x2: 460, y2: 700, ms: 900 };
+        if (q === "back") step = { type: "keyevent", key: "4" };
+        if (q === "key") step = { type: "keyevent", key: "3" };
+        const a = requireApi("Quick add");
+        if (!a || !a.cursor_add_step) return;
+        await a.cursor_add_step(step);
+        await refreshBuilder();
+      });
+    });
+    const applyInline = document.getElementById("btn-builder-apply-inline");
+    if (applyInline) {
+      applyInline.addEventListener("click", async function () {
+        if (builderSelectedIndex < 0) return;
+        const key = (document.getElementById("builder-inline-key") || {}).value || "seconds";
+        const val = (document.getElementById("builder-inline-val") || {}).value || "";
+        const a = requireApi("Inline edit");
+        if (!a || !a.cursor_get_sequence || !a.cursor_update_step) return;
+        const res = await a.cursor_get_sequence();
+        const steps = (res && res.steps) || [];
+        const step = Object.assign({}, steps[builderSelectedIndex] || {});
+        if (key === "seconds") step.seconds = parseFloat(val) || 2;
+        else if (key === "x" || key === "y") step[key] = parseInt(val, 10) || 0;
+        else step[key] = val;
+        await a.cursor_update_step(builderSelectedIndex, step);
+        await refreshBuilder();
+      });
+    }
+    const saveNamed = document.getElementById("btn-save-sequence");
+    if (saveNamed) {
+      saveNamed.addEventListener("click", async function () {
+        const a = requireApi("Save sequence");
+        if (!a) return;
+        const name = ((document.getElementById("builder-seq-name") || {}).value || "sequence_generated").trim();
+        if (a.cursor_save_named_sequence) {
+          const res = await a.cursor_save_named_sequence(name, "900x1600", "site");
+          if (res && res.ok) {
+            showToast("Saved " + (res.ref || name));
+            return;
+          }
+          showToast((res && res.error) || "Save failed");
+          return;
+        }
+        if (a.pick_sequence_json && a.save_sequence_to_path) {
+          const pick = await a.pick_sequence_json(true);
+          if (pick && pick.path) await a.save_sequence_to_path(pick.path);
+        }
+      });
+    }
+    const cancelModal = document.getElementById("btn-phone-seq-cancel");
+    if (cancelModal) {
+      cancelModal.addEventListener("click", function () {
+        const m = document.getElementById("phone-seq-modal");
+        if (m) m.hidden = true;
+        phoneSeqDraft = null;
+      });
+    }
+    function addPl(setB) {
+      const sel = document.getElementById("phone-pl-lib");
+      if (!sel || !phoneSeqDraft) return;
+      const target = setB ? phoneSeqDraft.playlist_secondary : phoneSeqDraft.playlist;
+      Array.from(sel.selectedOptions).forEach(function (o) {
+        if (o.value && target.indexOf(o.value) < 0) target.push(o.value);
+      });
+      renderPhonePlaylistLists();
+    }
+    const addA = document.getElementById("btn-pl-add-a");
+    if (addA) addA.addEventListener("click", function () { addPl(false); });
+    const addB = document.getElementById("btn-pl-add-b");
+    if (addB) addB.addEventListener("click", function () { addPl(true); });
+    const savePhone = document.getElementById("btn-phone-seq-save");
+    if (savePhone) {
+      savePhone.addEventListener("click", async function () {
+        if (!phoneSeqDraft) return;
+        const a = requireApi("Save phone playlist");
+        if (!a || !a.cursor_set_phone_playlist) {
+          showToast("Playlist save API missing — rebuild EXE with bridge update");
+          return;
+        }
+        const mode = (document.getElementById("phone-pl-mode") || {}).value || "ordered";
+        const shuffle = (document.getElementById("phone-pl-shuffle") || {}).value || "none";
+        const res = await a.cursor_set_phone_playlist(
+          phoneSeqDraft.groupIndex,
+          phoneSeqDraft.serial,
+          phoneSeqDraft.playlist,
+          phoneSeqDraft.playlist_secondary,
+          mode,
+          shuffle
+        );
+        if (res && res.ok) {
+          showToast("Saved playlist for " + phoneSeqDraft.serial);
+          const m = document.getElementById("phone-seq-modal");
+          if (m) m.hidden = true;
+          phoneSeqDraft = null;
+          await refreshTeams();
+        } else {
+          showToast((res && res.error) || "Save failed");
+        }
+      });
     }
   }
 
@@ -824,6 +1184,7 @@
 
   function showView(name, opts) {
     opts = opts || {};
+    if (name === "steps") name = "builder"; // CPharm 514: Steps folded into Sequence builder
     if (STEP_IDS.indexOf(name) < 0 && name !== "health") name = "start";
     currentView = name;
     if (name === "phones") startSetupAutoRefresh();
@@ -1212,76 +1573,195 @@
     list.innerHTML = "";
     const groups = (detail && detail.groups) || [];
     if (!groups.length) {
-      const li = document.createElement("li");
-      li.className = "groups-list-empty";
-      li.textContent = "No groups yet. Click Add group.";
-      list.appendChild(li);
+      const empty = document.createElement("div");
+      empty.className = "groups-list-empty";
+      empty.textContent = "No groups yet. Click Add group.";
+      list.appendChild(empty);
       return;
     }
     const canRemove = groups.length > 1;
     groups.forEach(function (g, gi) {
-      const li = document.createElement("li");
-      li.className = "group-row";
-      li.dataset.index = String(gi);
-      const connected = g.phone_count || 0;
-      const configured = g.configured_count || connected;
-      let extra = "";
-      if (configured > connected) {
-        extra = " (" + configured + " saved, " + connected + " connected)";
-      }
+      const card = document.createElement("div");
+      card.className = "group-card";
+      card.dataset.index = String(gi);
 
-      const line = document.createElement("span");
-      line.className = "group-line";
-      line.style.display = "flex";
-      line.style.alignItems = "center";
-      line.style.gap = "8px";
-
+      const head = document.createElement("div");
+      head.className = "group-card-head";
       const nameInput = document.createElement("input");
       nameInput.type = "text";
       nameInput.className = "group-name-input";
       nameInput.value = g.name || "Group";
       nameInput.dataset.groupName = String(gi);
-      nameInput.setAttribute("aria-label", "Group name");
-
       const meta = document.createElement("span");
       meta.className = "panel-note";
       meta.style.margin = "0";
-      meta.style.whiteSpace = "nowrap";
+      const phones = g.phones || [];
       meta.textContent =
-        connected + " phone" + (connected === 1 ? "" : "s") + extra;
-
-      line.appendChild(nameInput);
-      line.appendChild(meta);
-
-      const actions = document.createElement("span");
-      actions.style.display = "flex";
-      actions.style.gap = "4px";
-      actions.style.flexShrink = "0";
-
+        (g.phone_count || 0) +
+        " connected · " +
+        phones.length +
+        " configured" +
+        (g.stagger_secs != null ? " · stagger " + g.stagger_secs + "s" : "");
       const saveBtn = document.createElement("button");
       saveBtn.type = "button";
       saveBtn.className = "btn-mini";
-      saveBtn.textContent = "Save";
+      saveBtn.textContent = "Save name";
       saveBtn.dataset.renameGroup = String(gi);
-      saveBtn.setAttribute("data-help", "Rename this group in the saved config.");
-      actions.appendChild(saveBtn);
-
+      head.appendChild(nameInput);
+      head.appendChild(meta);
+      head.appendChild(saveBtn);
       if (canRemove) {
         const removeBtn = document.createElement("button");
         removeBtn.type = "button";
         removeBtn.className = "btn-mini btn-remove-group";
-        removeBtn.textContent = "Remove";
+        removeBtn.textContent = "Remove group";
         removeBtn.dataset.removeGroup = String(gi);
-        removeBtn.setAttribute(
-          "data-help",
-          "Remove this group from the saved config. Phones are not touched."
-        );
-        actions.appendChild(removeBtn);
+        head.appendChild(removeBtn);
       }
+      card.appendChild(head);
 
-      li.appendChild(line);
-      li.appendChild(actions);
-      list.appendChild(li);
+      if (!phones.length) {
+        const none = document.createElement("p");
+        none.className = "panel-note";
+        none.textContent = "No phones in this group yet — assign phones in Phone Setup or dashboard.";
+        card.appendChild(none);
+      } else {
+        phones.forEach(function (ph) {
+          const row = document.createElement("div");
+          row.className = "phone-row" + (ph.connected ? " in-group" : "");
+          const nm = document.createElement("span");
+          nm.className = "phone-name";
+          nm.textContent = ph.name || ph.serial;
+          const info = document.createElement("span");
+          info.className = "phone-meta";
+          const plN = ph.playlist_count || 0;
+          const plB = ph.playlist_secondary_count || 0;
+          const stepsN = ph.steps_count || 0;
+          info.textContent =
+            stepsN +
+            " backup steps · playlist A " +
+            plN +
+            (plB ? " · B " + plB : "") +
+            " · " +
+            (ph.playlist_mode || "series") +
+            (ph.connected ? "" : " · offline");
+          const edit = document.createElement("button");
+          edit.type = "button";
+          edit.className = "btn-go";
+          edit.textContent = "Edit";
+          edit.setAttribute(
+            "data-help",
+            "Opens this phone’s sequence submenu: playlist Set A/B + backup steps (CPharm PerPhone)."
+          );
+          edit.addEventListener("click", function () {
+            openPhoneSeqSubmenu(gi, ph);
+          });
+          row.appendChild(nm);
+          row.appendChild(info);
+          row.appendChild(edit);
+          card.appendChild(row);
+          if (plN && ph.playlist && ph.playlist.length) {
+            const plPreview = document.createElement("div");
+            plPreview.className = "panel-note";
+            plPreview.style.marginLeft = "8px";
+            plPreview.textContent =
+              "A: " +
+              ph.playlist.slice(0, 3).join(", ") +
+              (ph.playlist.length > 3 ? "…" : "");
+            card.appendChild(plPreview);
+          }
+        });
+      }
+      list.appendChild(card);
+    });
+  }
+
+  async function openPhoneSeqSubmenu(groupIndex, phone) {
+    phoneSeqDraft = {
+      groupIndex: groupIndex,
+      serial: phone.serial,
+      playlist: (phone.playlist || []).slice(),
+      playlist_secondary: (phone.playlist_secondary || []).slice(),
+      mode: phone.playlist_mode || "ordered",
+      shuffle: phone.playlist_shuffle || "none",
+      steps_count: phone.steps_count || 0,
+    };
+    const modal = document.getElementById("phone-seq-modal");
+    const title = document.getElementById("phone-seq-title");
+    if (title) title.textContent = "Sequence — " + (phone.name || phone.serial);
+    const mode = document.getElementById("phone-pl-mode");
+    const shuf = document.getElementById("phone-pl-shuffle");
+    if (mode) mode.value = phoneSeqDraft.mode;
+    if (shuf) shuf.value = phoneSeqDraft.shuffle;
+    const note = document.getElementById("phone-steps-note");
+    if (note) {
+      note.textContent =
+        "Backup steps on phone: " + phoneSeqDraft.steps_count + " (edited in classic Steps editor / schedule).";
+    }
+    await fillPlaylistLibrary();
+    renderPhonePlaylistLists();
+    if (modal) modal.hidden = false;
+  }
+
+  function renderPhonePlaylistLists() {
+    if (!phoneSeqDraft) return;
+    function fill(ulId, arr) {
+      const ul = document.getElementById(ulId);
+      if (!ul) return;
+      ul.innerHTML = "";
+      if (!arr.length) {
+        const li = document.createElement("li");
+        li.textContent = "(empty)";
+        ul.appendChild(li);
+        return;
+      }
+      arr.forEach(function (ref, i) {
+        const li = document.createElement("li");
+        li.textContent = ref;
+        const rm = document.createElement("button");
+        rm.type = "button";
+        rm.className = "btn-mini";
+        rm.textContent = "✕";
+        rm.addEventListener("click", function () {
+          arr.splice(i, 1);
+          renderPhonePlaylistLists();
+        });
+        li.appendChild(document.createTextNode(" "));
+        li.appendChild(rm);
+        ul.appendChild(li);
+      });
+    }
+    fill("phone-pl-a", phoneSeqDraft.playlist);
+    fill("phone-pl-b", phoneSeqDraft.playlist_secondary);
+  }
+
+  async function fillPlaylistLibrary() {
+    const sel = document.getElementById("phone-pl-lib");
+    if (!sel) return;
+    sel.innerHTML = "";
+    const a = api();
+    let seqs = [];
+    try {
+      if (a && a.list_saved_sequences) {
+        const res = await a.list_saved_sequences();
+        seqs = (res && res.sequences) || [];
+      }
+    } catch (_e) {
+      seqs = [];
+    }
+    if (!seqs.length) {
+      const o = document.createElement("option");
+      o.disabled = true;
+      o.textContent = "No sequence files found under sequences/";
+      sel.appendChild(o);
+      return;
+    }
+    seqs.forEach(function (s) {
+      const o = document.createElement("option");
+      o.value = s.ref || s.path || s.name;
+      o.textContent =
+        (s.ref || s.name || "?") + (s.steps != null ? " (" + s.steps + ")" : "");
+      sel.appendChild(o);
     });
   }
 
@@ -1468,10 +1948,23 @@
           );
         })
         .join("");
+      const screens = (pg.screens || [])
+        .slice(0, 16)
+        .map(function (s) {
+          return '<span class="map-chip-screen">' + escHtml(s) + "</span>";
+        })
+        .join("");
+      const readAs = pg.read_as ? '<span class="map-chip-screen">' + escHtml(pg.read_as) + "</span>" : "";
       html +=
         '<div class="map-page">' +
         '<h3 class="map-page-title">' + escHtml(pg.title || pg.url) + "</h3>" +
         '<p class="map-page-url">' + escHtml(pg.url) + "</p>" +
+        (screens || readAs
+          ? '<div class="map-block"><span class="map-block-label">Web-app tabs / screens</span><div class="map-chips">' +
+            readAs +
+            screens +
+            "</div></div>"
+          : "") +
         (pg.headings && pg.headings.length
           ? '<div class="map-block"><span class="map-block-label">Headings</span><ul class="map-chips">' +
             pg.headings
@@ -2676,19 +3169,43 @@
 
     async function openFarmDash() {
       try {
-        const res = await callApi("Dashboard", function (a) {
-          return a.open_farm_dashboard
-            ? a.open_farm_dashboard()
-            : a.open_dashboard();
+        const res = await callApi("Farm dashboard", function (a) {
+          if (!a.open_farm_dashboard) {
+            return { ok: false, error: "open_farm_dashboard unavailable" };
+          }
+          return a.open_farm_dashboard();
         });
         if (res && (res.error || res.ok === false)) {
-          showBackendError((res && res.error) || "Dashboard open failed");
+          showBackendError((res && res.error) || "Farm dashboard open failed");
           return;
         }
-        if (res) showToast("Dashboard opened in your browser");
+        if (res) showToast("Farm operator dashboard (:8091) opened");
       } catch (_e) {
         /* banner shown */
       }
+    }
+
+    async function openControlDash() {
+      try {
+        const res = await callApi("Control dashboard", function (a) {
+          if (!a.open_dashboard) {
+            return { ok: false, error: "open_dashboard unavailable" };
+          }
+          return a.open_dashboard();
+        });
+        if (res && (res.error || res.ok === false)) {
+          showBackendError((res && res.error) || "Control dashboard open failed");
+          return;
+        }
+        if (res) showToast("Control dashboard (:8080) opened");
+      } catch (_e) {
+        /* banner shown */
+      }
+    }
+
+    async function openBothDashboards() {
+      await openControlDash();
+      await openFarmDash();
     }
 
     if (btnStartHome && !btnStartHome.dataset.wired) {
@@ -3164,7 +3681,12 @@
     const openDash = document.getElementById("btn-open-dash");
     if (openDash && !openDash.dataset.wired) {
       openDash.dataset.wired = "1";
-      openDash.addEventListener("click", openFarmDash);
+      openDash.addEventListener("click", openControlDash);
+    }
+    const openFarmDashBtn = document.getElementById("btn-open-farm-dash");
+    if (openFarmDashBtn && !openFarmDashBtn.dataset.wired) {
+      openFarmDashBtn.dataset.wired = "1";
+      openFarmDashBtn.addEventListener("click", openFarmDash);
     }
 
     const btnCloudSetup = document.getElementById("btn-cloud-setup");

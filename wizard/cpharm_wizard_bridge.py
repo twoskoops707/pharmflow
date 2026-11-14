@@ -71,30 +71,22 @@ WIZARD_STEPS: list[dict[str, Any]] = [
     },
     {
         "index": 6,
-        "id": "steps",
-        "name": "Steps",
+        "id": "builder",
+        "name": "Sequences",
         "phase": "Part 3 — Check & configure",
-        "subtitle": "Default tap list",
-        "hint": "Usually already set in Phones — edit only if needed.",
+        "subtitle": "Builder + playlist (combined)",
+        "hint": "Edit steps and attach saved sequence playlists — same as old CPharm PerPhone editor.",
     },
     {
         "index": 7,
-        "id": "builder",
-        "name": "Builder",
-        "phase": "Part 3 — Check & configure",
-        "subtitle": "Custom sequences (optional)",
-        "hint": "Skip if shipped defaults are fine.",
-    },
-    {
-        "index": 8,
         "id": "teams",
         "name": "Groups",
         "phase": "Part 3 — Check & configure",
-        "subtitle": "Assign phones to groups",
-        "hint": "Assign playlists and runs per day.",
+        "subtitle": "Phones, sequences & playlists",
+        "hint": "See each phone in the group and its playlist / backup steps.",
     },
     {
-        "index": 9,
+        "index": 8,
         "id": "go",
         "name": "Run",
         "phase": "Part 4 — Automate",
@@ -114,7 +106,8 @@ _DECK_ID_TO_PAGE: dict[str, int | None] = {
     "phones": 3,
     "boot": 4,
     "map": None,  # deck-native Site Map — no Tk page
-    "steps": 5,
+    # Legacy "steps" id redirects to combined Sequences (builder) view.
+    "steps": 6,
     "builder": 6,
     "teams": 7,
     "go": 8,
@@ -560,13 +553,23 @@ def _show_tk_window(win: Any) -> None:
 
 
 def _groups_detail_from_state() -> dict:
-    from setup_wizard import state
+    from setup_wizard import (
+        _normalize_sequence_playlist_items,
+        _normalize_sequence_playlist_shuffle,
+        state,
+    )
 
-    connected = {
-        (p.get("serial") or "").strip()
-        for p in (state.get("phones") or [])
-        if isinstance(p, dict) and (p.get("serial") or "").strip()
-    }
+    name_by_serial: dict[str, str] = {}
+    connected = set()
+    for p in state.get("phones") or []:
+        if not isinstance(p, dict):
+            continue
+        ser = (p.get("serial") or "").strip()
+        if not ser:
+            continue
+        connected.add(ser)
+        name_by_serial[ser] = (p.get("name") or ser).strip() or ser
+
     groups_out: list[dict] = []
     for g in state.get("groups") or []:
         if not isinstance(g, dict):
@@ -574,12 +577,41 @@ def _groups_detail_from_state() -> dict:
         pmap = g.get("phones") or {}
         if not isinstance(pmap, dict):
             pmap = {}
-        active = sum(1 for s in pmap if s in connected)
+        phones_out: list[dict] = []
+        for serial, pdata in pmap.items():
+            ser = (serial or "").strip()
+            if not ser:
+                continue
+            ent = pdata if isinstance(pdata, dict) else {}
+            pl = _normalize_sequence_playlist_items(ent.get("sequence_playlist"))
+            pl_b = _normalize_sequence_playlist_items(ent.get("sequence_playlist_secondary"))
+            steps = ent.get("steps") if isinstance(ent.get("steps"), list) else []
+            phones_out.append(
+                {
+                    "serial": ser,
+                    "name": name_by_serial.get(ser) or ser,
+                    "connected": ser in connected,
+                    "steps_count": len(steps),
+                    "playlist": pl,
+                    "playlist_secondary": pl_b,
+                    "playlist_count": len(pl),
+                    "playlist_secondary_count": len(pl_b),
+                    "playlist_mode": (ent.get("sequence_playlist_mode") or "series"),
+                    "playlist_shuffle": _normalize_sequence_playlist_shuffle(
+                        ent.get("sequence_playlist_shuffle")
+                    ),
+                }
+            )
+        active = sum(1 for ph in phones_out if ph.get("connected"))
         groups_out.append(
             {
                 "name": g.get("name") or "Group",
                 "phone_count": active,
-                "configured_count": len(pmap),
+                "configured_count": len(phones_out),
+                "stagger_secs": int(g.get("stagger_secs") or 0),
+                "repeat": int(g.get("repeat") or 1),
+                "repeat_forever": bool(g.get("repeat_forever")),
+                "phones": phones_out,
             }
         )
     return {
@@ -1015,12 +1047,10 @@ def get_journey_state() -> dict:
             complete = setup_ready
         elif sid == "boot":
             complete = False
-        elif sid == "steps":
+        elif sid == "builder":
             complete = steps_ok
         elif sid == "teams":
             complete = groups_ok and steps_ok
-        elif sid == "builder":
-            complete = False
         elif sid == "go":
             complete = False
         steps_out.append(
@@ -1919,6 +1949,133 @@ def get_groups_summary() -> dict:
     return get_groups_detail()
 
 
+def list_saved_sequences() -> dict:
+    """Sequence library for deck playlist pickers (same tree as farm resolve)."""
+
+    def work() -> dict:
+        from wizard.wizard_paths import sequences_dir
+
+        root = sequences_dir()
+        out: list[dict] = []
+        if not root.is_dir():
+            return {"ok": True, "sequences": [], "root": str(root)}
+        try:
+            for p in sorted(root.rglob("*.json")):
+                if p.name.startswith("_"):
+                    continue
+                rel = p.relative_to(root)
+                parts = rel.parts
+                if len(parts) < 2:
+                    # still include root-level for deck picks
+                    ref = p.name
+                    profile = ""
+                    folder = ""
+                else:
+                    profile = parts[0]
+                    folder = parts[1] if len(parts) > 2 else ""
+                    ref = rel.as_posix()
+                out.append(
+                    {
+                        "ref": ref.replace("\\", "/"),
+                        "name": p.stem,
+                        "profile": profile,
+                        "folder": folder,
+                        "path": str(p),
+                    }
+                )
+        except OSError as exc:
+            return {"ok": False, "error": str(exc), "sequences": []}
+        return {"ok": True, "sequences": out, "root": str(root)}
+
+    return _safe_run_on_tk(work)
+
+
+def cursor_save_named_sequence(
+    name: str = "sequence_generated",
+    profile: str = "900x1600",
+    folder: str = "site",
+) -> dict:
+    """Write default_steps to sequences/{profile}/{folder}/{name}.json for playlists."""
+
+    def work() -> dict:
+        import json
+        import re
+
+        from setup_wizard import state
+        from wizard.wizard_paths import sequences_dir
+
+        _reload_persisted_wizard_state()
+        steps = list(state.get("default_steps") or [])
+        if not steps:
+            return {"ok": False, "error": "No steps to save"}
+        safe = re.sub(r"[^a-zA-Z0-9._-]+", "_", (name or "sequence").strip()) or "sequence"
+        prof = re.sub(r"[^a-zA-Z0-9._-]+", "_", (profile or "900x1600").strip()) or "900x1600"
+        fold = re.sub(r"[^a-zA-Z0-9._-]+", "_", (folder or "site").strip()) or "site"
+        dest_dir = sequences_dir() / prof / fold
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        dest = dest_dir / f"{safe}.json"
+        dest.write_text(json.dumps({"steps": steps}, indent=2) + "\n", encoding="utf-8")
+        ref = f"{prof}/{fold}/{safe}.json"
+        return {"ok": True, "path": str(dest), "ref": ref, "count": len(steps)}
+
+    return _safe_run_on_tk(work)
+
+
+def cursor_set_phone_playlist(
+    group_i: int,
+    serial: str,
+    playlist: list | None = None,
+    secondary: list | None = None,
+    mode: str = "series",
+    shuffle: str = "none",
+) -> dict:
+    """Persist per-phone playlist fields (CPharm PerPhoneSequenceEditor contract)."""
+
+    def work() -> dict:
+        from setup_wizard import (
+            _normalize_all_groups,
+            _normalize_sequence_playlist_items,
+            _normalize_sequence_playlist_shuffle,
+            _persist_groups_config,
+            state,
+        )
+
+        _reload_persisted_wizard_state()
+        _normalize_all_groups()
+        idx, err = _as_index(group_i, label="group index")
+        if err or idx is None:
+            return {"ok": False, "error": err or "Invalid group index"}
+        groups = state.get("groups") or []
+        if idx < 0 or idx >= len(groups):
+            return {"ok": False, "error": f"Group index out of range: {idx}"}
+        g = groups[idx]
+        if not isinstance(g, dict):
+            return {"ok": False, "error": "Group is not an object"}
+        pmap = g.setdefault("phones", {})
+        if not isinstance(pmap, dict):
+            return {"ok": False, "error": "Group phones map invalid"}
+        ser = (serial or "").strip()
+        if not ser:
+            return {"ok": False, "error": "serial required"}
+        ent = pmap.setdefault(ser, {"steps": []})
+        if not isinstance(ent, dict):
+            ent = {"steps": []}
+            pmap[ser] = ent
+        ent["sequence_playlist"] = _normalize_sequence_playlist_items(playlist or [])
+        ent["sequence_playlist_secondary"] = _normalize_sequence_playlist_items(secondary or [])
+        mode_s = (mode or "series").strip().lower()
+        if mode_s not in {"ordered", "random", "series", "folder", "folder_sorted", "folder_random"}:
+            mode_s = "series"
+        ent["sequence_playlist_mode"] = mode_s
+        ent["sequence_playlist_shuffle"] = _normalize_sequence_playlist_shuffle(shuffle)
+        ent["explicit_override"] = True
+        ent["use_default_template"] = False
+        _persist_groups_config()
+        return {"ok": True, **_groups_detail_from_state()}
+
+    return _safe_run_on_tk(work)
+
+
 def is_dashboard_ready() -> dict:
     def work() -> dict:
         page = launch_page()
@@ -1994,7 +2151,7 @@ def start_server() -> dict:
 
 
 def start_server_and_open_dashboard() -> dict:
-    """Start service + open dashboard without spawning a visible Tk Run window."""
+    """Start :8080 control service and open both dashboards (:8080 + :8091)."""
 
     def work() -> dict:
         try:
@@ -2008,9 +2165,19 @@ def start_server_and_open_dashboard() -> dict:
             if hasattr(page, "_open_dashboard_browser"):
                 page.after(250, lambda: page._open_dashboard_browser("/"))
                 opened = True
-            out: dict[str, Any] = {"ok": True, "started": True, "dashboard_opened": opened}
+            # Farm operator :8091 — do not leave operators hunting the "other" URL.
+            if hasattr(page, "_open_operator_dashboard_browser"):
+                page.after(500, page._open_operator_dashboard_browser)
+            elif hasattr(page, "_open_both_dashboards"):
+                page.after(500, page._open_both_dashboards)
+            out: dict[str, Any] = {
+                "ok": True,
+                "started": True,
+                "dashboard_opened": opened,
+                "both_dashboards": True,
+            }
             if not opened:
-                out["message"] = "Server starting — click Open dashboard in a moment."
+                out["message"] = "Server starting — click Open both dashboards in a moment."
             return out
         except Exception as exc:  # noqa: BLE001
             return {"ok": False, "error": str(exc)[:500]}
@@ -2132,38 +2299,38 @@ def open_dashboard() -> dict:
 
 
 def open_farm_dashboard() -> dict:
-    """Open the live farm dashboard (127.0.0.1:8091) when it is up.
+    """Open the live farm operator dashboard (:8091). Never fall back to :8080.
 
-    The farm dash is the operator screen the HUD/help text already point at.
-    It runs independently of the wizard control server, so the deck buttons
-    must not gate on that 8080 service. Falls back to the wizard page open
-    when the farm dash is unreachable.
+    Falling back to the control dash lied to operators and made them hunt for
+    the real farm URL. If :8091 is down, start the operator stack and open it.
     """
-    import urllib.request
-    import webbrowser
-
-    FARM_DASH = "http://127.0.0.1:8091/"
-
-    def _reachable(url: str) -> bool:
-        try:
-            with urllib.request.urlopen(url, timeout=2.5):  # noqa: S310 — loopback
-                return True
-        except Exception:
-            return False
 
     def work() -> dict:
-        if _reachable(FARM_DASH):
-            webbrowser.open(FARM_DASH)
-            return {"ok": True, "opened": True, "dashboard": FARM_DASH}
-        page = launch_page()
-        if bool(page._dashboard_config_reachable()):
-            page._open_dashboard_browser("/")
-            return {"ok": True, "opened": True}
-        return {
-            "ok": False,
-            "error": "Dashboard is not up yet — press Start service (Run step), or start the farm first.",
-            "dashboard": FARM_DASH,
-        }
+        try:
+            try:
+                from farm_control import open_operator_dashboard
+            except ImportError:
+                from wizard.farm_control import open_operator_dashboard  # type: ignore[no-redef]
+
+            ok = open_operator_dashboard(
+                open_browser=True, force_browser=True, wait_s=25.0
+            )
+            return {
+                "ok": bool(ok),
+                "opened": bool(ok),
+                "dashboard": "http://127.0.0.1:8091/",
+                "error": (
+                    None
+                    if ok
+                    else "Farm operator :8091 still starting — Start farm, then retry."
+                ),
+            }
+        except Exception as exc:  # noqa: BLE001
+            return {
+                "ok": False,
+                "error": str(exc)[:400],
+                "dashboard": "http://127.0.0.1:8091/",
+            }
 
     return _run_on_tk(work)
 

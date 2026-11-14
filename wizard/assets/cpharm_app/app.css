@@ -2151,3 +2151,222 @@ details.adv-details[open] > summary::before {
   border-color: #a04b3a;
   background: rgba(160, 75, 58, 0.12);
 }
+
+/* ── CPharm 514 Sequence builder submenus ───────────────── */
+.seq-submenu {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--rad);
+  padding: 14px 16px;
+  margin-bottom: 12px;
+}
+
+.seq-submenu .panel-title {
+  margin-bottom: 8px;
+}
+
+.btn-link {
+  appearance: none;
+  background: none;
+  border: 0;
+  color: var(--accent);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  padding: 0;
+  text-align: left;
+}
+
+.btn-link:hover {
+  text-decoration: underline;
+}
+
+.seq-gate-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+  max-width: 520px;
+}
+
+.seq-advanced-toggle {
+  appearance: none;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  color: var(--muted);
+  font-family: var(--font);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 4px 0;
+}
+
+.seq-advanced-toggle:hover {
+  color: var(--accent);
+}
+
+.seq-advanced-panel {
+  margin-top: 10px;
+  padding: 12px;
+  background: var(--panel2);
+  border: 1px solid var(--line);
+  border-radius: var(--rad-sm);
+}
+
+.seq-tool-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: flex-end;
+  margin: 10px 0;
+}
+
+.seq-tool-row label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.seq-list-row {
+  display: flex;
+  gap: 10px;
+  align-items: stretch;
+  margin: 10px 0;
+}
+
+.seq-list-row .step-editor-list {
+  flex: 1;
+  min-height: 180px;
+  max-height: 280px;
+  overflow: auto;
+  background: var(--bg2);
+  border: 1px solid var(--line);
+  border-radius: var(--rad-sm);
+  margin: 0;
+  padding: 6px;
+  list-style: none;
+}
+
+.seq-list-btns {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.seq-list-btns .btn-danger {
+  color: #ffb4a0;
+  border-color: #a04b3a;
+}
+
+.seq-quick-edit,
+.seq-quick-add {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-top: 10px;
+}
+
+.seq-quick-edit .site-url-input {
+  max-width: 160px;
+}
+
+.check-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--muted);
+  margin: 8px 0;
+}
+
+/* Groups — per-phone cards */
+.groups-list-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.group-card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--rad);
+  padding: 12px 14px;
+}
+
+.group-card-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.phone-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  background: var(--panel2);
+  border: 1px solid var(--line);
+  border-radius: var(--rad-sm);
+  padding: 8px 10px;
+  margin-top: 6px;
+}
+
+.phone-row .phone-name {
+  font-family: var(--mono);
+  font-size: 12px;
+  min-width: 140px;
+}
+
+.phone-row .phone-meta {
+  flex: 1;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.phone-row.in-group .phone-meta {
+  color: var(--accent);
+}
+
+.deck-modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.72);
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.deck-modal[hidden] {
+  display: none !important;
+}
+
+.deck-modal-card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--rad);
+  max-width: 720px;
+  width: 100%;
+  max-height: 90vh;
+  overflow: auto;
+  padding: 16px 18px;
+}
+
+.map-chip-screen {
+  display: inline-block;
+  margin: 2px 4px 2px 0;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 11px;
+  font-family: var(--mono);
+}

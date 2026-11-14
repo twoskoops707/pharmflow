@@ -608,6 +608,33 @@ class CPharmAppApi:
     def cursor_rename_group(self, i: int, name: str = "") -> dict:
         return self._bridge_call("cursor_rename_group", i, name)
 
+    def list_saved_sequences(self) -> dict:
+        return self._bridge_call("list_saved_sequences")
+
+    def cursor_save_named_sequence(
+        self, name: str = "sequence_generated", profile: str = "900x1600", folder: str = "site"
+    ) -> dict:
+        return self._bridge_call("cursor_save_named_sequence", name, profile, folder)
+
+    def cursor_set_phone_playlist(
+        self,
+        group_i: int,
+        serial: str,
+        playlist: list | None = None,
+        secondary: list | None = None,
+        mode: str = "series",
+        shuffle: str = "none",
+    ) -> dict:
+        return self._bridge_call(
+            "cursor_set_phone_playlist",
+            group_i,
+            serial,
+            playlist,
+            secondary,
+            mode,
+            shuffle,
+        )
+
     def run_edit_default_sequence(self) -> dict:
         return self._bridge_call("run_edit_default_sequence")
 

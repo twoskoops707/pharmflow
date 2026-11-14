@@ -26,16 +26,15 @@ import shutil
 import socket
 import subprocess
 import sys
+import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from automation.runtime_paths import helper_python
-
 log = logging.getLogger("farm_exe_self_heal")
 
-LOG = Path(os.environ.get("PHARMFLOW_LOGS") or os.environ.get("PHARMFLOW_LOG_DIR") or r"C:\PharmFlow\logs")
+LOG = Path(os.environ.get("CPHARM_LOGS") or os.environ.get("CPHARM_LOG_DIR") or r"C:\CPharm\logs")
 SERIAL_MAP = LOG / "ADB_SERIAL_MAP.lock.json"
 STICKY_LOCK = LOG / "FARM_STICKY_7_PHONES.lock"
 HEAL_REPORT = LOG / "farm_exe_self_heal.json"
@@ -43,14 +42,11 @@ RELOAD_FLAG = LOG / "FARM_RELOAD_FARM.flag"
 
 _CREATE_NO_WINDOW = int(getattr(subprocess, "CREATE_NO_WINDOW", 0) or 0)
 
-# Branding split: live money install may still be C:\CPharm while Start farm
-# seeds under C:\PharmFlow. Prefer PharmFlow destinations but seed FROM CPharm
-# when the branded tree has no tor.exe (proven 2026-09-15).
 _TOR_SEED_CANDIDATES = (
-    Path(r"C:\PharmFlow\automation\tor\tor.exe"),
-    Path(r"C:\PharmFlow\bundled\tor.exe"),
     Path(r"C:\CPharm\automation\tor\tor.exe"),
+    Path(r"C:\PharmFlow\automation\tor\tor.exe"),
     Path(r"C:\CPharm\bundled\tor.exe"),
+    Path(r"C:\PharmFlow\bundled\tor.exe"),
     Path(r"C:\Tor\tor.exe"),
 )
 
@@ -64,10 +60,18 @@ def _adb_bin() -> str:
         Path(r"C:\PharmFlow\bundled\adb.exe"),
         Path(r"C:\CPharm\bundled\adb.exe"),
         Path(r"C:\Program Files\Netease\MuMuPlayerARM\shell\adb.exe"),
-        Path(r"C:\Program Files\Netease\MuMuPlayer\shell\adb.exe"),
+        Path(r"C:\Program Files\platform-tools\adb.exe"),
     ):
         if cand.is_file():
             return str(cand)
+    try:
+        from wizard.wizard_paths import bundled_adb_path
+
+        p = Path(bundled_adb_path())
+        if p.is_file():
+            return str(p)
+    except Exception:
+        pass
     return "adb"
 
 
@@ -109,13 +113,8 @@ def _write_json(path: Path, data: dict[str, Any]) -> None:
     path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
 
 
-def adb_live_serials(*, timeout: float = 25.0) -> list[str]:
-    """List ``adb devices`` serials that are currently ``device``.
-
-    ``timeout`` defaults high for heal/start-farm. Deck status buttons must
-    pass a short timeout so a wedged adb server cannot freeze the Control Panel.
-    """
-    code, out = _run([_adb_bin(), "devices"], timeout=float(timeout))
+def adb_live_serials() -> list[str]:
+    code, out = _run([_adb_bin(), "devices"], timeout=25.0)
     if code != 0 and not out:
         return []
     live: list[str] = []
@@ -123,11 +122,7 @@ def adb_live_serials(*, timeout: float = 25.0) -> list[str]:
         if "\tdevice" not in ln:
             continue
         serial = ln.split()[0].strip()
-        if not serial:
-            continue
-        # Keep redroid/classic ``127.0.0.1:PORT`` transports. Only drop the
-        # known-bad empty/ghost serials — not every loopback publish.
-        if serial in {"127.0.0.1", "localhost", "emulator-5554"}:
+        if not serial or serial.startswith("127.0.0.1:"):
             continue
         live.append(serial)
     return live
@@ -152,10 +147,6 @@ def ensure_tor_binary() -> list[str]:
 
     dest = Path(TOR_DIR) / "tor.exe"
     if dest.is_file():
-        env_tor = (os.environ.get("PHARMFLOW_TOR_PATH") or "").strip()
-        if not env_tor or not Path(env_tor).is_file():
-            os.environ["PHARMFLOW_TOR_PATH"] = str(dest)
-            return ["tor_present", f"tor_path_healed={dest}"]
         return ["tor_present"]
 
     seed: Path | None = None
@@ -167,7 +158,7 @@ def ensure_tor_binary() -> list[str]:
         except OSError:
             continue
     if seed is None:
-        env_tor = (os.environ.get("PHARMFLOW_TOR_PATH") or "").strip()
+        env_tor = (os.environ.get("CPHARM_TOR_PATH") or "").strip()
         if env_tor and Path(env_tor).is_file():
             seed = Path(env_tor)
     if seed is None:
@@ -187,9 +178,7 @@ def ensure_tor_binary() -> list[str]:
             shutil.copy2(seed, dest)
         if dest.is_file():
             fixes.append(f"tor_seeded_from={seed}")
-            # Sticky/SSOT may already point at missing C:\PharmFlow\bundled\tor.exe
-            # — overwrite that dead path, don't setdefault past it.
-            os.environ["PHARMFLOW_TOR_PATH"] = str(dest)
+            os.environ.setdefault("CPHARM_TOR_PATH", str(dest))
         else:
             fixes.append("tor_seed_copy_failed")
     except OSError as exc:
@@ -270,159 +259,6 @@ def prune_serial_map(*, live: list[str] | None = None) -> list[str]:
     return fixes
 
 
-def _heal_phone_rows(
-    phones: dict[str, str],
-    live_set: set[str],
-    inject: dict[str, Any],
-) -> list[tuple[str, str, int, int]]:
-    """(name, serial, absolute_idx, slot) for the lock-map fleet.
-
-    Empty ``live_set`` means ADB has no devices — still heal the map so
-    listeners exist when the HNS wedge clears. A non-empty set restricts to
-    serials that are actually ``device``. Slot is roster position (0..N-1),
-    the index Tor HTTP is bound on. No phone-count cap.
-    """
-    selected: list[tuple[str, str, int]] = []
-    for name, ser in phones.items():
-        if live_set and ser not in live_set:
-            continue
-        idx = _vm_index(name)
-        if idx is None:
-            try:
-                idx = int(inject.get(name) or 0) - 8218
-            except (TypeError, ValueError):
-                continue
-        if idx is None or int(idx) < 0:
-            continue
-        selected.append((name, ser, int(idx)))
-    selected.sort(key=lambda row: row[2])
-    return [(name, ser, idx, slot) for slot, (name, ser, idx) in enumerate(selected)]
-
-
-def _publish_slot_map(rows: list[tuple[str, str, int, int]]) -> None:
-    """Export the same slot map the farm arm path writes before inject dials Tor."""
-    slot_map = {str(idx): slot for _name, _ser, idx, slot in rows}
-    os.environ["PHARMFLOW_INJECT_SLOT_MAP"] = json.dumps(slot_map, separators=(",", ":"))
-
-
-def _caller_tor_would_be_reaped() -> bool:
-    """True when this process is a helper whose child tor.exe the storm reaper kills.
-
-    Starting Tor here looks like a heal and dies on the next reap, so the HTTP
-    tunnel never finishes bootstrap. Unison / farm / watchdog are kept.
-    """
-    try:
-        blob = " ".join(str(x) for x in sys.argv).lower()
-    except (TypeError, ValueError):
-        blob = ""
-    return "farm_money_monitor" in blob
-
-
-def _restore_tor_slots(rows: list[tuple[str, str, int, int]]) -> list[str]:
-    """Start missing slot HTTP tunnels and refuse to call that a heal until they listen."""
-    slots = [slot for _name, _ser, _idx, slot in rows]
-    if not slots:
-        return ["tor_restore_skip_no_slots"]
-    if _caller_tor_would_be_reaped():
-        return [
-            "tor_restore_deferred caller_reaped "
-            "(unison/farm tick binds slot HTTP; money-mon tor is killed as helper fleet)"
-        ]
-    try:
-        from automation.tor_manager import restore_tor_http_for_slots
-
-        report = restore_tor_http_for_slots(slots)
-    except Exception as exc:  # noqa: BLE001 — must surface; do not look restored
-        return [f"tor_restore_err:{type(exc).__name__}:{exc}"]
-    if not isinstance(report, dict):
-        return [f"tor_restore_err:bad_report:{report!r}"]
-    restored = list(report.get("restored") or [])
-    boot = list(report.get("bootstrapping") or [])
-    still = list(report.get("still_dead") or [])
-    fixes = [
-        f"tor_restore base={report.get('http_base')} slots={slots} "
-        f"listening={restored} bootstrapping={boot} still_dead={still}"
-    ]
-    for err in report.get("errors") or []:
-        fixes.append(f"tor_restore_err:{err}")
-    if still or boot or len(restored) != len(slots):
-        fixes.append(
-            f"tor_listeners_not_restored up={len(restored)}/{len(slots)} "
-            f"bootstrapping={boot} still_dead={still}"
-        )
-        if still:
-            try:
-                RELOAD_FLAG.write_text(
-                    f"exe_self_heal_tor_down {_utc()}\n", encoding="utf-8"
-                )
-                fixes.append("flagged_FARM_RELOAD_for_tor")
-            except OSError as flag_exc:
-                fixes.append(f"reload_flag_fail:{flag_exc}")
-    else:
-        fixes.append(
-            f"tor_listeners_ok n={len(restored)} base={report.get('http_base')}"
-        )
-    return fixes
-
-
-def _restore_inject_listeners(
-    rows: list[tuple[str, str, int, int]],
-    inject: dict[str, Any],
-    live_set: set[str],
-) -> list[str]:
-    """Bind dead inject ports in this process and pin guests with CA install.
-
-    A running ``pharmflow_inject_keepalive.py`` is not a restore — the old script
-    watched hardcoded 8242-8249. The tick itself must bind the lock-map ports
-    and must not report restored until those ports accept.
-    """
-    idxs = [idx for _name, _ser, idx, _slot in rows]
-    ports: list[int] = []
-    for name, _ser, idx, _slot in rows:
-        try:
-            ports.append(int(inject.get(name) or (8218 + idx)))
-        except (TypeError, ValueError):
-            ports.append(8218 + idx)
-    if not idxs:
-        return ["inject_restore_skip_no_idxs"]
-    fixes: list[str] = []
-    dead_before = [p for p in ports if not _port_open(p)]
-    if dead_before:
-        fixes.append(
-            f"inject_listeners_down up={len(ports) - len(dead_before)}/{len(ports)} "
-            f"dead={dead_before[:8]}"
-        )
-    try:
-        from automation.mantis_inject_proxy import start_inject_proxies
-
-        started = start_inject_proxies(idxs)
-        fixes.append(f"inject_start_called n={len(started)} idxs={idxs}")
-    except Exception as exc:  # noqa: BLE001
-        fixes.append(f"inject_start_err:{exc}")
-    if live_set:
-        fixes.extend(_repin_live_guests(
-            phones={name: ser for name, ser, _idx, _slot in rows},
-            inject=inject,
-            live=live_set,
-        ))
-    else:
-        fixes.append("inject_guest_pin_skipped adb_empty")
-    fixes.extend(_ensure_inject_keepalive_process(idxs=idxs))
-    still = [p for p in ports if not _port_open(p)]
-    if still:
-        fixes.append(f"inject_restore_failed still={still[:8]}")
-        try:
-            RELOAD_FLAG.write_text(
-                f"exe_self_heal_inject_down {_utc()}\n", encoding="utf-8"
-            )
-            fixes.append("flagged_FARM_RELOAD_for_inject")
-        except OSError as flag_exc:
-            fixes.append(f"reload_flag_fail:{flag_exc}")
-    elif ports:
-        fixes.append(f"inject_listeners_restored n={len(ports)}")
-    return fixes
-
-
 def heal_inject_and_tor(*, live: list[str] | None = None) -> list[str]:
     """Restore dead inject listeners + Tor upstream (EXE-owned, no band-aids).
 
@@ -475,17 +311,81 @@ def heal_inject_and_tor(*, live: list[str] | None = None) -> list[str]:
         if live_ports:
             inject_ports = sorted(set(live_ports))
 
+    idxs: list[int] = []
+    for name, port in inject.items():
+        if inject_ports and int(port) not in inject_ports:
+            continue
+        idx = _vm_index(name)
+        if idx is None:
+            try:
+                idx = int(port) - 8218
+            except (TypeError, ValueError):
+                continue
+        if idx >= 0:
+            idxs.append(idx)
+    idxs = sorted(set(idxs))
+
     up_ports = [p for p in inject_ports if _port_open(p)]
+    dead_ports = [p for p in inject_ports if p not in up_ports]
+    any_inject = bool(up_ports)
+    all_inject = bool(inject_ports) and not dead_ports
 
-    # Tor HTTP is slot-based (http_base + roster position), not absolute VM
-    # index. vm39 dials base+0, not base+39. Warming 0..max(idx) clamped at 31
-    # never restored those listeners, and the async warm returned before any
-    # port was up — the tick treated that as a heal.
-    rows = _heal_phone_rows(phones, live_set, inject)
-    _publish_slot_map(rows)
+    http_base = _tor_http_base()
+    tor_ports = sorted({http_base + i for i in idxs}) if idxs else []
+    if not tor_ports and inject_ports:
+        tor_ports = sorted({http_base + (p - 8218) for p in inject_ports if p >= 8218})
+    up_tor = [p for p in tor_ports if _port_open(p)]
+    any_tor = bool(up_tor)
+    all_tor = bool(tor_ports) and len(up_tor) == len(tor_ports)
+
     farm_alive = _farm_lane_alive()
-    fixes.extend(_restore_tor_slots(rows))
+    need_inject = bool(inject_ports) and (not any_inject or bool(dead_ports))
+    need_tor = bool(idxs) and (not any_tor or not all_tor)
 
+    if need_tor:
+        fixes.append(
+            f"tor_listeners_down up={len(up_tor)}/{len(tor_ports)} base={http_base}"
+        )
+        # Prefer farm-owned warm to avoid Tor fleet storms. If farm is alive but
+        # *zero* Tor HTTP listeners remain, heal may warm anyway — farm "alive"
+        # with dead Tor was stranding money until a sequence-gated reload.
+        is_farm_proc = _current_process_is_farm()
+        tor_totally_dead = len(up_tor) == 0
+        if is_farm_proc or not farm_alive or tor_totally_dead:
+            try:
+                from automation import tor_manager
+
+                max_idx = max(idxs) if idxs else max(0, len(live_set) - 1)
+                tor_manager.ensure_tor_daemon_started_async(max_phone_idx=max_idx)
+                who = "farm" if is_farm_proc else ("bootstrap" if not farm_alive else "heal_dead_tor")
+                fixes.append(f"tor_warm_async max_idx={max_idx} via={who}")
+            except Exception as exc:  # noqa: BLE001
+                fixes.append(f"tor_warm_err:{exc}")
+                try:
+                    RELOAD_FLAG.write_text(
+                        f"exe_self_heal_tor_down {_utc()}\n", encoding="utf-8"
+                    )
+                    fixes.append("flagged_FARM_RELOAD_for_tor")
+                except OSError as flag_exc:
+                    fixes.append(f"reload_flag_fail:{flag_exc}")
+        else:
+            fixes.append("tor_warm_skipped caller_not_farm farm_owns_tor")
+            try:
+                RELOAD_FLAG.write_text(
+                    f"exe_self_heal_tor_partial {_utc()} up={len(up_tor)}/{len(tor_ports)}\n",
+                    encoding="utf-8",
+                )
+                fixes.append("flagged_FARM_RELOAD_for_partial_tor")
+            except OSError as flag_exc:
+                fixes.append(f"reload_flag_fail:{flag_exc}")
+    elif all_tor:
+        fixes.append(f"tor_listeners_ok n={len(up_tor)} base={http_base}")
+    elif any_tor:
+        fixes.append(f"tor_listeners_partial up={len(up_tor)}/{len(tor_ports)}")
+
+    # Durable inject ownership: cpharm_inject_keepalive holds 8242+ listeners.
+    # Never in-process bind from money-mon / heal callers — only run_farm_354 backup.
+    is_farm = _current_process_is_farm()
     if up_ports:
         fixes.append(_describe_inject_ownership(up_ports))
         owner_pids = sorted(set(_inject_port_owners(up_ports).values()))
@@ -501,9 +401,78 @@ def heal_inject_and_tor(*, live: list[str] | None = None) -> list[str]:
                     fixes.append(f"inject_wrong_owner_killed pid={pid} class={cls}")
                 else:
                     fixes.append(f"inject_wrong_owner_kill_fail pid={pid} class={cls}")
-            time.sleep(0.4)
+            time.sleep(1.0)
+            fixes.extend(_ensure_inject_keepalive_process(idxs=idxs))
 
-    fixes.extend(_restore_inject_listeners(rows, inject, live_set))
+    if need_inject:
+        fixes.append(
+            f"inject_listeners_down up={len(up_ports)}/{len(inject_ports)} "
+            f"dead={dead_ports[:8]}"
+        )
+        # 1) Persistent keepalive lane FIRST — survives money-mon / heal restarts.
+        fixes.extend(_ensure_inject_keepalive_process(idxs=idxs))
+        time.sleep(2.0)
+
+        up_mid = [p for p in inject_ports if _port_open(p)]
+        still_dead = [p for p in inject_ports if p not in up_mid]
+
+        # 2) In-process bind ONLY from run_farm_354 when keepalive did not restore.
+        if still_dead and is_farm:
+            try:
+                from automation.mantis_inject_proxy import start_inject_proxies
+
+                if idxs:
+                    started = start_inject_proxies(idxs)
+                    fixes.append(
+                        f"inject_started_inproc_farm_backup n={len(started)} idxs={idxs}"
+                    )
+            except Exception as exc:  # noqa: BLE001
+                fixes.append(f"inject_inproc_err:{exc}")
+        elif still_dead and not is_farm:
+            fixes.append(
+                f"inject_inproc_skipped caller_not_farm dead={still_dead[:8]}"
+            )
+
+        # 3) Re-pin live guests to lock-map inject ports + reverse tunnels.
+        fixes.extend(_repin_live_guests(phones=phones, inject=inject, live=live_set))
+
+        time.sleep(0.6)
+        up_after = [p for p in inject_ports if _port_open(p)]
+        if up_after:
+            fixes.append(_describe_inject_ownership(up_after))
+        if len(up_after) == len(inject_ports) and inject_ports:
+            fixes.append(f"inject_listeners_restored n={len(up_after)}")
+        elif up_after:
+            fixes.append(
+                f"inject_listeners_partial_after_heal up={len(up_after)}/{len(inject_ports)}"
+            )
+            try:
+                RELOAD_FLAG.write_text(
+                    f"exe_self_heal_inject_partial {_utc()}\n", encoding="utf-8"
+                )
+            except OSError:
+                pass
+        else:
+            fixes.append("inject_restore_failed still_0")
+            try:
+                RELOAD_FLAG.write_text(
+                    f"exe_self_heal_inject_down {_utc()}\n", encoding="utf-8"
+                )
+                fixes.append("flagged_FARM_RELOAD_for_inject")
+            except OSError as flag_exc:
+                fixes.append(f"reload_flag_fail:{flag_exc}")
+    elif all_inject:
+        fixes.append(f"inject_listeners_ok n={len(up_ports)}")
+        fixes.extend(_ensure_inject_keepalive_process(idxs=idxs))
+        fixes.extend(
+            _repin_live_guests(
+                phones=phones, inject=inject, live=live_set, only_if_wrong=True
+            )
+        )
+    elif any_inject:
+        fixes.append(f"inject_listeners_partial up={len(up_ports)}/{len(inject_ports)}")
+        fixes.extend(_ensure_inject_keepalive_process(idxs=idxs))
+        fixes.extend(_repin_live_guests(phones=phones, inject=inject, live=live_set))
 
     if farm_alive:
         fixes.append("farm_lane_alive")
@@ -519,7 +488,7 @@ def _tor_http_base() -> int:
     except (TypeError, ValueError):
         pass
     try:
-        return int(os.environ.get("PHARMFLOW_TOR_HTTP_BASE") or "8118")
+        return int(os.environ.get("CPHARM_TOR_HTTP_BASE") or "8118")
     except ValueError:
         return 8118
 
@@ -541,6 +510,9 @@ def _farm_lane_alive() -> bool:
 
 
 def _inject_keepalive_alive() -> bool:
+    for thr in threading.enumerate():
+        if thr.name in {"lane-inject-keep", "inject-keepalive"} and thr.is_alive():
+            return True
     try:
         import psutil
 
@@ -549,7 +521,7 @@ def _inject_keepalive_alive() -> bool:
                 cmd = " ".join(str(x) for x in (proc.info.get("cmdline") or []))
             except (psutil.Error, TypeError, ValueError):
                 continue
-            if "pharmflow_inject_keepalive.py" in cmd:
+            if "cpharm_inject_keepalive.py" in cmd or "pharmflow_inject_keepalive.py" in cmd:
                 return True
             if "_arm_inject_keepalive.py" in cmd:
                 return True
@@ -559,41 +531,16 @@ def _inject_keepalive_alive() -> bool:
 
 
 def _ensure_inject_keepalive_process(*, idxs: list[int]) -> list[str]:
-    fixes: list[str] = []
+    """The inject lane is a thread of the farm process.
+
+    A detached pythonw keepalive is what stays running after PC shutdown.
+    This heal must not start one. The unison inject-keep lane owns it.
+    """
     if not idxs:
         return ["inject_keepalive_skip_no_idxs"]
     if _inject_keepalive_alive():
         return ["inject_keepalive_already"]
-    # Prefer repo script; fall back to writing nothing if missing.
-    script = Path(__file__).resolve().parents[1] / "scripts" / "pharmflow_inject_keepalive.py"
-    if not script.is_file():
-        return [f"inject_keepalive_script_missing:{script}"]
-    # sys.executable inside the frozen EXE is PharmFlow.exe. Spawning it
-    # starts a second onefile copy that exits immediately and makes the
-    # bootloader delete the extract the farm helpers are still using.
-    pyw = helper_python()
-    if not pyw or Path(pyw).stem.lower() in {"pharmflow", "cpharm"}:
-        return ["inject_keepalive_no_helper_python"]
-    env = os.environ.copy()
-    env["PYTHONPATH"] = str(script.parents[1]) + os.pathsep + env.get("PYTHONPATH", "")
-    try:
-        flags = _CREATE_NO_WINDOW
-        flags |= int(getattr(subprocess, "DETACHED_PROCESS", 0x00000008) or 0)
-        flags |= int(getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00000200) or 0)
-        subprocess.Popen(
-            [pyw, "-u", str(script)],
-            cwd=str(script.parents[1]),
-            env=env,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            creationflags=flags,
-            close_fds=True,
-        )
-        fixes.append(f"spawn_inject_keepalive idxs={idxs}")
-        time.sleep(1.2)
-    except OSError as exc:
-        fixes.append(f"spawn_inject_keepalive_err:{exc}")
-    return fixes
+    return ["inject_keepalive_owned_by_lane"]
 
 
 def _guest_proxy_port(serial: str) -> int | None:
@@ -661,16 +608,7 @@ def _repin_live_guests(
                 timeout=10.0,
             )
             got = _guest_proxy_port(serial)
-            host_up = _port_open(want)
-            if not host_up or got in (None, 0) or str(pinned).endswith(":0"):
-                fixes.append(
-                    f"repin_fail {serial} idx={idx} pinned={pinned} got={got} "
-                    f"host_listen={host_up}"
-                )
-            else:
-                fixes.append(
-                    f"repin {serial} idx={idx} pinned={pinned} got={got}"
-                )
+            fixes.append(f"repin {serial} idx={idx} pinned={pinned} got={got}")
         except Exception as exc:  # noqa: BLE001
             fixes.append(f"repin_fail {serial}:{exc}")
     return fixes
@@ -697,8 +635,125 @@ def _running_vm_indices() -> set[int]:
     return found
 
 
+# MuMu cold-start heal (root-cause fix for the 2026-10-25 fleet=1 stall):
+# the unison self-heal only ever adb-connected to ALREADY RUNNING MuMu VMs, so
+# a VM lost to a crash/reboot/HCS blip stayed dead forever and the farm
+# silently shrank to whoever survived. connect_live_fleet now cold-boots dead
+# canonical VMs through mumu_shell_cli.launch_instance_index (the proven bare
+# --VmIndex path), with a per-index retry cooldown and a per-tick launch limit
+# so one heal pass cannot boot-storm the host. Standing rule kept: this lane
+# only ever STARTS VMs — never powers anything off. The launch limit is a
+# concurrency bound for heal safety, not a phone-count ceiling; every VM
+# folder on disk eventually gets its turn across subsequent heal ticks.
+_BOOT_DEFAULT_COOLDOWN_S = 600.0
+_BOOT_MAX_COOLDOWN_S = 1800.0
+_BOOT_STATE_FILE = LOG / "farm_heal_boot_state.json"
+_BOOT_LOCK = threading.Lock()
+_BOOT_STATE_VERSION = 1
+
+
+def _heal_env_number(names: tuple[str, ...], default: str) -> float:
+    """First parsable env value among aliases (CPHARM_/PHARMFLOW_ spellings)."""
+    for name in names:
+        raw = (os.environ.get(name) or "").strip()
+        if raw:
+            try:
+                return float(raw)
+            except ValueError:
+                continue
+    try:
+        return float(default)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _boot_lane_disabled() -> bool:
+    """Env opt-out for the cold-boot lane (CPHARM_/PHARMFLOW_HEAL_BOOT_DEAD=0)."""
+    for name in ("CPHARM_HEAL_BOOT_DEAD", "PHARMFLOW_HEAL_BOOT_DEAD"):
+        raw = (os.environ.get(name) or "").strip().lower()
+        if raw in ("0", "false", "no", "off"):
+            return True
+    return False
+
+
+def _boot_per_tick() -> int:
+    return max(1, int(_heal_env_number(
+        ("CPHARM_HEAL_BOOT_PER_TICK", "PHARMFLOW_HEAL_BOOT_PER_TICK"), "3"
+    )))
+
+
+def _load_boot_state() -> dict[str, dict[str, Any]]:
+    try:
+        data = json.loads(_BOOT_STATE_FILE.read_text(encoding="utf-8-sig"))
+        if isinstance(data, dict) and data.get("v") == _BOOT_STATE_VERSION:
+            vm = data.get("vm") or {}
+            return {str(k): dict(v) for k, v in vm.items() if isinstance(v, dict)}
+    except (OSError, ValueError, json.JSONDecodeError):
+        pass
+    return {}
+
+
+def _save_boot_state(vm: dict[str, dict[str, Any]]) -> None:
+    try:
+        _BOOT_STATE_FILE.write_text(
+            json.dumps({"v": _BOOT_STATE_VERSION, "vm": vm, "ts": _utc()}, indent=2)
+            + "\n",
+            encoding="utf-8",
+        )
+    except OSError as exc:
+        log.warning("boot-state write failed: %s", exc)
+
+
+def _boot_cooldown_ok(idx: int, state: dict[str, dict[str, Any]]) -> tuple[bool, float]:
+    """(launch_allowed, seconds_until_retry) — backoff grows with fail streak."""
+    entry = state.get(str(idx)) or {}
+    last = float(entry.get("last") or 0.0)
+    fails = int(entry.get("fails") or 0)
+    base = _heal_env_number(
+        ("CPHARM_HEAL_BOOT_COOLDOWN_S", "PHARMFLOW_HEAL_BOOT_COOLDOWN_S"),
+        str(_BOOT_DEFAULT_COOLDOWN_S),
+    )
+    base = max(0.0, base)
+    cooldown = min(_BOOT_MAX_COOLDOWN_S, base * (1 + max(0, fails)))
+    due = last == 0.0 or fails <= 0 or cooldown <= 0 or (time.time() - last) >= cooldown
+    return due, max(0.0, cooldown - max(0.0, time.time() - last))
+
+
+def _boot_mumu_instance(idx: int) -> tuple[bool, str]:
+    """Cold-boot one dead MuMu VM. Detached; never blocks beyond timeout."""
+    try:
+        from automation.mumu_shell_cli import launch_instance_index
+    except Exception as exc:  # noqa: BLE001
+        return False, f"import_fail:{type(exc).__name__}:{exc}"
+    try:
+        with _BOOT_LOCK:
+            return launch_instance_index(idx, timeout=60.0)
+    except Exception as exc:  # noqa: BLE001
+        return False, f"launch_exc:{type(exc).__name__}:{exc}"
+
+
+def _boot_blocked_by_headroom() -> str:
+    """Empty string when a cold boot is allowed.
+
+    Host-health only. A fully stopped fleet must still be bootable; this
+    only holds the launch while free RAM is under the boot floor.
+    """
+    try:
+        from automation.boot_gates import gate_disabled, headroom_ok
+    except Exception:
+        return ""
+    if gate_disabled():
+        return ""
+    ok, why = headroom_ok()
+    return "" if ok else str(why)
+
+
 def connect_live_fleet() -> list[str]:
     fixes: list[str] = []
+    boot_disabled = _boot_lane_disabled()
+    boot_state: dict[str, dict[str, Any]] = (
+        {} if boot_disabled else _load_boot_state()
+    )
     try:
         from automation.farm_canonical_phones import _fleet_from_disk
 
@@ -708,21 +763,59 @@ def connect_live_fleet() -> list[str]:
     running = _running_vm_indices()
     connected = 0
     skipped = 0
+    booted = 0
+    deferred = 0
+    # An empty running set used to skip the boot lane entirely, so a full
+    # MuMu shutdown left every phone at "no device" and the farm earned $0.
+    # Headroom is checked per launch: one pass must not start a second VM
+    # after the first one ate the free RAM.
     for name, serial in fleet.items():
         ser = str(serial or "").strip()
-        if not ser or ser.startswith("127.0.0.1:"):
-            continue
         idx = _vm_index(name)
-        if running and idx is not None and idx not in running:
-            skipped += 1
+        if idx is not None and idx not in running:
+            if boot_disabled:
+                skipped += 1
+                continue
+            can_boot, _wait = _boot_cooldown_ok(idx, boot_state)
+            if not can_boot:
+                skipped += 1
+                continue
+            if booted >= _boot_per_tick():
+                deferred += 1
+                continue
+            headroom_block = "" if boot_disabled else _boot_blocked_by_headroom()
+            if headroom_block:
+                deferred += 1
+                fixes.append(f"boot_deferred idx={idx} {name} {headroom_block}")
+                continue
+            ok, note = _boot_mumu_instance(idx)
+            entry = boot_state.get(str(idx)) or {}
+            fails = int(entry.get("fails") or 0)
+            boot_state[str(idx)] = {
+                "last": time.time(),
+                "fails": fails if ok else fails + 1,
+            }
+            fixes.append(f"boot_vm idx={idx} {name} {'ok' if ok else 'fail'}: {note}")
+            if ok:
+                booted += 1
+            else:
+                skipped += 1
+            # Do NOT adb-connect in the pass that just launched the VM —
+            # the guest needs minutes to expose ADB (and may change serial);
+            # the next heal tick owns the connect.
+            continue
+        if not ser or ser.startswith("127.0.0.1:"):
             continue
         _code, out = _run([_adb_bin(), "connect", ser], timeout=4.0)
         if "connected" in out.lower() or "already" in out.lower():
             connected += 1
         else:
             fixes.append(f"connect_fail {name} {ser} {out[:80]}")
+    if not boot_disabled and boot_state:
+        _save_boot_state(boot_state)
     fixes.append(
-        f"adb_connect_attempted ok={connected} skipped_offline={skipped} running_idx={len(running)}"
+        f"adb_connect_attempted ok={connected} skipped_offline={skipped} "
+        f"deferred_boot={deferred} booted_now={booted} running_idx={len(running)}"
     )
     return fixes
 
@@ -738,17 +831,17 @@ _STALE_SCRIPT_MARKERS = (
     "scripts/_flash_",
 )
 
-# Competing babysitters — unison owns the money path.
+# Competing babysitters — only legacy one-shots that fight the live stack.
+# NEVER list farm_remediate_loop / keep_farm_alive here: they own :8091 keep-alive
+# and EXE self-heal. (Unison may also run; those two are allowlisted keep-scripts.)
 _STALE_COMPETING_SCRIPTS = (
     "ensure_farm_24x7.py",
-    "keep_farm_alive.py",
-    "farm_remediate_loop.py",
     "farm_health_monitor.py",
-    "emu_overnight_watchdog.py",
 )
 
 # Detached inject keepalive — holds lock-map ports; never roster poison.
 _INJECT_KEEPALIVE_MARKERS = (
+    "cpharm_inject_keepalive.py",
     "pharmflow_inject_keepalive.py",
     "_arm_inject_keepalive.py",
 )
@@ -759,8 +852,10 @@ _FARM_TOR_PRIMARY_MARKERS = (
 )
 # Acceptable Tor owners only when farm lane is DOWN (bootstrap / heal).
 _FARM_TOR_FALLBACK_MARKERS = (
+    "cpharm_inject_keepalive",
     "pharmflow_inject_keepalive",
     "tor_manager",
+    "cpharm_unison",
     "pharmflow_unison",
 )
 # Legacy: money_monitor must never be treated as Tor owner (spawns duplicate fleets).
@@ -768,25 +863,72 @@ _FARM_TOR_OWNER_MARKERS = _FARM_TOR_PRIMARY_MARKERS + _FARM_TOR_FALLBACK_MARKERS
 
 # Duplicate helper scripts — keep newest pid only (never run_farm_354.py).
 _STORM_DEDUPE_BASENAMES = (
+    "cpharm_inject_keepalive.py",
     "pharmflow_inject_keepalive.py",
     "watch_bottom_ads.py",
     "watch_proxy_inject.py",
     "farm_money_monitor.py",
+    "cpharm_stealth_guard.py",
     "pharmflow_stealth_guard.py",
+    "cpharm_unison_supervisor.py",
     "pharmflow_unison_supervisor.py",
     "farm_watchdog.py",
+    "cpharm_watchdog.py",
     "pharmflow_watchdog.py",
     "agent_unison_freebuff_loop.py",
     "agent_unison_freebuff_tick.py",
+    "dashboard.py",
+    "farm_operator_dash.py",
 )
 
-# Azure / Cursor telemetry cmd storms — safe to kill (not money path).
+# Azure / Cursor telemetry + hung MCP shells — safe to kill (not money path).
+# Standing rule: EXE kills these itself (never leave @azure/mcp / azmcp storms).
 _AZURE_TELEMETRY_MARKERS = (
     "track-telemetry",
     "azure telemetry",
     "posttooluse",
     "cursor-hooks.json",
     "telemetry.sh",
+    "@azure/mcp",
+    "azure/mcp",
+    "azure\\mcp",
+    "azmcp",
+)
+
+# PyInstaller extract helpers left behind when PharmFlow.exe died — kill when
+# parent is gone so a live EXE / unison can respawn a clean stack.
+# Detached farm sidecars (CREATE_NO_WINDOW / dead powershell parent) MUST stay —
+# same contract as tools.cpharm_watchdog.FARM_KEEP_SCRIPTS. Only cull true debris
+# (telemetry, empty shells, non-farm MEI leftovers).
+_MEI_ORPHAN_KEEP_BASENAMES = frozenset(
+    {
+        "run_farm_354.py",
+        "farm_money_monitor.py",
+        "adb_bond_keeper.py",
+        "agent_unison_freebuff_loop.py",
+        "agent_unison_freebuff_tick.py",
+        "cpharm_inject_keepalive.py",
+        "pharmflow_inject_keepalive.py",
+        "watch_bottom_ads.py",
+        "watch_proxy_inject.py",
+        "cpharm_stealth_guard.py",
+        "pharmflow_stealth_guard.py",
+        "cpharm_unison_supervisor.py",
+        "pharmflow_unison_supervisor.py",
+        "farm_watchdog.py",
+        "cpharm_watchdog.py",
+        "pharmflow_watchdog.py",
+        "farm_operator_dash.py",
+        "farm_remediate_loop.py",
+        "keep_farm_alive.py",
+        "ensure_farm_24x7.py",
+        "ssp_paying_hunter.py",
+        "run_farm_cycles.py",
+        "dashboard.py",
+        "farm_midnight_watch.py",
+        "ensure_farm_24x7.py",
+        "emu_overnight_watchdog.py",
+    }
 )
 
 # Never cull MuMu / EXE host processes.
@@ -794,7 +936,7 @@ _STORM_PROTECTED_NAME_FRAGMENTS = (
     "nemux",
     "mumu",
     "vmmem",
-    "pharmflow.exe",
+    "cpharm.exe",
     "pharmflow.exe",
 )
 
@@ -918,12 +1060,7 @@ def _inject_owner_class(pid: int) -> str:
     cmd = _cmdline_for_pid(pid).lower()
     if _is_inject_keepalive_cmd(cmd):
         return "keepalive"
-    # PharmFlow.exe --start-farm is the onefile owner of in-process inject.
-    # taskkill on that PID makes the bootloader delete the extract, and every
-    # helper then fails with "No module named automation.mantis_inject_proxy".
-    if _farm_lane_alive_cmd(cmd) or "--start-farm" in cmd:
-        return "farm"
-    if "pharmflow.exe" in cmd or "cpharm.exe" in cmd:
+    if _farm_lane_alive_cmd(cmd):
         return "farm"
     if "farm_money_monitor" in cmd:
         return "money_monitor"
@@ -1078,7 +1215,7 @@ def reap_process_storm(*, apply: bool = True) -> list[str]:
     tor_rows = [r for r in rows if (r.get("name") or "").lower() == "tor.exe"]
     helper_parent_markers = (
         "farm_money_monitor",
-        "pharmflow_inject_keepalive",
+        "cpharm_inject_keepalive",
         "_arm_inject_keepalive",
     )
 
@@ -1157,23 +1294,53 @@ def reap_process_storm(*, apply: bool = True) -> list[str]:
         if ppid > 0 and ppid not in live_pids and not _pid_alive(ppid):
             _plan(int(row["pid"]), "conhost_dead_parent")
 
-    # (c) Azure / telemetry cmd storms (+ their conhost children).
+    # (c) Azure / telemetry / hung MCP shells (+ conhost / node children).
+    _azure_host_names = frozenset(
+        {"cmd.exe", "node.exe", "azmcp.exe", "powershell.exe", "pwsh.exe"}
+    )
     for row in rows:
-        if (row.get("name") or "").lower() != "cmd.exe":
+        name_l = (row.get("name") or "").lower()
+        if name_l not in _azure_host_names:
             continue
         pid = int(row["pid"])
         cmd = str(row.get("cmdline") or "")
         low = cmd.lower()
         ppid = int(row.get("ppid") or 0)
-        orphan_empty = not cmd.strip() and ppid > 0 and not _pid_alive(ppid)
+        orphan_empty = (
+            name_l == "cmd.exe"
+            and not cmd.strip()
+            and ppid > 0
+            and not _pid_alive(ppid)
+        )
         telemetry = any(m in low for m in _AZURE_TELEMETRY_MARKERS)
         if telemetry or orphan_empty:
             reason = "azure_telemetry_cmd" if telemetry else "orphan_empty_cmd"
             _plan(pid, reason)
             for child_pid in children_by_ppid.get(pid, []):
                 child = pid_map.get(child_pid)
-                if child and (child.get("name") or "").lower() == "conhost.exe":
-                    _plan(child_pid, f"{reason}_conhost")
+                if not child:
+                    continue
+                cname = (child.get("name") or "").lower()
+                if cname in {"conhost.exe", "node.exe", "azmcp.exe", "cmd.exe"}:
+                    _plan(child_pid, f"{reason}_child")
+
+    # (c2) Dead-parent PyInstaller (_MEI) helpers — previous EXE died; live
+    # EXE must cull them so start_farm / unison can own a clean stack.
+    for row in rows:
+        if not _is_python_exe_name(str(row.get("name") or "")):
+            continue
+        cmd = str(row.get("cmdline") or "")
+        if "_mei" not in cmd.lower():
+            continue
+        base = _storm_script_basename(cmd).lower()
+        if base in _MEI_ORPHAN_KEEP_BASENAMES:
+            continue
+        ppid = int(row.get("ppid") or 0)
+        if ppid <= 0:
+            continue
+        if ppid in live_pids or _pid_alive(ppid):
+            continue
+        _plan(int(row["pid"]), f"mei_orphan_dead_parent:{base or 'unknown'}")
 
     # (d) Duplicate helper scripts — keep newest pid per basename.
     by_script: dict[str, list[dict[str, Any]]] = {}
@@ -1269,7 +1436,7 @@ def reap_stale_processes(*, apply: bool = True) -> list[str]:
     """EXE-owned kill of dead/stale/unused farm helpers.
 
     Layers:
-      1) ``tools.pharmflow_watchdog.reap_stale`` — stuck adb shells, dup workers,
+      1) ``tools.cpharm_watchdog.reap_stale`` — stuck adb shells, dup workers,
          orphan helpers (non-allowlisted), tor missing/dup config.
       2) Local extras the watchdog allowlists but that poison the money path:
          one-shot ``_fix_*`` / ``_flash_*`` / ``_money_arm_*`` scripts,
@@ -1278,9 +1445,9 @@ def reap_stale_processes(*, apply: bool = True) -> list[str]:
     """
     fixes: list[str] = []
 
-    # 1) Watchdog reaper (bundled in frozen EXE as tools.pharmflow_watchdog).
+    # 1) Watchdog reaper (bundled in frozen EXE as tools.cpharm_watchdog).
     try:
-        from tools.pharmflow_watchdog import reap_stale as _wd_reap
+        from tools.cpharm_watchdog import reap_stale as _wd_reap
 
         rep = _wd_reap(apply=apply)
         n_found = int(rep.get("found") or 0)
@@ -1341,10 +1508,33 @@ def reap_stale_processes(*, apply: bool = True) -> list[str]:
     unison_rows = [
         (pid, ppid, cmd)
         for pid, ppid, cmd in rows
-        if "pharmflow_unison_supervisor.py" in cmd
+        if "cpharm_unison_supervisor.py" in cmd
+        or "pharmflow_unison_supervisor.py" in cmd
+    ]
+    dash_rows = [
+        (pid, ppid, cmd)
+        for pid, ppid, cmd in rows
+        if "dashboard.py" in cmd or "automation.dashboard" in cmd
     ]
 
     kill_plan: list[tuple[int, str]] = []
+
+    # Stuck ``adb connect`` children hang forever and poison reconnects.
+    try:
+        import psutil as _ps
+
+        for proc in _ps.process_iter(["pid", "name", "cmdline"]):
+            try:
+                pname = str(proc.info.get("name") or "").lower()
+                if pname not in {"adb.exe", "adb"}:
+                    continue
+                parts = [str(x) for x in (proc.info.get("cmdline") or [])]
+                if any(p.lower() == "connect" for p in parts):
+                    kill_plan.append((int(proc.info["pid"]), "stuck_adb_connect"))
+            except (_ps.Error, TypeError, ValueError, KeyError):
+                continue
+    except ImportError:
+        pass
 
     for pid, _ppid, cmd in rows:
         if _is_inject_keepalive_cmd(cmd):
@@ -1365,8 +1555,12 @@ def reap_stale_processes(*, apply: bool = True) -> list[str]:
         for pid, _ppid, _cmd in inject_rows:
             kill_plan.append((pid, "inject_unused_farm_owns"))
 
-    # Duplicate inject / unison — keep highest pid (newest).
-    for label, grp in (("inject", inject_rows), ("unison", unison_rows)):
+    # Duplicate inject / unison / control dashboard — keep highest pid (newest).
+    for label, grp in (
+        ("inject", inject_rows),
+        ("unison", unison_rows),
+        ("dashboard", dash_rows),
+    ):
         if len(grp) < 2:
             continue
         keep = max(grp, key=lambda r: r[0])[0]

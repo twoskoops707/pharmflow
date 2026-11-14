@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>PharmFlow — Farm Control Deck</title>
-    <link rel="stylesheet" href="app.css?v=20260908-2" />
+    <link rel="stylesheet" href="app.css?v=20261113-514seq" />
   </head>
   <body>
     <div class="deck">
@@ -333,7 +333,7 @@
                   <li>Enter the site URL (pre-filled from <strong>Test</strong>).</li>
                   <li>Click <strong>Scan site</strong> — PharmFlow maps its pages, links, forms and buttons.</li>
                   <li>Click <strong>Generate starter sequence</strong> — a draft becomes your default sequence.</li>
-                  <li>Refine taps and timing in <strong>Steps</strong> or <strong>Builder</strong>.</li>
+                  <li>Refine taps and timing in <strong>Sequence builder</strong> (CPharm 514 submenu).</li>
                 </ol>
                 <h2 class="panel-title">Site URL</h2>
                 <div class="site-url-row">
@@ -360,135 +360,204 @@
           </div>
           <footer class="view-footer-nav">
             <button type="button" class="btn-ghost btn-prev-step" data-prev="boot">← Test</button>
-            <button type="button" class="btn-go btn-next-step" data-next="steps">Next: Steps →</button>
+            <button type="button" class="btn-go btn-next-step" data-next="builder">Next: Sequence builder →</button>
           </footer>
         </section>
 
-        <!-- 6 Steps -->
-        <section class="view" id="view-steps" data-view="steps">
+        <!-- Legacy steps id redirects in JS to builder (CPharm 514 combined Steps into Builder) -->
+        <section class="view" id="view-steps" data-view="steps" hidden>
+          <ul class="steps-preview" id="steps-preview"></ul>
+          <p class="status-line" id="steps-summary"></p>
+          <button type="button" id="btn-edit-sequence" hidden></button>
+        </section>
+
+        <!-- 7 Sequences (CPharm 514 Builder submenu + playlist) -->
+        <section class="view" id="view-builder" data-view="builder">
           <header class="view-hero">
-            <div class="kicker"><span class="badge-dot"></span> STEP 7 OF 10 · TEST</div>
-            <h1>Steps</h1>
-            <p class="subtitle">The default tap sequence new phones run.</p>
+            <div class="kicker"><span class="badge-dot"></span> GENERATOR · SEQUENCE</div>
+            <h1>Sequence builder</h1>
+            <p class="subtitle">1. Pick website or app. 2. Add steps. 3. Save — then attach playlists per phone in Groups.</p>
           </header>
-          <div class="view-body">
-            <div class="main-grid">
-              <section class="panel">
-                <h2 class="panel-title">What to do</h2>
-                <ol class="instruction-list">
-                  <li>Setup usually creates steps for you — if so, skip this.</li>
-                  <li>Otherwise open the <strong>in-deck editor</strong> on Builder, or jump there below.</li>
-                </ol>
-                <h2 class="panel-title">Default sequence</h2>
-                <p class="status-line" id="steps-summary">No default steps defined.</p>
-                <ul class="steps-preview" id="steps-preview"></ul>
-                <div class="action-row">
-                  <button type="button" class="btn-go" id="btn-edit-sequence" data-help="Opens the in-deck sequence editor (Builder) so you can add, edit, or reorder steps without leaving the deck.">Edit in Builder</button>
-                  <button type="button" class="btn-mini" id="btn-load-sequence" data-help="Loads a sequence from disk (JSON).">Load file</button>
-                  <button type="button" class="btn-mini" id="btn-save-sequence" data-help="Saves the current sequence to disk so you can reuse it later.">Save as</button>
+          <div class="view-body view-body-scroll">
+            <p class="status-line" id="builder-status">Start here: tap Website or App.</p>
+
+            <div class="seq-submenu" id="builder-gate">
+              <h2 class="panel-title">What are we automating?</h2>
+              <div class="action-row">
+                <button type="button" class="btn-go" id="btn-gate-website">Website (URL)</button>
+                <button type="button" class="btn-go btn-go-secondary" id="btn-gate-app">App (APK / package)</button>
+                <button type="button" class="btn-mini" id="btn-gate-load">Load sequence file…</button>
+              </div>
+              <div class="seq-gate-fields" id="gate-web-fields" hidden>
+                <label class="step-field-label" for="builder-url">Website URL</label>
+                <input type="url" id="builder-url" class="site-url-input" value="https://getdabflow.app" />
+                <button type="button" class="btn-go" id="btn-gate-web-continue">Continue →</button>
+              </div>
+              <div class="seq-gate-fields" id="gate-app-fields" hidden>
+                <label class="step-field-label" for="builder-package">Package name</label>
+                <input type="text" id="builder-package" class="site-url-input" placeholder="com.example.app" />
+                <button type="button" class="btn-go" id="btn-gate-app-continue">Continue →</button>
+              </div>
+            </div>
+
+            <div id="builder-workspace" hidden>
+              <div class="seq-submenu">
+                <h2 class="panel-title">Your automation</h2>
+                <p class="panel-note" id="builder-summary">—</p>
+                <button type="button" class="btn-link" id="btn-change-target">Change website / app choice</button>
+              </div>
+
+              <div class="seq-submenu seq-advanced">
+                <button type="button" class="seq-advanced-toggle" id="btn-more-options">More options: layouts, browser recording, tap alignment</button>
+                <div class="seq-advanced-panel" id="more-options-panel" hidden>
+                  <p class="panel-note">Advanced — optional. Templates and recording live in the classic wizard; deck keeps the same submenu shape as CPharm 514.</p>
+                  <div class="action-row">
+                    <button type="button" class="btn-mini" id="btn-open-builder">Reload steps</button>
+                    <button type="button" class="btn-mini" id="btn-load-sequence">Load file</button>
+                  </div>
                 </div>
-              </section>
-              <section class="panel">
-                <h2 class="panel-title">About steps</h2>
-                <p class="panel-note">A sequence is a list of taps. New phones use this list by default. Preview above; edit on <strong>Builder</strong>.</p>
-              </section>
+              </div>
+
+              <div class="seq-submenu" id="builder-editor">
+                <h2 class="panel-title">Add the actions you want to run</h2>
+                <p class="panel-note" id="builder-tools-context">Pick a category, then Add action.</p>
+                <label class="check-row"><input type="checkbox" id="builder-humanize" checked /> Make pauses feel more natural (recommended)</label>
+                <div class="seq-tool-row">
+                  <label>Category
+                    <select id="builder-tool-cat" class="browser-select"></select>
+                  </label>
+                  <label>Action
+                    <select id="builder-tool-name" class="browser-select"></select>
+                  </label>
+                  <button type="button" class="btn-go" id="btn-builder-add-action">Add action</button>
+                </div>
+                <div class="seq-list-row">
+                  <ul class="step-editor-list" id="builder-step-list"></ul>
+                  <div class="seq-list-btns">
+                    <button type="button" class="btn-mini" id="btn-builder-up">Up</button>
+                    <button type="button" class="btn-mini" id="btn-builder-down">Down</button>
+                    <button type="button" class="btn-mini" id="btn-builder-dup">Duplicate</button>
+                    <button type="button" class="btn-mini btn-danger" id="btn-builder-del">Delete</button>
+                  </div>
+                </div>
+                <div class="seq-quick-edit">
+                  <span>Quick edit</span>
+                  <select id="builder-inline-key" class="browser-select">
+                    <option value="seconds">Wait time (seconds)</option>
+                    <option value="url">URL</option>
+                    <option value="x">Tap X</option>
+                    <option value="y">Tap Y</option>
+                    <option value="text">Text</option>
+                  </select>
+                  <input type="text" id="builder-inline-val" class="site-url-input" />
+                  <button type="button" class="btn-go btn-go-secondary" id="btn-builder-apply-inline">Apply change</button>
+                </div>
+                <div class="seq-quick-add">
+                  <span>Add step:</span>
+                  <button type="button" class="btn-go" data-quick="wait">Wait</button>
+                  <button type="button" class="btn-go" data-quick="tap">Tap</button>
+                  <button type="button" class="btn-go" data-quick="swipe">Swipe</button>
+                  <button type="button" class="btn-go" data-quick="back">Back</button>
+                  <button type="button" class="btn-go" data-quick="key">Key</button>
+                </div>
+                <!-- Keep legacy form for field editing (hidden unless needed) -->
+                <form id="builder-step-form" class="builder-step-form" autocomplete="off" onsubmit="return false;" hidden>
+                  <select id="builder-step-type" class="browser-select">
+                    <option value="open_url">Open URL</option>
+                    <option value="launch_app">Launch app</option>
+                    <option value="tap">Tap</option>
+                    <option value="wait">Wait</option>
+                    <option value="swipe">Swipe</option>
+                    <option value="keyevent">Keyevent</option>
+                    <option value="close_app">Close app</option>
+                    <option value="clear_cookies">Clear cookies</option>
+                    <option value="rotate_identity">Rotate identity</option>
+                    <option value="type_text">Type text</option>
+                    <option value="full_reset">Full reset</option>
+                  </select>
+                  <div id="builder-step-fields" class="builder-step-fields"></div>
+                  <button type="button" id="btn-builder-add" hidden>Add step</button>
+                  <button type="button" id="btn-builder-update" hidden>Update</button>
+                  <button type="button" id="btn-builder-clear-sel" hidden>Clear</button>
+                </form>
+              </div>
+
+              <div class="seq-submenu">
+                <h2 class="panel-title">Save your sequence file</h2>
+                <div class="seq-tool-row">
+                  <label>File name <input type="text" id="builder-seq-name" class="site-url-input" value="sequence_generated" /></label>
+                  <button type="button" class="btn-go" id="btn-save-sequence">Save sequence</button>
+                  <button type="button" class="btn-mini" id="btn-save-as-schedule">Add to Schedule</button>
+                </div>
+                <p class="panel-note">Saves under the sequences tree so Groups playlists can pick it up (same as CPharm 514).</p>
+              </div>
+
+              <div class="seq-submenu">
+                <h2 class="panel-title">Playlist (attach on Groups)</h2>
+                <p class="panel-note">Farm runs named playlist files per phone. Build/save here, then open a phone’s <strong>Edit</strong> on Groups to add the file to Set A / Set B — same contract as CPharm PerPhoneSequenceEditor.</p>
+              </div>
             </div>
           </div>
           <footer class="view-footer-nav">
             <button type="button" class="btn-ghost btn-prev-step" data-prev="map">← Site Map</button>
-            <button type="button" class="btn-go btn-next-step" data-next="builder">Next: Builder →</button>
-          </footer>
-        </section>
-
-        <!-- 7 Builder -->
-        <section class="view" id="view-builder" data-view="builder">
-          <header class="view-hero">
-            <div class="kicker"><span class="badge-dot"></span> STEP 8 OF 10 · TEST</div>
-            <h1>Builder</h1>
-            <p class="subtitle">Edit the default sequence in-deck — add, update, or clear steps.</p>
-          </header>
-          <div class="view-body view-body-scroll">
-            <div class="main-grid main-grid-builder">
-              <section class="panel panel-builder-list" id="builder-editor">
-                <div class="panel-head">
-                  <h2 class="panel-title">Sequence steps</h2>
-                  <button type="button" class="btn-mini" id="btn-open-builder" data-help="Reloads the step list from the current default sequence.">Reload steps</button>
-                </div>
-                <ul class="step-editor-list" id="builder-step-list"></ul>
-                <p class="panel-note">Select a step to edit it, or add a new one below. Most people keep the money-path defaults.</p>
-              </section>
-              <section class="panel panel-builder-form">
-                <h2 class="panel-title">Step form</h2>
-                <form id="builder-step-form" class="builder-step-form" autocomplete="off" onsubmit="return false;">
-                  <div class="step-field-row">
-                    <label class="step-field-label" for="builder-step-type">Type</label>
-                    <select id="builder-step-type" class="browser-select" aria-label="Step type">
-                      <option value="open_url">Open URL</option>
-                      <option value="launch_app">Launch app</option>
-                      <option value="tap">Tap</option>
-                      <option value="wait">Wait</option>
-                      <option value="swipe">Swipe</option>
-                      <option value="keyevent">Keyevent</option>
-                      <option value="close_app">Close app</option>
-                      <option value="clear_cookies">Clear cookies</option>
-                      <option value="rotate_identity">Rotate identity</option>
-                      <option value="type_text">Type text</option>
-                    </select>
-                  </div>
-                  <div id="builder-step-fields" class="builder-step-fields"></div>
-                  <div class="action-row builder-form-actions">
-                    <button type="button" class="btn-go" id="btn-builder-add" data-help="Appends the step from the form to the default sequence.">Add step</button>
-                    <button type="button" class="btn-go btn-go-secondary" id="btn-builder-update" disabled hidden data-help="Writes your form edits back into the selected step.">Update selected</button>
-                    <button type="button" class="btn-mini" id="btn-builder-clear-sel" data-help="Clears the selected step so Add creates a new step instead of updating.">Clear selection</button>
-                  </div>
-                </form>
-              </section>
-            </div>
-          </div>
-          <footer class="view-footer-nav">
-            <button type="button" class="btn-ghost btn-prev-step" data-prev="steps">← Steps</button>
             <button type="button" class="btn-go btn-next-step" data-next="teams">Next: Groups →</button>
           </footer>
         </section>
 
-        <!-- 8 Groups -->
+        <!-- 8 Groups — per-phone submenu (FamFlow Teams / CPharm Groups) -->
         <section class="view" id="view-teams" data-view="teams">
           <header class="view-hero">
-            <div class="kicker"><span class="badge-dot"></span> STEP 9 OF 10 · TEST</div>
+            <div class="kicker"><span class="badge-dot"></span> TEAMS · PER PHONE</div>
             <h1>Groups</h1>
-            <p class="subtitle">Organize phones into groups with natural timing.</p>
+            <p class="subtitle">Each phone row opens its own sequence submenu — steps + playlist, not one editor for the whole group.</p>
           </header>
           <div class="view-body view-body-scroll">
-            <div class="main-grid">
-              <section class="panel">
-                <h2 class="panel-title">What to do</h2>
-                <ol class="instruction-list">
-                  <li>Rename or remove groups in the list below — manage them here in the deck.</li>
-                  <li>Put each phone in one group.</li>
-                  <li>Add a group only if you need one.</li>
-                  <li>Then go to <strong>Run</strong>.</li>
-                </ol>
-                <h2 class="panel-title">Your groups</h2>
-                <p class="status-line" id="teams-summary">No groups yet.</p>
-                <ul class="groups-list" id="groups-list"></ul>
+            <p class="status-line" id="teams-summary">No groups yet.</p>
+            <div class="action-row" style="margin-bottom:12px">
+              <button type="button" class="btn-go" id="btn-manage-groups" data-help="Refreshes the groups list from farm state.">Refresh</button>
+              <button type="button" class="btn-mini" id="btn-add-group" data-help="Creates another phone group.">Add group</button>
+              <button type="button" class="btn-mini" id="btn-humanize" data-help="Natural timing on all phones.">Natural timing — all phones</button>
+              <button type="button" class="btn-ghost" id="btn-open-dash-teams">Open dashboard</button>
+            </div>
+            <div id="groups-list" class="groups-list groups-list-cards"></div>
+            <div id="phone-seq-modal" class="deck-modal" hidden>
+              <div class="deck-modal-card">
+                <h2 class="panel-title" id="phone-seq-title">Sequence — phone</h2>
+                <p class="panel-note">Playlist overrides inline steps when set (CPharm 514 / PerPhone contract).</p>
+                <label class="step-field-label">Mode
+                  <select id="phone-pl-mode" class="browser-select">
+                    <option value="ordered">ordered — one per iteration</option>
+                    <option value="random">random — one per iteration</option>
+                    <option value="series">series — concatenate all</option>
+                  </select>
+                </label>
+                <label class="step-field-label">Shuffle
+                  <select id="phone-pl-shuffle" class="browser-select">
+                    <option value="none">no shuffle</option>
+                    <option value="combined">shuffle combined</option>
+                    <option value="set_a">shuffle set A</option>
+                    <option value="set_b">shuffle set B</option>
+                    <option value="both_sets_separately">shuffle both sets</option>
+                  </select>
+                </label>
+                <h3 class="panel-title">Set A (primary playlist)</h3>
+                <select id="phone-pl-lib" class="browser-select" multiple size="6"></select>
+                <button type="button" class="btn-mini" id="btn-pl-add-a">Add selected → Set A</button>
+                <ul id="phone-pl-a" class="steps-preview"></ul>
+                <h3 class="panel-title">Set B (optional)</h3>
+                <button type="button" class="btn-mini" id="btn-pl-add-b">Add selected → Set B</button>
+                <ul id="phone-pl-b" class="steps-preview"></ul>
+                <p class="panel-note" id="phone-steps-note">Backup steps: —</p>
                 <div class="action-row">
-                  <button type="button" class="btn-go" id="btn-manage-groups" data-help="Refreshes the groups list from farm state.">Refresh groups</button>
-                  <button type="button" class="btn-mini" id="btn-add-group" data-help="Creates another phone group in the saved farm config.">Add group</button>
-                  <button type="button" class="btn-mini" id="btn-humanize" data-help="Adds natural timing jitter to every phone sequence so runs look less robotic.">Natural timing — all phones</button>
+                  <button type="button" class="btn-go" id="btn-phone-seq-save">Save to phone</button>
+                  <button type="button" class="btn-ghost" id="btn-phone-seq-cancel">Cancel</button>
                 </div>
-              </section>
-              <section class="panel">
-                <h2 class="panel-title">Dashboard</h2>
-                <p class="panel-note">Open the dashboard to watch runs and revenue live.</p>
-                <div class="action-row">
-                  <button type="button" class="btn-ghost" id="btn-open-dash-teams" data-help="Opens the operator dashboard to watch group phones and money live.">Open dashboard</button>
-                </div>
-              </section>
+              </div>
             </div>
           </div>
           <footer class="view-footer-nav">
-            <button type="button" class="btn-ghost btn-prev-step" data-prev="builder">← Builder</button>
-            <button type="button" class="btn-go btn-next-step" data-next="go">Next: Run (step 9) →</button>
+            <button type="button" class="btn-ghost btn-prev-step" data-prev="builder">← Sequence builder</button>
+            <button type="button" class="btn-go btn-next-step" data-next="go">Next: Run →</button>
           </footer>
         </section>
 
@@ -510,7 +579,7 @@
                 </ol>
                 <p class="status-line" id="launch-summary"></p>
                 <div class="action-row action-row-big">
-                  <button type="button" class="btn-go" id="btn-start-server" data-help="Starts the wizard control service and opens the dashboard in your browser.">Start service + open dashboard</button>
+                  <button type="button" class="btn-go" id="btn-start-server" data-help="Starts the wizard control service (:8080) and opens both dashboards (:8080 + farm :8091).">Start service + open both dashboards</button>
                   <button type="button" class="btn-go btn-go-secondary" id="btn-run-groups" data-help="Boots phones if needed, then runs every group sequence in parallel.">Run all groups</button>
                 </div>
                 <div class="action-row">
@@ -520,7 +589,8 @@
                   <p class="panel-title">Extra tools</p>
                   <div class="advanced-actions">
                     <button type="button" class="btn-ghost" id="btn-fix-net" data-help="Re-applies proxy/internet settings on live phones when browsing fails.">Fix phone internet</button>
-                    <button type="button" class="btn-ghost" id="btn-open-dash" data-help="Opens the operator control dashboard in your browser.">Open control dashboard</button>
+                    <button type="button" class="btn-ghost" id="btn-open-dash" data-help="Opens the wizard control dashboard on :8080 (groups / teach / phones).">Open control dashboard (:8080)</button>
+                    <button type="button" class="btn-ghost" id="btn-open-farm-dash" data-help="Opens the farm operator dashboard on :8091 (money / Path3 / phones).">Open farm dashboard (:8091)</button>
                   </div>
                 </div>
                 <div class="advanced-block">
