@@ -32,6 +32,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from automation.mumu_fingerprint import (
+    ensure_windows_gpu_prefs_for_mumu,
+    reassert_all_vm_gpu_accel,
+)
+from wizard.wizard_paths import mumu_vms_dir
+
 log = logging.getLogger("farm_exe_self_heal")
 
 LOG = Path(os.environ.get("CPHARM_LOGS") or os.environ.get("CPHARM_LOG_DIR") or r"C:\CPharm\logs")
@@ -1614,6 +1620,24 @@ def reap_stale_processes(*, apply: bool = True) -> list[str]:
     return fixes
 
 
+def _reassert_mumu_gpu_rails() -> list[str]:
+    """Pin Windows GpuPreference=2 + VM GpuProp High / DirectX (existing helpers).
+
+    NPU: repo has no NpuProp / NPU settings.json keys; farm_remediate_loop
+    documents ``NPU is not used by MuMu``. Do not invent keys here.
+    """
+    notes: list[str] = []
+    try:
+        vms_env = (os.environ.get("CPHARM_MUMU_VMS") or "").strip()
+        vms = Path(vms_env) if vms_env else (mumu_vms_dir() or Path(r"C:\Program Files\Netease\MuMuPlayer\vms"))
+        notes.extend(ensure_windows_gpu_prefs_for_mumu())
+        notes.extend(reassert_all_vm_gpu_accel(vms))
+    except Exception as exc:  # noqa: BLE001
+        notes.append(f"gpu_reassert_err:{type(exc).__name__}:{exc}")
+        log.warning("MuMu GPU reassert failed: %s", exc)
+    return notes
+
+
 def run_self_heal(*, reason: str = "tick") -> dict[str, Any]:
     started = time.time()
     fixes: list[str] = [f"reason={reason}"]
@@ -1642,6 +1666,9 @@ def run_self_heal(*, reason: str = "tick") -> dict[str, Any]:
         fixes.append(f"adb_live_n={len(live)}")
         fixes.extend(prune_serial_map(live=live))
         fixes.extend(heal_inject_and_tor(live=live))
+        # GPU High / DirectX on Start farm + tick (same helpers as stealth/remediate).
+        # File rewrite only — does not launch/kill farm lanes or fight PEF-1.
+        fixes.extend(_reassert_mumu_gpu_rails()[:8])
     except Exception as exc:  # noqa: BLE001
         fixes.append(f"self_heal_crash:{type(exc).__name__}:{exc}")
         log.exception("farm_exe_self_heal failed")

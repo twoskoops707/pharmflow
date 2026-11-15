@@ -780,7 +780,12 @@ def apply_farm_guest_rails(data: dict[str, Any]) -> dict[str, Any]:
 
 
 def apply_farm_guest_rails_file(path: Path) -> bool:
-    """Patch one MuMu setting.json with farm guest rails. Returns True if written."""
+    """Patch one MuMu setting.json with farm guest rails. Returns True if written.
+
+    Also applies host GPU High / DirectX via ``_apply_host_gpu_accel`` so phone
+    create / setup paths get the same compositing rails as fingerprint + reassert.
+    NPU is not a MuMu setting.json key in this repo — do not invent one.
+    """
     if not path.is_file():
         return False
     try:
@@ -789,7 +794,10 @@ def apply_farm_guest_rails_file(path: Path) -> bool:
             data = {}
     except (OSError, json.JSONDecodeError, TypeError, ValueError):
         data = {}
+    # Lean guest rails first (always). GPU helper may early-return when
+    # PHARMFLOW_MUMU_GPU_MODE is off/skip, so do not rely on it alone.
     apply_farm_guest_rails(data)
+    _apply_host_gpu_accel(data)
     try:
         path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
         return True
