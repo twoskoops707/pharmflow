@@ -3829,14 +3829,89 @@
       openDash.addEventListener("click", openControlDash);
     }
 
+    async function refreshCloudConnectStatus() {
+      const statusEl = document.getElementById("cloud-connect-status");
+      const noteEl = document.getElementById("cloud-free-tier-note");
+      const hostEl = document.getElementById("cloud-host-input");
+      const countEl = document.getElementById("cloud-count-input");
+      try {
+        const a = requireApi("Cloud connect");
+        if (!a || !a.cloud_session_status) {
+          if (statusEl) statusEl.textContent = "Cloud connect is not available in this build";
+          return;
+        }
+        const st = await a.cloud_session_status();
+        if (!st || st.ok === false) {
+          if (statusEl) statusEl.textContent = (st && st.error) || "Cloud session check failed";
+          return;
+        }
+        if (hostEl && st.host && !hostEl.value) hostEl.value = st.host;
+        if (countEl && st.count && !countEl.value) countEl.value = String(st.count);
+        if (noteEl && st.free_tier) {
+          const ft = st.free_tier;
+          noteEl.textContent =
+            "Free path: " + (ft.label || "Oracle Always Free + FreeLLMAPI") + ". " +
+            (ft.compute || "") + " " +
+            (ft.agent || "") + " " +
+            (ft.phones_guidance || "");
+        }
+        if (statusEl) statusEl.textContent = st.message || (st.ready ? "Cloud session ready" : "Cloud connect waiting");
+      } catch (_e) {
+        if (statusEl) statusEl.textContent = "Cloud session check failed";
+      }
+    }
+
+    const btnCloudConnect = document.getElementById("btn-cloud-connect");
+    if (btnCloudConnect && !btnCloudConnect.dataset.wired) {
+      btnCloudConnect.dataset.wired = "1";
+      btnCloudConnect.addEventListener("click", async function () {
+        try {
+          const hostEl = document.getElementById("cloud-host-input");
+          const countEl = document.getElementById("cloud-count-input");
+          const keyEl = document.getElementById("cloud-key-input");
+          const host = (hostEl && hostEl.value || "").trim();
+          const count = parseInt((countEl && countEl.value) || "", 10) || 0;
+          const apiKey = (keyEl && keyEl.value || "").trim();
+          const a = requireApi("Cloud connect");
+          if (!a || !a.cloud_connect_login) {
+            showBackendError("Cloud connect is not available in this build");
+            return;
+          }
+          const res = await a.cloud_connect_login(host, count, apiKey);
+          if (!res || res.error || res.ok === false) {
+            showBackendError((res && res.error) || "Cloud connect failed");
+            await refreshCloudConnectStatus();
+            return;
+          }
+          showView("go");
+          showToast(res.message || "Cloud connect saved", true);
+          if (keyEl) keyEl.value = "";
+          await refreshCloudConnectStatus();
+          if (res.start_phones || (res.phones && res.phones.starting)) {
+            const st = await pollNamedStatus("cloud_command_status", "Cloud status is not available in this build");
+            if (!st || st.error || st.ok === false) {
+              showBackendError((st && (st.error || st.message)) || "Cloud phone setup failed");
+              return;
+            }
+            showToast(st.message || "Cloud phone setup finished");
+          }
+        } catch (_e) {
+          /* banner shown */
+        }
+      });
+      refreshCloudConnectStatus();
+    }
+
     const btnCloudSetup = document.getElementById("btn-cloud-setup");
     if (btnCloudSetup && !btnCloudSetup.dataset.wired) {
       btnCloudSetup.dataset.wired = "1";
       btnCloudSetup.addEventListener("click", async function () {
         try {
-          const host = window.prompt("Cloud instance IP (e.g. 100.x.x.x):", "");
+          const savedHost = (document.getElementById("cloud-host-input") || {}).value || "";
+          const savedCount = (document.getElementById("cloud-count-input") || {}).value || "";
+          const host = window.prompt("Cloud instance IP (e.g. 100.x.x.x):", savedHost);
           if (host == null || !host.trim()) return;
-          const countStr = window.prompt("Number of instances:", "");
+          const countStr = window.prompt("Number of instances:", savedCount);
           const count = parseInt(countStr || "", 10);
           if (!count || count < 1) {
             showToast("Enter a valid instance count");
@@ -3940,17 +4015,17 @@
           }
           const cfg = await a.cloud_agent_config();
           const base = window.prompt(
-            "API base URL (OpenAI-compatible):",
-            (cfg && cfg.base) || "https://api.openai.com/v1"
+            "API base URL (free path = FreeLLMAPI local):",
+            (cfg && cfg.base) || "http://127.0.0.1:31415/v1"
           );
           let model = null;
           if (base !== null) {
-            model = window.prompt("Model id:", (cfg && cfg.model) || "gpt-4o");
+            model = window.prompt("Model id:", (cfg && cfg.model) || "auto");
           }
           if (model === null) return;
           const hint = cfg && cfg.configured
-            ? "Already configured (leave blank to keep current key)"
-            : "Enter your API key (stored in cloud_agent.json on this PC)";
+            ? "Already configured (leave blank to keep current key / FreeLLMAPI)"
+            : "API key (leave blank to use FreeLLMAPI freellmapi.env on this PC)";
           const key = window.prompt(hint, "");
           if (key === null) return;
           if (!a.save_cloud_agent_config) {

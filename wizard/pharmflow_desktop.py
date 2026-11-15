@@ -607,6 +607,71 @@ def run_main_window(*, initial_view: str | None = None) -> None:
     # — Cloud Phones submenu —
     cloud_m = tk.Menu(tools_m, tearoff=0)
 
+    def _cloud_one_login():
+        """One login: FreeLLMAPI agent + cloud phone setup (Oracle Always Free path)."""
+        from tkinter import simpledialog
+        try:
+            import pharmflow_wizard_bridge as bridge
+        except Exception as exc:  # noqa: BLE001
+            messagebox.showerror("Cloud connect", f"Bridge unavailable: {exc}", parent=root)
+            return
+        st = {}
+        try:
+            st = bridge.cloud_session_status() or {}
+        except Exception:
+            st = {}
+        host = simpledialog.askstring(
+            "Cloud connect",
+            "Oracle/Redroid host IP (Tailscale / private).\n"
+            "Free path: Always Free A1.Flex ≤4 OCPU / 24 GB.\n"
+            "Leave agent key blank to use FreeLLMAPI on this PC.",
+            initialvalue=str(st.get("host") or ""),
+            parent=root,
+        )
+        if host is None:
+            return
+        count_kwargs: dict = {"minvalue": 1, "parent": root}
+        try:
+            saved_count = int(st.get("count") or 0)
+        except (TypeError, ValueError):
+            saved_count = 0
+        if saved_count > 0:
+            count_kwargs["initialvalue"] = saved_count
+        count = simpledialog.askinteger(
+            "Cloud connect",
+            "Instance count (operator-chosen; no product ceiling):",
+            **count_kwargs,
+        )
+        if count is None:
+            return
+        key = simpledialog.askstring(
+            "Cloud connect",
+            "Agent API key (optional — blank = FreeLLMAPI freellmapi.env):",
+            parent=root,
+            show="*",
+        )
+        if key is None:
+            return
+
+        def _work():
+            try:
+                res = bridge.cloud_connect_login(host.strip(), int(count), (key or "").strip())
+                msg = (res or {}).get("message") or (res or {}).get("error") or str(res)
+                ok = bool((res or {}).get("ok"))
+                root.after(
+                    0,
+                    lambda: messagebox.showinfo("Cloud connect", msg, parent=root)
+                    if ok
+                    else messagebox.showerror("Cloud connect", msg, parent=root),
+                )
+            except Exception as exc:  # noqa: BLE001
+                root.after(
+                    0,
+                    lambda: messagebox.showerror("Cloud connect", str(exc), parent=root),
+                )
+
+        threading.Thread(target=_work, daemon=True).start()
+
     def _cloud_connect():
         """Open dialog to connect to cloud phone instances."""
         from tkinter import simpledialog
@@ -785,6 +850,8 @@ def run_main_window(*, initial_view: str | None = None) -> None:
             tk.Button(win, text="Close", command=win.destroy)
         ).pack(pady=(0, 12))
 
+    cloud_m.add_command(label="Cloud connect (one login)…", command=_cloud_one_login)
+    cloud_m.add_separator()
     cloud_m.add_command(label="Connect to Cloud Instances…", command=_cloud_connect)
     cloud_m.add_command(label="Apply Stealth to Cloud…", command=_cloud_stealth)
     cloud_m.add_command(label="Set Up Tor on Cloud…", command=_cloud_tor)

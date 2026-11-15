@@ -591,6 +591,11 @@ class HeadlessDeckTests(unittest.TestCase):
         self.assertNotIn("sys.executable", agent)
         cloud = BRIDGE.split("def run_cloud_agent(")[1].split("\ndef ")[0]
         self.assertIn("--cloud-agent", cloud)
+        self.assertIn("def cloud_connect_login(", BRIDGE)
+        self.assertIn("def cloud_session_status(", BRIDGE)
+        login = BRIDGE.split("def cloud_connect_login(")[1].split("\ndef ")[0]
+        self.assertIn("cloud_phone_setup(", login)
+        self.assertIn("31415", BRIDGE.split("def cloud_agent_config(")[1].split("\ndef ")[0])
         self.assertEqual(
             calls,
             ["connect", "heal:10.0.2.1:5555", "connect", "heal:10.0.2.1:5555"],

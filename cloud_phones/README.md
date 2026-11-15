@@ -4,31 +4,31 @@ Unified tooling for local or hosted Android emulator instances (Redroid), includ
 
 ## Quick Start
 
-The Windows operator interface is `PharmFlow.exe` in `C:\PharmFlow\`. Diagnostics and the watchdog are `PharmFlow.exe --agent` and `PharmFlow.exe --watchdog` — not separate downloads. The complete operator guide is [../docs/EXE_QUICK_START.md](../docs/EXE_QUICK_START.md).
+The Windows operator interface is `PharmFlow.exe` in `C:\PharmFlow\`. Diagnostics and the watchdog are `PharmFlow.exe --agent` and `PharmFlow.exe --watchdog` — not separate downloads. The complete operator guide is [../docs/EXE_QUICK_START.md](../docs/EXE_QUICK_START.md). Full free-tier limits: [../docs/CLOUD_PHONES_SETUP.md](../docs/CLOUD_PHONES_SETUP.md).
 
 The focused watchdog can repair only known Docker/ADB connection failures and does not touch unrelated processes.
 
-### 1. Use the shipped EXE
-Cloud tools run inside `C:\PharmFlow\PharmFlow.exe` (`--cloud-phones-cli`). Do not build a separate CloudPhones.exe.
+### 1. One login in the Control Panel (preferred)
+Open **PharmFlow.exe → Run → Cloud connect**. Enter host + count (agent key optional if FreeLLMAPI is on this PC). Click **Connect cloud phones + agent**. That saves the session, wires the FreeLLMAPI agent, and runs setup — no separate CloudPhones.exe and no second farm stack.
 
-### 2. Deploy to Oracle Cloud
+### 2. Deploy to Oracle Cloud (Always Free ARM)
 ```bash
-# On your Oracle Cloud ARM instance:
+# On your Oracle Cloud Always Free A1.Flex ARM instance:
 bash cloud_phones/setup-oracle-cloud.sh
 ```
 
-### 3. Connect & Apply Stealth
+### 3. CLI connect (same code path as the widget)
 ```batch
 REM One command does everything (no separate CloudPhones.exe):
-PharmFlow.exe --cloud-phones-cli setup --host 100.x.x.x
+PharmFlow.exe --cloud-phones-cli setup --host 100.x.x.x --count N
 
 REM Watch local backend and ADB connections:
 python tools\project_agent.py watchdog -- --apply --repair-docker
 
 REM Or step by step:
-PharmFlow.exe --cloud-phones-cli connect --host 100.x.x.x
-PharmFlow.exe --cloud-phones-cli stealth --host 100.x.x.x
-PharmFlow.exe --cloud-phones-cli tor --host 100.x.x.x --verify
+PharmFlow.exe --cloud-phones-cli connect --host 100.x.x.x --count N
+PharmFlow.exe --cloud-phones-cli stealth --host 100.x.x.x --count N
+PharmFlow.exe --cloud-phones-cli tor --host 100.x.x.x --count N --verify
 ```
 
 ## Commands
@@ -78,6 +78,7 @@ Each cloud device gets unique:
 ## Requirements
 
 - Windows with ADB (bundled or system)
-- Oracle Cloud ARM instance (free tier)
+- Oracle Cloud Always Free ARM (`VM.Standard.A1.Flex`, ≤4 OCPU / 24 GB) — see free-tier table in `docs/CLOUD_PHONES_SETUP.md`
 - Docker installed on cloud instance
+- FreeLLMAPI on this PC for the free agent path (`127.0.0.1:31415`)
 - Tor (optional, for unique exit IPs)

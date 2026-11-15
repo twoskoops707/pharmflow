@@ -36,6 +36,15 @@ Coordination with FreeBuff agent: `C:\PharmFlow\logs\AGENT_UNISON.json`
 
 The wizard dashboard is `http://localhost:8080`. The money dashboard is `http://127.0.0.1:8091/`.
 
+## Cloud connect (free path)
+
+On **Run → Cloud connect**, enter the Oracle/Redroid host + count and click **Connect cloud phones + agent**. That wires FreeLLMAPI (`127.0.0.1:31415`) and runs `--cloud-phones-cli setup`. Free-tier limits (Always Free A1.Flex 4 OCPU / 24 GB, no public ADB, no product phone ceiling): [`CLOUD_PHONES_SETUP.md`](CLOUD_PHONES_SETUP.md).
+
+```powershell
+.\PharmFlow.exe --cloud-phones-cli setup --host 100.x.x.x --count N
+.\PharmFlow.exe --cloud-agent "Summarize farm health"
+```
+
 ## Watchdog
 
 From PowerShell in `C:\PharmFlow`:
