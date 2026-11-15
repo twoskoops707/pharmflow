@@ -41,9 +41,17 @@ _farm_lock = threading.RLock()
 _helper_lock = threading.RLock()
 _TABLET_PHONE = "vm4.gmadoa"
 _STICKY_OVERRIDES = Path(r"C:\PharmFlow\logs\farm_runtime_overrides.json")
+# Orphan unison/watchdog/money stacks must count as external — otherwise
+# phones keep browsing while PharmFlow.exe HUD stays OFF.
 _EXTERNAL_FARM_NEEDLES = (
     "run_farm_354.py",
     "run_farm_cycles.py",
+    "pharmflow_unison_supervisor.py",
+    "agent_unison_freebuff_loop.py",
+    "agent_unison_freebuff_tick.py",
+    "farm_watchdog.py",
+    "farm_money_monitor.py",
+    "watch_bottom_ads.py",
 )
 # Unison supervisor owns farm + stealth + watchdog. Dash only helper besides unison.
 _HELPER_SPECS: tuple[tuple[str, tuple[str, ...], str], ...] = (

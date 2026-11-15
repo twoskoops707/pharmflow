@@ -1355,6 +1355,46 @@
 
       li.appendChild(line);
       li.appendChild(actions);
+
+      const phones = Array.isArray(g.phones) ? g.phones : [];
+      if (phones.length) {
+        const phoneList = document.createElement("ul");
+        phoneList.className = "group-phone-list";
+        phones.forEach(function (ph) {
+          const pli = document.createElement("li");
+          pli.className = "group-phone-row";
+          const label = document.createElement("span");
+          label.className = "panel-note";
+          label.style.margin = "0";
+          const stepsN = ph.steps_count || 0;
+          const plN = ph.playlist_count || 0;
+          const conn = ph.connected ? "up" : "off";
+          label.textContent =
+            (ph.name || ph.serial || "phone") +
+            " · " +
+            conn +
+            " · " +
+            stepsN +
+            " step" +
+            (stepsN === 1 ? "" : "s") +
+            (plN ? " · playlist " + plN : "");
+          const editBtn = document.createElement("button");
+          editBtn.type = "button";
+          editBtn.className = "btn-mini";
+          editBtn.textContent = "Edit";
+          editBtn.dataset.editPhoneGroup = String(gi);
+          editBtn.dataset.editPhoneSerial = String(ph.serial || "");
+          editBtn.setAttribute(
+            "data-help",
+            "Edit this phone's sequence and playlist (same as classic Groups Edit)."
+          );
+          pli.appendChild(label);
+          pli.appendChild(editBtn);
+          phoneList.appendChild(pli);
+        });
+        li.appendChild(phoneList);
+      }
+
       list.appendChild(li);
     });
   }
@@ -2423,17 +2463,23 @@
   function farmWorkerUp(s) {
     if (!s || typeof s !== "object") return false;
     const rows = Array.isArray(s.processes) ? s.processes : [];
+    const needles = [
+      "run_farm_354",
+      "run_farm_cycles",
+      "pharmflow_unison_supervisor",
+      "agent_unison_freebuff",
+      "farm_watchdog",
+      "farm_money_monitor",
+      "watch_bottom_ads",
+    ];
     for (let i = 0; i < rows.length; i++) {
       const cmd = String((rows[i] && rows[i].cmd) || "");
-      if (
-        cmd.indexOf("run_farm_354") >= 0 ||
-        cmd.indexOf("run_farm_cycles") >= 0 ||
-        cmd.indexOf("pharmflow_unison_supervisor") >= 0
-      ) {
-        return true;
+      for (let n = 0; n < needles.length; n++) {
+        if (cmd.indexOf(needles[n]) >= 0) return true;
       }
     }
-    return String(s.farm_owner || "").indexOf("python") === 0;
+    const owner = String(s.farm_owner || "");
+    return owner.indexOf("python") === 0 || owner.indexOf("unison") >= 0;
   }
 
   function fmtSyncTime(v) {
@@ -3447,6 +3493,40 @@
       });
     }
 
+    const btnSaveLibrary = document.getElementById("btn-builder-save-library");
+    if (btnSaveLibrary && !btnSaveLibrary.dataset.wired) {
+      btnSaveLibrary.dataset.wired = "1";
+      btnSaveLibrary.addEventListener("click", async function () {
+        const a = requireApi("Save to library");
+        if (!a || typeof a.cursor_save_named_sequence !== "function") {
+          showBackendError("Save to library unavailable — update the app.");
+          return;
+        }
+        let name = "sequence_generated";
+        try {
+          const typed = window.prompt("Library sequence name", name);
+          if (typed === null) return;
+          name = String(typed || "").trim() || name;
+        } catch (_e) {
+          /* keep default name */
+        }
+        try {
+          const res = await a.cursor_save_named_sequence(name, "900x1600", "site");
+          if (!res || res.error || res.ok === false) {
+            showBackendError((res && (res.error || res.message)) || "Save to library failed");
+            return;
+          }
+          showToast(
+            "Saved to library" +
+              (res.ref ? ": " + res.ref : "") +
+              (res.count ? " (" + res.count + " steps)" : "")
+          );
+        } catch (e) {
+          showBackendError((e && e.message) || String(e));
+        }
+      });
+    }
+
     const btnManageGroups = document.getElementById("btn-manage-groups");
     if (btnManageGroups && !btnManageGroups.dataset.wired) {
       btnManageGroups.dataset.wired = "1";
@@ -3596,11 +3676,37 @@
       });
     }
 
-    // Groups list: rename (Save) + Remove via cursor_* (no Tk window).
+    // Groups list: rename (Save) + Remove + per-phone Edit via cursor_* / bridge.
     const groupsList = document.getElementById("groups-list");
     if (groupsList && !groupsList.dataset.removeWired) {
       groupsList.dataset.removeWired = "1";
       groupsList.addEventListener("click", async function (ev) {
+        const editPhoneBtn = ev.target.closest("[data-edit-phone-serial]");
+        if (editPhoneBtn) {
+          const gi = parseInt(editPhoneBtn.getAttribute("data-edit-phone-group"), 10);
+          const serial = String(editPhoneBtn.getAttribute("data-edit-phone-serial") || "").trim();
+          if (Number.isNaN(gi) || !serial) return;
+          const a = api();
+          if (!a || typeof a.run_edit_phone_sequence !== "function") {
+            showBackendError("Per-phone Edit unavailable — update the app.");
+            return;
+          }
+          try {
+            showToast("Opening sequence editor for " + serial + "…", true);
+            const res = await a.run_edit_phone_sequence(gi, serial);
+            if (!res || res.error || res.ok === false) {
+              showBackendError((res && (res.error || res.message)) || "Edit phone sequence failed");
+              return;
+            }
+            const sumEl = document.getElementById("teams-summary");
+            if (sumEl) sumEl.textContent = groupsSummaryText(res);
+            renderGroupsList(res);
+            showToast(res.saved ? "Phone sequence saved" : "Editor closed");
+          } catch (e) {
+            showBackendError(String(e));
+          }
+          return;
+        }
         const renameBtn = ev.target.closest("[data-rename-group]");
         if (renameBtn) {
           const idx = parseInt(renameBtn.getAttribute("data-rename-group"), 10);

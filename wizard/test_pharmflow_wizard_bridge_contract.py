@@ -21,6 +21,29 @@ class PharmFlowWizardBridgeContractTests(unittest.TestCase):
         for name in ("cursor_add_group", "cursor_remove_group", "cursor_rename_group"):
             self.assertIn(f"def {name}(", BRIDGE)
 
+    def test_groups_detail_includes_per_phone_playlist_fields(self):
+        """Deck Groups Edit needs phones[] with playlist metadata (514 / PEF-2)."""
+        block = BRIDGE.split("def _groups_detail_from_state(")[1].split("\ndef ")[0]
+        self.assertIn('"phones": phones_out', block)
+        self.assertIn("playlist_count", block)
+        self.assertIn("_normalize_sequence_playlist_items", block)
+
+    def test_phone_playlist_and_library_endpoints_exist(self):
+        for name in (
+            "list_saved_sequences",
+            "cursor_save_named_sequence",
+            "cursor_set_phone_playlist",
+            "run_edit_phone_sequence",
+        ):
+            self.assertIn(f"def {name}(", BRIDGE)
+
+    def test_start_farm_takes_over_external_python_stack(self):
+        """EXE-only law: never refuse Start farm while orphans drive phones."""
+        block = BRIDGE.split("def start_farm_from_app(")[1].split("\ndef ")[0]
+        self.assertIn("taking over under PharmFlow.exe", block)
+        self.assertNotIn("does not take over that money path", block)
+        self.assertIn("takeover=True", block)
+
     def test_groups_detail_remaps_stale_serials_to_live_adb(self):
         """E06: Groups must adopt live ADB like dashboard run-all-groups, not exact ∩ only."""
         block = BRIDGE.split("def _groups_detail_from_state(")[1].split("\ndef ")[0]

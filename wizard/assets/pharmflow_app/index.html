@@ -454,7 +454,10 @@
               <section class="panel panel-builder-list" id="builder-editor">
                 <div class="panel-head">
                   <h2 class="panel-title">Sequence steps</h2>
-                  <button type="button" class="btn-mini" id="btn-open-builder" data-help="Reloads the step list from the current default sequence.">Reload steps</button>
+                  <div class="panel-head-actions">
+                    <button type="button" class="btn-mini" id="btn-builder-save-library" data-help="Writes the current default sequence into sequences/{profile}/{folder}/ so Groups playlists can pick it.">Save to library</button>
+                    <button type="button" class="btn-mini" id="btn-open-builder" data-help="Reloads the step list from the current default sequence.">Reload steps</button>
+                  </div>
                 </div>
                 <ul class="step-editor-list" id="builder-step-list"></ul>
                 <p class="panel-note">Select a step to edit it, or add a new one below. Most people keep the money-path defaults.</p>

@@ -478,6 +478,20 @@ def _groups_detail_from_state() -> dict:
                     _persist_groups_config()
                 except Exception:
                     pass
+    from setup_wizard import (
+        _normalize_sequence_playlist_items,
+        _normalize_sequence_playlist_shuffle,
+    )
+
+    name_by_serial: dict[str, str] = {}
+    for p in state.get("phones") or []:
+        if not isinstance(p, dict):
+            continue
+        ser = (p.get("serial") or "").strip()
+        if not ser:
+            continue
+        name_by_serial[ser] = (p.get("name") or ser).strip() or ser
+
     groups_out: list[dict] = []
     for g in state.get("groups") or []:
         if not isinstance(g, dict):
@@ -485,12 +499,41 @@ def _groups_detail_from_state() -> dict:
         pmap = g.get("phones") or {}
         if not isinstance(pmap, dict):
             pmap = {}
-        active = sum(1 for s in pmap if s in connected)
+        phones_out: list[dict] = []
+        for serial, pdata in pmap.items():
+            ser = (serial or "").strip()
+            if not ser:
+                continue
+            ent = pdata if isinstance(pdata, dict) else {}
+            pl = _normalize_sequence_playlist_items(ent.get("sequence_playlist"))
+            pl_b = _normalize_sequence_playlist_items(ent.get("sequence_playlist_secondary"))
+            steps = ent.get("steps") if isinstance(ent.get("steps"), list) else []
+            phones_out.append(
+                {
+                    "serial": ser,
+                    "name": name_by_serial.get(ser) or ser,
+                    "connected": ser in connected,
+                    "steps_count": len(steps),
+                    "playlist": pl,
+                    "playlist_secondary": pl_b,
+                    "playlist_count": len(pl),
+                    "playlist_secondary_count": len(pl_b),
+                    "playlist_mode": (ent.get("sequence_playlist_mode") or "series"),
+                    "playlist_shuffle": _normalize_sequence_playlist_shuffle(
+                        ent.get("sequence_playlist_shuffle")
+                    ),
+                }
+            )
+        active = sum(1 for ph in phones_out if ph.get("connected"))
         groups_out.append(
             {
                 "name": g.get("name") or "Group",
                 "phone_count": active,
-                "configured_count": len(pmap),
+                "configured_count": len(phones_out),
+                "stagger_secs": int(g.get("stagger_secs") or 0),
+                "repeat": int(g.get("repeat") or 1),
+                "repeat_forever": bool(g.get("repeat_forever")),
+                "phones": phones_out,
             }
         )
     return {
@@ -2354,6 +2397,194 @@ def run_edit_default_sequence() -> dict:
     return _spawn_visible_wizard(5, "edit_sequence")
 
 
+def run_edit_phone_sequence(group_i: int = 0, serial: str = "") -> dict:
+    """Open PerPhoneSequenceEditor for one group phone (Tk dialog; deck Groups Edit)."""
+
+    def work() -> dict:
+        from setup_wizard import PerPhoneSequenceEditor, _persist_groups_config, state
+
+        _reload_persisted_wizard_state()
+        idx, err = _as_index(group_i, label="group index")
+        if err or idx is None:
+            return {"ok": False, "error": err or "Invalid group index"}
+        groups = state.get("groups") or []
+        if idx < 0 or idx >= len(groups):
+            return {"ok": False, "error": f"Group index out of range: {idx}"}
+        g = groups[idx]
+        if not isinstance(g, dict):
+            return {"ok": False, "error": "Group is not an object"}
+        pmap = g.setdefault("phones", {})
+        if not isinstance(pmap, dict):
+            return {"ok": False, "error": "Group phones map invalid"}
+        ser = (serial or "").strip()
+        if not ser:
+            return {"ok": False, "error": "serial required"}
+        ent = pmap.setdefault(ser, {"steps": []})
+        if not isinstance(ent, dict):
+            ent = {"steps": []}
+            pmap[ser] = ent
+        steps = ent.setdefault("steps", [])
+        if not isinstance(steps, list):
+            steps = []
+            ent["steps"] = steps
+        phone_name = ser
+        for p in state.get("phones") or []:
+            if isinstance(p, dict) and (p.get("serial") or "").strip() == ser:
+                phone_name = (p.get("name") or ser).strip() or ser
+                break
+        parent = _tk_dialog_parent()
+        dlg = PerPhoneSequenceEditor(
+            parent,
+            serial=ser,
+            phone_name=phone_name,
+            steps_list=steps,
+            phone_ent=ent,
+        )
+        dlg.transient(parent)
+        dlg.protocol("WM_DELETE_WINDOW", dlg.destroy)
+        _show_tk_window(dlg)
+        dlg.grab_set()
+        dlg.wait_window()
+        if getattr(dlg, "_did_save", False):
+            ent["use_default_template"] = False
+            ent["explicit_override"] = True
+            try:
+                _persist_groups_config()
+            except Exception:
+                pass
+            _persist_editor_state()
+        return {"ok": True, "saved": bool(getattr(dlg, "_did_save", False)), **_groups_detail_from_state()}
+
+    # In-process Tk only — spawn cannot carry group_i/serial into PerPhoneSequenceEditor.
+    return _safe_run_on_tk(work)
+
+
+def list_saved_sequences() -> dict:
+    """Sequence library for deck playlist pickers (same tree as farm resolve)."""
+
+    def work() -> dict:
+        from wizard_paths import sequences_dir
+
+        root = sequences_dir()
+        out: list[dict] = []
+        if not root.is_dir():
+            return {"ok": True, "sequences": [], "root": str(root)}
+        try:
+            for p in sorted(root.rglob("*.json")):
+                if p.name.startswith("_"):
+                    continue
+                rel = p.relative_to(root)
+                parts = rel.parts
+                if len(parts) < 2:
+                    ref = p.name
+                    profile = ""
+                    folder = ""
+                else:
+                    profile = parts[0]
+                    folder = parts[1] if len(parts) > 2 else ""
+                    ref = rel.as_posix()
+                out.append(
+                    {
+                        "ref": ref.replace("\\", "/"),
+                        "name": p.stem,
+                        "profile": profile,
+                        "folder": folder,
+                        "path": str(p),
+                    }
+                )
+        except OSError as exc:
+            return {"ok": False, "error": str(exc), "sequences": []}
+        return {"ok": True, "sequences": out, "root": str(root)}
+
+    return _safe_run_on_tk(work)
+
+
+def cursor_save_named_sequence(
+    name: str = "sequence_generated",
+    profile: str = "900x1600",
+    folder: str = "site",
+) -> dict:
+    """Write default_steps to sequences/{profile}/{folder}/{name}.json for playlists."""
+
+    def work() -> dict:
+        import json
+        import re
+
+        from setup_wizard import state
+        from wizard_paths import sequences_dir
+
+        _reload_persisted_wizard_state()
+        steps = list(state.get("default_steps") or [])
+        if not steps:
+            return {"ok": False, "error": "No steps to save"}
+        safe = re.sub(r"[^a-zA-Z0-9._-]+", "_", (name or "sequence").strip()) or "sequence"
+        prof = re.sub(r"[^a-zA-Z0-9._-]+", "_", (profile or "900x1600").strip()) or "900x1600"
+        fold = re.sub(r"[^a-zA-Z0-9._-]+", "_", (folder or "site").strip()) or "site"
+        dest_dir = sequences_dir() / prof / fold
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        dest = dest_dir / f"{safe}.json"
+        dest.write_text(json.dumps({"steps": steps}, indent=2) + "\n", encoding="utf-8")
+        ref = f"{prof}/{fold}/{safe}.json"
+        return {"ok": True, "path": str(dest), "ref": ref, "count": len(steps)}
+
+    return _safe_run_on_tk(work)
+
+
+def cursor_set_phone_playlist(
+    group_i: int,
+    serial: str,
+    playlist: list | None = None,
+    secondary: list | None = None,
+    mode: str = "series",
+    shuffle: str = "none",
+) -> dict:
+    """Persist per-phone playlist fields (PerPhoneSequenceEditor contract)."""
+
+    def work() -> dict:
+        from setup_wizard import (
+            _normalize_all_groups,
+            _normalize_sequence_playlist_items,
+            _normalize_sequence_playlist_shuffle,
+            _persist_groups_config,
+            state,
+        )
+
+        _reload_persisted_wizard_state()
+        _normalize_all_groups()
+        idx, err = _as_index(group_i, label="group index")
+        if err or idx is None:
+            return {"ok": False, "error": err or "Invalid group index"}
+        groups = state.get("groups") or []
+        if idx < 0 or idx >= len(groups):
+            return {"ok": False, "error": f"Group index out of range: {idx}"}
+        g = groups[idx]
+        if not isinstance(g, dict):
+            return {"ok": False, "error": "Group is not an object"}
+        pmap = g.setdefault("phones", {})
+        if not isinstance(pmap, dict):
+            return {"ok": False, "error": "Group phones map invalid"}
+        ser = (serial or "").strip()
+        if not ser:
+            return {"ok": False, "error": "serial required"}
+        ent = pmap.setdefault(ser, {"steps": []})
+        if not isinstance(ent, dict):
+            ent = {"steps": []}
+            pmap[ser] = ent
+        ent["sequence_playlist"] = _normalize_sequence_playlist_items(playlist or [])
+        ent["sequence_playlist_secondary"] = _normalize_sequence_playlist_items(secondary or [])
+        mode_s = (mode or "series").strip().lower()
+        if mode_s not in {"ordered", "random", "series", "folder", "folder_sorted", "folder_random"}:
+            mode_s = "series"
+        ent["sequence_playlist_mode"] = mode_s
+        ent["sequence_playlist_shuffle"] = _normalize_sequence_playlist_shuffle(shuffle)
+        ent["explicit_override"] = True
+        ent["use_default_template"] = False
+        _persist_groups_config()
+        return {"ok": True, **_groups_detail_from_state()}
+
+    return _safe_run_on_tk(work)
+
+
 def open_sequence_builder() -> dict:
     """Legacy name — deck navigates to builder view; no Tk window."""
     return {"ok": True, "deck": "builder"}
@@ -3973,8 +4204,8 @@ def cloud_agent_config() -> dict:
 
     cfg_path = _agent_config_path()
     cfg: dict = {
-        "base": os.environ.get("PHARMFLOW_CLOUD_AGENT_BASE", "https://api.openai.com/v1"),
-        "model": os.environ.get("PHARMFLOW_CLOUD_AGENT_MODEL", "gpt-4o"),
+        "base": os.environ.get("PHARMFLOW_CLOUD_AGENT_BASE", "http://127.0.0.1:31415/v1"),
+        "model": os.environ.get("PHARMFLOW_CLOUD_AGENT_MODEL", "auto"),
         "api_key": "",
         "configured": False,
     }
@@ -4044,6 +4275,12 @@ def _tool_argv(flag: str, rel: str, extra: list[str]) -> list[str]:
     / ``--cloud-agent`` in-process. From source, a real interpreter runs the script.
     """
     if getattr(sys, "frozen", False):
+        if rel == "tools/cloud_agent.py":
+            ext = Path(os.environ.get("PHARMFLOW_ROOT", r"C:\PharmFlow")) / "runtime_bundle" / "tools" / "cloud_agent.py"
+            if ext.is_file():
+                py, _disp = _host_python_argv()
+                if py:
+                    return [*py, str(ext), *extra]
         return [str(sys.executable), flag, *extra]
     script = Path(__file__).resolve().parent.parent / rel
     py, _disp = _host_python_argv()
@@ -4322,26 +4559,15 @@ def start_farm_from_app(profile_slug: str = "", hours: float = 0) -> dict:
 
             threading.Thread(target=bring_dash, name="pharmflow-farm-dash", daemon=True).start()
             return dict(_farm_start_result)
-        # External python money path is already up. Start farm must not kill it
-        # with takeover=True just because PharmFlow.exe did not own the PID.
+        # Operator law: PharmFlow.exe is the only farm controller. If an orphan
+        # python/unison stack is driving phones while the HUD says OFF, Start
+        # farm must take it over (stop_external + re-arm under this EXE) — never
+        # refuse and leave sequences running outside the Control Panel.
         if _ex():
-            dash_up = operator_dashboard_listening()
-            message = (
-                "Python farm is already running. Open the dashboard. "
-                "Start farm does not take over that money path from this button."
+            _emit_log(
+                "go",
+                "[farm] External python/unison farm detected — taking over under PharmFlow.exe…\n",
             )
-            _emit_log("go", "[farm] " + message + "\n")
-            _farm_start_result = {
-                "ok": False,
-                "starting": False,
-                "running": True,
-                "external": True,
-                "dashboard_ready": dash_up,
-                "error": message,
-                "message": message,
-                "dashboard": "http://127.0.0.1:8091/",
-            }
-            return dict(_farm_start_result)
         _farm_starting = True
         _farm_start_result = {
             "ok": True,
@@ -4818,7 +5044,15 @@ def _mantis_today_file() -> dict[str, Any] | None:
     return None
 
 
-_FARM_WORKER_NEEDLES = ("run_farm_354", "run_farm_cycles", "pharmflow_unison_supervisor")
+_FARM_WORKER_NEEDLES = (
+    "run_farm_354",
+    "run_farm_cycles",
+    "pharmflow_unison_supervisor",
+    "agent_unison_freebuff",
+    "farm_watchdog",
+    "farm_money_monitor",
+    "watch_bottom_ads",
+)
 
 
 def _status_farm_process_alive(status: dict | None) -> bool | None:

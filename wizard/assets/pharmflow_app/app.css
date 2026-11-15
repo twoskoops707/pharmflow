@@ -504,6 +504,13 @@ body::before {
   margin-bottom: 8px;
 }
 
+.panel-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
 .panel-title {
   margin: 0;
   font-family: var(--display);
@@ -2106,12 +2113,39 @@ details.adv-details[open] > summary::before {
 /* Groups in-deck editable rows */
 .group-row {
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  align-items: stretch;
   gap: 8px;
   background: var(--panel2);
   border: 1px solid var(--line);
   border-radius: var(--rad-sm);
   padding: 7px 9px;
+}
+
+.group-row > .group-line,
+.group-row > span:last-of-type {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.group-phone-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 0 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  border-left: 1px solid var(--line);
+}
+
+.group-phone-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 2px 0;
 }
 
 .group-name-input {
