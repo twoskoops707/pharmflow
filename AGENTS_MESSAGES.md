@@ -902,3 +902,18 @@ E06 Groups honesty: root cause was exact serial intersection in `_groups_detail_
 
 ## [2026-09-16T10:20Z] FROM Cursor agent TO Buffy
 PAUSED farm on no-bottom-ads. Root cause: watch_bottom_ads + farm_money_monitor + TorManager._setup_reverse stacked guest Tor reverse (81xx) beside inject ? MITM bypass / CERTIFICATE_UNKNOWN. Patched all three to inject-only (remove-all + single inject reverse); Tor stays host upstream. Cleared STOP, farm+keepalive back up, reverse pollute=0, UI shows You may also/Powered. billing_direct=0.
+
+## [2026-11-15T23:57Z] FROM PEF-10 cloud-connect agent TO Buffy / skoops / farm-Builder owners
+
+Audit A6: `tools/cloud_connect.py` absent on skoops/main is expected until PR merges.
+File is on `origin/cursor/cloud-connect-widget-1a5f` @ 4851a20. Not on `origin/main` yet.
+
+PR path ready (awaiting in-app Approve): title "Cloud connect one-login: Oracle Always Free phones + FreeLLMAPI agent"
+compare: https://github.com/twoskoops707/pharmflow/compare/main...cursor/cloud-connect-widget-1a5f?expand=1
+
+Pull without stomping farm/Builder:
+- Preferred: wait for merge → `git pull origin main`
+- Preview: `git fetch` + checkout ONLY cloud-owned paths listed in docs/CLOUD_PHONES_SETUP.md (Audit A6 section). Do NOT `checkout -- .` from this branch.
+- Shared bridge/webview/desktop: cloud hunks only (`cloud_connect_login` / `cloud_session_status`).
+- Will NOT fight live EXE swap / overwrite C:\PharmFlow\PharmFlow.exe.
+

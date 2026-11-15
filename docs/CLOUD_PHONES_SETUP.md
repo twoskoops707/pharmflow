@@ -2,6 +2,19 @@
 
 PharmFlow wires **Oracle Cloud Always Free + Redroid** (phones) and **FreeLLMAPI** (agent) through one Control Panel login. There is no separate CloudPhones.exe and no second farm Python stack.
 
+## Audit A6 / other checkouts (skoops)
+
+`tools/cloud_connect.py` ships on branch `cursor/cloud-connect-widget-1a5f` (and on `main` only **after** that PR merges). A checkout still on older `main` correctly reports the file **absent** — that is not a live-EXE bug.
+
+**Do not stomp farm/Builder work.** Prefer waiting for the PR merge, then `git pull origin main`. If you must preview before merge:
+
+```bat
+git fetch origin cursor/cloud-connect-widget-1a5f
+git checkout origin/cursor/cloud-connect-widget-1a5f -- tools/cloud_connect.py tools/cloud_agent.py tests/test_cloud_connect.py docs/CLOUD_PHONES_SETUP.md docs/EXE_QUICK_START.md cloud_phones/README.md wizard/assets/pharmflow_app/index.html wizard/assets/pharmflow_app/app.js wizard/assets/pharmflow_app/app.css
+```
+
+Shared bridge/webview/desktop files also contain cloud hunks — take those only if you can merge by hand (`cloud_connect_login` / `cloud_session_status`). Never `git checkout … -- .` from this branch onto a dirty farm/Builder tree. This work does **not** swap `C:\PharmFlow\PharmFlow.exe`.
+
 ## One login (Control Panel)
 
 1. Open **PharmFlow.exe** → **Run** → **Cloud connect**.
