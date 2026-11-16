@@ -12,6 +12,7 @@ from unittest.mock import patch
 from automation.site_profile import interview_defaults
 from wizard.farm_control import (
     _HELPER_SPECS,
+    _clear_sticky_farm_stop_after_start,
     _dabflow_sequence_root,
     _dir_has_v3_sequences,
     _farm_args,
@@ -253,6 +254,114 @@ class FarmControlTests(unittest.TestCase):
             stop_fn.assert_called()
             ensure_fn.assert_called()
             self.assertTrue(any("unison" in m.lower() for m in msgs))
+
+    def test_clear_sticky_farm_stop_sets_override_zero(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            logs = Path(tmp)
+            ov = logs / "farm_runtime_overrides.json"
+            ov.write_text(
+                json.dumps(
+                    {
+                        "PHARMFLOW_FARM_STOP": "1",
+                        "PHARMFLOW_FARM_PATH3": "1",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            idle_flag = logs / "PHARMFLOW_FARM_STOP.flag"
+            idle_flag.write_text("operator idle stop\n", encoding="utf-8")
+            gate_stop = logs / "FARM_STEALTH_GATE_STOP.json"
+            gate_stop.write_text("{}", encoding="utf-8")
+            with patch.dict(os.environ, {"PHARMFLOW_LOG_DIR": str(logs)}, clear=False):
+                notes = _clear_sticky_farm_stop_after_start()
+            data = json.loads(ov.read_text(encoding="utf-8"))
+            self.assertEqual(data["PHARMFLOW_FARM_STOP"], "0")
+            self.assertEqual(data["PHARMFLOW_FARM_PATH3"], "1")
+            self.assertFalse(idle_flag.exists())
+            self.assertTrue(gate_stop.exists())  # never auto-deleted
+            self.assertIn("sticky_farm_stop=0", notes)
+            self.assertIn("farm_stop_flag_removed", notes)
+
+    def test_clear_sticky_farm_stop_keeps_stealth_gate_flag(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            logs = Path(tmp)
+            flag = logs / "PHARMFLOW_FARM_STOP.flag"
+            flag.write_text("stealth_gate down — keep farm off\n", encoding="utf-8")
+            with patch.dict(os.environ, {"PHARMFLOW_LOG_DIR": str(logs)}, clear=False):
+                notes = _clear_sticky_farm_stop_after_start()
+            self.assertTrue(flag.exists())
+            self.assertIn("farm_stop_flag_kept_stealth_gate", notes)
+
+    def test_start_farm_clears_sticky_stop_after_gate_ok(self) -> None:
+        msgs: list[str] = []
+        with tempfile.TemporaryDirectory() as tmp:
+            logs = Path(tmp)
+            ov = logs / "farm_runtime_overrides.json"
+            ov.write_text(json.dumps({"PHARMFLOW_FARM_STOP": "1"}), encoding="utf-8")
+            idle_flag = logs / "PHARMFLOW_FARM_STOP.flag"
+            idle_flag.write_text("idle\n", encoding="utf-8")
+            with (
+                patch("wizard.farm_control.farm_process_alive", side_effect=[False, True]),
+                patch("wizard.farm_control.external_python_farm_running", return_value=False),
+                patch("automation.farm_exe_self_heal.run_self_heal", return_value={"fixes": []}),
+                patch("wizard.farm_control.ensure_operator_stack", return_value=["unison armed"]),
+                patch("wizard.farm_control.mark_exe_owned"),
+                patch("wizard.farm_control._resolve_helper_python", return_value=None),
+                patch("wizard.farm_control._start_digest", return_value=None),
+                patch("wizard.farm_control.open_operator_dashboard", return_value=None),
+                patch(
+                    "farm_start_gate.evaluate_start_gate",
+                    return_value={"ok": True, "message": "Start farm gate OK"},
+                ),
+                patch("farm_start_gate.prefer_newest_farm_builds", return_value=[]),
+                patch.dict(
+                    os.environ,
+                    {"PHARMFLOW_LOG_DIR": str(logs), "PHARMFLOW_FARM_STOP": "1"},
+                    clear=False,
+                ),
+            ):
+                ok = start_farm(log=lambda m, _lvl="ok": msgs.append(m), takeover=True)
+                self.assertTrue(ok)
+                self.assertEqual(os.environ.get("PHARMFLOW_FARM_STOP"), "0")
+                data = json.loads(ov.read_text(encoding="utf-8"))
+                self.assertEqual(data["PHARMFLOW_FARM_STOP"], "0")
+                self.assertFalse(idle_flag.exists())
+
+    def test_start_farm_gate_refuse_does_not_clear_stealth_gate_stop(self) -> None:
+        msgs: list[str] = []
+        with tempfile.TemporaryDirectory() as tmp:
+            logs = Path(tmp)
+            ov = logs / "farm_runtime_overrides.json"
+            ov.write_text(json.dumps({"PHARMFLOW_FARM_STOP": "1"}), encoding="utf-8")
+            gate_stop = logs / "FARM_STEALTH_GATE_STOP.json"
+            gate_stop.write_text("{}", encoding="utf-8")
+            with (
+                patch("wizard.farm_control.farm_process_alive", return_value=False),
+                patch("wizard.farm_control.external_python_farm_running", return_value=False),
+                patch("farm_start_gate.prefer_newest_farm_builds", return_value=[]),
+                patch(
+                    "farm_start_gate.evaluate_start_gate",
+                    return_value={
+                        "ok": False,
+                        "error": "Stealth gate stop file is set",
+                        "message": "Stealth gate stop file is set",
+                    },
+                ),
+                patch("wizard.farm_control.ensure_operator_stack") as ensure_fn,
+                patch(
+                    "wizard.farm_control._clear_sticky_farm_stop_after_start"
+                ) as clear_fn,
+                patch.dict(os.environ, {"PHARMFLOW_LOG_DIR": str(logs)}, clear=False),
+            ):
+                ok = start_farm(log=lambda m, _lvl="ok": msgs.append(m), takeover=True)
+            self.assertFalse(ok)
+            ensure_fn.assert_not_called()
+            clear_fn.assert_not_called()
+            self.assertTrue(gate_stop.exists())
+            self.assertEqual(
+                json.loads(ov.read_text(encoding="utf-8"))["PHARMFLOW_FARM_STOP"],
+                "1",
+            )
 
     def test_start_farm_refuses_when_stealth_funds_gate_fails(self) -> None:
         msgs: list[str] = []
