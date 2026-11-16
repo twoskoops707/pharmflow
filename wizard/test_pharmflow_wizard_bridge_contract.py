@@ -65,16 +65,28 @@ class PharmFlowWizardBridgeContractTests(unittest.TestCase):
         self.assertNotIn("PerPhoneSequenceEditor", app_js)
 
     def test_run_edit_phone_sequence_is_deck_native_not_tk(self):
-        """Groups Edit → Builder target (no Tk PerPhoneSequenceEditor, no farm arm)."""
+        """Groups Edit → Builder only — never Tk PerPhoneSequenceEditor / farm arm.
+
+        Live proof (wizard-126 / bc-8bfb3ca0): Groups Edit opened Tk window
+        ``Sequence — 10.0.2.80:5555`` (Add Step / Load / Cancel / OK). Source
+        must keep ``run_edit_phone_sequence`` as a thin alias to
+        ``cursor_begin_phone_edit`` with zero Tk spawn.
+        """
         block = BRIDGE.split("def run_edit_phone_sequence(")[1].split("\ndef ")[0]
         self.assertIn("cursor_begin_phone_edit", block)
         self.assertNotIn("PerPhoneSequenceEditor", block)
         self.assertNotIn("_safe_run_on_tk", block)
+        self.assertNotIn("_run_on_tk", block)
+        self.assertNotIn("_spawn_visible_wizard", block)
+        self.assertNotIn("_spawn_with_visible_fallback", block)
+        self.assertNotIn("Toplevel", block)
+        self.assertNotIn("grab_set", block)
         self.assertNotIn("start_farm", block)
         begin_block = BRIDGE.split("def cursor_begin_phone_edit(")[1].split("\ndef ")[0]
         self.assertIn('_builder_target', begin_block)
         self.assertIn('"mode": "builder"', begin_block)
         self.assertNotIn("start_farm", begin_block)
+        self.assertNotIn("PerPhoneSequenceEditor", begin_block)
         set_block = BRIDGE.split("def cursor_set_phone_steps(")[1].split("\ndef ")[0]
         self.assertIn("_persist_groups_config", set_block)
         self.assertIn('ent["steps"]', set_block)
