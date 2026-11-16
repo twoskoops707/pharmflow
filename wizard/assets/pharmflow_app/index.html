@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>PharmFlow — Farm Control Deck</title>
-    <link rel="stylesheet" href="app.css?v=20261116-menubar" />
+    <link rel="stylesheet" href="app.css?v=20261116-gate" />
   </head>
   <body>
     <div class="deck">
@@ -49,6 +49,8 @@
             <li role="separator" class="deck-menu-sep"></li>
             <li role="none"><button type="button" role="menuitem" data-menu-action="view.farm_dash">Farm operator dashboard</button></li>
             <li role="none"><button type="button" role="menuitem" data-menu-action="view.control_dash">Control dashboard</button></li>
+            <li role="separator" class="deck-menu-sep"></li>
+            <li role="none"><button type="button" role="menuitem" data-menu-action="view.gate_status">Dump start-gate status…</button></li>
           </ul>
         </div>
         <div class="deck-menu" data-menu="options">
@@ -56,6 +58,9 @@
           <ul class="deck-menu-panel" role="menu" hidden>
             <li role="none"><button type="button" role="menuitem" data-menu-action="options.farm_prefs">Farm preferences…</button></li>
             <li role="none"><button type="button" role="menuitem" data-menu-action="options.reset_step">Reset this step’s farm defaults…</button></li>
+            <li role="separator" class="deck-menu-sep"></li>
+            <li role="none"><button type="button" role="menuitem" data-menu-action="options.gate_status">Dump start-gate status…</button></li>
+            <li role="none"><button type="button" role="menuitem" data-menu-action="options.gate_status_full">Dump start-gate status (full audit)…</button></li>
             <li role="separator" class="deck-menu-sep"></li>
             <li role="none"><button type="button" role="menuitem" data-menu-action="options.classic_wizard">Classic advanced wizard…</button></li>
           </ul>
@@ -855,6 +860,6 @@
       </div>
     </div>
 
-    <script src="app.js?v=20261116-menubar"></script>
+    <script src="app.js?v=20261116-gate"></script>
   </body>
 </html>

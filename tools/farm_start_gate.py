@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
@@ -167,8 +168,13 @@ def evaluate_start_gate(
     serials: list[str] | None = None,
     log: LogFn | None = None,
     apply_stealth_defaults: bool = True,
+    skip_audit: bool = False,
 ) -> dict[str, Any]:
-    """Return ok=True only when stealth AND funds checks both pass."""
+    """Return ok=True only when stealth AND funds checks both pass.
+
+    ``skip_audit=True`` skips the slow fingerprint round-trip (Control Panel
+    fast dump). Funds/path checks still run. Never starts the farm.
+    """
     prefs = _desktop_prefs()
     if apply_stealth_defaults and prefs.get("mask_emulator_fingerprint") is not True:
         # Soft default: treat missing as True; explicit False is a gate fail
@@ -183,12 +189,24 @@ def evaluate_start_gate(
             "funds_ok": False,
             "error": "Stealth gate stop file is set (FARM_STEALTH_GATE_STOP.json) — Start farm refused.",
             "phones": [],
+            "phone_count": 0,
             "stealth": {},
             "funds": _funds_snapshot(),
+            "audit_skipped": bool(skip_audit),
         }
 
     phones = list(serials) if serials is not None else _discover_phones(log)
-    stealth = _stealth_audit(phones, log)
+    if skip_audit:
+        stealth = {
+            "ok": True,
+            "phones": len(phones),
+            "phones_with_leaks": 0,
+            "leaks_total": 0,
+            "all_clean": True,
+            "skipped": True,
+        }
+    else:
+        stealth = _stealth_audit(phones, log)
     stealth_ok = bool(phones) and bool(stealth.get("all_clean")) and not stealth.get("error")
 
     path_ok, path_problems = _income_path_ready(prefs)
@@ -225,11 +243,12 @@ def evaluate_start_gate(
     if not funds_ok:
         errors.append(funds_reason or "funds check failed")
 
-    message = (
-        "Start farm gate OK — stealth clean and funds-ready."
-        if ok
-        else "Start farm refused: " + "; ".join(errors)
-    )
+    if ok and skip_audit:
+        message = "Start farm gate OK — funds-ready (fingerprint audit skipped)."
+    elif ok:
+        message = "Start farm gate OK — stealth clean and funds-ready."
+    else:
+        message = "Start farm refused: " + "; ".join(errors)
     return {
         "ok": ok,
         "stealth_ok": stealth_ok,
@@ -241,6 +260,89 @@ def evaluate_start_gate(
         "stealth": stealth,
         "funds": {**funds, "path_ok": path_ok, "path_problems": path_problems, "reason": funds_reason},
         "prefer_newest_build": True,
+        "audit_skipped": bool(skip_audit),
+    }
+
+
+def dump_gate_status_fast(
+    *,
+    serials: list[str] | None = None,
+    skip_audit: bool = True,
+    log: LogFn | None = None,
+    out_path: Path | None = None,
+) -> dict[str, Any]:
+    """Dump start-gate status to logs without starting the farm.
+
+    Default skips the slow fingerprint audit (same as ``--skip-audit``). Writes
+    ``gate-status-fast-last.txt`` under the PharmFlow logs dir. Never calls
+    start_farm; does not clear an existing FARM_STOP.
+    """
+    st = evaluate_start_gate(
+        serials=serials,
+        log=log,
+        apply_stealth_defaults=True,
+        skip_audit=bool(skip_audit),
+    )
+    phones = list(st.get("phones") or [])
+    phone_count = int(st.get("phone_count") or len(phones))
+    stealth_ok = st.get("stealth_ok")
+    funds_ok = st.get("funds_ok")
+    gate_ok = st.get("ok")
+    message = st.get("message") or st.get("error") or ""
+    if skip_audit:
+        stealth_line = f"STEALTH_OK={stealth_ok} (audit_skipped)"
+    else:
+        stealth_line = f"STEALTH_OK={stealth_ok}"
+
+    lines = [
+        f"TIME={datetime.now(timezone.utc).isoformat()}",
+        f"ADB={phone_count}",
+        f"SERIALS={','.join(str(s) for s in phones)}",
+        stealth_line,
+        f"FUNDS_OK={funds_ok}",
+        f"GATE_OK={gate_ok}",
+        f"MESSAGE={message}",
+        "FARM_STOP=kept",
+        "START_FARM=never",
+    ]
+    text = "\n".join(lines) + "\n"
+
+    logs = _logs_dir()
+    try:
+        logs.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        return {
+            **st,
+            "ok": False,
+            "dumped": False,
+            "error": f"Could not create logs dir {logs}: {exc}",
+            "path": str(logs / "gate-status-fast-last.txt"),
+            "text": text,
+        }
+
+    dest = Path(out_path) if out_path is not None else (logs / "gate-status-fast-last.txt")
+    try:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text(text, encoding="utf-8")
+    except OSError as exc:
+        return {
+            **st,
+            "ok": False,
+            "dumped": False,
+            "error": f"Could not write {dest}: {exc}",
+            "path": str(dest),
+            "text": text,
+        }
+
+    if log:
+        log(f"gate status dumped → {dest}")
+    return {
+        **st,
+        "dumped": True,
+        "path": str(dest),
+        "text": text,
+        "adb": phone_count,
+        "start_farm": "never",
     }
 
 

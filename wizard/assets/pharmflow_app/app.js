@@ -4805,6 +4805,49 @@ try {
     }
   }
 
+  async function menuDumpGateStatus(skipAudit) {
+    const label = skipAudit ? "Dump start-gate status" : "Dump start-gate status (full audit)";
+    try {
+      const res = await callApi(label, function (a) {
+        if (!a || typeof a.dump_gate_status_fast !== "function") {
+          return {
+            ok: false,
+            dumped: false,
+            error: "Dump gate status is not available in this build.",
+          };
+        }
+        return a.dump_gate_status_fast(skipAudit !== false);
+      });
+      if (!res || res.dumped === false || res.error) {
+        showBackendError((res && res.error) || "Gate status dump failed");
+        if (res && res.message) {
+          const el = document.getElementById("farm-start-gate-status");
+          if (el) el.textContent = res.message;
+        }
+        return;
+      }
+      const adb = res.adb != null ? res.adb : res.phone_count;
+      const msg =
+        "Gate dump → logs\\gate-status-fast-last.txt · ADB=" +
+        (adb != null ? adb : "?") +
+        " · GATE_OK=" +
+        String(res.ok) +
+        " · START_FARM=never";
+      showToast(msg);
+      const el = document.getElementById("farm-start-gate-status");
+      if (el) {
+        el.textContent =
+          (res.message || "Start farm gate checked") +
+          (skipAudit !== false ? " (audit skipped)" : "");
+      }
+      if (typeof refreshFarmStartGateStatus === "function" && skipAudit === false) {
+        refreshFarmStartGateStatus();
+      }
+    } catch (_e) {
+      /* banner shown */
+    }
+  }
+
   function menuExit() {
     const a = api();
     if (a && typeof a.exit_app === "function") {
@@ -4877,6 +4920,10 @@ try {
         menuOpenControlDash();
         return;
       }
+      if (view === "gate_status") {
+        menuDumpGateStatus(true);
+        return;
+      }
       showView(view, { animate: true });
       return;
     }
@@ -4916,6 +4963,12 @@ try {
         break;
       case "options.reset_step":
         menuResetStepDefaults();
+        break;
+      case "options.gate_status":
+        menuDumpGateStatus(true);
+        break;
+      case "options.gate_status_full":
+        menuDumpGateStatus(false);
         break;
       case "options.classic_wizard":
         menuClassicWizard();

@@ -4560,6 +4560,38 @@ def farm_start_gate_status() -> dict:
         }
 
 
+def dump_gate_status_fast(skip_audit: bool = True) -> dict:
+    """Control Panel action: dump start-gate status to logs. Never starts the farm.
+
+    Default skips the slow fingerprint audit. Writes
+    ``C:\\PharmFlow\\logs\\gate-status-fast-last.txt`` (or PHARMFLOW_LOG_DIR).
+    """
+    tools_dir = Path(__file__).resolve().parent.parent / "tools"
+    if getattr(sys, "frozen", False):
+        tools_dir = Path(sys._MEIPASS) / "tools"  # type: ignore[attr-defined]
+    if str(tools_dir) not in sys.path:
+        sys.path.insert(0, str(tools_dir))
+    try:
+        import farm_start_gate as gate
+
+        def _log(msg: str) -> None:
+            _emit_log("go", f"[gate] {msg}\n")
+
+        return gate.dump_gate_status_fast(
+            skip_audit=bool(skip_audit),
+            log=_log,
+        )
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "ok": False,
+            "dumped": False,
+            "stealth_ok": False,
+            "funds_ok": False,
+            "error": f"Dump gate status failed: {exc}",
+            "start_farm": "never",
+        }
+
+
 def _watchdog_script_path() -> str:
     if getattr(sys, "frozen", False):
         return str(Path(sys._MEIPASS) / "tools" / "pharmflow_watchdog.py")  # type: ignore[attr-defined]
