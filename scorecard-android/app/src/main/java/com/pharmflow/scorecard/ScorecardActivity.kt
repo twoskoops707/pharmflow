@@ -17,7 +17,7 @@ import kotlin.math.round
 
 class ScorecardActivity : AppCompatActivity() {
 
-    private val prefsName = "pharmflow_scorecard"
+    private val prefsName = "cpharm_scorecard"
 
     private lateinit var farmUrl: EditText
     private lateinit var farmVisits: EditText

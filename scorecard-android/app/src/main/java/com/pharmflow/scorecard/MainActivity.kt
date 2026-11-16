@@ -11,7 +11,7 @@ import kotlin.concurrent.thread
 
 class MainActivity : AppCompatActivity() {
 
-    private val prefsName = "pharmflow_scorecard"
+    private val prefsName = "cpharm_scorecard"
 
     private lateinit var laptopUrl: EditText
     private lateinit var statusDot: TextView
