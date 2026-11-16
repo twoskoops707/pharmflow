@@ -4456,13 +4456,15 @@ try {
     });
   }
 
-  // ── Help modal (opened from File → Help or the __pharmflowOpenHelp hook) ──
+  // ── Help / About modals + deck menubar (native menu dispatches here) ──
   const helpOverlay = document.getElementById("help-overlay");
+  const aboutOverlay = document.getElementById("about-overlay");
 
   function openHelp() {
+    closeAbout();
     if (!helpOverlay) return;
     helpOverlay.hidden = false;
-    helpOverlay.style.display = "flex"; // inline wins over any stylesheet
+    helpOverlay.style.display = "flex";
     const closeBtn = document.getElementById("help-close");
     if (closeBtn) closeBtn.focus();
   }
@@ -4473,27 +4475,413 @@ try {
     helpOverlay.style.display = "none";
   }
 
+  function openAbout() {
+    closeHelp();
+    if (!aboutOverlay) return;
+    aboutOverlay.hidden = false;
+    aboutOverlay.style.display = "flex";
+    const body = document.getElementById("about-body");
+    const a = api();
+    if (body && a && typeof a.get_about_info === "function") {
+      Promise.resolve(a.get_about_info())
+        .then(function (info) {
+          if (!info || info.ok === false) {
+            body.textContent = (info && info.error) || "PharmFlow Control Panel.";
+            return;
+          }
+          body.innerHTML =
+            "<strong>" +
+            escHtml(info.app || "PharmFlow") +
+            "</strong> " +
+            escHtml(info.version || "") +
+            "<br>Build " +
+            escHtml(info.build || "—") +
+            (info.commit ? " · " + escHtml(info.commit) : "") +
+            "<br><span class=\"mono\">" +
+            escHtml(info.install_root || "") +
+            "</span>";
+        })
+        .catch(function () {
+          body.textContent = "PharmFlow Control Panel.";
+        });
+    }
+    const closeBtn = document.getElementById("about-close");
+    if (closeBtn) closeBtn.focus();
+  }
+
+  function closeAbout() {
+    if (!aboutOverlay) return;
+    aboutOverlay.hidden = true;
+    aboutOverlay.style.display = "none";
+  }
+
   if (helpOverlay) {
     const closeBtn = document.getElementById("help-close");
     if (closeBtn) closeBtn.addEventListener("click", closeHelp);
     helpOverlay.addEventListener("click", function (e) {
       if (e.target === helpOverlay) closeHelp();
     });
-    document.addEventListener("keydown", function (e) {
-      if (e.key === "Escape" && !helpOverlay.hidden) {
-        closeHelp();
-        e.stopPropagation();
+  }
+  if (aboutOverlay) {
+    const closeBtn = document.getElementById("about-close");
+    if (closeBtn) closeBtn.addEventListener("click", closeAbout);
+    aboutOverlay.addEventListener("click", function (e) {
+      if (e.target === aboutOverlay) closeAbout();
+    });
+  }
+  document.addEventListener("keydown", function (e) {
+    if (e.key !== "Escape") return;
+    if (helpOverlay && !helpOverlay.hidden) {
+      closeHelp();
+      e.stopPropagation();
+      return;
+    }
+    if (aboutOverlay && !aboutOverlay.hidden) {
+      closeAbout();
+      e.stopPropagation();
+    }
+  });
+
+  async function menuLoadSequence(thenBuilder) {
+    try {
+      const a = requireApi(thenBuilder ? "Import sequence" : "Open sequence");
+      if (!a) return;
+      let path = null;
+      if (a.pick_sequence_json) {
+        const pick = await a.pick_sequence_json(false);
+        if (pick && pick.error) {
+          showBackendError(pick.error);
+          return;
+        }
+        if (pick && pick.cancelled) return;
+        path = pick && pick.path;
       }
+      const res =
+        path && a.load_sequence_from_path
+          ? await a.load_sequence_from_path(path)
+          : await a.run_load_default_sequence();
+      if (res && res.cancelled) return;
+      if (res && res.error) {
+        showBackendError(res.error);
+        return;
+      }
+      if (res && res.ok && (res.count || 0) > 0) {
+        showToast((thenBuilder ? "Imported " : "Loaded ") + res.count + " step(s)");
+        await refreshSteps();
+        await refreshBuilder();
+        if (thenBuilder) showView("builder", { animate: true });
+        else showView("steps", { animate: true });
+      } else {
+        showBackendError((res && res.message) || "Load sequence failed");
+      }
+    } catch (_e) {
+      /* banner shown */
+    }
+  }
+
+  async function menuSaveSequence() {
+    try {
+      const a = requireApi("Save sequence");
+      if (!a) return;
+      let path = null;
+      if (a.pick_sequence_json) {
+        const pick = await a.pick_sequence_json(true);
+        if (pick && pick.error) {
+          showBackendError(pick.error);
+          return;
+        }
+        if (pick && pick.cancelled) return;
+        path = pick && pick.path;
+      }
+      const res =
+        path && a.save_sequence_to_path
+          ? await a.save_sequence_to_path(path)
+          : await a.run_save_default_sequence();
+      if (res && res.cancelled) return;
+      if (res && res.error) {
+        showBackendError(res.error);
+        return;
+      }
+      if (res && res.ok && res.saved === true && (res.count || 0) > 0) showToast("Sequence saved");
+      else showBackendError((res && (res.error || res.message)) || "Save sequence failed");
+    } catch (e) {
+      showBackendError((e && e.message) || "Save sequence failed");
+    }
+  }
+
+  function menuEditCommand(cmd) {
+    const el = document.activeElement;
+    const editable =
+      el &&
+      (el.tagName === "INPUT" ||
+        el.tagName === "TEXTAREA" ||
+        el.isContentEditable);
+    try {
+      if (cmd === "paste" && editable && navigator.clipboard && navigator.clipboard.readText) {
+        navigator.clipboard.readText().then(function (text) {
+          if (typeof el.setRangeText === "function") {
+            el.setRangeText(text, el.selectionStart || 0, el.selectionEnd || 0, "end");
+            el.dispatchEvent(new Event("input", { bubbles: true }));
+          } else {
+            document.execCommand("insertText", false, text);
+          }
+        }).catch(function () {
+          const ok = document.execCommand("paste");
+          if (!ok) showToast("Paste needs a focused text field");
+        });
+        return;
+      }
+      const ok = document.execCommand(cmd);
+      if (!ok) showToast(cmd.charAt(0).toUpperCase() + cmd.slice(1) + " needs a focused text field");
+    } catch (_e) {
+      showToast(cmd.charAt(0).toUpperCase() + cmd.slice(1) + " needs a focused text field");
+    }
+  }
+
+  async function menuOpenFolder(kind) {
+    const a = requireApi(kind === "logs" ? "Open logs" : "Open folder");
+    if (!a) return;
+    const fn = kind === "logs" ? a.open_logs_folder : a.open_pharmflow_folder;
+    if (typeof fn !== "function") {
+      showBackendError("Folder open unavailable — update the app.");
+      return;
+    }
+    try {
+      const res = await fn.call(a);
+      if (!res || res.ok === false) {
+        showBackendError((res && res.error) || "Could not open folder");
+        return;
+      }
+      showToast(kind === "logs" ? "Opened logs folder" : "Opened PharmFlow folder");
+    } catch (e) {
+      showBackendError((e && e.message) || "Could not open folder");
+    }
+  }
+
+  async function menuOpenFarmDash() {
+    try {
+      const res = await callApi("Farm dashboard", function (a) {
+        if (!a.open_farm_dashboard) {
+          return { ok: false, opened: false, error: "Farm dashboard open is not available in this build." };
+        }
+        return a.open_farm_dashboard();
+      });
+      if (!res || res.error || res.ok === false || res.opened !== true) {
+        showBackendError((res && res.error) || "Farm dashboard did not open in the browser");
+        return;
+      }
+      showToast("Farm dashboard opened in your browser");
+    } catch (_e) {
+      /* banner shown */
+    }
+  }
+
+  async function menuOpenControlDash() {
+    try {
+      const res = await callApi("Control dashboard", function (a) {
+        return a.open_dashboard();
+      });
+      if (!res || res.error || res.ok === false || res.opened !== true) {
+        showBackendError((res && res.error) || "Control dashboard did not open in the browser");
+        return;
+      }
+      showToast("Control dashboard opened in your browser");
+    } catch (_e) {
+      /* banner shown */
+    }
+  }
+
+  async function menuFarmPrefs() {
+    const step = STEP_IDS.indexOf(currentView) >= 0 ? currentView : "go";
+    showView(step, { animate: true });
+    await ensureAdvanced(step);
+    const box = document.getElementById("adv-farm-" + step);
+    if (!box || box.hidden) {
+      showToast("No farm preferences for this step — try Run or Steps");
+      return;
+    }
+    const details = box.querySelector("details.adv-details");
+    if (details) details.open = true;
+    box.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    showToast("Farm preferences for " + step);
+  }
+
+  async function menuResetStepDefaults() {
+    const step = STEP_IDS.indexOf(currentView) >= 0 ? currentView : "go";
+    const a = requireApi("Reset farm defaults");
+    if (!a || typeof a.reset_farm_settings !== "function") {
+      showBackendError("Reset unavailable — update the app.");
+      return;
+    }
+    try {
+      const res = await a.reset_farm_settings(step);
+      if (!res || res.ok === false) {
+        showBackendError((res && res.error) || "Reset failed");
+        return;
+      }
+      await ensureAdvanced(step);
+      showToast("Reset farm defaults for " + step);
+    } catch (e) {
+      showBackendError((e && e.message) || "Reset failed");
+    }
+  }
+
+  async function menuClassicWizard() {
+    const a = requireApi("Classic wizard");
+    if (!a || typeof a.open_advanced_wizard !== "function") {
+      showBackendError("Classic wizard unavailable — update the app.");
+      return;
+    }
+    try {
+      const res = await a.open_advanced_wizard();
+      if (res && res.ok === false) {
+        showBackendError(res.error || "Classic wizard failed to open");
+        return;
+      }
+      showToast("Opened classic advanced wizard");
+    } catch (e) {
+      showBackendError((e && e.message) || "Classic wizard failed to open");
+    }
+  }
+
+  function menuExit() {
+    const a = api();
+    if (a && typeof a.exit_app === "function") {
+      Promise.resolve(a.exit_app()).catch(function () {});
+      return;
+    }
+    showToast("Close the window to exit");
+  }
+
+  function closeAllDeckMenus() {
+    const bar = document.getElementById("deck-menubar");
+    if (!bar) return;
+    bar.querySelectorAll(".deck-menu").forEach(function (menu) {
+      menu.classList.remove("open");
+      const trigger = menu.querySelector(".deck-menu-trigger");
+      const panel = menu.querySelector(".deck-menu-panel");
+      if (trigger) trigger.setAttribute("aria-expanded", "false");
+      if (panel) panel.hidden = true;
     });
   }
 
-  // Global hook so the native window menu (File → Help) can open the modal.
+  function wireDeckMenubar() {
+    const bar = document.getElementById("deck-menubar");
+    if (!bar || bar.dataset.wired === "1") return;
+    bar.dataset.wired = "1";
+
+    bar.querySelectorAll(".deck-menu").forEach(function (menu) {
+      const trigger = menu.querySelector(".deck-menu-trigger");
+      const panel = menu.querySelector(".deck-menu-panel");
+      if (!trigger || !panel) return;
+      trigger.addEventListener("click", function (e) {
+        e.stopPropagation();
+        const wasOpen = menu.classList.contains("open");
+        closeAllDeckMenus();
+        if (!wasOpen) {
+          menu.classList.add("open");
+          trigger.setAttribute("aria-expanded", "true");
+          panel.hidden = false;
+        }
+      });
+    });
+
+    bar.querySelectorAll("[data-menu-action]").forEach(function (btn) {
+      btn.addEventListener("click", function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        const action = btn.getAttribute("data-menu-action") || "";
+        closeAllDeckMenus();
+        menuAction(action);
+      });
+    });
+
+    document.addEventListener("click", function () {
+      closeAllDeckMenus();
+    });
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape") closeAllDeckMenus();
+    });
+  }
+
+  function menuAction(action) {
+    if (!action) return;
+    if (action.indexOf("view.") === 0) {
+      const view = action.slice(5);
+      if (view === "farm_dash") {
+        menuOpenFarmDash();
+        return;
+      }
+      if (view === "control_dash") {
+        menuOpenControlDash();
+        return;
+      }
+      showView(view, { animate: true });
+      return;
+    }
+    switch (action) {
+      case "file.open":
+        menuLoadSequence(false);
+        break;
+      case "file.save":
+        menuSaveSequence();
+        break;
+      case "file.import":
+        menuLoadSequence(true);
+        break;
+      case "file.open_folder":
+        menuOpenFolder("install");
+        break;
+      case "file.open_logs":
+        menuOpenFolder("logs");
+        break;
+      case "file.exit":
+        menuExit();
+        break;
+      case "edit.undo":
+        menuEditCommand("undo");
+        break;
+      case "edit.cut":
+        menuEditCommand("cut");
+        break;
+      case "edit.copy":
+        menuEditCommand("copy");
+        break;
+      case "edit.paste":
+        menuEditCommand("paste");
+        break;
+      case "options.farm_prefs":
+        menuFarmPrefs();
+        break;
+      case "options.reset_step":
+        menuResetStepDefaults();
+        break;
+      case "options.classic_wizard":
+        menuClassicWizard();
+        break;
+      case "help.guide":
+        openHelp();
+        break;
+      case "help.about":
+        openAbout();
+        break;
+      default:
+        showToast("Unknown menu action: " + action);
+    }
+  }
+
   window.__pharmflowOpenHelp = openHelp;
   window.__pharmflowCloseHelp = closeHelp;
+  window.__pharmflowMenuAction = menuAction;
+
+  function bootWithMenubar() {
+    wireDeckMenubar();
+    init();
+  }
 
   if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", init);
+    document.addEventListener("DOMContentLoaded", bootWithMenubar);
   } else {
-    init();
+    bootWithMenubar();
   }
 })();

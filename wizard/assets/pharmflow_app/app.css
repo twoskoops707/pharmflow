@@ -86,6 +86,99 @@ body::before {
   padding: 0 16px 16px;
 }
 
+/* ---------- deck menubar (File / Edit / View / Options / Help) ---------- */
+
+.deck-menubar {
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  flex: 0 0 auto;
+  margin: 8px -4px 0;
+  padding: 2px 4px;
+  border: 1px solid var(--line);
+  border-radius: var(--rad-sm);
+  background:
+    linear-gradient(180deg, rgba(61, 169, 133, 0.08), transparent 85%),
+    var(--panel);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  z-index: 40;
+}
+
+.deck-menu {
+  position: relative;
+}
+
+.deck-menu-trigger {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-family: var(--font);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 6px 11px;
+  border-radius: 4px;
+  cursor: pointer;
+  line-height: 1.2;
+}
+
+.deck-menu-trigger:hover,
+.deck-menu.open .deck-menu-trigger,
+.deck-menu-trigger:focus-visible {
+  color: var(--text);
+  background: var(--accent-soft);
+  outline: none;
+}
+
+.deck-menu-panel {
+  position: absolute;
+  top: calc(100% + 3px);
+  left: 0;
+  min-width: 240px;
+  margin: 0;
+  padding: 6px;
+  list-style: none;
+  border: 1px solid var(--line2);
+  border-radius: var(--rad-sm);
+  background: var(--panel2);
+  box-shadow: 0 12px 28px var(--shadow-deep);
+  z-index: 50;
+}
+
+.deck-menu-panel[hidden] {
+  display: none !important;
+}
+
+.deck-menu-panel button {
+  appearance: none;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 13px;
+  text-align: left;
+  padding: 8px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.deck-menu-panel button:hover,
+.deck-menu-panel button:focus-visible {
+  background: var(--accent-soft);
+  color: var(--focus);
+  outline: none;
+}
+
+.deck-menu-sep {
+  height: 1px;
+  margin: 5px 6px;
+  background: var(--line);
+  list-style: none;
+  pointer-events: none;
+}
+
 /* ---------- top bar: brand + live HUD ---------- */
 
 .topbar {
@@ -1724,8 +1817,12 @@ details.adv-details[open] > summary::before {
 }
 
 /* ============================================================
-   Help modal (File → Help)
+   Help / About modals (Help menu)
    ============================================================ */
+
+.about-sheet {
+  max-width: 520px;
+}
 .help-overlay {
   position: fixed;
   inset: 0;

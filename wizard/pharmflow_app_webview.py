@@ -928,44 +928,157 @@ class PharmFlowAppApi:
         except Exception as exc:  # noqa: BLE001
             return {"ok": False, "error": str(exc)[:500]}
 
+    # ── Menubar helpers (File / Help / folders) ──
+
+    def _reveal_folder(self, path: Path) -> dict:
+        try:
+            path.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            return {"ok": False, "error": f"Folder missing: {exc}"[:500]}
+        try:
+            if sys.platform == "win32":
+                os.startfile(str(path))  # type: ignore[attr-defined]
+            elif sys.platform == "darwin":
+                import subprocess
+
+                subprocess.Popen(["open", str(path)])
+            else:
+                import subprocess
+
+                subprocess.Popen(["xdg-open", str(path)])
+        except OSError as exc:
+            return {"ok": False, "error": str(exc)[:500]}
+        return {"ok": True, "path": str(path)}
+
+    def open_pharmflow_folder(self) -> dict:
+        try:
+            from wizard_paths import app_data_root, pharmflow_install_root
+
+            root = pharmflow_install_root()
+            if not root.is_dir():
+                root = app_data_root()
+            return self._reveal_folder(Path(root))
+        except Exception as exc:  # noqa: BLE001
+            return {"ok": False, "error": str(exc)[:500]}
+
+    def open_logs_folder(self) -> dict:
+        try:
+            from wizard_paths import logs_dir
+
+            return self._reveal_folder(Path(logs_dir()))
+        except Exception as exc:  # noqa: BLE001
+            return {"ok": False, "error": str(exc)[:500]}
+
+    def get_about_info(self) -> dict:
+        try:
+            from pharmflow_version import APP_NAME, APP_VERSION, BUILD_COMMIT, BUILD_LABEL, display_version
+            from wizard_paths import pharmflow_install_root
+
+            return {
+                "ok": True,
+                "app": APP_NAME,
+                "version": APP_VERSION,
+                "build": BUILD_LABEL,
+                "commit": BUILD_COMMIT or "",
+                "display": display_version(),
+                "install_root": str(pharmflow_install_root()),
+            }
+        except Exception as exc:  # noqa: BLE001
+            return {"ok": False, "error": str(exc)[:500]}
+
+    def exit_app(self) -> dict:
+        win = self._window
+        if win is None:
+            return {"ok": False, "error": "No window bound"}
+        try:
+            win.destroy()
+        except Exception as exc:  # noqa: BLE001
+            return {"ok": False, "error": str(exc)[:500]}
+        return {"ok": True}
+
 
 def _build_native_menu(api: "PharmFlowAppApi") -> list:
-    """Top-of-window menu: File -> Help / Exit.
+    """Native window menu mirroring the deck File/Edit/View/Options/Help bar.
 
-    Menu actions run on a background thread; both dispatch through the bound
-    window so the deck JS stays the single source of truth.
+    Actions run on a background thread and dispatch into deck JS via
+    ``window.__pharmflowMenuAction`` so the HTML menubar stays SSOT.
     """
     import webview.menu as wm
 
-    def _open_help() -> None:
+    def _js(action: str) -> None:
         win = api._window
         if win is None:
             return
         try:
             win.evaluate_js(
-                "window.__pharmflowOpenHelp ? window.__pharmflowOpenHelp() : null"
+                "window.__pharmflowMenuAction && window.__pharmflowMenuAction("
+                + json.dumps(action)
+                + ")"
             )
         except Exception:
             pass
 
-    def _exit_app() -> None:
-        win = api._window
-        if win is None:
-            return
-        try:
-            win.destroy()
-        except Exception:
-            pass
+    def _act(action: str):
+        return lambda: _js(action)
+
+    view_items = [
+        wm.MenuAction("Home", _act("view.start")),
+        wm.MenuAction("Install", _act("view.install")),
+        wm.MenuAction("Android", _act("view.android")),
+        wm.MenuAction("Phones", _act("view.phones")),
+        wm.MenuAction("Test", _act("view.boot")),
+        wm.MenuAction("Site Map", _act("view.map")),
+        wm.MenuAction("Steps", _act("view.steps")),
+        wm.MenuAction("Builder", _act("view.builder")),
+        wm.MenuAction("Groups", _act("view.teams")),
+        wm.MenuAction("Run", _act("view.go")),
+        wm.MenuAction("Farm health", _act("view.health")),
+        wm.MenuSeparator(),
+        wm.MenuAction("Farm operator dashboard", _act("view.farm_dash")),
+        wm.MenuAction("Control dashboard", _act("view.control_dash")),
+    ]
 
     return [
         wm.Menu(
             "File",
             [
-                wm.MenuAction("Help", _open_help),
+                wm.MenuAction("Open sequence…", _act("file.open")),
+                wm.MenuAction("Save sequence…", _act("file.save")),
+                wm.MenuAction("Import sequence…", _act("file.import")),
                 wm.MenuSeparator(),
-                wm.MenuAction("Exit", _exit_app),
+                wm.MenuAction("Open PharmFlow folder…", _act("file.open_folder")),
+                wm.MenuAction("Open logs folder…", _act("file.open_logs")),
+                wm.MenuSeparator(),
+                wm.MenuAction("Exit", _act("file.exit")),
             ],
-        )
+        ),
+        wm.Menu(
+            "Edit",
+            [
+                wm.MenuAction("Undo", _act("edit.undo")),
+                wm.MenuSeparator(),
+                wm.MenuAction("Cut", _act("edit.cut")),
+                wm.MenuAction("Copy", _act("edit.copy")),
+                wm.MenuAction("Paste", _act("edit.paste")),
+            ],
+        ),
+        wm.Menu("View", view_items),
+        wm.Menu(
+            "Options",
+            [
+                wm.MenuAction("Farm preferences…", _act("options.farm_prefs")),
+                wm.MenuAction("Reset this step’s farm defaults…", _act("options.reset_step")),
+                wm.MenuSeparator(),
+                wm.MenuAction("Classic advanced wizard…", _act("options.classic_wizard")),
+            ],
+        ),
+        wm.Menu(
+            "Help",
+            [
+                wm.MenuAction("Quick guide…", _act("help.guide")),
+                wm.MenuAction("About PharmFlow…", _act("help.about")),
+            ],
+        ),
     ]
 
 

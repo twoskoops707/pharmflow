@@ -11,10 +11,12 @@ _JS = Path(__file__).resolve().parent / "assets" / "pharmflow_app" / "app.js"
 def main() -> int:
     js = _JS.read_text(encoding="utf-8")
     required = [
-        "function showToast(msg)",
+        "function showToast(msg, keepAction)",
         "function showBackendError(msg)",
         "function wireStaticNav()",
         "function wireActionButtons()",
+        "function wireDeckMenubar()",
+        "window.__pharmflowMenuAction",
         "window.PharmFlowSetup",
         "get_prereq_status",
         "run_install_all",

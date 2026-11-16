@@ -4,10 +4,71 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>PharmFlow — Farm Control Deck</title>
-    <link rel="stylesheet" href="app.css?v=20260908-2" />
+    <link rel="stylesheet" href="app.css?v=20261116-menubar" />
   </head>
   <body>
     <div class="deck">
+      <nav class="deck-menubar" id="deck-menubar" aria-label="Application menu">
+        <div class="deck-menu" data-menu="file">
+          <button type="button" class="deck-menu-trigger" aria-haspopup="true" aria-expanded="false">File</button>
+          <ul class="deck-menu-panel" role="menu" hidden>
+            <li role="none"><button type="button" role="menuitem" data-menu-action="file.open">Open sequence…</button></li>
+            <li role="none"><button type="button" role="menuitem" data-menu-action="file.save">Save sequence…</button></li>
+            <li role="none"><button type="button" role="menuitem" data-menu-action="file.import">Import sequence…</button></li>
+            <li role="separator" class="deck-menu-sep"></li>
+            <li role="none"><button type="button" role="menuitem" data-menu-action="file.open_folder">Open PharmFlow folder…</button></li>
+            <li role="none"><button type="button" role="menuitem" data-menu-action="file.open_logs">Open logs folder…</button></li>
+            <li role="separator" class="deck-menu-sep"></li>
+            <li role="none"><button type="button" role="menuitem" data-menu-action="file.exit">Exit</button></li>
+          </ul>
+        </div>
+        <div class="deck-menu" data-menu="edit">
+          <button type="button" class="deck-menu-trigger" aria-haspopup="true" aria-expanded="false">Edit</button>
+          <ul class="deck-menu-panel" role="menu" hidden>
+            <li role="none"><button type="button" role="menuitem" data-menu-action="edit.undo">Undo</button></li>
+            <li role="separator" class="deck-menu-sep"></li>
+            <li role="none"><button type="button" role="menuitem" data-menu-action="edit.cut">Cut</button></li>
+            <li role="none"><button type="button" role="menuitem" data-menu-action="edit.copy">Copy</button></li>
+            <li role="none"><button type="button" role="menuitem" data-menu-action="edit.paste">Paste</button></li>
+          </ul>
+        </div>
+        <div class="deck-menu" data-menu="view">
+          <button type="button" class="deck-menu-trigger" aria-haspopup="true" aria-expanded="false">View</button>
+          <ul class="deck-menu-panel" role="menu" hidden>
+            <li role="none"><button type="button" role="menuitem" data-menu-action="view.start">Home</button></li>
+            <li role="none"><button type="button" role="menuitem" data-menu-action="view.install">Install</button></li>
+            <li role="none"><button type="button" role="menuitem" data-menu-action="view.android">Android</button></li>
+            <li role="none"><button type="button" role="menuitem" data-menu-action="view.phones">Phones</button></li>
+            <li role="none"><button type="button" role="menuitem" data-menu-action="view.boot">Test</button></li>
+            <li role="none"><button type="button" role="menuitem" data-menu-action="view.map">Site Map</button></li>
+            <li role="none"><button type="button" role="menuitem" data-menu-action="view.steps">Steps</button></li>
+            <li role="none"><button type="button" role="menuitem" data-menu-action="view.builder">Builder</button></li>
+            <li role="none"><button type="button" role="menuitem" data-menu-action="view.teams">Groups</button></li>
+            <li role="none"><button type="button" role="menuitem" data-menu-action="view.go">Run</button></li>
+            <li role="none"><button type="button" role="menuitem" data-menu-action="view.health">Farm health</button></li>
+            <li role="separator" class="deck-menu-sep"></li>
+            <li role="none"><button type="button" role="menuitem" data-menu-action="view.farm_dash">Farm operator dashboard</button></li>
+            <li role="none"><button type="button" role="menuitem" data-menu-action="view.control_dash">Control dashboard</button></li>
+          </ul>
+        </div>
+        <div class="deck-menu" data-menu="options">
+          <button type="button" class="deck-menu-trigger" aria-haspopup="true" aria-expanded="false">Options</button>
+          <ul class="deck-menu-panel" role="menu" hidden>
+            <li role="none"><button type="button" role="menuitem" data-menu-action="options.farm_prefs">Farm preferences…</button></li>
+            <li role="none"><button type="button" role="menuitem" data-menu-action="options.reset_step">Reset this step’s farm defaults…</button></li>
+            <li role="separator" class="deck-menu-sep"></li>
+            <li role="none"><button type="button" role="menuitem" data-menu-action="options.classic_wizard">Classic advanced wizard…</button></li>
+          </ul>
+        </div>
+        <div class="deck-menu" data-menu="help">
+          <button type="button" class="deck-menu-trigger" aria-haspopup="true" aria-expanded="false">Help</button>
+          <ul class="deck-menu-panel" role="menu" hidden>
+            <li role="none"><button type="button" role="menuitem" data-menu-action="help.guide">Quick guide…</button></li>
+            <li role="none"><button type="button" role="menuitem" data-menu-action="help.about">About PharmFlow…</button></li>
+          </ul>
+        </div>
+      </nav>
+
       <header class="topbar">
         <div class="brand">
           <span class="brand-mark">PF</span>
@@ -768,10 +829,29 @@
           </section>
         </div>
 
-        <footer class="help-foot">Settings and logs live under <span class="mono">C:\PharmFlow</span> · Help is File → Help at any time.</footer>
+        <footer class="help-foot">Settings and logs live under <span class="mono">C:\PharmFlow</span> · Help → Quick guide at any time.</footer>
       </div>
     </div>
 
-    <script src="app.js?v=20261115-groups-builder"></script>
+    <!-- About (Help → About) -->
+    <div class="help-overlay" id="about-overlay" hidden>
+      <div class="help-sheet about-sheet" role="dialog" aria-modal="true" aria-labelledby="about-title">
+        <header class="help-head">
+          <div class="help-head-titles">
+            <div class="kicker"><span class="badge-dot"></span> PHARMFLOW · ABOUT</div>
+            <h2 id="about-title">About PharmFlow</h2>
+          </div>
+          <button type="button" class="btn-ghost help-close" id="about-close" title="Close (Esc)">Close ✕</button>
+        </header>
+        <div class="help-body">
+          <section class="help-sec">
+            <p id="about-body">PharmFlow Control Panel — farm control deck.</p>
+          </section>
+        </div>
+        <footer class="help-foot">Install root and logs open from File · Farm prefs live under Options.</footer>
+      </div>
+    </div>
+
+    <script src="app.js?v=20261116-menubar"></script>
   </body>
 </html>
