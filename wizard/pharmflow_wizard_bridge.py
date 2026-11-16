@@ -4527,6 +4527,39 @@ def cloud_connect_login(host: str = "", count: int = 0, api_key: str = "") -> di
     return out
 
 
+def attach_local_and_cloud_phones(apply_stealth: bool = True) -> dict:
+    """Deck one-surface attach: local MuMu/ADB + cloud TCP, stealth defaults on."""
+    try:
+        cc = _cloud_connect_mod()
+        return cc.attach_local_and_cloud_phones(
+            root=_agent_config_root(),
+            log=lambda m: _emit_log("phones", str(m)),
+            apply_stealth=bool(apply_stealth),
+        )
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "error": f"Attach phones failed: {exc}", "phones": []}
+
+
+def farm_start_gate_status() -> dict:
+    """Read-only stealth + funds gate status for the Control Panel."""
+    tools_dir = Path(__file__).resolve().parent.parent / "tools"
+    if getattr(sys, "frozen", False):
+        tools_dir = Path(sys._MEIPASS) / "tools"  # type: ignore[attr-defined]
+    if str(tools_dir) not in sys.path:
+        sys.path.insert(0, str(tools_dir))
+    try:
+        import farm_start_gate as gate
+
+        return gate.evaluate_start_gate(apply_stealth_defaults=True)
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "ok": False,
+            "stealth_ok": False,
+            "funds_ok": False,
+            "error": f"Start farm gate status failed: {exc}",
+        }
+
+
 def _watchdog_script_path() -> str:
     if getattr(sys, "frozen", False):
         return str(Path(sys._MEIPASS) / "tools" / "pharmflow_watchdog.py")  # type: ignore[attr-defined]
@@ -4904,7 +4937,25 @@ def start_farm_from_app(profile_slug: str = "", hours: float = 0) -> dict:
     def work() -> None:
         global _farm_start_result, _farm_starting
         try:
-            _emit_log("go", "[farm] Starting farm stack — checking profile and helper lanes…\n")
+            _emit_log("go", "[farm] Starting farm stack — stealth + funds gate, then helper lanes…\n")
+            gate = farm_start_gate_status()
+            if not gate.get("ok"):
+                message = str(
+                    gate.get("error")
+                    or gate.get("message")
+                    or "Start farm refused: stealth + funds gate failed"
+                )
+                _emit_log("go", "[farm] " + message + "\n")
+                with _farm_start_lock:
+                    _farm_start_result = {
+                        "ok": False,
+                        "starting": False,
+                        "running": False,
+                        "error": message,
+                        "gate": gate,
+                    }
+                return
+            _emit_log("go", "[farm] " + str(gate.get("message") or "Start farm gate OK") + "\n")
             profile = load_active_profile(profile_slug or None)
             ok = _sf(profile=profile, hours=hours or None, log=log, takeover=True)
             # start_farm returns False for both "already running" and "failed

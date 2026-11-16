@@ -849,6 +849,12 @@ class PharmFlowAppApi:
     def cloud_connect_login(self, host: str = "", count: int = 0, api_key: str = "") -> dict:
         return self._bridge_call("cloud_connect_login", host, count, api_key)
 
+    def attach_local_and_cloud_phones(self, apply_stealth: bool = True) -> dict:
+        return self._bridge_call("attach_local_and_cloud_phones", bool(apply_stealth))
+
+    def farm_start_gate_status(self) -> dict:
+        return self._bridge_call("farm_start_gate_status")
+
     def cloud_agent_status(self) -> dict:
         return self._bridge_call("cloud_agent_status")
 

@@ -237,6 +237,11 @@ class FarmControlTests(unittest.TestCase):
             patch("wizard.farm_control._resolve_helper_python", return_value=None),
             patch("wizard.farm_control._start_digest", return_value=None),
             patch("wizard.farm_control.open_operator_dashboard", return_value=None),
+            patch(
+                "farm_start_gate.evaluate_start_gate",
+                return_value={"ok": True, "message": "Start farm gate OK"},
+            ),
+            patch("farm_start_gate.prefer_newest_farm_builds", return_value=[]),
             # start_farm writes PHARMFLOW_UNISON_MODE / PHARMFLOW_FARM_STOP into
             # os.environ directly — snapshot & restore so later tests are not
             # poisoned (isolation-skip veto leaked into test_sequence_isolation).
@@ -249,16 +254,38 @@ class FarmControlTests(unittest.TestCase):
             ensure_fn.assert_called()
             self.assertTrue(any("unison" in m.lower() for m in msgs))
 
+    def test_start_farm_refuses_when_stealth_funds_gate_fails(self) -> None:
+        msgs: list[str] = []
+        with (
+            patch("wizard.farm_control.farm_process_alive", return_value=False),
+            patch("wizard.farm_control.external_python_farm_running", return_value=False),
+            patch("farm_start_gate.prefer_newest_farm_builds", return_value=[]),
+            patch(
+                "farm_start_gate.evaluate_start_gate",
+                return_value={
+                    "ok": False,
+                    "error": "Start farm refused: stealth fail",
+                    "message": "Start farm refused: stealth fail",
+                },
+            ) as gate_fn,
+            patch("wizard.farm_control.ensure_operator_stack") as ensure_fn,
+            patch.dict(os.environ),
+        ):
+            ok = start_farm(log=lambda m, _lvl="ok": msgs.append(m), takeover=True)
+        self.assertFalse(ok)
+        gate_fn.assert_called()
+        ensure_fn.assert_not_called()
+        self.assertTrue(any("refused" in m.lower() or "stealth" in m.lower() for m in msgs))
+
     def test_start_farm_refuses_when_already_running(self) -> None:
-        # Unison contract: farm_running() is authoritative — a running stack
-        # means refuse, no takeover logic runs at all.
+        # Already-armed EXE farm: Start is a no-op success (do not re-arm / gate).
         msgs: list[str] = []
         with (
             patch("wizard.farm_control.farm_process_alive", return_value=True),
             patch("wizard.farm_control.external_python_farm_running", return_value=False) as ext_fn,
         ):
             ok = start_farm(log=lambda m, _lvl="ok": msgs.append(m), takeover=True)
-        self.assertFalse(ok)
+        self.assertTrue(ok)
         ext_fn.assert_not_called()
         self.assertTrue(any("already running" in m.lower() for m in msgs))
 
@@ -379,6 +406,11 @@ class FarmControlTests(unittest.TestCase):
         with (
             patch("wizard.farm_control.farm_process_alive", return_value=False),
             patch("wizard.farm_control.external_python_farm_running", return_value=False),
+            patch("farm_start_gate.prefer_newest_farm_builds", return_value=[]),
+            patch(
+                "farm_start_gate.evaluate_start_gate",
+                return_value={"ok": True, "message": "Start farm gate OK"},
+            ),
             patch("automation.farm_exe_self_heal.run_self_heal", return_value={"fixes": []}),
             patch("wizard.farm_control.ensure_operator_stack", return_value=[]),
             patch("wizard.farm_control._wait_farm_armed", return_value=False),
@@ -398,6 +430,11 @@ class FarmControlTests(unittest.TestCase):
             patch("wizard.farm_control.farm_running", return_value=True),
             patch("wizard.farm_control.farm_process_alive", return_value=False),
             patch("wizard.farm_control.external_python_farm_running", return_value=False),
+            patch("farm_start_gate.prefer_newest_farm_builds", return_value=[]),
+            patch(
+                "farm_start_gate.evaluate_start_gate",
+                return_value={"ok": True, "message": "Start farm gate OK"},
+            ),
             patch("automation.farm_exe_self_heal.run_self_heal", return_value={"fixes": []}),
             patch("wizard.farm_control.ensure_operator_stack", return_value=[]) as ensure_fn,
             patch("wizard.farm_control._wait_farm_armed", return_value=False),

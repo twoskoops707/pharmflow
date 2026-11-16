@@ -652,8 +652,12 @@ class HeadlessDeckTests(unittest.TestCase):
         self.assertIn("--cloud-agent", cloud)
         self.assertIn("def cloud_connect_login(", BRIDGE)
         self.assertIn("def cloud_session_status(", BRIDGE)
+        self.assertIn("def attach_local_and_cloud_phones(", BRIDGE)
+        self.assertIn("def farm_start_gate_status(", BRIDGE)
         login = BRIDGE.split("def cloud_connect_login(")[1].split("\ndef ")[0]
         self.assertIn("cloud_phone_setup(", login)
+        start = BRIDGE.split("def start_farm_from_app(")[1].split("\ndef ")[0]
+        self.assertIn("farm_start_gate_status()", start)
         self.assertIn("31415", BRIDGE.split("def cloud_agent_config(")[1].split("\ndef ")[0])
         self.assertEqual(
             calls,

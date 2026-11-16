@@ -3064,6 +3064,40 @@ try {
       refreshSetupBtn.addEventListener("click", function () { refreshSetup({ announce: true }); });
     }
 
+    const btnAttachPhones = document.getElementById("btn-attach-phones");
+    if (btnAttachPhones && !btnAttachPhones.dataset.wired) {
+      btnAttachPhones.dataset.wired = "1";
+      btnAttachPhones.addEventListener("click", async function () {
+        const statusEl = document.getElementById("phone-attach-status");
+        try {
+          const a = requireApi("Attach phones");
+          if (!a || !a.attach_local_and_cloud_phones) {
+            showBackendError("Phone attach is not available in this build");
+            return;
+          }
+          if (statusEl) statusEl.textContent = "Discovering local MuMu/ADB + cloud phones…";
+          appendLog(setupLog, "[attach] Discover & attach (local + cloud)…", "log-line-accent");
+          const res = await a.attach_local_and_cloud_phones(true);
+          if (!res || res.ok === false || res.error) {
+            const fail = (res && (res.error || res.message)) || "Attach failed";
+            if (statusEl) statusEl.textContent = fail;
+            showBackendError(fail);
+            appendLog(setupLog, "[attach] " + fail, "log-line-warn");
+            return;
+          }
+          if (res.phones) setPhones(res.phones);
+          const msg = res.message || ("Attached " + (res.phones || []).length + " phone(s)");
+          if (statusEl) statusEl.textContent = msg;
+          appendLog(setupLog, "[attach] " + msg, "log-line-ok");
+          showToast(msg, true);
+          refreshSetup({ announce: false });
+          refreshFarmStartGateStatus();
+        } catch (_e) {
+          /* banner shown */
+        }
+      });
+    }
+
     const refreshPrereqBtn = document.getElementById("btn-refresh-prereq");
     if (refreshPrereqBtn && !refreshPrereqBtn.dataset.wired) {
       refreshPrereqBtn.dataset.wired = "1";
@@ -4166,6 +4200,30 @@ try {
       openDash.addEventListener("click", openControlDash);
     }
 
+    async function refreshFarmStartGateStatus() {
+      const el = document.getElementById("farm-start-gate-status");
+      if (!el) return;
+      try {
+        const a = api();
+        if (!a || !a.farm_start_gate_status) {
+          el.textContent = "Start farm gate: not available in this build";
+          return;
+        }
+        const st = await a.farm_start_gate_status();
+        if (!st) {
+          el.textContent = "Start farm gate: check failed";
+          return;
+        }
+        if (st.ok) {
+          el.textContent = st.message || "Start farm gate OK — stealth + funds ready";
+        } else {
+          el.textContent = st.error || st.message || "Start farm refused until stealth + funds pass";
+        }
+      } catch (_e) {
+        el.textContent = "Start farm gate: check failed";
+      }
+    }
+
     async function refreshCloudConnectStatus() {
       const statusEl = document.getElementById("cloud-connect-status");
       const noteEl = document.getElementById("cloud-free-tier-note");
@@ -4237,7 +4295,10 @@ try {
         }
       });
       refreshCloudConnectStatus();
+      refreshFarmStartGateStatus();
     }
+
+    refreshFarmStartGateStatus();
 
     const btnCloudSetup = document.getElementById("btn-cloud-setup");
     if (btnCloudSetup && !btnCloudSetup.dataset.wired) {

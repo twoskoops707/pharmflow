@@ -420,3 +420,93 @@ def connect_login(
         out["ok"] = False
         out["error"] = out["message"]
     return out
+
+
+def attach_local_and_cloud_phones(
+    *,
+    root: Path | None = None,
+    log: Any = None,
+    apply_stealth: bool = True,
+) -> dict[str, Any]:
+    """One control-surface attach: discover local MuMu/ADB + saved cloud host phones.
+
+    Applies stealth fingerprint when ``apply_stealth`` is True (default) using
+    existing farm fingerprint helpers — does not invent a second disguise path.
+    """
+    log_fn = log if callable(log) else None
+    session = load_session(root)
+    host = str(session.get("host") or "").strip()
+    try:
+        from wizard.preflight_core import discover_adb_phones, auto_connect_all_phones
+
+        if log_fn:
+            log_fn("Attaching local MuMu/ADB + published redroid ports…\n")
+        auto_connect_all_phones(log_fn)
+        serials = discover_adb_phones(log_fn, connect_mumu=True, force_mumu_scan=True)
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "ok": False,
+            "error": f"Local/cloud phone attach failed: {exc}",
+            "phones": [],
+            "host": host,
+        }
+
+    phones = [str(s).strip() for s in (serials or []) if str(s).strip()]
+    cloud_like = [s for s in phones if s.startswith("127.0.0.1:") or (host and host in s)]
+    local_like = [s for s in phones if s not in cloud_like]
+
+    stealth_summary: dict[str, Any] = {}
+    if apply_stealth and phones:
+        try:
+            from wizard.mumu_farm_ops import apply_fingerprint_all, audit_fingerprint_all
+
+            if log_fn:
+                log_fn("Applying stealth fingerprint defaults…\n")
+            apply_fingerprint_all(phones, log_fn, patch_vms=True)
+            stealth_summary = audit_fingerprint_all(phones, log_fn)
+        except Exception as exc:  # noqa: BLE001
+            stealth_summary = {"ok": False, "error": str(exc), "all_clean": False}
+
+    # Seed stealth default in desktop prefs when missing (never force False→True
+    # over an explicit operator off — gate will refuse Start instead).
+    try:
+        from wizard.wizard_paths import desktop_prefs_file
+
+        prefs_path = desktop_prefs_file()
+        prefs: dict[str, Any] = {}
+        if prefs_path.is_file():
+            try:
+                loaded = json.loads(prefs_path.read_text(encoding="utf-8"))
+                if isinstance(loaded, dict):
+                    prefs = loaded
+            except (OSError, ValueError, TypeError):
+                prefs = {}
+        if "mask_emulator_fingerprint" not in prefs:
+            prefs["mask_emulator_fingerprint"] = True
+            prefs.setdefault("dabflow_mantis_patch", True)
+            prefs_path.parent.mkdir(parents=True, exist_ok=True)
+            prefs_path.write_text(json.dumps(prefs, indent=2) + "\n", encoding="utf-8")
+    except Exception:
+        pass
+
+    clean = bool(stealth_summary.get("all_clean")) if stealth_summary else (not apply_stealth)
+    return {
+        "ok": bool(phones),
+        "phones": phones,
+        "local_phones": local_like,
+        "cloud_phones": cloud_like,
+        "host": host,
+        "count": session.get("count"),
+        "stealth": stealth_summary,
+        "stealth_ok": clean if apply_stealth else None,
+        "message": (
+            f"Attached {len(phones)} phone(s) "
+            f"({len(local_like)} local, {len(cloud_like)} cloud/TCP)"
+            + (
+                "; stealth clean"
+                if apply_stealth and clean
+                else ("; stealth still leaking" if apply_stealth else "")
+            )
+        ),
+        "error": None if phones else "No phones answering ADB after attach",
+    }

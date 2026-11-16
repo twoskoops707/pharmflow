@@ -290,9 +290,11 @@
                   <div id="phone-chips" class="phone-chips" hidden></div>
                 </div>
                 <div class="phones-actions-bar">
+                  <button type="button" class="btn-go btn-go-compact" id="btn-attach-phones" data-help="One surface: discover and attach local MuMu/ADB phones plus any cloud/redroid TCP phones already published. Applies stealth fingerprint defaults.">Discover &amp; attach phones</button>
                   <button type="button" class="btn-go btn-go-compact" id="btn-go" data-help="Walks the live phones through setup: browser install, ADB keys, Tor per phone. Skips phones already set up.">Set up my phones</button>
                   <button type="button" class="btn-go btn-go-secondary" id="btn-boot-all" data-help="Starts every stopped MuMu phone, every stopped redroid container, and every stopped Android Studio AVD. Does not wipe AVD data. Does not start Docker Desktop.">Boot all phones</button>
                 </div>
+                <p class="status-line" id="phone-attach-status">Local + cloud phones share this checklist. Attach before Set up / Start farm.</p>
               </section>
 
               <section class="panel browser-panel">
@@ -665,6 +667,7 @@
                 <div class="action-row">
                   <button type="button" class="btn-go" id="btn-start-automation" data-help="Boots stopped phones, then starts the service and runs every group. Does not wipe AVD data.">Start automation (service + run)</button>
                 </div>
+                <p class="status-line" id="farm-start-gate-status">Start farm gate: checking stealth + funds…</p>
                 <div class="advanced-block">
                   <p class="panel-title">Extra tools</p>
                   <div class="advanced-actions">

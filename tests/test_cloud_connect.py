@@ -110,15 +110,22 @@ class CloudConnectFreePathTests(unittest.TestCase):
         self.assertIn("def cloud_connect_login(", bridge)
         self.assertIn("def cloud_session_status(", bridge)
         self.assertIn("cloud_phone_setup(", bridge)
+        self.assertIn("def attach_local_and_cloud_phones(", bridge)
         web = (ROOT / "wizard" / "pharmflow_app_webview.py").read_text(encoding="utf-8")
         self.assertIn("def cloud_connect_login(", web)
         self.assertIn("def cloud_session_status(", web)
+        self.assertIn("def attach_local_and_cloud_phones(", web)
         html = (ROOT / "wizard" / "assets" / "pharmflow_app" / "index.html").read_text(encoding="utf-8")
         self.assertIn("btn-cloud-connect", html)
         self.assertIn("cloud-connect-widget", html)
+        self.assertIn("btn-attach-phones", html)
         js = (ROOT / "wizard" / "assets" / "pharmflow_app" / "app.js").read_text(encoding="utf-8")
         self.assertIn("cloud_connect_login", js)
         self.assertIn("cloud_session_status", js)
+        self.assertIn("attach_local_and_cloud_phones", js)
+
+    def test_attach_local_and_cloud_phones_helper_exists(self) -> None:
+        self.assertTrue(callable(cc.attach_local_and_cloud_phones))
 
 
 class CloudConnectBridgeContractTests(unittest.TestCase):

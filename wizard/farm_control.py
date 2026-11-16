@@ -28,7 +28,11 @@ from automation.win_subprocess import hidden_run_kwargs
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
+_TOOLS_DIR = _REPO_ROOT / "tools"
+if str(_TOOLS_DIR) not in sys.path:
+    sys.path.insert(0, str(_TOOLS_DIR))
 import docker_guard  # noqa: E402
+import farm_start_gate  # noqa: E402
 from scripts.farm_hourly_ntfy import run_reporter
 from wizard.wizard_paths import app_data_root, bundle_root, load_config, sequences_dir
 
@@ -1090,6 +1094,18 @@ def start_farm(
                 )
                 return False
             stop_external_python_farm(log=log)
+        # Hard gate: stealth + funds must both pass before any lane arms.
+        # Prefer newest duplicate workers only (dedupe), then evaluate posture.
+        for note in farm_start_gate.prefer_newest_farm_builds():
+            _log(note, "ok")
+        gate = farm_start_gate.evaluate_start_gate(
+            log=lambda m: _log(str(m).rstrip(), "warn"),
+        )
+        if not gate.get("ok"):
+            msg = str(gate.get("error") or gate.get("message") or "Start farm gate failed")
+            _log(msg, "err")
+            return False
+        _log(str(gate.get("message") or "Start farm gate OK"), "ok")
         apply_profile_farm_env(profile)
         # Wizard Advanced panels persist user overrides here; re-apply after
         # profile defaults so user tweaks win, before lanes spawn with env.

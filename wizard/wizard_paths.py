@@ -242,8 +242,8 @@ def save_desktop_prefs(phone_order: list[str]) -> None:
         "tor_slot_order": phone_order,
         "browse_proxy_mode": "scramble",
         "dabflow_mantis_patch": True,
-        "mask_emulator_fingerprint": False,
-        "note": "Scramble: direct internet + browser UA scramble + Mantis CDP patch for ads.",
+        "mask_emulator_fingerprint": True,
+        "note": "Scramble: direct internet + browser UA scramble + Mantis CDP patch for ads. Stealth fingerprint mask on by default.",
         # Farm cadence defaults (UI + scripts/run_farm_354.py via env). Does not auto-start farm.
         "farm": {
             "paths": "1,2,3",
