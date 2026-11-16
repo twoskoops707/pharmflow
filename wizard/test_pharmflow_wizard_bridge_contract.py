@@ -65,16 +65,27 @@ class PharmFlowWizardBridgeContractTests(unittest.TestCase):
         self.assertNotIn("PerPhoneSequenceEditor", app_js)
 
     def test_run_edit_phone_sequence_is_deck_native_not_tk(self):
-        """Groups Edit → Builder target (no Tk PerPhoneSequenceEditor, no farm arm)."""
+        """Groups Edit → Builder target (no Tk PerPhoneSequenceEditor, no farm arm).
+
+        Live proof (wizard-126): Groups Edit still opened Tk `Sequence — …`
+        with Add Step / Load / Cancel / OK. Source must never reintroduce that
+        path — only `cursor_begin_phone_edit` / Builder deck.
+        """
         block = BRIDGE.split("def run_edit_phone_sequence(")[1].split("\ndef ")[0]
         self.assertIn("cursor_begin_phone_edit", block)
         self.assertNotIn("PerPhoneSequenceEditor", block)
         self.assertNotIn("_safe_run_on_tk", block)
+        self.assertNotIn("_run_on_tk", block)
+        self.assertNotIn("_spawn_visible_wizard", block)
+        self.assertNotIn("_spawn_with_visible_fallback", block)
+        self.assertNotIn("Toplevel", block)
+        self.assertNotIn("grab_set", block)
         self.assertNotIn("start_farm", block)
         begin_block = BRIDGE.split("def cursor_begin_phone_edit(")[1].split("\ndef ")[0]
         self.assertIn('_builder_target', begin_block)
         self.assertIn('"mode": "builder"', begin_block)
         self.assertNotIn("start_farm", begin_block)
+        self.assertNotIn("PerPhoneSequenceEditor", begin_block)
         set_block = BRIDGE.split("def cursor_set_phone_steps(")[1].split("\ndef ")[0]
         self.assertIn("_persist_groups_config", set_block)
         self.assertIn('ent["steps"]', set_block)
