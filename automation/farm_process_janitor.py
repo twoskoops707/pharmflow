@@ -50,11 +50,22 @@ _ADB_DUMP_MARKERS = (
     "dump /sdcard",
 )
 
-_MAX_ADB = 12
 _MAX_BASH_WSL = 6
 _ADB_DUMP_MAX_AGE_S = 25.0
 _ONESHOT_MAX_AGE_S = 120.0
 _ADB_CONHOST_MAX_AGE_S = 45.0
+
+
+def _adb_client_budget() -> int:
+    """Soft ceiling for non-server adb clients: a few helpers per live phone."""
+    try:
+        from automation.phone_process_budget import phone_helper_count
+
+        n = int(phone_helper_count())
+    except Exception:
+        n = 0
+    # Allow short-lived shell/dump clients without inventing a fixed farm-wide max.
+    return max(4, n * 3) if n > 0 else 8
 
 
 def _utc() -> str:
@@ -195,17 +206,18 @@ def sweep_dead_processes() -> list[str]:
         except (psutil.Error, TypeError, ValueError, OSError):
             continue
 
-    if len(adb_procs) > _MAX_ADB:
+    adb_budget = _adb_client_budget()
+    if len(adb_procs) > adb_budget:
         for p in adb_procs:
             cmd = ""
             try:
                 cmd = " ".join(str(x) for x in (p.cmdline() or []))
             except (psutil.Error, OSError):
                 cmd = ""
-            if "fork-server" in cmd:
+            if "fork-server" in cmd or "start-server" in cmd:
                 continue
             _kill(p, "cull_excess_adb", fixes)
-        fixes.append(f"cull_excess_adb n={len(adb_procs)}")
+        fixes.append(f"cull_excess_adb n={len(adb_procs)} budget={adb_budget}")
 
     if len(bash_wsl) > _MAX_BASH_WSL:
         for p in bash_wsl:
@@ -216,6 +228,13 @@ def sweep_dead_processes() -> list[str]:
         fixes.extend(cull_duplicates_keep_newest(SINGLETON_HELPERS + ("run_farm_354.py",)))
     except Exception as exc:
         fixes.append(f"dup_cull_err:{exc}")
+
+    try:
+        from automation.phone_process_budget import enforce_phone_process_budget
+
+        fixes.extend(enforce_phone_process_budget(apply=True)[:12])
+    except Exception as exc:
+        fixes.append(f"phone_budget_err:{exc}")
 
     _hb(f"fixes={len(fixes)} " + ",".join(fixes[:12]))
     return fixes

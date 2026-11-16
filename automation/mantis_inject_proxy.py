@@ -1235,8 +1235,38 @@ def _ensure_stats_publisher() -> None:
     _STATS_THREAD.start()
 
 
+def stop_inject_proxies_except(keep_indices: list[int] | None = None) -> list[int]:
+    """Stop in-process inject listeners whose abs index is outside the live 1:1 set."""
+    keep = {int(i) for i in (keep_indices or []) if int(i) >= 0}
+    stopped: list[int] = []
+    with _LOCK:
+        for i in list(_PROXIES.keys()):
+            if i in keep:
+                continue
+            proxy = _PROXIES.pop(i, None)
+            if proxy is None:
+                continue
+            try:
+                proxy.stop()
+            except Exception:
+                pass
+            stopped.append(int(i))
+    return sorted(stopped)
+
+
 def start_inject_proxies(phone_indices: list[int] | None = None) -> list[MantisInjectProxy]:
-    idxs = phone_indices if phone_indices is not None else list(range(5))
+    if phone_indices is not None:
+        idxs = [int(i) for i in phone_indices if int(i) >= 0]
+    else:
+        try:
+            from automation.phone_process_budget import active_phone_budget
+
+            idxs = list(active_phone_budget().abs_indices)
+        except Exception:
+            idxs = []
+    # Never invent a dense 0..N-1 fleet when the live roster is unknown.
+    if not idxs:
+        return []
     out: list[MantisInjectProxy] = []
     with _LOCK:
         for i in idxs:

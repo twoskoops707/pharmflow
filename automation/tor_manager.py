@@ -1681,24 +1681,35 @@ def _tor_skip_wait_env() -> bool:
 
 
 
-def _tor_prewarm_max_idx() -> int:
-    """Highest Tor lane to prewarm in the background (lanes ``0..max``).
+def _tor_prewarm_slots() -> list[int]:
+    """Packed Tor slots ``0..N-1`` for the live phone budget (1:1, no surplus).
 
-    An operator-set ``PHARMFLOW_TOR_PREWARM_MAX_IDX`` is used as given (no
-    ceiling -- repo rule forbids hardcoded phone-count limits). Unset, it is
-    derived from the live fleet so a 6-phone farm warms 6 lanes and a 40-phone
-    farm warms 40, instead of a fixed 8. With no discoverable roster only lane
-    0 is warmed; every other phone still gets Tor on demand through
-    ``ensure_tor_and_proxy_for_phone``, so prewarm is only a head start.
+    Operator ``PHARMFLOW_TOR_PREWARM_MAX_IDX`` still means highest slot index
+    (inclusive). Unset, slots follow active phone count so a 6-phone farm warms
+    6 lanes — never absolute VM max (vm39 must not prewarm 0..39).
     """
     raw = os.environ.get("PHARMFLOW_TOR_PREWARM_MAX_IDX", "").strip()
     if raw:
         try:
-            return max(0, int(raw))
+            return list(range(max(0, int(raw)) + 1))
         except ValueError:
             pass
+    try:
+        from automation.phone_process_budget import active_phone_budget
+
+        slots = list(active_phone_budget().slots)
+        if slots:
+            return slots
+    except Exception:
+        pass
     fleet = live_fleet_indices()
-    return max(0, len(fleet) - 1) if fleet else 0
+    return list(range(len(fleet))) if fleet else []
+
+
+def _tor_prewarm_max_idx() -> int:
+    """Highest Tor slot to prewarm (``len(slots)-1``). Prefer :func:`_tor_prewarm_slots`."""
+    slots = _tor_prewarm_slots()
+    return max(0, len(slots) - 1) if slots else 0
 
 
 
@@ -1784,13 +1795,17 @@ def _warm_host_tor_ports_for_index(phone_idx: int) -> None:
 
 
 
-def _prewarm_host_tors_worker(max_idx: int) -> None:
-    log.info("Tor host prewarm thread started (indices 0..%s)", max_idx)
+def _prewarm_host_tors_worker(slots: list[int] | int) -> None:
+    if isinstance(slots, int):
+        want = list(range(max(0, int(slots)) + 1))
+    else:
+        want = sorted({int(s) for s in slots if int(s) >= 0})
+    log.info("Tor host prewarm thread started slots=%s (1:1 phone budget)", want)
     pre = tor_proxy_preflight()
     if not pre.get("ok"):
         log.info("Tor host prewarm skipped — %s", pre.get("error", "unknown"))
         return
-    for i in range(max_idx + 1):
+    for i in want:
         _warm_host_tor_ports_for_index(i)
 
 
@@ -1871,15 +1886,19 @@ def wait_tor_ready(phone_index: Optional[int] = None, timeout_sec: float = 240) 
 
 
 
-def start_tor_host_bootstrap_background(max_phone_idx: Optional[int] = None) -> None:
-    """Start **one** daemon thread that brings host Tor listeners up for indices ``0..max``.
+def start_tor_host_bootstrap_background(
+    max_phone_idx: Optional[int] = None,
+    *,
+    slots: Optional[list[int]] = None,
+) -> None:
+    """Start **one** daemon thread that brings host Tor listeners up 1:1 with phones.
 
     Idempotent while the thread is alive. Does **not** touch ADB or ``http_proxy`` (that stays in
     :func:`ensure_tor_and_proxy_for_phone`). Skipped when ``PHARMFLOW_SKIP_TOR_WAIT`` is set or Tor
     preflight fails (nothing to warm).
 
-    ``max_phone_idx`` defaults to env ``PHARMFLOW_TOR_PREWARM_MAX_IDX``, else the live fleet size
-    (see :func:`_tor_prewarm_max_idx`).
+    Prefer ``slots`` (packed ``0..N-1``). ``max_phone_idx`` remains highest slot index for
+    legacy callers — never pass an absolute VM index here.
     """
     if _tor_skip_wait_env():
         return
@@ -1887,15 +1906,19 @@ def start_tor_host_bootstrap_background(max_phone_idx: Optional[int] = None) -> 
     if not pre.get("ok"):
         log.debug("Tor host bootstrap not started — %s", pre.get("error", "unknown"))
         return
-    m = int(max_phone_idx) if max_phone_idx is not None else _tor_prewarm_max_idx()
-    m = max(0, m)
+    if slots is not None:
+        want = sorted({int(s) for s in slots if int(s) >= 0})
+    elif max_phone_idx is not None:
+        want = list(range(max(0, int(max_phone_idx)) + 1))
+    else:
+        want = _tor_prewarm_slots()
     with _tor_prewarm_thread_lock:
         global _tor_prewarm_thread
         if _tor_prewarm_thread is not None and _tor_prewarm_thread.is_alive():
             return
         t = threading.Thread(
             target=_prewarm_host_tors_worker,
-            args=(m,),
+            args=(want,),
             daemon=True,
             name="pharmflow-tor-prewarm",
         )
@@ -1904,14 +1927,18 @@ def start_tor_host_bootstrap_background(max_phone_idx: Optional[int] = None) -> 
 
 
 
-def ensure_tor_daemon_started_async(max_phone_idx: Optional[int] = None) -> None:
+def ensure_tor_daemon_started_async(
+    max_phone_idx: Optional[int] = None,
+    *,
+    slots: Optional[list[int]] = None,
+) -> None:
     """:func:`start_tor_host_bootstrap_background` alias for callers that expect an "async start" name.
 
-    Not a heal. Returns before any port is listening and warms ``0..max``
-    (including unused slots). Farm self-heal must call
-    :func:`restore_tor_http_for_slots` and treat a down port as unrestored.
+    Not a heal. Returns before any port is listening and warms only the live
+    1:1 slot set. Farm self-heal must call :func:`restore_tor_http_for_slots`
+    and treat a down port as unrestored.
     """
-    start_tor_host_bootstrap_background(max_phone_idx)
+    start_tor_host_bootstrap_background(max_phone_idx, slots=slots)
 
 
 def _tcp_open(port: int, timeout: float = 0.4) -> bool:
@@ -2318,8 +2345,8 @@ def _tor_proxy_host_for_device(serial: str) -> str:
 
 
 def _tor_reverse_port_clear_max_idx() -> int:
-    """Clear ``adb reverse tcp:(8118+i)`` for ``i`` in ``0..max`` (covers prewarm + farm)."""
-    return max(_tor_prewarm_max_idx(), 15)
+    """Clear ``adb reverse tcp:(8118+i)`` for ``i`` in ``0..max`` (1:1 live slots only)."""
+    return _tor_prewarm_max_idx()
 
 
 

@@ -617,19 +617,9 @@ def ensure_once(*, sweep_dead: bool = True) -> str:
         _start_hidden("scripts/watch_proxy_inject.py")
         actions.append("proxy_watch")
     if _count("run_mantis_inject_proxies") < 1 and _count("run_mantis_inject") < 1:
-        # MuMu indices are not dense 0..N-1 (vm5 â†’ index 5 â†’ :8223).
-        # --phones N starts indices 0..N-1; need N >= max_live_index+1.
-        # Floor 6 covers sticky map vm1..vm5 (8219..8223) plus unused 8218.
-        try:
-            from automation.farm_phone_discover import inject_listener_count
-
-            inject_n = max(11, int(inject_listener_count()), len(PHONES) or 0)
-        except Exception:
-            inject_n = 11
+        # Live abs indices 1:1 — do not invent --phones N / max-index span.
         _start_hidden(
             "scripts/run_mantis_inject_proxies.py",
-            "--phones",
-            str(inject_n),
             "--no-install-ca",
         )
         actions.append("inject")

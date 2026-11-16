@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
-"""Start Mantis inject proxies for phones 0..N-1 (default 5).
+"""Start Mantis inject proxies 1:1 with the live phone budget.
 
   py -u scripts/run_mantis_inject_proxies.py
   py -u scripts/run_mantis_inject_proxies.py --phones 5 --install-ca
 
-Phone traffic: http_proxy 127.0.0.1:8218+i → inject → Tor 8118+i
+Default (no --phones): absolute live lock-map / ADB indices only.
+Legacy --phones N still starts dense 0..N-1 for lab use.
+
+Phone traffic: http_proxy 127.0.0.1:8218+abs → inject → Tor 8118+slot
 """
 
 from __future__ import annotations
@@ -95,7 +98,12 @@ def main() -> int:
     except Exception:  # noqa: BLE001 — probe failure must not block fallback use
         pass
     ap = argparse.ArgumentParser()
-    ap.add_argument("--phones", type=int, default=11)
+    ap.add_argument(
+        "--phones",
+        type=int,
+        default=None,
+        help="Legacy dense 0..N-1. Omit to use live abs indices (1:1 phone budget).",
+    )
     ap.add_argument("--install-ca", action="store_true", default=True)
     ap.add_argument("--no-install-ca", action="store_true")
     ap.add_argument("--once", action="store_true", help="Start proxies, arm phones, exit (leave threads)")
@@ -103,7 +111,19 @@ def main() -> int:
     install_ca = bool(args.install_ca) and not bool(args.no_install_ca)
 
     ensure_ca_files()
-    idxs = list(range(max(1, int(args.phones))))
+    if args.phones is not None:
+        idxs = list(range(max(1, int(args.phones))))
+    else:
+        try:
+            from automation.phone_process_budget import active_phone_budget
+
+            idxs = list(active_phone_budget().abs_indices)
+        except Exception as exc:
+            log.warning("phone budget unavailable: %s", exc)
+            idxs = []
+    if not idxs:
+        log.warning("no live phones for inject — refusing to invent a span")
+        return 0
     proxies = start_inject_proxies(idxs)
     log.info("started %d inject proxies", len(proxies))
 

@@ -19,7 +19,8 @@ def test_inject_ports_follow_vm_index() -> None:
     assert inject_proxy_for_name("vm0.gmadoa") == "127.0.0.1:8218"
     assert inject_proxy_for_name("vm9") == "127.0.0.1:8227"
     assert inject_proxy_for_name("vm10.gmadoa") == "127.0.0.1:8228"
-    assert inject_listener_count(["vm0", "vm10"]) == 11
+    # 1:1 with named phones — not max-index span (vm10 must not invent 11 listeners).
+    assert inject_listener_count(["vm0", "vm10"]) == 2
 
 
 def test_skip_tablet_and_ghost() -> None:

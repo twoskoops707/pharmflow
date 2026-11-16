@@ -14,7 +14,8 @@ Failure classes covered (proven on 2026-09-10/11 live box):
     ``_fix_*`` / ``_money_arm_*``, competing babysitters, inject runner
     when farm already owns inject) — Standing rule: EXE kills these itself
 
-Never power VMs off. Never invent phone-count caps.
+Never power VMs off. Phone-side helpers stay 1:1 with live ADB/phone count
+(see ``automation.phone_process_budget``) — never invent surplus Tor/inject lanes.
 """
 from __future__ import annotations
 
@@ -330,6 +331,8 @@ def heal_inject_and_tor(*, live: list[str] | None = None) -> list[str]:
         if idx >= 0:
             idxs.append(idx)
     idxs = sorted(set(idxs))
+    # Packed Tor slots are 0..N-1 for the live abs set (never absolute VM max).
+    slots = list(range(len(idxs)))
 
     up_ports = [p for p in inject_ports if _port_open(p)]
     dead_ports = [p for p in inject_ports if p not in up_ports]
@@ -337,36 +340,34 @@ def heal_inject_and_tor(*, live: list[str] | None = None) -> list[str]:
     all_inject = bool(inject_ports) and not dead_ports
 
     http_base = _tor_http_base()
-    tor_ports = sorted({http_base + i for i in idxs}) if idxs else []
-    if not tor_ports and inject_ports:
-        tor_ports = sorted({http_base + (p - 8218) for p in inject_ports if p >= 8218})
+    tor_ports = sorted({http_base + s for s in slots}) if slots else []
     up_tor = [p for p in tor_ports if _port_open(p)]
     any_tor = bool(up_tor)
     all_tor = bool(tor_ports) and len(up_tor) == len(tor_ports)
 
     farm_alive = _farm_lane_alive()
     need_inject = bool(inject_ports) and (not any_inject or bool(dead_ports))
-    need_tor = bool(idxs) and (not any_tor or not all_tor)
+    need_tor = bool(slots) and (not any_tor or not all_tor)
 
     if need_tor:
         fixes.append(
             f"tor_listeners_down up={len(up_tor)}/{len(tor_ports)} base={http_base}"
         )
-        # Prefer farm-owned warm to avoid Tor fleet storms. If farm is alive but
-        # *zero* Tor HTTP listeners remain, heal may warm anyway — farm "alive"
-        # with dead Tor was stranding money until a sequence-gated reload.
-        is_farm_proc = _current_process_is_farm()
-        tor_totally_dead = len(up_tor) == 0
-        if is_farm_proc or not farm_alive or tor_totally_dead:
-            try:
-                from automation import tor_manager
+        try:
+            from automation.tor_manager import restore_tor_http_for_slots
 
-                max_idx = max(idxs) if idxs else max(0, len(live_set) - 1)
-                tor_manager.ensure_tor_daemon_started_async(max_phone_idx=max_idx)
-                who = "farm" if is_farm_proc else ("bootstrap" if not farm_alive else "heal_dead_tor")
-                fixes.append(f"tor_warm_async max_idx={max_idx} via={who}")
-            except Exception as exc:  # noqa: BLE001
-                fixes.append(f"tor_warm_err:{exc}")
+            report = restore_tor_http_for_slots(slots)
+            still = list(report.get("still_dead") or []) + list(
+                report.get("bootstrapping") or []
+            )
+            fixes.append(
+                f"tor_restore slots={slots} restored={report.get('restored')} "
+                f"started={report.get('started')} still={still}"
+            )
+            if still or report.get("errors"):
+                fixes.append(
+                    f"tor_listeners_not_restored still={still} err={report.get('errors')}"
+                )
                 try:
                     RELOAD_FLAG.write_text(
                         f"exe_self_heal_tor_down {_utc()}\n", encoding="utf-8"
@@ -374,14 +375,15 @@ def heal_inject_and_tor(*, live: list[str] | None = None) -> list[str]:
                     fixes.append("flagged_FARM_RELOAD_for_tor")
                 except OSError as flag_exc:
                     fixes.append(f"reload_flag_fail:{flag_exc}")
-        else:
-            fixes.append("tor_warm_skipped caller_not_farm farm_owns_tor")
+            else:
+                fixes.append(f"tor_listeners_restored n={len(slots)} base={http_base}")
+        except Exception as exc:  # noqa: BLE001
+            fixes.append(f"tor_restore_err:{exc}")
             try:
                 RELOAD_FLAG.write_text(
-                    f"exe_self_heal_tor_partial {_utc()} up={len(up_tor)}/{len(tor_ports)}\n",
-                    encoding="utf-8",
+                    f"exe_self_heal_tor_down {_utc()}\n", encoding="utf-8"
                 )
-                fixes.append("flagged_FARM_RELOAD_for_partial_tor")
+                fixes.append("flagged_FARM_RELOAD_for_tor")
             except OSError as flag_exc:
                 fixes.append(f"reload_flag_fail:{flag_exc}")
     elif all_tor:
@@ -389,9 +391,6 @@ def heal_inject_and_tor(*, live: list[str] | None = None) -> list[str]:
     elif any_tor:
         fixes.append(f"tor_listeners_partial up={len(up_tor)}/{len(tor_ports)}")
 
-    # Durable inject ownership: cpharm_inject_keepalive holds 8242+ listeners.
-    # Never in-process bind from money-mon / heal callers — only run_farm_354 backup.
-    is_farm = _current_process_is_farm()
     if up_ports:
         fixes.append(_describe_inject_ownership(up_ports))
         owner_pids = sorted(set(_inject_port_owners(up_ports).values()))
@@ -415,32 +414,29 @@ def heal_inject_and_tor(*, live: list[str] | None = None) -> list[str]:
             f"inject_listeners_down up={len(up_ports)}/{len(inject_ports)} "
             f"dead={dead_ports[:8]}"
         )
-        # 1) Persistent keepalive lane FIRST — survives money-mon / heal restarts.
         fixes.extend(_ensure_inject_keepalive_process(idxs=idxs))
         time.sleep(2.0)
 
         up_mid = [p for p in inject_ports if _port_open(p)]
         still_dead = [p for p in inject_ports if p not in up_mid]
 
-        # 2) In-process bind ONLY from run_farm_354 when keepalive did not restore.
-        if still_dead and is_farm:
+        # Bind absolute live indices only (1:1). Keepalive may own the ports;
+        # in-proc start is idempotent when already listening.
+        if still_dead and idxs:
             try:
                 from automation.mantis_inject_proxy import start_inject_proxies
 
-                if idxs:
-                    started = start_inject_proxies(idxs)
-                    fixes.append(
-                        f"inject_started_inproc_farm_backup n={len(started)} idxs={idxs}"
-                    )
+                started = start_inject_proxies(idxs)
+                fixes.append(
+                    f"inject_started_inproc n={len(started)} idxs={idxs}"
+                )
             except Exception as exc:  # noqa: BLE001
                 fixes.append(f"inject_inproc_err:{exc}")
-        elif still_dead and not is_farm:
-            fixes.append(
-                f"inject_inproc_skipped caller_not_farm dead={still_dead[:8]}"
-            )
 
-        # 3) Re-pin live guests to lock-map inject ports + reverse tunnels.
-        fixes.extend(_repin_live_guests(phones=phones, inject=inject, live=live_set))
+        if live_set:
+            fixes.extend(_repin_live_guests(phones=phones, inject=inject, live=live_set))
+        else:
+            fixes.append("inject_guest_pin_skipped adb_empty")
 
         time.sleep(0.6)
         up_after = [p for p in inject_ports if _port_open(p)]
@@ -470,15 +466,21 @@ def heal_inject_and_tor(*, live: list[str] | None = None) -> list[str]:
     elif all_inject:
         fixes.append(f"inject_listeners_ok n={len(up_ports)}")
         fixes.extend(_ensure_inject_keepalive_process(idxs=idxs))
-        fixes.extend(
-            _repin_live_guests(
-                phones=phones, inject=inject, live=live_set, only_if_wrong=True
+        if live_set:
+            fixes.extend(
+                _repin_live_guests(
+                    phones=phones, inject=inject, live=live_set, only_if_wrong=True
+                )
             )
-        )
+        else:
+            fixes.append("inject_guest_pin_skipped adb_empty")
     elif any_inject:
         fixes.append(f"inject_listeners_partial up={len(up_ports)}/{len(inject_ports)}")
         fixes.extend(_ensure_inject_keepalive_process(idxs=idxs))
-        fixes.extend(_repin_live_guests(phones=phones, inject=inject, live=live_set))
+        if live_set:
+            fixes.extend(_repin_live_guests(phones=phones, inject=inject, live=live_set))
+        else:
+            fixes.append("inject_guest_pin_skipped adb_empty")
 
     if farm_alive:
         fixes.append("farm_lane_alive")
@@ -1665,6 +1667,12 @@ def run_self_heal(*, reason: str = "tick") -> dict[str, Any]:
         live = adb_live_serials()
         fixes.append(f"adb_live_n={len(live)}")
         fixes.extend(prune_serial_map(live=live))
+        try:
+            from automation.phone_process_budget import enforce_phone_process_budget
+
+            fixes.extend(enforce_phone_process_budget(live_serials=live, apply=True))
+        except Exception as exc:  # noqa: BLE001
+            fixes.append(f"phone_budget_err:{exc}")
         fixes.extend(heal_inject_and_tor(live=live))
         # GPU High / DirectX on Start farm + tick (same helpers as stealth/remediate).
         # File rewrite only — does not launch/kill farm lanes or fight PEF-1.

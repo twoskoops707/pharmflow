@@ -204,7 +204,8 @@ class TorWarmupHasNoPhoneCountCeilingTests(unittest.TestCase):
                 patch.object(tm.threading, "Thread", _FakeThread), \
                 patch.object(tm, "_tor_prewarm_thread", None):
             tm.start_tor_host_bootstrap_background(max_phone_idx=57)
-        self.assertEqual(seen, [57])
+        # Worker now receives the explicit 0..57 slot list (legacy max_idx meaning).
+        self.assertEqual(seen, [list(range(58))])
 
     def test_listening_lanes_are_found_past_a_gap(self) -> None:
         """A lane that failed to warm must not hide healthy higher lanes."""

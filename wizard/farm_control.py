@@ -97,13 +97,19 @@ _UNISON_PID_FILE = Path(r"C:\PharmFlow\logs\pharmflow_unison_supervisor.pid")
 
 
 def _inject_span() -> str:
-    """Inject listener count from PharmFlow-live VMs (vmN → N+1 ports)."""
+    """Live phone count for inject (1:1). Prefer omitting --phones (lock-map abs)."""
     try:
-        from automation.farm_phone_discover import inject_listener_count
+        from automation.phone_process_budget import phone_helper_count
 
-        return str(max(1, int(inject_listener_count())))
+        n = int(phone_helper_count())
+        return str(n) if n > 0 else "0"
     except Exception:
-        return "11"
+        try:
+            from automation.farm_phone_discover import inject_listener_count
+
+            return str(max(0, int(inject_listener_count())))
+        except Exception:
+            return "0"
 
 
 def _helper_script_path(name: str) -> Path | None:
@@ -364,7 +370,8 @@ def ensure_operator_stack(*, log: Callable[[str, str], None] | None = None) -> l
 
         for name, argv_extra, needle in _HELPER_SPECS:
             if name == "run_mantis_inject_proxies.py":
-                argv_extra = ("--phones", str(_inject_span()))
+                # Omit --phones so the runner uses live abs indices 1:1.
+                argv_extra = ()
             if _helper_already_alive(needle):
                 _log(f"operator stack already up: {name}", "ok")
                 continue

@@ -86,21 +86,26 @@ def inject_proxy_for_name(name: str) -> str:
 
 
 def inject_listener_count(names: list[str] | None = None) -> int:
-    """How many inject listeners (indices 0..max inclusive)."""
-    idxs: list[int] = []
-    src = list(names or [])
-    if not src:
-        try:
-            src = [short for short, _serial, _proxy in discover_live_phones()]
-        except Exception:
-            src = []
-    for n in src:
-        idx = _idx_from_name(n)
-        if idx is not None:
-            idxs.append(idx)
-    if not idxs:
-        return 11
-    return max(idxs) + 1
+    """How many inject listeners — 1:1 with named/live phones (not max-index span)."""
+    if names is not None:
+        idxs: list[int] = []
+        for n in names:
+            idx = _idx_from_name(n)
+            if idx is not None:
+                idxs.append(idx)
+        return len(set(idxs))
+    try:
+        from automation.phone_process_budget import phone_helper_count
+
+        n = int(phone_helper_count())
+        if n > 0:
+            return n
+    except Exception:
+        pass
+    try:
+        return len(discover_live_phones())
+    except Exception:
+        return 0
 
 
 def _adb_online_serials(*, timeout: float = 6.0) -> set[str]:

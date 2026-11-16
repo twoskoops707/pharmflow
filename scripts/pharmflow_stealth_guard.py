@@ -121,7 +121,11 @@ def _ensure_inject_and_dash() -> list[str]:
             )
             fixes.append("spawn_inject_keepalive")
             return fixes
-        span = max(8, inject_listener_count())
+        # 1:1 with live phones — never invent a floor of 8 or max-index span.
+        span = max(0, int(inject_listener_count()))
+        if span <= 0:
+            fixes.append("inject_skip_no_live_phones")
+            return fixes
         pyw = sys.executable.replace("python.exe", "pythonw.exe")
         if not Path(pyw).is_file():
             pyw = sys.executable
@@ -132,14 +136,14 @@ def _ensure_inject_and_dash() -> list[str]:
             apply_farm_env(env)
             creation = 0x08000000 if sys.platform == "win32" else 0
             subprocess.Popen(
-                [pyw, "-u", str(script), "--phones", str(span)],
+                [pyw, "-u", str(script)],
                 cwd=str(ROOT),
                 env=env,
                 creationflags=creation,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
             )
-            fixes.append(f"spawn_inject span={span}")
+            fixes.append(f"spawn_inject live_n={span}")
     except Exception as exc:
         fixes.append(f"inject_err:{exc}")
     return fixes
