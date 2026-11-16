@@ -25,6 +25,11 @@ jobs:
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          # Google removed the legacy SDK `tools` package; v3 still defaults to
+          # installing it and sdkmanager exits 1. cmdline-tools is already set up
+          # by this action — only request packages that still exist.
+          packages: platform-tools
 
       - name: Build release APK
         working-directory: scorecard-android
