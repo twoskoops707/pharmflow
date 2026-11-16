@@ -146,9 +146,22 @@ def _kill(proc: Any, reason: str, fixes: list[str]) -> None:
 def sweep_dead_processes() -> list[str]:
     """One pass: dups, hung ADB, flash cmd, leak bash/wsl, orphan/adb conhost."""
     fixes: list[str] = []
+
+    # Durable janitor path (not an orphan respawner): when ownership flag is
+    # sticky after PharmFlow.exe died, clear it and run one orphan-python reap.
+    try:
+        from automation.pharmflow_exe_owned import reconcile_stale_exe_ownership
+
+        fixes.extend(reconcile_stale_exe_ownership(reap=True))
+    except Exception as exc:  # noqa: BLE001
+        fixes.append(f"stale_owned_err:{type(exc).__name__}:{exc}")
+
     try:
         import psutil
     except ImportError:
+        if fixes:
+            _hb(f"fixes={len(fixes)} " + ",".join(fixes[:12]))
+            return fixes
         return ["janitor_psutil_missing"]
 
     now = time.time()

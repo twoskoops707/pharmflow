@@ -841,9 +841,13 @@ _STALE_SCRIPT_MARKERS = (
     "scripts/_flash_",
 )
 
-# Competing babysitters — retired once PharmFlow.exe + unison own the farm.
+# Competing babysitters — must die outside the live EXE money stack.
+# ⊆ what must die when PharmFlow.exe / pharmflow_unison own the farm.
 # Unison's _kill_legacy_stack and this list must agree: remediator / keep_alive /
 # ensure_24x7 / midnight / emu overnight are NOT the money stack anymore.
+# Symmetry: cpharm_unison_supervisor is always competing debris; the canonical
+# pharmflow_unison_supervisor is NOT listed here (kept under live EXE / unison;
+# culled as farm_orphan when money stack is fully gone — see reap_process_storm).
 _STALE_COMPETING_SCRIPTS = (
     "ensure_farm_24x7.py",
     "keep_farm_alive.py",
@@ -913,19 +917,55 @@ _AZURE_TELEMETRY_MARKERS = (
     "azmcp",
 )
 
-# PyInstaller extract helpers left behind when PharmFlow.exe died — kill when
-# parent is gone so a live EXE / unison can respawn a clean stack.
-# Detached farm sidecars (CREATE_NO_WINDOW / dead powershell parent) MUST stay —
-# same contract as tools.cpharm_watchdog.FARM_KEEP_SCRIPTS. Only cull true debris
-# (telemetry, empty shells, non-farm MEI leftovers).
-# ONLY the EXE → unison money stack. Everything else is debris and must die
-# as soon as it is not needed (standing operator rule). Do NOT keep remediator /
-# keep_alive / ensure_24x7 / midnight / emu overnight / freebuff_tick / dashboard.
+# Live EXE → unison money-stack basenames (CREATE_NO_WINDOW / dead powershell
+# parent by design). Kept ONLY while PharmFlow.exe or pharmflow_unison is live.
+# Same contract as tools.pharmflow_watchdog.FARM_KEEP_SCRIPTS. Do NOT keep
+# remediator / keep_alive / ensure_24x7 / midnight / emu overnight / freebuff_tick
+# / dashboard / cpharm_unison (those are competing debris).
 _MEI_ORPHAN_KEEP_BASENAMES = frozenset(
     {
         "pharmflow_unison_supervisor.py",
         "suppress_console_flash.py",
         "farm_operator_dash.py",
+        "run_farm_354.py",
+        "adb_bond_keeper.py",
+        "farm_money_monitor.py",
+        "pharmflow_inject_keepalive.py",
+        "pharmflow_stealth_guard.py",
+        "farm_watchdog.py",
+        "pharmflow_watchdog.py",
+        "agent_unison_freebuff_loop.py",
+        "watch_bottom_ads.py",
+        "ssp_paying_hunter.py",
+        "mantis_autopilot.py",
+        "pharmflow_ai_farm_loop.py",
+    }
+)
+
+# Known farm helper basenames for orphan-python cull beyond `_MEI` extract trees.
+# Dead parent + no live PharmFlow.exe ancestor → reap (money-stack keep-list
+# still protected while EXE/unison is live).
+_FARM_ORPHAN_PYTHON_BASENAMES = frozenset(
+    {
+        "ensure_farm_24x7.py",
+        "keep_farm_alive.py",
+        "farm_remediate_loop.py",
+        "farm_health_monitor.py",
+        "farm_midnight_watch.py",
+        "emu_overnight_watchdog.py",
+        "agent_unison_freebuff_tick.py",
+        "cpharm_unison_supervisor.py",
+        "cpharm_stealth_guard.py",
+        "cpharm_inject_keepalive.py",
+        "cpharm_watchdog.py",
+        "farm_fail_review.py",
+        "run_farm_cycles.py",
+        "watch_proxy_inject.py",
+        "run_mantis_inject_proxies.py",
+        "dashboard.py",
+        "farm_operator_dash.py",
+        "pharmflow_unison_supervisor.py",
+        "suppress_console_flash.py",
         "run_farm_354.py",
         "adb_bond_keeper.py",
         "farm_money_monitor.py",
@@ -1115,6 +1155,52 @@ def _is_python_exe_name(name: str) -> bool:
     return low in ("python.exe", "pythonw.exe", "python3.exe") or (
         low.startswith("python") and low.endswith(".exe")
     )
+
+
+def _is_pharmflow_exe_name(name: str) -> bool:
+    return (name or "").lower() == "pharmflow.exe"
+
+
+def _money_stack_alive(rows: list[dict[str, Any]]) -> bool:
+    """True when PharmFlow.exe or pharmflow_unison_supervisor is live."""
+    for row in rows:
+        if _is_pharmflow_exe_name(str(row.get("name") or "")):
+            return True
+        if not _is_python_exe_name(str(row.get("name") or "")):
+            continue
+        cmd = str(row.get("cmdline") or "").lower()
+        if "pharmflow_unison_supervisor.py" in cmd:
+            return True
+    return False
+
+
+def _live_pharmflow_exe_pids(rows: list[dict[str, Any]]) -> set[int]:
+    return {
+        int(row["pid"])
+        for row in rows
+        if _is_pharmflow_exe_name(str(row.get("name") or ""))
+    }
+
+
+def _has_live_pharmflow_exe_ancestor(
+    pid_map: dict[int, dict[str, Any]],
+    ppid: int,
+    exe_pids: set[int],
+) -> bool:
+    """Walk parents; True if a live PharmFlow.exe is an ancestor."""
+    seen: set[int] = set()
+    cur = int(ppid or 0)
+    while cur > 0 and cur not in seen:
+        seen.add(cur)
+        if cur in exe_pids:
+            return True
+        row = pid_map.get(cur)
+        if not row:
+            break
+        if _is_pharmflow_exe_name(str(row.get("name") or "")):
+            return True
+        cur = int(row.get("ppid") or 0)
+    return False
 
 
 def _tor_owner_markers(*, farm_alive: bool) -> tuple[str, ...]:
@@ -1334,23 +1420,35 @@ def reap_process_storm(*, apply: bool = True) -> list[str]:
                 if cname in {"conhost.exe", "node.exe", "azmcp.exe", "cmd.exe"}:
                     _plan(child_pid, f"{reason}_child")
 
-    # (c2) Dead-parent PyInstaller (_MEI) helpers — previous EXE died; live
-    # EXE must cull them so start_farm / unison can own a clean stack.
+    # (c2)+(c3) Orphan farm python — dead parent AND no live PharmFlow.exe
+    # ancestor. Covers `_MEI` extract debris and known farm basenames without
+    # `_MEI`. CREATE_NO_WINDOW money-stack lanes stay only while EXE/unison
+    # is live; when the money stack is gone they become orphan stacks.
+    money_alive = _money_stack_alive(rows)
+    exe_pids = _live_pharmflow_exe_pids(rows)
     for row in rows:
         if not _is_python_exe_name(str(row.get("name") or "")):
             continue
         cmd = str(row.get("cmdline") or "")
-        if "_mei" not in cmd.lower():
-            continue
+        cmd_l = cmd.lower()
         base = _storm_script_basename(cmd).lower()
-        if base in _MEI_ORPHAN_KEEP_BASENAMES:
-            continue
         ppid = int(row.get("ppid") or 0)
         if ppid <= 0:
             continue
         if ppid in live_pids or _pid_alive(ppid):
             continue
-        _plan(int(row["pid"]), f"mei_orphan_dead_parent:{base or 'unknown'}")
+        if _has_live_pharmflow_exe_ancestor(pid_map, ppid, exe_pids):
+            continue
+        is_mei = "_mei" in cmd_l
+        if base in _MEI_ORPHAN_KEEP_BASENAMES:
+            if money_alive:
+                continue
+            reason = "mei_orphan_dead_parent" if is_mei else "farm_orphan_dead_parent"
+            _plan(int(row["pid"]), f"{reason}:{base}")
+            continue
+        if is_mei or base in _FARM_ORPHAN_PYTHON_BASENAMES:
+            reason = "mei_orphan_dead_parent" if is_mei else "farm_orphan_dead_parent"
+            _plan(int(row["pid"]), f"{reason}:{base or 'unknown'}")
 
     # (d) Duplicate helper scripts — keep newest pid per basename.
     by_script: dict[str, list[dict[str, Any]]] = {}
@@ -1455,9 +1553,20 @@ def reap_stale_processes(*, apply: bool = True) -> list[str]:
     """
     fixes: list[str] = []
 
-    # 1) Watchdog reaper (bundled in frozen EXE as tools.cpharm_watchdog).
+    # 0) Sticky ownership after EXE death — clear flag (reap is this call).
     try:
-        from tools.cpharm_watchdog import reap_stale as _wd_reap
+        from automation.pharmflow_exe_owned import reconcile_stale_exe_ownership
+
+        fixes.extend(reconcile_stale_exe_ownership(reap=False))
+    except Exception as exc:  # noqa: BLE001
+        fixes.append(f"stale_owned_err:{type(exc).__name__}:{exc}")
+
+    # 1) Watchdog reaper (prefer PharmFlow brand; cpharm module is legacy alias).
+    try:
+        try:
+            from tools.pharmflow_watchdog import reap_stale as _wd_reap
+        except ImportError:
+            from tools.cpharm_watchdog import reap_stale as _wd_reap
 
         rep = _wd_reap(apply=apply)
         n_found = int(rep.get("found") or 0)

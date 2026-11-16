@@ -456,6 +456,23 @@ def cycle() -> dict:
 
 def main() -> int:
     LOG.mkdir(parents=True, exist_ok=True)
+    try:
+        from automation.pharmflow_exe_owned import (
+            exe_owns_farm,
+            pharmflow_exe_alive,
+            reconcile_stale_exe_ownership,
+        )
+
+        if exe_owns_farm() and not pharmflow_exe_alive():
+            notes = reconcile_stale_exe_ownership(reap=True)
+            print(
+                "keep_farm_alive: stale EXE ownership — reaped orphans, "
+                f"cleared flag, exiting (no orphan respawn) notes={notes[:6]}",
+                flush=True,
+            )
+            return 0
+    except Exception:
+        pass
     if _stack_owned():
         print(
             "keep_farm_alive: PharmFlow.exe / unison owns stack — exiting (no orphan respawn)",

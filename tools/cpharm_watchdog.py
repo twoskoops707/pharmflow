@@ -134,34 +134,35 @@ def _proc(name: str) -> int:
 # ---------------------------------------------------------------------------
 REAP_DEFAULT_INTERVAL = 60.0
 _REAP_LAST_RUN = 0.0
-# Script basenames that are legitimately long-running farm-owned workers.
+# Live EXE / unison money-stack lanes ONLY. Competing babysitters
+# (ensure_farm_24x7 / keep_farm_alive / farm_remediate_loop / …) are NOT kept —
+# they must die outside the EXE (see farm_exe_self_heal._STALE_COMPETING_SCRIPTS).
+# Detached CREATE_NO_WINDOW lanes have a dead powershell parent by design; this
+# allowlist stops the dead-parent rule from reaping the live money stack.
 FARM_KEEP_SCRIPTS = frozenset({
-    "dashboard.py",
     "run_farm_354.py",
-    "farm_remediate_loop.py",
-    "keep_farm_alive.py",
     "farm_operator_dash.py",
     "ssp_paying_hunter.py",
     "watch_bottom_ads.py",
     "run_mantis_inject_proxies.py",
-    "_monitor_loop_90s.py",
-    "farm_fail_review.py",
+    "mantis_autopilot.py",
     "kill_azure_telemetry.py",
     "suppress_console_flash.py",
     "cpharm_watchdog.py",
-    "project_agent.py",
-    "cloud_agent.py",
-    # Unison stack (supervised lanes) — spawned detached, so their powershell
-    # parent exits immediately and the dead-parent rule would reap them every
-    # sweep without this allowlist (this killed the supervisor AND the
-    # adb-keeper/money lanes repeatedly in the field).
-    "cpharm_unison_supervisor.py",
+    "pharmflow_watchdog.py",
+    # Symmetry: PharmFlow-branded unison is the canonical money stack; keep it
+    # even when this legacy cpharm_watchdog module is the reaper entry.
+    # cpharm_unison_supervisor is competing debris (killed by EXE heal) — not kept.
+    "pharmflow_unison_supervisor.py",
     "farm_watchdog.py",
     "farm_money_monitor.py",
     "adb_bond_keeper.py",
     "cpharm_stealth_guard.py",
+    "pharmflow_stealth_guard.py",
     "agent_unison_freebuff_loop.py",
     "cpharm_inject_keepalive.py",
+    "pharmflow_inject_keepalive.py",
+    "pharmflow_ai_farm_loop.py",
 })
 
 

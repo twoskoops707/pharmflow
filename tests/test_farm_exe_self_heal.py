@@ -230,21 +230,145 @@ def test_reap_process_storm_keeps_farm_owned_tor() -> None:
 
 
 def test_reap_process_storm_dedupes_keepalive() -> None:
+    # Live EXE keeps CREATE_NO_WINDOW keepalive lanes from orphan cull; dedupe
+    # then drops the older duplicate.
     keepalive = "pythonw -u scripts/pharmflow_inject_keepalive.py"
     rows = [
-        _storm_proc(300, 1, "pythonw.exe", keepalive),
-        _storm_proc(400, 1, "pythonw.exe", keepalive),
+        _storm_proc(50, 1, "PharmFlow.exe", r"C:\PharmFlow\PharmFlow.exe"),
+        _storm_proc(300, 99999, "pythonw.exe", keepalive),
+        _storm_proc(400, 99999, "pythonw.exe", keepalive),
     ]
     pid_map = {r["pid"]: r for r in rows}
 
     with mock.patch.object(heal, "_collect_storm_rows", return_value=(rows, pid_map)):
-        fixes = heal.reap_process_storm(apply=False)
+        with mock.patch.object(heal, "_pid_alive", return_value=False):
+            fixes = heal.reap_process_storm(apply=False)
 
     would = [f for f in fixes if str(f).startswith("storm_would_kill:")]
     dup_hits = [f for f in would if ":300:" in str(f) and "dup_helper" in str(f)]
     kept_hits = [f for f in would if ":400:" in str(f)]
     assert dup_hits, f"older keepalive should be reaped: {would}"
     assert not kept_hits, f"newest keepalive must survive: {would}"
+
+
+def test_mei_orphan_dead_parent() -> None:
+    """Dead-parent `_MEI` python that is not a money-stack lane must be culled."""
+    mei_cmd = (
+        r"C:\Users\x\AppData\Local\Temp\_MEI12345\pythonw.exe "
+        r"C:\Users\x\AppData\Local\Temp\_MEI12345\ensure_farm_24x7.py"
+    )
+    rows = [
+        _storm_proc(200, 99999, "pythonw.exe", mei_cmd),
+    ]
+    pid_map = {r["pid"]: r for r in rows}
+
+    with mock.patch.object(heal, "_collect_storm_rows", return_value=(rows, pid_map)):
+        with mock.patch.object(heal, "_pid_alive", return_value=False):
+            fixes = heal.reap_process_storm(apply=False)
+
+    would = [f for f in fixes if str(f).startswith("storm_would_kill:")]
+    hits = [
+        f
+        for f in would
+        if ":200:" in str(f) and "mei_orphan_dead_parent" in str(f)
+    ]
+    assert hits, f"MEI orphan with dead parent should be reaped: {would}"
+
+
+def test_competing_babysitter_kill() -> None:
+    """ensure/keep/remediate babysitters are always competing poison to EXE heal."""
+    ensure_cmd = "pythonw -u scripts/ensure_farm_24x7.py"
+    keep_cmd = "pythonw -u scripts/keep_farm_alive.py"
+    remediate_cmd = "pythonw -u scripts/farm_remediate_loop.py"
+
+    class _Proc:
+        def __init__(self, pid: int, ppid: int, cmd: str) -> None:
+            self.info = {
+                "pid": pid,
+                "ppid": ppid,
+                "cmdline": cmd.split(),
+                "name": "pythonw.exe",
+            }
+
+    rows = [
+        _Proc(501, 1, ensure_cmd),
+        _Proc(502, 1, keep_cmd),
+        _Proc(503, 1, remediate_cmd),
+    ]
+
+    fake_psutil = mock.MagicMock()
+    fake_psutil.process_iter.return_value = rows
+    fake_psutil.Error = Exception
+    fake_psutil.pid_exists.return_value = True
+
+    with mock.patch.dict("sys.modules", {"psutil": fake_psutil}):
+        with mock.patch(
+            "tools.pharmflow_watchdog.reap_stale",
+            return_value={"found": 0, "killed": 0, "kills": []},
+        ):
+            with mock.patch.object(heal, "reap_process_storm", return_value=["storm_reap clean"]):
+                with mock.patch(
+                    "automation.pharmflow_exe_owned.reconcile_stale_exe_ownership",
+                    return_value=[],
+                ):
+                    fixes = heal.reap_stale_processes(apply=False)
+
+    would_kill = [f for f in fixes if str(f).startswith("would_kill:")]
+    assert any("501" in str(f) and "competing:ensure_farm_24x7.py" in str(f) for f in would_kill), (
+        f"ensure_farm_24x7 must be competing: {would_kill}"
+    )
+    assert any("502" in str(f) and "competing:keep_farm_alive.py" in str(f) for f in would_kill), (
+        f"keep_farm_alive must be competing: {would_kill}"
+    )
+    assert any(
+        "503" in str(f) and "competing:farm_remediate_loop.py" in str(f) for f in would_kill
+    ), f"farm_remediate_loop must be competing: {would_kill}"
+
+
+def test_keep_pharmflow_unison_under_live_exe() -> None:
+    """CREATE_NO_WINDOW unison (dead parent) survives while PharmFlow.exe is live."""
+    unison_cmd = (
+        r"C:\Users\x\AppData\Local\Temp\_MEI999\pythonw.exe "
+        r"scripts\pharmflow_unison_supervisor.py"
+    )
+    rows = [
+        _storm_proc(50, 1, "PharmFlow.exe", r"C:\PharmFlow\PharmFlow.exe"),
+        _storm_proc(100, 99999, "pythonw.exe", unison_cmd),
+    ]
+    pid_map = {r["pid"]: r for r in rows}
+
+    with mock.patch.object(heal, "_collect_storm_rows", return_value=(rows, pid_map)):
+        with mock.patch.object(heal, "_pid_alive", return_value=False):
+            fixes = heal.reap_process_storm(apply=False)
+
+    would = [f for f in fixes if str(f).startswith("storm_would_kill:")]
+    unison_hits = [f for f in would if ":100:" in str(f)]
+    assert not unison_hits, f"pharmflow unison under live EXE must survive: {would}"
+
+
+def test_farm_orphan_dead_parent_without_mei_when_exe_gone() -> None:
+    """Known farm basename + dead parent + no money stack → cull even without `_MEI`."""
+    rows = [
+        _storm_proc(
+            220,
+            99999,
+            "pythonw.exe",
+            r"C:\Python\pythonw.exe scripts\farm_operator_dash.py",
+        ),
+    ]
+    pid_map = {r["pid"]: r for r in rows}
+
+    with mock.patch.object(heal, "_collect_storm_rows", return_value=(rows, pid_map)):
+        with mock.patch.object(heal, "_pid_alive", return_value=False):
+            fixes = heal.reap_process_storm(apply=False)
+
+    would = [f for f in fixes if str(f).startswith("storm_would_kill:")]
+    hits = [
+        f
+        for f in would
+        if ":220:" in str(f) and "farm_orphan_dead_parent:farm_operator_dash.py" in str(f)
+    ]
+    assert hits, f"non-MEI farm orphan should be reaped when EXE/unison gone: {would}"
 
 
 def test_heal_restores_slot_tor_and_does_not_claim_async_warm(

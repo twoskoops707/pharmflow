@@ -453,9 +453,17 @@ def _cull_thrash_watchers(actions: list[str]) -> None:
 def ensure_once(*, sweep_dead: bool = True) -> str:
     actions: list[str] = []
     try:
-        from automation.pharmflow_exe_owned import exe_owns_farm
+        from automation.pharmflow_exe_owned import (
+            exe_owns_farm,
+            pharmflow_exe_alive,
+            reconcile_stale_exe_ownership,
+        )
 
         if exe_owns_farm():
+            if not pharmflow_exe_alive():
+                reconcile_stale_exe_ownership(reap=True)
+                _hb("stale_exe_owned_reap")
+                return "exe_owns_farm_noop"
             _hb("exe_owns_farm_noop")
             return "exe_owns_farm_noop"
     except Exception:
@@ -793,9 +801,24 @@ def main() -> int:
         print("ensure_farm_24x7 is Windows-only", file=sys.stderr)
         return 2
     try:
-        from automation.pharmflow_exe_owned import exe_owns_farm
+        from automation.pharmflow_exe_owned import (
+            exe_owns_farm,
+            pharmflow_exe_alive,
+            reconcile_stale_exe_ownership,
+        )
 
         if exe_owns_farm():
+            if not pharmflow_exe_alive():
+                # Sticky flag after EXE death — one orphan reap, clear, exit.
+                # Do NOT continue the ensure loop (that would orphan-respawn).
+                notes = reconcile_stale_exe_ownership(reap=True)
+                print(
+                    "ensure_farm_24x7: stale EXE ownership — reaped orphans, "
+                    f"cleared flag, exiting (no orphan respawn) notes={notes[:6]}",
+                    flush=True,
+                )
+                _hb("stale_exe_owned_reap_exit")
+                return 0
             print(
                 "ensure_farm_24x7: PharmFlow.exe owns farm — exiting (no orphan respawn)",
                 flush=True,
