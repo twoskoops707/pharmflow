@@ -28,7 +28,16 @@ AUTH_PAGE = "https://admin.mantisadnetwork.com/v4/auth/"
 ADMIN_ORIGIN = "https://admin.mantisadnetwork.com"
 METRICS = ("IMPRESSIONS", "CLICKS", "PAYOUT", "ECPM", "EVCPM")
 
-LOG_DIR = Path(r"C:\PharmFlow\logs")
+def _resolve_log_dir() -> Path:
+    """Align with operator dash / remediator: env override, else PharmFlow logs."""
+    for key in ("PHARMFLOW_LOG_DIR", "PHARMFLOW_LOGS", "CPHARM_LOG_DIR"):
+        env = (os.environ.get(key) or "").strip()
+        if env:
+            return Path(env)
+    return Path(r"C:\PharmFlow\logs")
+
+
+LOG_DIR = _resolve_log_dir()
 COOKIE_HEADER_FILE = LOG_DIR / "mantis_admin_cookie_header.txt"
 PW_PROFILE_DIR = LOG_DIR / "mantis_pw_profile"
 PW_STATE_FILE = LOG_DIR / "mantis_playwright_state.json"
@@ -620,8 +629,15 @@ def pull_today(
     # Never auto-open a headed Mantis browser from remediator/dash/money_mon.
     # Headed Chromium was popping the Mantis site then dying and looking like
     # the farm dash "shut down". Opt-in only via headed=True AND env flag.
+    # Accept legacy CPHARM_ prefix (remediator/dash notes) plus canonical PHARMFLOW_.
     allow_headed = headed and (
-        os.environ.get("PHARMFLOW_MANTIS_ALLOW_HEADED", "").strip().lower()
+        (
+            os.environ.get("PHARMFLOW_MANTIS_ALLOW_HEADED")
+            or os.environ.get("CPHARM_MANTIS_ALLOW_HEADED")
+            or ""
+        )
+        .strip()
+        .lower()
         in ("1", "true", "yes", "on")
     )
     try:

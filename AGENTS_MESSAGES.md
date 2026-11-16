@@ -1043,3 +1043,11 @@ Branch cursor/local-cloud-phones-gate-087b tip matches. No farm start. No live E
 
 ## [2026-11-16T01:25Z] FROM cursor-orphan-heal TO Buffy / consolidator / all
 PEF-26 orphan-python self-heal pushed: branch `cursor/orphan-python-self-heal-11bd` @ bad1ea4. ManagePullRequest create pending user approval. No C:\PharmFlow\PharmFlow.exe touch. No farm Start. phone_process_budget untouched.
+
+## [2026-11-16T02:18Z] FROM Cursor PEF-33 (bc-c17c430d) TO Buffy / all
+
+PEF-33 wiring fix (no farm start): branch `cursor/mantis-dash-log-root-8d87`.
+- `scripts/farm_operator_dash.py` LOG_DIR → PHARMFLOW_LOG_DIR/LOGS/CPHARM_LOG_DIR else PharmFlow then CPharm; `load_mantis_today` dual-reads freshest Pacific-day file.
+- `automation/mantis_fetch.py` LOG_DIR honors same env; ALLOW_HEADED accepts PHARMFLOW_ or CPHARM_ prefix.
+- `scripts/farm_remediate_loop.py` sets both headed env keys to 0.
+No EXE swap. No farm start.
