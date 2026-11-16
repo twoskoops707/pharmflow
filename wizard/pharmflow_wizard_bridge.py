@@ -4865,12 +4865,27 @@ def start_farm_from_app(profile_slug: str = "", hours: float = 0) -> dict:
                 _emit_log("go", "[farm] Farm is already running — not a failed start.\n")
             if ok:
                 _emit_log("go", "[farm] Farm worker is up — watch the Run log and dashboard.\n")
+                try:
+                    both = ensure_both_dashboards(open_browser=True)
+                    _emit_log(
+                        "go",
+                        "[farm] Dashboards "
+                        f"8080={'UP' if both.get('control_ready') else 'DOWN'} "
+                        f"8091={'UP' if both.get('farm_ready') else 'DOWN'}\n",
+                    )
+                except Exception as dash_exc:  # noqa: BLE001
+                    _emit_log("go", f"[farm] Dashboard ensure failed: {dash_exc}\n")
+                    both = {}
                 with _farm_start_lock:
                     _farm_start_result = {
                         "ok": True,
                         "starting": False,
                         "running": True,
                         "message": "Farm worker is up — watch the Run log and dashboard.",
+                        "dashboard": "http://127.0.0.1:8091/",
+                        "control_dashboard": "http://127.0.0.1:8080/",
+                        "dashboard_ready": bool(both.get("farm_ready")),
+                        "control_ready": bool(both.get("control_ready")),
                     }
             else:
                 message = "Farm startup failed — see the preceding Run log lines."

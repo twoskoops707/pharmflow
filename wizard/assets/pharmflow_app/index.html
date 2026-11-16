@@ -465,8 +465,8 @@
                 <div class="panel-head">
                   <h2 class="panel-title" id="builder-steps-title">Sequence steps</h2>
                   <div class="panel-head-actions">
-                    <button type="button" class="btn-mini" id="btn-builder-save-library" data-help="Writes the current default sequence into sequences/{profile}/{folder}/ so Groups playlists can pick it.">Save to library</button>
-                    <button type="button" class="btn-mini" id="btn-open-builder" data-help="Reloads the step list from the current default sequence.">Reload steps</button>
+                    <button type="button" class="btn-mini" id="btn-builder-save-library" data-help="Writes the current Builder sequence into sequences/{profile}/{folder}/ so Groups playlists can pick it.">Save to library</button>
+                    <button type="button" class="btn-mini" id="btn-open-builder" data-help="Reloads the step list from the active Builder target.">Reload steps</button>
                   </div>
                 </div>
                 <ul class="step-editor-list" id="builder-step-list"></ul>
@@ -481,6 +481,7 @@
                       <option value="open_url">Open URL</option>
                       <option value="launch_app">Launch app</option>
                       <option value="tap">Tap</option>
+                      <option value="age_gate">Age gate (Yes)</option>
                       <option value="wait">Wait</option>
                       <option value="swipe">Swipe</option>
                       <option value="keyevent">Keyevent</option>
@@ -488,11 +489,12 @@
                       <option value="clear_cookies">Clear cookies</option>
                       <option value="rotate_identity">Rotate identity</option>
                       <option value="type_text">Type text</option>
+                      <option value="full_reset">Full reset</option>
                     </select>
                   </div>
                   <div id="builder-step-fields" class="builder-step-fields"></div>
                   <div class="action-row builder-form-actions">
-                    <button type="button" class="btn-go" id="btn-builder-add" data-help="Appends the step from the form to the default sequence.">Add step</button>
+                    <button type="button" class="btn-go" id="btn-builder-add" data-help="Appends the step from the form to the active sequence.">Add step</button>
                     <button type="button" class="btn-go btn-go-secondary" id="btn-builder-update" disabled hidden data-help="Writes your form edits back into the selected step.">Update selected</button>
                     <button type="button" class="btn-mini" id="btn-builder-clear-sel" data-help="Clears the selected step so Add creates a new step instead of updating.">Clear selection</button>
                   </div>
