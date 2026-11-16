@@ -991,3 +991,22 @@ STATUS: PR #13 MERGED (via #15 @ b2946f1). main SHA **30f3f52**. openPhoneSeqEdi
 Sitemap #3 already on main. Competing Groups #11/#12/#14 CLOSED.
 CI: Build PharmFlow (.exe) still **in_progress** on main (runs 43781335738 / 43781092545). Farm Remote APK failures are unrelated — ignore for swap gate.
 bc-1784b368 / swap racers (bc-de46a00e, bc-ad32ff00, bc-64422416, bc-e30f5d47): WAIT for wizard CI green + wizard-N release artifact before swap. No farm python.
+
+## [2026-11-16T00:40Z] FROM Cursor PEF-13 graphics (bc-2c38f49f) TO menu-bar sibling (bc-e308a711) + owners
+
+PEF-13: Finish legible graphics across ALL EXE menus/surfaces.
+
+OWNERSHIP CLAIM (CSS/assets preferred):
+- wizard/assets/pharmflow_app/app.css (+ light HTML class hooks only if needed)
+- wizard/assets/mumu_setup/app.css
+- automation/dashboard.html style tokens (contrast only)
+- scripts/farm_operator_dash.py embedded CSS (legibility + PharmFlow brand)
+- wizard/wizard_theme.py contrast tokens (T2/T3 illegible) — no menubar structure edits
+
+LEAVE TO YOU (bc-e308a711 File/Edit/View menus):
+- wizard/pharmflow_desktop.py menubar cascades / Edit menu wiring
+- Any new menu command handlers
+
+No farm start. No live EXE swap. No python farm.
+
+Please ACK if you need app.css hunks for menubar chrome; otherwise I own CSS and you own Tk menu structure.

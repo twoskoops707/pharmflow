@@ -1,8 +1,8 @@
 /* ============================================================
    PharmFlow Farm Control Deck — gauge-cluster console
    Design system shared with the operator dashboard (Mantis):
-   flat #12151a console, hairline panels, green #3d9a78 accent,
-   uppercase micro-labels, tabular numerals.
+   flat #10141b console, hairline panels, green #3da985 accent,
+   uppercase micro-labels, tabular numerals. Minimum label size 12px.
    ============================================================ */
 
 :root {
@@ -14,6 +14,7 @@
   --line: #2b3442;
   --line2: #3b4658;
   --text: #f4f7fb;
+  --ink: #f4f7fb;
   --muted: #c5d0de;
   --dim: #a8b6c9;
   --accent: #3da985;
@@ -277,7 +278,7 @@ body::before {
   border-radius: var(--rad-sm);
   color: var(--muted);
   font-family: var(--display);
-  font-size: 11px;
+  font-size: 12.5px;
   font-weight: 500;
   letter-spacing: 0.02em;
   padding: 4px 10px 4px 5px;
@@ -536,7 +537,7 @@ body::before {
 .status-line {
   margin: 8px 0 0;
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: 12.5px;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
@@ -628,8 +629,8 @@ button {
   background: var(--panel2);
   color: var(--text);
   border: 1px solid var(--line);
-  padding: 5px 10px;
-  font-size: 11px;
+  padding: 6px 11px;
+  font-size: 12.5px;
 }
 
 .btn-mini:hover {
@@ -712,7 +713,7 @@ summary:focus-visible {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
@@ -1203,7 +1204,7 @@ input[type="number"] {
 }
 
 .cloud-field > span {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -1233,7 +1234,7 @@ details.cloud-advanced {
 
 details.cloud-advanced > summary {
   cursor: pointer;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.08em;
@@ -1264,7 +1265,7 @@ details.avd-details {
 
 details.avd-details > summary {
   cursor: pointer;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.08em;
@@ -1464,7 +1465,7 @@ details.avd-details[open] > summary::before {
   margin-left: 6px;
   padding: 1px 6px;
   border: 1px solid var(--line2);
-  font-size: 10px;
+  font-size: 12px;
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--dim);
@@ -1482,8 +1483,8 @@ details.avd-details[open] > summary::before {
 .map-block-label {
   display: block;
   margin-bottom: 5px;
-  font-size: 10.5px;
-  font-weight: 600;
+  font-size: 12px;
+  font-weight: 650;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--dim);
@@ -1751,7 +1752,7 @@ details.adv-details[open] > summary::before {
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 10px;
-  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(61, 154, 120, 0.08);
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(61, 169, 133, 0.08);
   overflow: hidden;
 }
 
@@ -1762,7 +1763,7 @@ details.adv-details[open] > summary::before {
   gap: 16px;
   padding: 18px 22px 14px;
   border-bottom: 1px solid var(--line);
-  background: linear-gradient(180deg, rgba(61, 154, 120, 0.07), transparent);
+  background: linear-gradient(180deg, rgba(61, 169, 133, 0.07), transparent);
 }
 
 .help-head h2 {
@@ -1822,8 +1823,8 @@ details.adv-details[open] > summary::before {
   font-family: var(--mono);
   font-size: 0.92em;
   color: var(--focus);
-  background: rgba(61, 154, 120, 0.08);
-  border: 1px solid rgba(61, 154, 120, 0.16);
+  background: rgba(61, 169, 133, 0.08);
+  border: 1px solid rgba(61, 169, 133, 0.16);
   border-radius: var(--rad-sm);
   padding: 0.5px 5px;
   white-space: nowrap;
@@ -1855,7 +1856,7 @@ details.adv-details[open] > summary::before {
   color: var(--text);
   border: 1px solid var(--line2);
   border-radius: var(--rad-sm);
-  box-shadow: 0 10px 28px rgba(5, 8, 12, 0.6), 0 0 0 1px rgba(61, 154, 120, 0.12);
+  box-shadow: 0 10px 28px rgba(5, 8, 12, 0.6), 0 0 0 1px rgba(61, 169, 133, 0.12);
   font-family: var(--font);
   font-size: 0.82rem;
   line-height: 1.5;
@@ -1909,7 +1910,7 @@ details.adv-details[open] > summary::before {
 }
 .mc-dot.ok {
   background: var(--accent);
-  box-shadow: 0 0 6px rgba(61, 154, 120, 0.8);
+  box-shadow: 0 0 6px rgba(61, 169, 133, 0.8);
 }
 .mc-dot.bad {
   background: var(--err);
@@ -1926,26 +1927,30 @@ details.adv-details[open] > summary::before {
   gap: 8px;
 }
 .health-card {
-  background: var(--panel, rgba(255, 255, 255, 0.03));
-  border: 1px solid rgba(255, 255, 255, 0.07);
-  border-radius: 4px;
+  background: linear-gradient(180deg, var(--panel) 0%, #151b25 100%);
+  border: 1px solid var(--line);
+  border-radius: var(--rad-sm);
   padding: 10px 12px;
   display: flex;
   flex-direction: column;
   gap: 4px;
+  box-shadow: 0 3px 10px var(--shadow-tint);
 }
 .health-card-label {
-  font-family: var(--mono, ui-monospace, monospace);
+  font-family: var(--mono);
   font-size: 12px;
-  letter-spacing: 0.04em;
+  font-weight: 650;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--muted);
+  color: var(--dim);
 }
 .health-card-value {
-  font-family: var(--mono, ui-monospace, monospace);
+  font-family: var(--display);
   font-size: 20px;
-  font-weight: 700;
+  font-weight: 650;
   line-height: 1.1;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
 }
 .health-table-wrap {
   overflow-x: auto;
@@ -1953,29 +1958,30 @@ details.adv-details[open] > summary::before {
 .health-table {
   width: 100%;
   border-collapse: collapse;
-  font-family: var(--mono, ui-monospace, monospace);
-  font-size: 12px;
+  font-family: var(--mono);
+  font-size: 13px;
 }
 .health-table th {
   text-align: left;
   font-size: 12px;
-  letter-spacing: 0.04em;
+  font-weight: 650;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--muted);
-  padding: 6px 8px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--dim);
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
 }
 .health-table td {
-  padding: 6px 8px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-  color: var(--ink, #c8d3d8);
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink);
 }
 .health-table tr:hover td {
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--accent-soft);
 }
 .led-ok {
-  background: #3ecfb0 !important;
-  box-shadow: 0 0 8px rgba(62, 207, 176, 0.8);
+  background: var(--accent) !important;
+  box-shadow: 0 0 8px var(--accent-glow);
 }
 
 /* ============================================================
@@ -2065,7 +2071,7 @@ details.adv-details[open] > summary::before {
 .step-row.active {
   border-color: var(--accent);
   background: var(--accent-soft);
-  box-shadow: 0 0 0 1px rgba(61, 154, 120, 0.2);
+  box-shadow: 0 0 0 1px rgba(61, 169, 133, 0.2);
 }
 
 .step-row-label {
@@ -2123,8 +2129,8 @@ details.adv-details[open] > summary::before {
   gap: 12px;
   margin: 0 0 12px;
   padding: 12px 14px;
-  background: var(--accent-soft, rgba(61, 154, 120, 0.12));
-  border: 1px solid var(--accent, #3d9a78);
+  background: var(--accent-soft);
+  border: 1px solid var(--accent);
   border-radius: var(--rad-sm, 8px);
 }
 
@@ -2196,8 +2202,8 @@ details.adv-details[open] > summary::before {
   border-radius: var(--rad-sm);
   color: var(--text);
   font-family: var(--mono);
-  font-size: 12px;
-  padding: 6px 9px;
+  font-size: 13.5px;
+  padding: 7px 10px;
 }
 
 .builder-step-fields .step-field-row input:focus,
@@ -2292,7 +2298,7 @@ details.adv-details[open] > summary::before {
 
 .btn-group-save {
   color: var(--accent);
-  border-color: rgba(61, 154, 120, 0.45);
+  border-color: rgba(61, 169, 133, 0.45);
 }
 
 .btn-group-save:hover {
@@ -2308,4 +2314,63 @@ details.adv-details[open] > summary::before {
   color: #ffb4a0;
   border-color: #a04b3a;
   background: rgba(160, 75, 58, 0.12);
+}
+
+
+/* ============================================================
+   PEF-13 legibility floor — shared chrome across deck surfaces
+   ============================================================ */
+.panel-title {
+  color: var(--muted);
+}
+
+.panel-note,
+.subtitle,
+.pipeline-note,
+.adv-status,
+.help-foot {
+  color: var(--muted);
+}
+
+.group-phone-row,
+.group-line {
+  color: var(--text);
+}
+
+.group-phone-row .btn-mini,
+.group-row .btn-mini {
+  font-size: 12px;
+}
+
+/* Ensure disabled controls stay readable (not washed-out ghost) */
+button:disabled,
+.btn-go:disabled,
+.btn-mini:disabled {
+  opacity: 0.55;
+  color: inherit;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--dim);
+  opacity: 0.85;
+}
+
+select,
+input[type="text"],
+input[type="url"],
+input[type="number"],
+input[type="password"],
+textarea {
+  color: var(--text);
+}
+
+/* Dialog-ish overlays share help-sheet chrome */
+.deck-dialog,
+.confirm-sheet {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(61, 169, 133, 0.08);
+  color: var(--text);
 }

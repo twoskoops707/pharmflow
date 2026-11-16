@@ -4,26 +4,31 @@
    ============================================================ */
 
 :root {
-  --bg: #12151a;
-  --panel: #1a1f27;
-  --panel2: #222833;
-  --line: #2e3642;
-  --line2: #3a4350;
+  --bg: #10141b;
+  --bg2: #0c0f15;
+  --panel: #181e28;
+  --panel2: #212835;
+  --panel3: #2a3341;
+  --line: #2b3442;
+  --line2: #3b4658;
   --text: #f4f7fb;
+  --ink: #f4f7fb;
   --muted: #c5d0de;
   --dim: #a8b6c9;
-  --accent: #3d9a78;
-  --accent2: #2f7d61;
-  --accent-soft: rgba(61, 154, 120, 0.12);
-  --accent-glow: rgba(61, 154, 120, 0.35);
-  --warn: #c9a227;
-  --err: #c45c5c;
-  --input: #0f1318;
-  --focus: #4db892;
-  --font: "Segoe UI", system-ui, sans-serif;
-  --mono: ui-monospace, Consolas, "Cascadia Mono", monospace;
-  --rad: 6px;
-  --rad-sm: 4px;
+  --accent: #3da985;
+  --accent2: #2c8266;
+  --accent-soft: rgba(61, 169, 133, 0.12);
+  --accent-glow: rgba(61, 169, 133, 0.4);
+  --warn: #d2ab34;
+  --err: #cf6a63;
+  --input: #0d1117;
+  --focus: #57c69f;
+  --font: "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+  --display: "Bahnschrift", "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
+  --mono: "Cascadia Code", "Cascadia Mono", ui-monospace, Consolas, monospace;
+  --rad: 8px;
+  --rad-sm: 5px;
+  --shadow-tint: rgba(7, 14, 11, 0.55);
 }
 
 * {
@@ -155,7 +160,7 @@ body::before {
   content: "";
   position: absolute;
   inset: 0;
-  background: radial-gradient(ellipse 90% 50% at 50% 0%, rgba(61, 154, 120, 0.05), transparent 70%);
+  background: radial-gradient(ellipse 90% 50% at 50% 0%, rgba(61, 169, 133, 0.05), transparent 70%);
   pointer-events: none;
 }
 
@@ -217,7 +222,7 @@ button {
   color: var(--text);
   border: 1px solid var(--line);
   padding: 5px 10px;
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .btn-mini:hover {
@@ -241,7 +246,7 @@ button {
 .btn-chrome {
   background: var(--panel2);
   color: var(--accent);
-  border: 1px solid rgba(61, 154, 120, 0.4);
+  border: 1px solid rgba(61, 169, 133, 0.4);
 }
 
 .btn-chrome:hover {
@@ -380,7 +385,7 @@ input:focus-visible {
   border-radius: var(--rad-sm);
   padding: 4px 9px;
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text);
   font-variant-numeric: tabular-nums;
   animation: chip-in 0.25s ease both;
@@ -424,7 +429,7 @@ input:focus-visible {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
@@ -502,7 +507,7 @@ input:focus-visible {
 }
 
 .step.done {
-  border-color: rgba(61, 154, 120, 0.45);
+  border-color: rgba(61, 169, 133, 0.45);
 }
 
 .step.done .step-icon {
@@ -530,7 +535,7 @@ input:focus-visible {
 
 .step-body p {
   margin: 1px 0 0;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--muted);
 }
 
@@ -586,7 +591,7 @@ input:focus-visible {
 
 #alert-pharmflow:not(:empty) {
   background: var(--accent-soft);
-  border: 1px solid rgba(61, 154, 120, 0.4);
+  border: 1px solid rgba(61, 169, 133, 0.4);
   color: var(--accent);
 }
 

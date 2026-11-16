@@ -1,8 +1,9 @@
 """
 PharmFlow UI tokens + Tk helpers (`wizard/setup_wizard.py`).
 
-**Farm Control Deck:** flat ink/panel surfaces + amber accent (matches ``assets/pharmflow_app/app.css``)
+**Farm Control Deck:** flat ink/panel surfaces + green accent (matches ``assets/pharmflow_app/app.css``)
 + left sidebar rail (see ``PharmFlowWizard``). Canvas vs cards: BG / BG2 / BG3.
+Labels use T1/T2/T3 with WCAG-friendly contrast on dark panels (PEF-13).
 
 PyInstaller one-file: bundle assets next to the frozen module, e.g. from ``wizard/``:
   ``--add-data "assets;assets"``
@@ -22,28 +23,28 @@ if _sd not in sys.path:
 
 from wizard_paths import wizard_assets_dir
 
-# --- Hierarchy (canvas → elevated cards) — flat console deck (matches automation/dashboard.html) ---
-BG = "#12151a"  # canvas — content pane & page background
-BG2 = "#1a1f27"  # primary card / footer / top strip
-BG3 = "#222833"  # nested / inset surfaces
-BG4 = "#2e3642"  # hover / diagram tiles
-BG_LOG_ROW = "#171c24"  # code / mono strip
+# --- Hierarchy (canvas → elevated cards) — flat console deck (matches assets/pharmflow_app/app.css) ---
+BG = "#10141b"  # canvas — content pane & page background
+BG2 = "#181e28"  # primary card / footer / top strip
+BG3 = "#212835"  # nested / inset surfaces
+BG4 = "#2a3341"  # hover / diagram tiles
+BG_LOG_ROW = "#151b25"  # code / mono strip
 
 # Dedicated sidebar rail (left column shell — darker than canvas)
-SHELL_SIDEBAR_BG = "#0e1116"
+SHELL_SIDEBAR_BG = "#0c0f15"
 
 # Footer dock (pair with ``style_*_button`` for hover states below)
 FOOTER_BG = BG3  # bottom bar — inset from content canvas (BG); reads as “dock”
 
 # Chrome & borders (Tk: simulate shadow with highlightbackground + flat relief)
-BORDER = "#2e3642"
-BORDER_STRONG = "#3a4350"
-BORDER_FOCUS = "#4a9ec8"
+BORDER = "#2b3442"
+BORDER_STRONG = "#3b4658"
+BORDER_FOCUS = "#57c69f"
 
-# Accent — signal green "PharmFlow console" (matches assets/pharmflow_app/app.css --green).
-ACCENT = "#3d9a78"
-ACCENT_DIM = "#2f7d61"
-ACCENT_GLOW = "#5fbf9b"
+# Accent — signal green "PharmFlow console" (matches assets/pharmflow_app/app.css --accent).
+ACCENT = "#3da985"
+ACCENT_DIM = "#2c8266"
+ACCENT_GLOW = "#57c69f"
 ACCENT_MUTED = "#245c4a"
 ACCENT_SUBTLE = "#14241e"  # soft fill behind accent-tinted areas
 
@@ -52,23 +53,23 @@ DIVIDER_ACCENT = ACCENT_MUTED  # 2px rule above footer / subtle chrome lines
 SHELL_RAIL_ACCENT = ACCENT_DIM  # 2px strip between sidebar and main content
 
 # Semantic fills (success / danger / emphasis)
-GREEN = "#3d9a78"
-GREEN_ACTIVE = "#2f7d61"
-RED = "#c45c5c"
+GREEN = "#3da985"
+GREEN_ACTIVE = "#2c8266"
+RED = "#cf6a63"
 RED_ACTIVE = "#a84b4b"
 PURPLE = "#4a9ec8"  # soft blue stand-in for diagram accents (no purple in the brand)
 PURPLE_ACTIVE = "#3f8ab1"
 
-# Text
-T1 = "#e7ecf2"
-T2 = "#8b97a8"
-T3 = "#5b6878"
-ON_ACCENT = "#0c1612"
+# Text — match deck --text/--muted/--dim (never wash out labels on dark panels)
+T1 = "#f4f7fb"
+T2 = "#c5d0de"
+T3 = "#a8b6c9"
+ON_ACCENT = "#06140f"
 BLACK = "#000000"
 
 # States — “working” / attention, readable on dark
 WORKING = "#6fb3e0"  # soft sky-blue — in progress, busy
-WARN_FG = "#c9a227"  # warning text only (no loud yellow panels)
+WARN_FG = "#d2ab34"  # warning text only (no loud yellow panels)
 WARN_BG = "#1e1c14"
 CALLOUT_BG = "#1a1f27"
 CALLOUT_BORDER = ACCENT_MUTED
@@ -79,7 +80,7 @@ YELLOW = WORKING
 
 # Aliases for clearer setup_wizard usage
 STATUS_PROGRESS = WORKING
-STATUS_PENDING = "#5e7188"
+STATUS_PENDING = "#a8b6c9"  # match T3 / deck --dim
 WARNING = WARN_FG
 
 # Text on callout panels (CALLOUT_BG)
@@ -88,7 +89,7 @@ CALLOUT_MUTED = T2
 CALLOUT_ACCENT_BAR = CALLOUT_STRIP
 
 # MuMu / special surfaces
-BG_MUMU = "#12151a"
+BG_MUMU = "#10141b"
 
 # spacing scale (px)
 SP = {"xs": 4, "sm": 8, "md": 12, "lg": 16, "xl": 24, "card": 14, "page": 20}
