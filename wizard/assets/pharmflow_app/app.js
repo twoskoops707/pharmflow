@@ -154,22 +154,30 @@
         applyStartFarmGateControls(false);
         return;
       }
-      const st = await a.farm_start_gate_status(true);
+      // Full stealth audit only — never enable Start from skip_audit / audit_skipped.
+      const st = await a.farm_start_gate_status(false);
       if (!st) {
         paintBanners("GATE_BLOCKED — gate check failed", "blocked");
         applyStartFarmGateControls(false);
         return;
       }
-      const label = st.gate_label || (st.ok ? "GATE_OK" : "GATE_BLOCKED");
+      const startOk = !!(st.ok && !st.audit_skipped);
+      const label = startOk
+        ? "GATE_OK"
+        : st.audit_skipped
+          ? "GATE_BLOCKED"
+          : st.gate_label || (st.ok ? "GATE_OK" : "GATE_BLOCKED");
       const adb = st.phone_count != null ? st.phone_count : (st.phones || []).length;
       const stealthBit =
         "STEALTH_OK=" +
         String(!!st.stealth_ok) +
-        (st.audit_skipped ? " (audit_skipped)" : "");
+        (st.audit_skipped ? " (audit_skipped — not OK to Start)" : "");
       const fundsBit = "FUNDS_OK=" + String(!!st.funds_ok);
-      const detail = st.ok
+      const detail = startOk
         ? st.message || "stealth + funds ready — click Start farm (human only)"
-        : st.error || st.message || "Start farm refused until stealth + funds pass";
+        : st.audit_skipped
+          ? "full stealth audit required before Start (audit_skipped is warning only)"
+          : st.error || st.message || "Start farm refused until stealth + funds pass";
       const line =
         label +
         " · ADB=" +
@@ -180,8 +188,8 @@
         fundsBit +
         " — " +
         detail;
-      paintBanners(line, st.ok ? "ok" : "blocked");
-      applyStartFarmGateControls(!!st.ok);
+      paintBanners(line, startOk ? "ok" : "blocked");
+      applyStartFarmGateControls(startOk);
     } catch (_e) {
       paintBanners("GATE_BLOCKED — gate check failed", "blocked");
       applyStartFarmGateControls(false);

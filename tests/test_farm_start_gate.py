@@ -160,6 +160,18 @@ class FarmStartGateTests(unittest.TestCase):
         self.assertIn("GATE_BLOCKED", js)
         self.assertIn("applyStartFarmGateControls", js)
         self.assertIn("farmStartGateOk", js)
+        # Home Start enablement requires full stealth audit (never skip_audit=true).
+        refresh = js.split("async function refreshFarmStartGateStatus(")[1].split(
+            "\n  function "
+        )[0]
+        self.assertIn("farm_start_gate_status(false)", refresh)
+        self.assertNotIn("farm_start_gate_status(true)", refresh)
+        self.assertIn("!st.audit_skipped", refresh)
+        self.assertIn("applyStartFarmGateControls(startOk)", refresh)
+        bridge_sig = bridge.split("def farm_start_gate_status(")[1].split(")")[0]
+        self.assertIn("skip_audit: bool = False", bridge_sig)
+        web_sig = web.split("def farm_start_gate_status(")[1].split(")")[0]
+        self.assertIn("skip_audit: bool = False", web_sig)
         css = (ROOT / "wizard" / "assets" / "pharmflow_app" / "app.css").read_text(encoding="utf-8")
         self.assertIn(".farm-start-gate-banner", css)
         self.assertIn(".gate-ok", css)

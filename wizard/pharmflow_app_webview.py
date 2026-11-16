@@ -852,7 +852,8 @@ class PharmFlowAppApi:
     def attach_local_and_cloud_phones(self, apply_stealth: bool = True) -> dict:
         return self._bridge_call("attach_local_and_cloud_phones", bool(apply_stealth))
 
-    def farm_start_gate_status(self, skip_audit: bool = True) -> dict:
+    def farm_start_gate_status(self, skip_audit: bool = False) -> dict:
+        """Full stealth audit by default — Start enablement must not use skip_audit."""
         return self._bridge_call("farm_start_gate_status", bool(skip_audit))
 
     def dump_gate_status_fast(self, skip_audit: bool = True) -> dict:
