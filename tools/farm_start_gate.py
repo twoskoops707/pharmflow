@@ -163,6 +163,11 @@ def _income_path_ready(prefs: dict[str, Any]) -> tuple[bool, list[str]]:
     return (not problems), problems
 
 
+def _gate_label(ok: bool) -> str:
+    """Unmistakable Control Panel / dump token — never starts the farm."""
+    return "GATE_OK" if ok else "GATE_BLOCKED"
+
+
 def evaluate_start_gate(
     *,
     serials: list[str] | None = None,
@@ -173,7 +178,7 @@ def evaluate_start_gate(
     """Return ok=True only when stealth AND funds checks both pass.
 
     ``skip_audit=True`` skips the slow fingerprint round-trip (Control Panel
-    fast dump). Funds/path checks still run. Never starts the farm.
+    banner / PEF-44 fast dump). Funds/path checks still run. Never starts the farm.
     """
     prefs = _desktop_prefs()
     if apply_stealth_defaults and prefs.get("mask_emulator_fingerprint") is not True:
@@ -185,9 +190,11 @@ def evaluate_start_gate(
     if gate_stop.is_file():
         return {
             "ok": False,
+            "gate_label": _gate_label(False),
             "stealth_ok": False,
             "funds_ok": False,
             "error": "Stealth gate stop file is set (FARM_STEALTH_GATE_STOP.json) — Start farm refused.",
+            "message": "GATE_BLOCKED — stealth gate stop file is set (FARM_STEALTH_GATE_STOP.json).",
             "phones": [],
             "phone_count": 0,
             "stealth": {},
@@ -243,14 +250,16 @@ def evaluate_start_gate(
     if not funds_ok:
         errors.append(funds_reason or "funds check failed")
 
+    label = _gate_label(ok)
     if ok and skip_audit:
-        message = "Start farm gate OK — funds-ready (fingerprint audit skipped)."
+        message = f"{label} — funds-ready (fingerprint audit skipped). Human click Start farm only."
     elif ok:
-        message = "Start farm gate OK — stealth clean and funds-ready."
+        message = f"{label} — stealth clean and funds-ready. Human click Start farm only."
     else:
-        message = "Start farm refused: " + "; ".join(errors)
+        message = f"{label} — Start farm refused: " + "; ".join(errors)
     return {
         "ok": ok,
+        "gate_label": label,
         "stealth_ok": stealth_ok,
         "funds_ok": funds_ok,
         "error": None if ok else message,

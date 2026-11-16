@@ -4540,8 +4540,12 @@ def attach_local_and_cloud_phones(apply_stealth: bool = True) -> dict:
         return {"ok": False, "error": f"Attach phones failed: {exc}", "phones": []}
 
 
-def farm_start_gate_status() -> dict:
-    """Read-only stealth + funds gate status for the Control Panel."""
+def farm_start_gate_status(skip_audit: bool = True) -> dict:
+    """Read-only stealth + funds gate status for the Control Panel.
+
+    Default skips the slow fingerprint audit (same as PEF-44 dump). Never
+    starts the farm — operator must click Start farm when GATE_OK.
+    """
     tools_dir = Path(__file__).resolve().parent.parent / "tools"
     if getattr(sys, "frozen", False):
         tools_dir = Path(sys._MEIPASS) / "tools"  # type: ignore[attr-defined]
@@ -4550,13 +4554,18 @@ def farm_start_gate_status() -> dict:
     try:
         import farm_start_gate as gate
 
-        return gate.evaluate_start_gate(apply_stealth_defaults=True)
+        return gate.evaluate_start_gate(
+            apply_stealth_defaults=True,
+            skip_audit=bool(skip_audit),
+        )
     except Exception as exc:  # noqa: BLE001
         return {
             "ok": False,
+            "gate_label": "GATE_BLOCKED",
             "stealth_ok": False,
             "funds_ok": False,
             "error": f"Start farm gate status failed: {exc}",
+            "message": f"GATE_BLOCKED — Start farm gate status failed: {exc}",
         }
 
 
@@ -4970,7 +4979,8 @@ def start_farm_from_app(profile_slug: str = "", hours: float = 0) -> dict:
         global _farm_start_result, _farm_starting
         try:
             _emit_log("go", "[farm] Starting farm stack — stealth + funds gate, then helper lanes…\n")
-            gate = farm_start_gate_status()
+            # Full fingerprint audit on Start (UI banner may use skip_audit=True).
+            gate = farm_start_gate_status(False)
             if not gate.get("ok"):
                 message = str(
                     gate.get("error")

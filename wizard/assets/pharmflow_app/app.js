@@ -110,6 +110,84 @@
     activity.innerHTML = '<span class="spinner"></span><span>' + escHtml(label || "Working…") + "</span>";
   }
 
+  // Start farm stays disabled until evaluate_start_gate ok=true (GATE_OK).
+  // Never auto-starts — human click only. Mirror PEF-44 GATE_OK / GATE_BLOCKED.
+  let farmStartGateOk = false;
+
+  function applyStartFarmGateControls(ok) {
+    farmStartGateOk = !!ok;
+    const btn = document.getElementById("btn-start-farm-home");
+    if (!btn) return;
+    if (btn.classList.contains("action-pending")) return;
+    if (btn.dataset.mode === "running") {
+      btn.disabled = false;
+      btn.removeAttribute("title");
+      return;
+    }
+    btn.disabled = !farmStartGateOk;
+    if (farmStartGateOk) {
+      btn.title = "GATE_OK — click Start farm (human only; never auto-starts)";
+    } else {
+      btn.title = "GATE_BLOCKED — Start farm stays off until stealth + funds pass";
+    }
+  }
+
+  async function refreshFarmStartGateStatus() {
+    const els = document.querySelectorAll(".farm-start-gate-banner");
+    if (!els.length) return;
+
+    function paintBanners(text, state) {
+      els.forEach(function (el) {
+        el.textContent = text;
+        el.classList.toggle("gate-ok", state === "ok");
+        el.classList.toggle("gate-blocked", state === "blocked");
+        el.classList.toggle("gate-pending", state === "pending");
+      });
+    }
+
+    paintBanners("GATE: checking stealth + funds…", "pending");
+    applyStartFarmGateControls(false);
+    try {
+      const a = api();
+      if (!a || !a.farm_start_gate_status) {
+        paintBanners("GATE_BLOCKED — gate status not available in this build", "blocked");
+        applyStartFarmGateControls(false);
+        return;
+      }
+      const st = await a.farm_start_gate_status(true);
+      if (!st) {
+        paintBanners("GATE_BLOCKED — gate check failed", "blocked");
+        applyStartFarmGateControls(false);
+        return;
+      }
+      const label = st.gate_label || (st.ok ? "GATE_OK" : "GATE_BLOCKED");
+      const adb = st.phone_count != null ? st.phone_count : (st.phones || []).length;
+      const stealthBit =
+        "STEALTH_OK=" +
+        String(!!st.stealth_ok) +
+        (st.audit_skipped ? " (audit_skipped)" : "");
+      const fundsBit = "FUNDS_OK=" + String(!!st.funds_ok);
+      const detail = st.ok
+        ? st.message || "stealth + funds ready — click Start farm (human only)"
+        : st.error || st.message || "Start farm refused until stealth + funds pass";
+      const line =
+        label +
+        " · ADB=" +
+        (adb != null ? adb : "?") +
+        " · " +
+        stealthBit +
+        " · " +
+        fundsBit +
+        " — " +
+        detail;
+      paintBanners(line, st.ok ? "ok" : "blocked");
+      applyStartFarmGateControls(!!st.ok);
+    } catch (_e) {
+      paintBanners("GATE_BLOCKED — gate check failed", "blocked");
+      applyStartFarmGateControls(false);
+    }
+  }
+
   function finishAction() {
     const button = activeActionButton;
     if (button) {
@@ -123,6 +201,9 @@
           button.textContent = button.dataset.actionOriginal;
         }
         delete button.dataset.actionOriginal;
+      }
+      if (button.id === "btn-start-farm-home") {
+        applyStartFarmGateControls(farmStartGateOk);
       }
     }
     activeActionButton = null;
@@ -1112,6 +1193,10 @@
 
     const enter = VIEW_ENTER[name];
     if (enter) enter();
+
+    if (name === "start" || name === "go") {
+      refreshFarmStartGateStatus();
+    }
 
     const a = api();
     if (a && a.navigate_wizard_page) {
@@ -2680,11 +2765,15 @@
     const btn = document.getElementById("btn-start-farm-home");
     if (!btn) return;
     const mode = running ? "running" : "start";
-    if (btn.dataset.mode === mode) return;
+    if (btn.dataset.mode === mode) {
+      applyStartFarmGateControls(farmStartGateOk);
+      return;
+    }
     btn.dataset.mode = mode;
     btn.textContent = running ? "Farm running — open dashboard" : "Start farm";
     const stop = document.getElementById("btn-stop-farm-home");
     if (stop) stop.hidden = !running;
+    applyStartFarmGateControls(farmStartGateOk);
   }
 
   function fmtMoney(v) {
@@ -3476,6 +3565,13 @@ try {
           openFarmDash();
           return;
         }
+        if (!farmStartGateOk) {
+          showBackendError(
+            "GATE_BLOCKED — Start farm stays off until evaluate_start_gate ok=true (stealth + funds)."
+          );
+          refreshFarmStartGateStatus();
+          return;
+        }
         try {
           beginAction(btnStartHome, "Starting farm…");
           appendLog(goLog, "[farm] Start requested — preparing the farm stack…", "log-line-accent");
@@ -4198,30 +4294,6 @@ try {
     if (openDash && !openDash.dataset.wired) {
       openDash.dataset.wired = "1";
       openDash.addEventListener("click", openControlDash);
-    }
-
-    async function refreshFarmStartGateStatus() {
-      const el = document.getElementById("farm-start-gate-status");
-      if (!el) return;
-      try {
-        const a = api();
-        if (!a || !a.farm_start_gate_status) {
-          el.textContent = "Start farm gate: not available in this build";
-          return;
-        }
-        const st = await a.farm_start_gate_status();
-        if (!st) {
-          el.textContent = "Start farm gate: check failed";
-          return;
-        }
-        if (st.ok) {
-          el.textContent = st.message || "Start farm gate OK — stealth + funds ready";
-        } else {
-          el.textContent = st.error || st.message || "Start farm refused until stealth + funds pass";
-        }
-      } catch (_e) {
-        el.textContent = "Start farm gate: check failed";
-      }
     }
 
     async function refreshCloudConnectStatus() {

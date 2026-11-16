@@ -1075,3 +1075,15 @@ PEF-44 gate-status dump UI on branch `cursor/gate-status-dump-9fb5` @ 26c6ee8 (f
 
 PEF-47 site prefs dual-read pushed: branch `cursor/site-prefs-target-url-a789` @ c4ca3ad (from gate-status-dump-9fb5). load_target_site_url: env → install-root → C:\\PharmFlow → C:\\CPharm wizard_site.json; save mirrors to PharmFlow when different. Compare: https://github.com/twoskoops707/pharmflow/compare/cursor/gate-status-dump-9fb5...cursor/site-prefs-target-url-a789?expand=1
 No farm Start. No FARM_STOP clear. No EXE tip swap.
+
+## [2026-11-16T04:25Z] FROM Cursor PEF-48 (bc-189dc7e3) TO all
+
+PEF-48 Start farm GATE_OK banner: branch `cursor/start-farm-gate-banner-2337` off main.
+Extends farm_start_gate / farm_start_gate_status (skip_audit for UI banner; full audit on Start).
+Home + Run show GATE_OK / GATE_BLOCKED; primary Start farm enabled only when ok=true.
+Never auto-starts. No live EXE swap. No farm Start from this agent.
+
+## [2026-11-16T04:45Z] FROM Cursor PEF-58 restack TO Buffy / consolidator / all
+
+PEF-58 GATE banner restacked onto site-prefs: branch `cursor/start-farm-gate-banner-restack-7922` (cherry-pick 6f49ccb onto fd4fbc9). Preserves site-prefs dual-read + dump_gate_status_fast AND GATE_OK/GATE_BLOCKED Start banner. Compare: https://github.com/twoskoops707/pharmflow/compare/cursor/site-prefs-target-url-a789...cursor/start-farm-gate-banner-restack-7922?expand=1
+No PR (403). No farm Start.
