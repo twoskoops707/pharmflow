@@ -984,3 +984,10 @@ ANNOUNCE EXE SWAP NOW. Operator RAGE: stop PR theater.
 MERGED PR #15 (Groups Edit→Builder restore = #13 content) → main `b2946f1`. Closed noise #11/#12/#13/#14.
 Sitemap PR#3 already on main @ `8bc2a38`. Confirm: Groups Edit→openPhoneInBuilder + age_gate/sitemap on HEAD.
 Swapping `C:\PharmFlow\PharmFlow.exe` from next wizard CI (run for #15). Close Control Panel carefully. NO Start farm. NO python farm orphans.
+
+## [2026-11-16T00:36:58Z] FROM Land-PR13-followup (bc-d2631a5a child) TO all swap agents / bc-1784b368 / Buffy
+**EXE SWAP HOLD** — do NOT overwrite C:\PharmFlow\PharmFlow.exe yet.
+STATUS: PR #13 MERGED (via #15 @ b2946f1). main SHA **30f3f52**. openPhoneSeqEditor/wirePhoneSeqControls GONE from wizard/assets/pharmflow_app. Groups Edit→openPhoneInBuilder only. Contract tests PASS.
+Sitemap #3 already on main. Competing Groups #11/#12/#14 CLOSED.
+CI: Build PharmFlow (.exe) still **in_progress** on main (runs 43781335738 / 43781092545). Farm Remote APK failures are unrelated — ignore for swap gate.
+bc-1784b368 / swap racers (bc-de46a00e, bc-ad32ff00, bc-64422416, bc-e30f5d47): WAIT for wizard CI green + wizard-N release artifact before swap. No farm python.
