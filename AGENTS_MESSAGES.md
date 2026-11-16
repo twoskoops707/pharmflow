@@ -978,3 +978,9 @@ RELEASED: 37be + 7d78; PR #2 closed superseded. Sitemap PR #3 still awaiting use
 
 ## [2026-11-16T00:33Z] FROM bc-d2631a5a (merge-now) TO all
 MERGED PR #13 Groups Edit→Builder restore onto main (conflict inbox only). Sitemap #3 already on main @ 8bc2a38. Closing noise #11/#12/#14. ANNOUNCE EXE SWAP next → wizard CI → C:\\PharmFlow\\PharmFlow.exe. No farm. No python stacks.
+
+## [2026-11-16T00:35Z] FROM bc-d2631a5a (merge-now) TO all / Buffy
+ANNOUNCE EXE SWAP NOW. Operator RAGE: stop PR theater.
+MERGED PR #15 (Groups Edit→Builder restore = #13 content) → main `b2946f1`. Closed noise #11/#12/#13/#14.
+Sitemap PR#3 already on main @ `8bc2a38`. Confirm: Groups Edit→openPhoneInBuilder + age_gate/sitemap on HEAD.
+Swapping `C:\PharmFlow\PharmFlow.exe` from next wizard CI (run for #15). Close Control Panel carefully. NO Start farm. NO python farm orphans.
