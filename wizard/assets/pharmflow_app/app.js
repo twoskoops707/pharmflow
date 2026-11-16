@@ -398,10 +398,7 @@
   let groupMutationBusy = false;
   let bootAllBusy = false;
   let runActionBusy = false;
-  /* Groups phone editor (Builder-parity modal; no Tk) */
-  let phoneSeqDraft = null;
-  let phoneSelectedIndex = -1;
-  let phoneMutationBusy = false;
+  /* Groups Edit reuses Builder (openPhoneInBuilder) — no forked modal. */
   let builderPhoneCtx = null;
   let builderPlaylistDraft = [];
 
@@ -1029,170 +1026,33 @@
     }
   }
 
-  /* ── Groups phone sequence editor (Builder graphics, deck-native) ── */
+  /* ── Groups Edit → shared Builder (no forked modal / no Tk) ── */
 
-  function setPhoneUpdateVisible(on) {
-    const btn = document.getElementById("btn-phone-step-update");
-    if (!btn) return;
-    btn.hidden = !on;
-    btn.disabled = !on;
-  }
-
-  function rebuildPhoneFields(type, values) {
-    const fields = document.getElementById("phone-step-fields");
-    if (!fields) return;
-    values = values || {};
-    fields.innerHTML = "";
-    const schema = BUILDER_FIELD_SCHEMA[type] || [];
-    if (!schema.length) {
-      const note = document.createElement("p");
-      note.className = "panel-note";
-      note.textContent =
-        type === "clear_cookies"
-          ? "Clears browser cookies — no extra fields."
-          : type === "rotate_identity"
-          ? "Rotates identity — no extra fields."
-          : "No fields for this step type.";
-      fields.appendChild(note);
-      return;
-    }
-    schema.forEach(function (f) {
-      const row = document.createElement("div");
-      row.className = "site-url-row";
-      row.style.marginTop = "6px";
-      const lab = document.createElement("label");
-      lab.className = "browser-picker-label";
-      lab.htmlFor = "phone-field-" + f.key;
-      lab.textContent = f.label;
-      lab.style.minWidth = "120px";
-      const input = document.createElement("input");
-      input.id = "phone-field-" + f.key;
-      input.className = "site-url-input";
-      input.dataset.key = f.key;
-      input.type = f.type === "number" ? "number" : "text";
-      if (f.type === "number") input.step = "any";
-      const raw = values[f.key];
-      input.value = raw != null && raw !== "" ? String(raw) : f.def != null ? String(f.def) : "";
-      row.appendChild(lab);
-      row.appendChild(input);
-      fields.appendChild(row);
-    });
-  }
-
-  function collectPhoneStep() {
-    const typeSel = document.getElementById("phone-step-type");
-    const type = (typeSel && typeSel.value) || "wait";
-    const step = { type: type };
-    const fields = document.getElementById("phone-step-fields");
-    if (!fields) return step;
-    fields.querySelectorAll("[data-key]").forEach(function (input) {
-      const key = input.dataset.key;
-      const v = String(input.value || "").trim();
-      if (v === "") return;
-      if (key === "post_wait_secs") {
-        const n = parseFloat(v);
-        if (!Number.isNaN(n) && n >= 0) step[key] = n;
-        return;
-      }
-      if (key === "pre_wait_ms" || key === "seconds") {
-        const n = parseFloat(v);
-        step[key] = Number.isNaN(n) ? v : n;
-        return;
-      }
-      if (input.type === "number") {
-        const n = parseInt(v, 10);
-        step[key] = Number.isNaN(n) ? v : n;
-        return;
-      }
-      step[key] = v;
-    });
-    return step;
-  }
-
-  function fillPhoneFormFromStep(step) {
-    const typeSel = document.getElementById("phone-step-type");
-    if (!typeSel || !step) return;
-    const t = step.type || "wait";
-    if (BUILDER_STEP_TYPES.indexOf(t) >= 0) typeSel.value = t;
-    else typeSel.value = "wait";
-    rebuildPhoneFields(typeSel.value, step);
-  }
-
-  function renderPhoneStepList(steps) {
-    const list = document.getElementById("phone-step-list");
-    if (!list) return;
-    list.innerHTML = "";
-    if (!steps || !steps.length) {
-      const li = document.createElement("li");
-      li.className = "groups-list-empty";
-      li.textContent = "No steps yet — pick a type and click Add step.";
-      list.appendChild(li);
-      setPhoneUpdateVisible(false);
-      return;
-    }
-    steps.forEach(function (step, i) {
-      const li = document.createElement("li");
-      li.className = "step-row" + (i === phoneSelectedIndex ? " active" : "");
-      li.dataset.index = String(i);
-      const line = document.createElement("span");
-      line.className = "step-row-label";
-      line.innerHTML =
-        '<span class="step-row-type">#' +
-        (i + 1) +
-        "</span>" +
-        escHtml(stepSummaryLine(step));
-      const actions = document.createElement("span");
-      actions.className = "step-row-actions";
-      [
-        { act: "up", label: "Up" },
-        { act: "down", label: "Down" },
-        { act: "edit", label: "Edit" },
-        { act: "del", label: "Delete" },
-      ].forEach(function (b) {
-        const btn = document.createElement("button");
-        btn.type = "button";
-        btn.textContent = b.label;
-        btn.dataset.phoneAct = b.act;
-        btn.dataset.index = String(i);
-        actions.appendChild(btn);
-      });
-      li.appendChild(line);
-      li.appendChild(actions);
-      list.appendChild(li);
-    });
-    setPhoneUpdateVisible(phoneSelectedIndex >= 0);
-  }
-
-  function closePhoneSeqEditor() {
-    const m = document.getElementById("phone-seq-modal");
-    if (m) m.hidden = true;
-    phoneSeqDraft = null;
-    phoneSelectedIndex = -1;
-    setPhoneUpdateVisible(false);
-  }
-
-  async function openPhoneSeqEditor(groupIndex, serial) {
-    /* Reuse the real Builder view — no duplicate modal / no Tk. */
+  async function openPhoneInBuilder(groupI, serial) {
+    /* Groups Edit → Builder only. Never arms Start farm / run_farm_*. */
     const a = api();
     const begin =
-      a &&
-      (typeof a.cursor_begin_phone_edit === "function"
+      a && typeof a.cursor_begin_phone_edit === "function"
         ? a.cursor_begin_phone_edit.bind(a)
-        : typeof a.run_edit_phone_sequence === "function"
+        : a && typeof a.run_edit_phone_sequence === "function"
         ? a.run_edit_phone_sequence.bind(a)
-        : null);
+        : null;
     if (!begin) {
       showBackendError("Per-phone Edit unavailable — update the app.");
       return;
     }
     try {
       showToast("Opening Builder for " + serial + "…", true);
-      const res = await begin(groupIndex, serial);
+      const res = await begin(groupI, serial);
       if (!res || res.error || res.ok === false) {
         showBackendError((res && (res.error || res.message)) || "Edit phone sequence failed");
         return;
       }
-      closePhoneSeqEditor();
+      /* Harden: Edit must never navigate to Run/farm start. */
+      if (res.arm_farm || res.start_farm || res.mode === "farm") {
+        showBackendError("Edit refused farm arm — Builder only");
+        return;
+      }
       applyBuilderTargetUI(res);
       const modeSel = document.getElementById("builder-playlist-mode");
       const shuffleSel = document.getElementById("builder-playlist-shuffle");
@@ -1204,146 +1064,9 @@
       if (typeof refreshBuilderPlaylistLibrary === "function") {
         await refreshBuilderPlaylistLibrary();
       }
-      showToast("Editing " + (res.phone_name || serial) + " — steps save as you edit");
+      showToast("Editing " + (res.phone_name || serial) + " in Builder");
     } catch (e) {
       showBackendError(String(e));
-    }
-  }
-
-  function wirePhoneSeqControls() {
-    const typeSel = document.getElementById("phone-step-type");
-    if (typeSel && !typeSel.dataset.phoneWired) {
-      typeSel.dataset.phoneWired = "1";
-      typeSel.addEventListener("change", function () {
-        rebuildPhoneFields(typeSel.value, {});
-      });
-    }
-
-    const btnAdd = document.getElementById("btn-phone-step-add");
-    if (btnAdd && !btnAdd.dataset.phoneWired) {
-      btnAdd.dataset.phoneWired = "1";
-      btnAdd.addEventListener("click", function () {
-        if (!phoneSeqDraft || phoneMutationBusy) return;
-        const step = collectPhoneStep();
-        phoneSeqDraft.steps.push(step);
-        phoneSelectedIndex = -1;
-        renderPhoneStepList(phoneSeqDraft.steps);
-        showToast("Step added (not saved yet)");
-      });
-    }
-
-    const btnUpdate = document.getElementById("btn-phone-step-update");
-    if (btnUpdate && !btnUpdate.dataset.phoneWired) {
-      btnUpdate.dataset.phoneWired = "1";
-      btnUpdate.addEventListener("click", function () {
-        if (!phoneSeqDraft || phoneMutationBusy) return;
-        if (phoneSelectedIndex < 0 || phoneSelectedIndex >= phoneSeqDraft.steps.length) {
-          showToast("Select a step with Edit first");
-          return;
-        }
-        phoneSeqDraft.steps[phoneSelectedIndex] = collectPhoneStep();
-        renderPhoneStepList(phoneSeqDraft.steps);
-        showToast("Step updated (not saved yet)");
-      });
-    }
-
-    const btnClear = document.getElementById("btn-phone-step-clear-sel");
-    if (btnClear && !btnClear.dataset.phoneWired) {
-      btnClear.dataset.phoneWired = "1";
-      btnClear.addEventListener("click", function () {
-        phoneSelectedIndex = -1;
-        setPhoneUpdateVisible(false);
-        const typeSel2 = document.getElementById("phone-step-type");
-        rebuildPhoneFields((typeSel2 && typeSel2.value) || "open_url", {});
-        if (phoneSeqDraft) renderPhoneStepList(phoneSeqDraft.steps);
-      });
-    }
-
-    const list = document.getElementById("phone-step-list");
-    if (list && !list.dataset.phoneWired) {
-      list.dataset.phoneWired = "1";
-      list.addEventListener("click", function (ev) {
-        if (!phoneSeqDraft) return;
-        const btn = ev.target && ev.target.closest ? ev.target.closest("[data-phone-act]") : null;
-        if (!btn) return;
-        const act = btn.dataset.phoneAct;
-        const idx = parseInt(btn.dataset.index, 10);
-        if (Number.isNaN(idx)) return;
-        const steps = phoneSeqDraft.steps;
-        if (act === "edit") {
-          const step = steps[idx];
-          if (!step) return;
-          phoneSelectedIndex = idx;
-          fillPhoneFormFromStep(step);
-          renderPhoneStepList(steps);
-          showToast("Editing step #" + (idx + 1));
-          return;
-        }
-        if (act === "del") {
-          steps.splice(idx, 1);
-          if (phoneSelectedIndex === idx) phoneSelectedIndex = -1;
-          else if (phoneSelectedIndex > idx) phoneSelectedIndex -= 1;
-          renderPhoneStepList(steps);
-          showToast("Step removed (not saved yet)");
-          return;
-        }
-        if (act === "up" || act === "down") {
-          const dir = act === "up" ? -1 : 1;
-          const j = idx + dir;
-          if (j < 0 || j >= steps.length) return;
-          const tmp = steps[idx];
-          steps[idx] = steps[j];
-          steps[j] = tmp;
-          if (phoneSelectedIndex === idx) phoneSelectedIndex = j;
-          else if (phoneSelectedIndex === j) phoneSelectedIndex = idx;
-          renderPhoneStepList(steps);
-        }
-      });
-    }
-
-    const btnSave = document.getElementById("btn-phone-seq-save");
-    if (btnSave && !btnSave.dataset.phoneWired) {
-      btnSave.dataset.phoneWired = "1";
-      btnSave.addEventListener("click", async function () {
-        if (!phoneSeqDraft || phoneMutationBusy) return;
-        const a = requireApi("Save phone sequence");
-        if (!a || typeof a.cursor_set_phone_steps !== "function") {
-          showBackendError("Save phone steps unavailable — update the app.");
-          return;
-        }
-        phoneMutationBusy = true;
-        btnSave.disabled = true;
-        try {
-          const res = await a.cursor_set_phone_steps(
-            phoneSeqDraft.groupIndex,
-            phoneSeqDraft.serial,
-            phoneSeqDraft.steps
-          );
-          if (!res || res.error || res.ok !== true || res.saved !== true) {
-            showBackendError((res && (res.error || res.message)) || "Save phone sequence failed");
-            return;
-          }
-          const sumEl = document.getElementById("teams-summary");
-          if (sumEl) sumEl.textContent = groupsSummaryText(res);
-          renderGroupsList(res);
-          closePhoneSeqEditor();
-          showToast("Phone sequence saved");
-        } catch (e) {
-          showBackendError(String(e));
-        } finally {
-          phoneMutationBusy = false;
-          btnSave.disabled = false;
-        }
-      });
-    }
-
-    const btnCancel = document.getElementById("btn-phone-seq-cancel");
-    if (btnCancel && !btnCancel.dataset.phoneWired) {
-      btnCancel.dataset.phoneWired = "1";
-      btnCancel.addEventListener("click", function () {
-        closePhoneSeqEditor();
-        showToast("Editor closed");
-      });
     }
   }
 
@@ -4293,7 +4016,7 @@ try {
           const gi = parseInt(editPhoneBtn.getAttribute("data-edit-phone-group"), 10);
           const serial = String(editPhoneBtn.getAttribute("data-edit-phone-serial") || "").trim();
           if (Number.isNaN(gi) || !serial) return;
-          await openPhoneSeqEditor(gi, serial);
+          await openPhoneInBuilder(gi, serial);
           return;
         }
         const renameBtn = ev.target.closest("[data-rename-group]");

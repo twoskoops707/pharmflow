@@ -40,17 +40,54 @@ class PharmFlowWizardBridgeContractTests(unittest.TestCase):
         ):
             self.assertIn(f"def {name}(", BRIDGE)
 
+    def test_groups_edit_reuses_builder_graphics_not_forked_modal(self):
+        """GRAPHICS: Groups Edit reuses Builder chrome — no phone-seq-modal fork."""
+        app_js = (ROOT / "wizard" / "assets" / "pharmflow_app" / "app.js").read_text(
+            encoding="utf-8"
+        )
+        index = (ROOT / "wizard" / "assets" / "pharmflow_app" / "index.html").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("function openPhoneInBuilder", app_js)
+        self.assertIn("await openPhoneInBuilder(gi, serial)", app_js)
+        self.assertIn("builder-phone-banner", index)
+        self.assertIn("builder-step-form", index)
+        self.assertIn('id="builder-step-type"', index)
+        self.assertIn("age_gate", app_js)
+        self.assertIn("AGE_GATE_TAP_PRESET", app_js)
+        self.assertNotIn("openPhoneSeqEditor", app_js)
+        self.assertNotIn("phone-seq-modal", app_js)
+        self.assertNotIn("phone-seq-modal", index)
+        self.assertNotIn("wirePhoneSeqControls", app_js)
+        self.assertNotIn("btn-phone-step-add", index)
+        self.assertNotIn("PerPhoneSequenceEditor", app_js)
+
     def test_run_edit_phone_sequence_is_deck_native_not_tk(self):
-        """Groups Edit reuses Builder via begin_phone_edit — no Tk PerPhone dialog."""
-        nl = "\n"
-        block = BRIDGE.split("def run_edit_phone_sequence(")[1].split(nl + "def ")[0]
+        """Groups Edit → Builder only — never Tk PerPhoneSequenceEditor / farm arm.
+
+        Live proof (wizard-126 / bc-8bfb3ca0): Groups Edit opened Tk window
+        ``Sequence — 10.0.2.80:5555`` (Add Step / Load / Cancel / OK). Source
+        must keep ``run_edit_phone_sequence`` as a thin alias to
+        ``cursor_begin_phone_edit`` with zero Tk spawn.
+        """
+        block = BRIDGE.split("def run_edit_phone_sequence(")[1].split("\ndef ")[0]
         self.assertIn("cursor_begin_phone_edit", block)
-        self.assertNotIn("PerPhoneSequenceEditor(", block)
-        self.assertNotIn("_tk_dialog_parent", block)
+        self.assertNotIn("PerPhoneSequenceEditor", block)
+        self.assertNotIn("_safe_run_on_tk", block)
+        self.assertNotIn("_run_on_tk", block)
+        self.assertNotIn("_spawn_visible_wizard", block)
+        self.assertNotIn("_spawn_with_visible_fallback", block)
+        self.assertNotIn("Toplevel", block)
         self.assertNotIn("grab_set", block)
-        begin = BRIDGE.split("def cursor_begin_phone_edit(")[1].split(nl + "def ")[0]
-        self.assertIn("_builder_target", begin)
-        self.assertIn('"kind": "phone"', begin)
+        self.assertNotIn("start_farm", block)
+        begin_block = BRIDGE.split("def cursor_begin_phone_edit(")[1].split("\ndef ")[0]
+        self.assertIn("_builder_target", begin_block)
+        self.assertIn('"mode": "builder"', begin_block)
+        self.assertNotIn("start_farm", begin_block)
+        self.assertNotIn("PerPhoneSequenceEditor", begin_block)
+        set_block = BRIDGE.split("def cursor_set_phone_steps(")[1].split("\ndef ")[0]
+        self.assertIn("_persist_groups_config", set_block)
+        self.assertIn('ent["steps"]', set_block)
 
     def test_start_farm_takes_over_external_python_stack(self):
         """EXE-only law: never refuse Start farm while orphans drive phones."""
