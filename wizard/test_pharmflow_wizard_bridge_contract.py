@@ -659,7 +659,18 @@ class HeadlessDeckTests(unittest.TestCase):
         self.assertIn("cloud_phone_setup(", login)
         start = BRIDGE.split("def start_farm_from_app(")[1].split("\ndef ")[0]
         self.assertIn("farm_start_gate_status(False)", start)
-        self.assertIn("skip_audit", BRIDGE.split("def farm_start_gate_status(")[1].split("\ndef ")[0])
+        gate_status_sig = BRIDGE.split("def farm_start_gate_status(")[1].split(")")[0]
+        self.assertIn("skip_audit", gate_status_sig)
+        self.assertIn("skip_audit: bool = False", gate_status_sig)
+        js = (ROOT / "wizard" / "assets" / "pharmflow_app" / "app.js").read_text(
+            encoding="utf-8"
+        )
+        refresh = js.split("async function refreshFarmStartGateStatus(")[1].split(
+            "\n  function "
+        )[0]
+        self.assertIn("farm_start_gate_status(false)", refresh)
+        self.assertNotIn("farm_start_gate_status(true)", refresh)
+        self.assertIn("!st.audit_skipped", refresh)
         dump = BRIDGE.split("def dump_gate_status_fast(")[1].split("\ndef ")[0]
         self.assertNotIn("start_farm(", dump)
         self.assertNotIn("start_farm_from_app", dump)

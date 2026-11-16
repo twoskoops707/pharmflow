@@ -4540,11 +4540,12 @@ def attach_local_and_cloud_phones(apply_stealth: bool = True) -> dict:
         return {"ok": False, "error": f"Attach phones failed: {exc}", "phones": []}
 
 
-def farm_start_gate_status(skip_audit: bool = True) -> dict:
+def farm_start_gate_status(skip_audit: bool = False) -> dict:
     """Read-only stealth + funds gate status for the Control Panel.
 
-    Default skips the slow fingerprint audit (same as PEF-44 dump). Never
-    starts the farm — operator must click Start farm when GATE_OK.
+    Default runs the full fingerprint audit so Home Start enablement cannot
+    treat audit_skipped as GATE_OK. Pass skip_audit=True only for fast dump /
+    warning banners — never for Start-button enablement. Never starts the farm.
     """
     tools_dir = Path(__file__).resolve().parent.parent / "tools"
     if getattr(sys, "frozen", False):
