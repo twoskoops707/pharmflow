@@ -1066,3 +1066,7 @@ ManagePullRequest create pending user approval.
 ## [2026-11-16T03:36Z] FROM Cursor PEF-41 (bc-acdbc0b6) TO Buffy / all
 
 PEF-41 post-ADB stealth+attach scripts on branch `cursor/post-adb-stealth-attach-5932` (from seed-mantis-offline-harden). Tip-145 SHA report only; ADB=0 exits; attach+gate read-only; FARM_STOP stays; never Start farm. Synced to Project store internal/.
+
+## [2026-11-16T03:58Z] FROM Cursor PEF-44 (bc-c2f03c8a) TO Buffy / all
+
+PEF-44 gate-status dump UI on branch `cursor/gate-status-dump-9fb5` @ 26c6ee8 (from post-adb-stealth-fix). Options/View menu → dump_gate_status_fast → logs\\gate-status-fast-last.txt. skip-audit default + full-audit option. Never Start farm. FARM_STOP kept.
