@@ -2082,6 +2082,7 @@ details.adv-details[open] > summary::before {
 }
 
 .panel-builder-playlist {
+  grid-column: 1 / -1;
   margin-top: 10px;
 }
 

@@ -42,6 +42,34 @@ class PharmFlowWizardBridgeContractTests(unittest.TestCase):
         ):
             self.assertIn(f"def {name}(", BRIDGE)
 
+    def test_groups_edit_reuses_builder_graphics_not_forked_modal(self):
+        """GRAPHICS: Groups Edit reuses Builder chrome — no phone-seq-modal fork."""
+        app_js = (ROOT / "wizard" / "assets" / "pharmflow_app" / "app.js").read_text(
+            encoding="utf-8"
+        )
+        index = (ROOT / "wizard" / "assets" / "pharmflow_app" / "index.html").read_text(
+            encoding="utf-8"
+        )
+        css_txt = (ROOT / "wizard" / "assets" / "pharmflow_app" / "app.css").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("function openPhoneInBuilder", app_js)
+        self.assertIn("await openPhoneInBuilder(gi, serial)", app_js)
+        self.assertIn("builder-phone-banner", index)
+        self.assertIn("builder-step-form", index)
+        self.assertIn('id="builder-step-type"', index)
+        self.assertIn('value="age_gate"', index)
+        self.assertIn("age_gate", app_js)
+        self.assertIn("AGE_GATE_TAP_PRESET", app_js)
+        self.assertIn("builder-phone-banner", css_txt)
+        self.assertNotIn("openPhoneSeqEditor", app_js)
+        self.assertNotIn("phone-seq-modal", app_js)
+        self.assertNotIn("phone-seq-modal", index)
+        self.assertNotIn("deck-modal", css_txt)
+        self.assertNotIn("wirePhoneSeqControls", app_js)
+        self.assertNotIn("btn-phone-step-add", index)
+        self.assertNotIn("PerPhoneSequenceEditor", app_js)
+
     def test_run_edit_phone_sequence_is_deck_native_not_tk(self):
         """Groups Edit → Builder target (no Tk PerPhoneSequenceEditor, no farm arm)."""
         block = BRIDGE.split("def run_edit_phone_sequence(")[1].split("\ndef ")[0]

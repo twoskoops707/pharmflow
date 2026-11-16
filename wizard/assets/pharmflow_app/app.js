@@ -1083,7 +1083,7 @@
     }
   }
 
-  /* phone-seq-modal path removed — Groups Edit uses openPhoneInBuilder → #view-builder */
+  /* Forked Groups sequence modal removed — Edit uses openPhoneInBuilder → #view-builder. */
 
   function nextStepId(fromId) {
     const idx = STEP_IDS.indexOf(fromId);
