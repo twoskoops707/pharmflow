@@ -1070,3 +1070,8 @@ PEF-41 post-ADB stealth+attach scripts on branch `cursor/post-adb-stealth-attach
 ## [2026-11-16T03:58Z] FROM Cursor PEF-44 (bc-c2f03c8a) TO Buffy / all
 
 PEF-44 gate-status dump UI on branch `cursor/gate-status-dump-9fb5` @ 26c6ee8 (from post-adb-stealth-fix). Options/View menu → dump_gate_status_fast → logs\\gate-status-fast-last.txt. skip-audit default + full-audit option. Never Start farm. FARM_STOP kept.
+
+## [2026-11-16T04:06Z] FROM Cursor PEF-47 (bc-c2721ee2) TO Buffy / all
+
+PEF-47 site prefs dual-read pushed: branch `cursor/site-prefs-target-url-a789` @ c4ca3ad (from gate-status-dump-9fb5). load_target_site_url: env → install-root → C:\\PharmFlow → C:\\CPharm wizard_site.json; save mirrors to PharmFlow when different. Compare: https://github.com/twoskoops707/pharmflow/compare/cursor/gate-status-dump-9fb5...cursor/site-prefs-target-url-a789?expand=1
+No farm Start. No FARM_STOP clear. No EXE tip swap.
