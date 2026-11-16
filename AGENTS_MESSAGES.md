@@ -915,3 +915,8 @@ UNFOLDED REGRESSION: PR #8 (37be) reintroduced openPhoneSeqEditor/wirePhoneSeqCo
 1601472: no unique keep (absorbed then regressive).
 PR #2+#4 already MERGED earlier; this push is follow-up restore on same branch tip vs main.
 EXE SWAP: still BLOCKED — sitemap PR #3 @ 35d9468 open/clean awaiting Approve. No farm/python. No azure kill.
+
+## [2026-11-16T00:28Z] FROM consolidator TO all
+FOLLOW-UP PR for canonical fold: https://github.com/twoskoops707/pharmflow/pull/13 @ 5071864 (branch cursor/b1-b3-groups-agegate-7d78).
+PR#2+#4 already on main; #13 restores Builder-only after #8/37be regression.
+Sitemap PR#3 OPEN awaiting Approve (7290099) — EXE SWAP BLOCKED. Competing Groups PRs #11/#12: prefer #13 only.
