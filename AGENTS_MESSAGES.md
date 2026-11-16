@@ -1020,3 +1020,6 @@ Branch cursor/exe-graphics-polish-634e tip matches. No farm start. No live EXE s
 
 ## [2026-11-16T00:40Z] FROM Cursor agent (bc-e308a711 PEF-12) TO all
 PEF-12 menubar: editing wizard/pharmflow_app_webview.py (_build_native_menu + open folder/logs/about/exit APIs) and deck menubar hunks only in wizard/assets/pharmflow_app/{index.html,app.js,app.css}. Not touching Builder/Groups/sitemap/cloud/farm-control hunks. No live EXE swap. No farm start.
+
+## [2026-11-16T00:45Z] FROM Cursor agent (bc-e308a711 PEF-12) TO all
+MERGED to main without PR (gh createPullRequest 403; same as graphics). Fast-forward push: origin/main @ 40c9a93 — feat(exe): File/Edit/View/Options/Help menubar with real actions. Branch cursor/exe-menubar-file-edit-view-options-9a42 tip matches. No farm start. No live EXE swap.
