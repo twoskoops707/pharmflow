@@ -17,7 +17,13 @@ from pathlib import Path
 from urllib.parse import urlsplit, urljoin
 from urllib.request import Request, urlopen
 
+# iOS Safari — Site Map / Builder web-app path (PWA + bottom tabs).
 USER_AGENT = (
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) "
+    "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 "
+    "Mobile/15E148 Safari/604.1"
+)
+USER_AGENT_DESKTOP = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/126.0 Safari/537.36"
 )
@@ -37,6 +43,15 @@ _JSON_PATH = re.compile(r'''"(?:path|pathname|href)"\s*:\s*"(/(?:[^"\\]|\\.)*)"'
 _SWITCH_SCREEN = re.compile(
     r"""(?:switchScreen|showScreen|navigateTo|openScreen)\(\s*['"]([a-zA-Z][\w-]*)['"]"""
 )
+_AGE_GATE_TOKEN = re.compile(
+    r"^(?:age-gate|age_gate|agegate|age-verification|age_verification|ageverification)$",
+    re.I,
+)
+_AGE_GATE_BUTTON = re.compile(
+    r"(?:yes,?\s*i\s*(?:am|'m)\s*21|i\s*am\s*21\+|enter\s*(?:if\s*)?21|21\s*\+|age\s*verification)",
+    re.I,
+)
+AGE_GATE_SCREEN = "age_gate"
 _SKIP_SCREEN_NAMES = frozenset(
     {
         "app",
@@ -72,6 +87,7 @@ class _SiteParser(HTMLParser):
         self.inputs: list[dict] = []
         self.headings: list[tuple[str, str]] = []
         self.screens: list[str] = []
+        self.age_gate = False
         # None when not inside <button>; [] only while collecting button text.
         self._btn_buf: list[str] | None = None
         self._h_tag: str | None = None
@@ -89,6 +105,14 @@ class _SiteParser(HTMLParser):
             stem = eid[: -len("-screen")]
             if re.match(r"^[a-zA-Z][\w-]*$", stem):
                 self.screens.append(stem.lower())
+        # Age gate is often id="age-gate" / class="age-gate" — not "*-screen".
+        if _is_age_gate_token(low_id):
+            self.age_gate = True
+            self.screens.append(AGE_GATE_SCREEN)
+        for cls in (a.get("class") or "").lower().split():
+            if _is_age_gate_token(cls.strip()):
+                self.age_gate = True
+                self.screens.append(AGE_GATE_SCREEN)
         if tag == "title":
             self.in_title = True
         elif tag == "a":
@@ -176,6 +200,22 @@ class _SiteParser(HTMLParser):
             self._btn_buf.append(data)
         if self._h_tag is not None:
             self._h_buf.append(data)
+
+
+
+def _is_age_gate_token(raw: str) -> bool:
+    token = (raw or "").strip().lower().replace("_", "-")
+    if token == "agegate":
+        token = "age-gate"
+    return bool(_AGE_GATE_TOKEN.match(token))
+
+
+def _looks_like_age_button(text: str) -> bool:
+    return bool(_AGE_GATE_BUTTON.search(text or ""))
+
+
+def age_gate_buttons(buttons: list[str] | None) -> list[str]:
+    return [b for b in (buttons or []) if _looks_like_age_button(b)]
 
 
 def _same_host(base: str, url: str) -> bool:
@@ -310,21 +350,123 @@ def screens_from_webapp_source(text: str) -> list[str]:
 
 
 def normalize_screen_names(*groups: list[str]) -> list[str]:
-    """Stable unique screen names. Prefer home first when present."""
+    """Stable unique screen names. Prefer age_gate, then home, then the rest."""
     seen: set[str] = set()
     out: list[str] = []
     for group in groups:
         for raw in group or []:
             name = str(raw or "").strip().lower()
+            if name.replace("-", "_") in (
+                "age_gate",
+                "agegate",
+                "age_verification",
+            ) or name in ("age-gate", "age-verification"):
+                name = AGE_GATE_SCREEN
             if not name or name in _SKIP_SCREEN_NAMES or name in seen:
                 continue
             if not re.match(r"^[a-z][\w-]*$", name):
                 continue
             seen.add(name)
             out.append(name)
+    ordered: list[str] = []
+    if AGE_GATE_SCREEN in seen:
+        ordered.append(AGE_GATE_SCREEN)
     if "home" in seen:
-        out = ["home"] + [n for n in out if n != "home"]
-    return out
+        ordered.append("home")
+    ordered.extend(n for n in out if n not in (AGE_GATE_SCREEN, "home"))
+    return ordered
+
+
+def _blank_page_shell(url: str, title: str, screens: list[str], read_as: str) -> dict:
+    return {
+        "url": url,
+        "title": title,
+        "headings": [],
+        "links": [],
+        "link_count": 0,
+        "external_links": [],
+        "forms": [],
+        "form_count": 0,
+        "buttons": [],
+        "inputs": [],
+        "routes": [],
+        "screens": list(screens),
+        "read_as": read_as,
+        "role": read_as,
+        "age_gate": read_as == "age_gate",
+    }
+
+
+def split_age_gate_and_tabs(pages: list[dict], start_url: str) -> list[dict]:
+    """SPA shells ship age gate + every tab in one HTML document.
+
+    Collapse duplicate shell fetches into: age_gate (own page) + one page per tab.
+    """
+    if not pages:
+        return pages
+    start = normalize_url(start_url) or start_url
+    all_screens: list[str] = []
+    age_hit = False
+    age_btns: list[str] = []
+    template: dict | None = None
+    for pg in pages:
+        if not isinstance(pg, dict):
+            continue
+        if template is None:
+            template = pg
+        screens = list(pg.get("screens") or [])
+        all_screens.extend(screens)
+        btns = list(pg.get("buttons") or [])
+        age_btns.extend(age_gate_buttons(btns))
+        if pg.get("age_gate") or AGE_GATE_SCREEN in screens or age_gate_buttons(btns):
+            age_hit = True
+    screens = normalize_screen_names(all_screens)
+    tabs = [s for s in screens if s != AGE_GATE_SCREEN]
+    multi = len(screens) > 1 or (age_hit and tabs)
+    if not multi:
+        if age_hit and AGE_GATE_SCREEN not in screens and template is not None:
+            out_page = dict(template)
+            out_page["screens"] = [AGE_GATE_SCREEN]
+            out_page["read_as"] = "age_gate"
+            out_page["role"] = "age_gate"
+            out_page["age_gate"] = True
+            out_page["buttons"] = _dedupe(age_btns) or list(out_page.get("buttons") or [])
+            return [out_page]
+        return pages
+
+    identical_shell = len(pages) > 1 and all(
+        isinstance(pg, dict)
+        and normalize_screen_names(list(pg.get("screens") or []))
+        == normalize_screen_names(list(pages[0].get("screens") or []))
+        for pg in pages
+    )
+    start_multi = bool(template) and len(
+        normalize_screen_names(list(template.get("screens") or []))
+    ) > 1
+    if not (identical_shell or start_multi or (age_hit and tabs)):
+        return pages
+
+    out: list[dict] = []
+    if age_hit:
+        gate = _blank_page_shell(start, "Age gate", [AGE_GATE_SCREEN], "age_gate")
+        if template:
+            gate["external_links"] = list(template.get("external_links") or [])
+        gate["buttons"] = _dedupe(age_btns) or ["Yes, I am 21+"]
+        out.append(gate)
+    for tab in tabs:
+        if tab == "home" and age_hit:
+            tab_url = screen_deep_link(start, "home")
+        elif tab == "home":
+            tab_url = start
+        else:
+            tab_url = screen_deep_link(start, tab)
+        tab_page = _blank_page_shell(
+            tab_url, tab.replace("_", " ").title(), [tab], "webapp_tab"
+        )
+        if template:
+            tab_page["routes"] = list(template.get("routes") or [])
+        out.append(tab_page)
+    return out or pages
 
 
 def screen_deep_link(base_url: str, screen: str) -> str:
@@ -502,6 +644,8 @@ def scan_site(
             }
             for f in p.forms
         ]
+        page_buttons = _dedupe(p.buttons)
+        age_from_buttons = bool(age_gate_buttons(page_buttons))
         page = {
             "url": cur,
             "title": " ".join("".join(p.title_parts).split())[:160],
@@ -514,17 +658,21 @@ def scan_site(
             "external_links": _dedupe(p.external_links),
             "forms": all_forms,
             "form_count": len(all_forms),
-            "buttons": _dedupe(p.buttons),
+            "buttons": page_buttons,
             "inputs": _dedupe(p.inputs),
             "routes": [],
             "screens": [],
             "read_as": "html",
+            "age_gate": bool(getattr(p, "age_gate", False) or age_from_buttons),
+            "role": "",
         }
         if key in declared_routes:
             page["read_as"] = "webapp_route"
         elif _is_webapp_shell(html, page):
             page["read_as"] = "webapp_shell"
         html_screens = normalize_screen_names(list(p.screens))
+        if page["age_gate"] and AGE_GATE_SCREEN not in html_screens:
+            html_screens = normalize_screen_names([AGE_GATE_SCREEN], html_screens)
         script_screens: list[str] = []
         if _mount_present(html) and "<script" in (html or "").lower():
             routes, script_screens = _queue_script_routes(
@@ -545,18 +693,21 @@ def scan_site(
 
         # Deep-link each in-app screen once from the start host. DabFlow and
         # similar apps honor ?action=<screen>. Do not re-queue from an action URL.
+        # Age gate is the start URL itself — never ?action=age_gate.
         cur_query = urlsplit(cur).query.lower()
         if "action=" not in cur_query:
             for screen in page["screens"]:
-                if screen in ("home",):
+                if screen in ("home", AGE_GATE_SCREEN):
                     continue
                 deep = screen_deep_link(start, screen)
                 deep_key = urlsplit(deep)._replace(fragment="").geturl().rstrip("/")
                 if deep_key not in seen and deep not in to_visit:
                     to_visit.append(deep)
 
-    total_links = sum(int(pg.get("link_count") or len(pg["links"])) for pg in pages)
-    total_forms = sum(int(pg.get("form_count") or len(pg["forms"])) for pg in pages)
+    pages = split_age_gate_and_tabs(pages, start)
+
+    total_links = sum(int(pg.get("link_count") or len(pg.get("links") or [])) for pg in pages)
+    total_forms = sum(int(pg.get("form_count") or len(pg.get("forms") or [])) for pg in pages)
     truncated = bool(to_visit)
     shell_only = bool(pages) and all(
         pg.get("read_as") == "webapp_shell"
@@ -604,20 +755,95 @@ def scan_site(
     }
 
 
+def _canonical_age_gate_tap() -> dict:
+    """Prefer dabflow_layout.age_gate_tap_step; fall back to MuMu Yes coords."""
+    try:
+        from dabflow_layout import age_gate_tap_step
+
+        step = dict(age_gate_tap_step())
+    except Exception:  # noqa: BLE001 — Site Map must work without automation import
+        step = {
+            "type": "tap",
+            "x": 460,
+            "y": 907,
+            "base_w": 900,
+            "base_h": 1600,
+            "retries": 5,
+            "jitter": 4,
+            "pre_wait_ms": 80,
+            "age_verification": True,
+            "checkpoint": "age_verification",
+            "phase": "pre_site_fast",
+        }
+    step["age_gate"] = True
+    step["note"] = "age gate"
+    return step
+
+
+def _bottom_nav_tab_tap(screen: str) -> dict | None:
+    """In-app bottom-nav tap for a known tab. Not an open_url deep link."""
+    name = (screen or "").strip().lower()
+    if not name or name == AGE_GATE_SCREEN:
+        return None
+    try:
+        from dabflow_layout import nav_region
+
+        reg = nav_region(name)
+        cx, cy = int(reg.cx), int(reg.cy)
+    except Exception:  # noqa: BLE001
+        order = ("home", "timer", "stats", "glass", "settings")
+        if name not in order:
+            return None
+        cx = 90 + order.index(name) * 180
+        cy = 1566
+    return {
+        "type": "tap",
+        "x": cx,
+        "y": cy,
+        "base_w": 900,
+        "base_h": 1600,
+        "retries": 3,
+        "jitter": 6,
+        "pre_wait_ms": 120,
+        "bottom_nav": True,
+        "checkpoint": f"tab_{name}",
+        "note": f"webapp tab:{name}",
+    }
+
+
 def build_starter_sequence(url: str, pages: list | None = None) -> dict:
     """Draft sequence using only runner-valid step types.
 
-    open_url + checkpoint 'loaded' mirror the shipped money sequences;
-    the draft is a starting point the user refines in Steps/Builder.
-
-    In-app screens (switchScreen / data-screen) become ``?action=<screen>``
-    opens when the site exposes that deep link — same pattern DabFlow uses.
+    SPA / iOS web-app path (A1+A2):
+      clear_cookies → open_url(start) → age_gate tap → bottom-nav tab taps.
+    Age gate is a first-class step (never merged with the first tab). Tabs use
+    in-app navigation — not blind ``open_url`` reloads that re-hit the gate.
     """
     if pages is None:
         result = scan_site(url)
         pages = result.get("pages", []) if result.get("ok") else []
     target = normalize_url(url) or url
-    steps = [
+    pages = split_age_gate_and_tabs(
+        [p for p in (pages or []) if isinstance(p, dict)],
+        target,
+    )
+    screen_names: list[str] = []
+    has_age_gate = False
+    for page in pages:
+        screen_names.extend(list(page.get("screens") or []))
+        if (
+            page.get("role") == "age_gate"
+            or page.get("age_gate")
+            or AGE_GATE_SCREEN in (page.get("screens") or [])
+            or age_gate_buttons(list(page.get("buttons") or []))
+        ):
+            has_age_gate = True
+    screens = normalize_screen_names(screen_names)
+    tabs = [s for s in screens if s != AGE_GATE_SCREEN]
+    if AGE_GATE_SCREEN in screens:
+        has_age_gate = True
+
+    steps: list[dict] = [
         {"type": "clear_cookies", "phase": "pre_site_fast"},
         {"type": "wait", "seconds": 0.3, "phase": "pre_site_fast"},
         {
@@ -626,57 +852,60 @@ def build_starter_sequence(url: str, pages: list | None = None) -> dict:
             "post_wait_secs": 1.2,
             "phase": "pre_site_fast",
             "checkpoint": "loaded",
+            "note": "site start",
         },
-        {"type": "wait", "seconds": 0.4},
+        {"type": "wait", "seconds": 0.4, "phase": "pre_site_fast"},
     ]
-    seen_urls = {target.rstrip("/")}
-    screen_names: list[str] = []
-    for page in pages:
-        if not isinstance(page, dict):
+
+    if has_age_gate or tabs:
+        steps.append(_canonical_age_gate_tap())
+        steps.append({"type": "wait", "seconds": 0.35, "phase": "pre_site_fast"})
+
+    tapped: list[str] = []
+    for tab in tabs:
+        if tab == "home":
+            tapped.append(tab)
             continue
-        screen_names.extend(list(page.get("screens") or []))
-        page_url = normalize_url(str(page.get("url") or "")) or ""
-        if not page_url or page_url.rstrip("/") in seen_urls:
+        tap = _bottom_nav_tab_tap(tab)
+        if tap is None:
             continue
-        seen_urls.add(page_url.rstrip("/"))
-        steps.append(
-            {
-                "type": "open_url",
-                "url": page_url,
-                "post_wait_secs": 1.2,
-                "checkpoint": "loaded",
-            }
-        )
-        steps.append({"type": "wait", "seconds": 0.4})
-    for screen in normalize_screen_names(screen_names):
-        if screen == "home":
-            continue
-        deep = screen_deep_link(target, screen)
-        if deep.rstrip("/") in seen_urls:
-            continue
-        seen_urls.add(deep.rstrip("/"))
-        steps.append(
-            {
-                "type": "open_url",
-                "url": deep,
-                "post_wait_secs": 1.2,
-                "checkpoint": "loaded",
-                "note": f"webapp screen:{screen}",
-            }
-        )
-        steps.append({"type": "wait", "seconds": 0.4})
-    extra = len(seen_urls) - 1
-    screens = normalize_screen_names(screen_names)
+        steps.append(tap)
+        steps.append({"type": "wait", "seconds": 0.45})
+        tapped.append(tab)
+
+    # Classic multi-page sites (no in-app screens): keep open_url tour.
+    if not tabs and not has_age_gate:
+        seen_urls = {target.rstrip("/")}
+        for page in pages:
+            page_url = normalize_url(str(page.get("url") or "")) or ""
+            if not page_url or page_url.rstrip("/") in seen_urls:
+                continue
+            seen_urls.add(page_url.rstrip("/"))
+            steps.append(
+                {
+                    "type": "open_url",
+                    "url": page_url,
+                    "post_wait_secs": 1.2,
+                    "checkpoint": "loaded",
+                }
+            )
+            steps.append({"type": "wait", "seconds": 0.4})
+
+    open_count = sum(1 for s in steps if s.get("type") == "open_url")
     return {
         "steps": steps,
         "note": (
-            f"Starter draft opens the {len(seen_urls)} mapped page(s)"
-            + (f" ({extra} beyond the start URL)" if extra else "")
-            + (f", including screens: {', '.join(screens)}" if screens else "")
-            + ". Add taps and waits in Steps or Builder before running the farm."
+            "Starter draft: one site open"
+            + (", age-gate tap" if has_age_gate or tabs else "")
+            + (f", in-app tabs: {', '.join(tapped)}" if tapped else "")
+            + (f" ({open_count} open_url)" if open_count else "")
+            + ". Age gate is its own step; tabs use bottom-nav taps (not blind URL reloads). "
+            "Refine taps in Steps or Builder before running the farm."
         ),
         "pages_mapped": len(pages),
         "screens": screens,
+        "age_gate": bool(has_age_gate),
+        "tabs": tapped or tabs,
     }
 
 
