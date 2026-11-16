@@ -2048,6 +2048,43 @@ details.adv-details[open] > summary::before {
   border-color: var(--line2);
 }
 
+.builder-phone-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 12px;
+  padding: 12px 14px;
+  background: var(--accent-soft, rgba(61, 154, 120, 0.12));
+  border: 1px solid var(--accent, #3d9a78);
+  border-radius: var(--rad-sm, 8px);
+}
+
+.builder-phone-banner[hidden] {
+  display: none !important;
+}
+
+.builder-phone-banner-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.builder-phone-banner-text strong {
+  font-size: 14px;
+  letter-spacing: 0.02em;
+}
+
+.builder-phone-banner-actions {
+  flex-shrink: 0;
+  margin: 0;
+}
+
+.panel-builder-playlist {
+  margin-top: 10px;
+}
+
 .builder-step-form {
   display: flex;
   flex-direction: column;
