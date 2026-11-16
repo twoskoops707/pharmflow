@@ -1,117 +1,83 @@
-# CloudPhones Setup Guide
+# Cloud phones + agent — one-login free path
 
-## Overview
+PharmFlow wires **Oracle Cloud Always Free + Redroid** (phones) and **FreeLLMAPI** (agent) through one Control Panel login. There is no separate CloudPhones.exe and no second farm Python stack.
 
-This guide sets up cloud Android instances using Redroid (Android in Docker) on Oracle Cloud's free tier ARM instance, with full stealth protocols matching your local MuMu setup.
+## Audit A6 / other checkouts (skoops)
 
-## Prerequisites
+`tools/cloud_connect.py` ships on branch `cursor/cloud-connect-widget-1a5f` (and on `main` only **after** that PR merges). A checkout still on older `main` correctly reports the file **absent** — that is not a live-EXE bug.
 
-1. Oracle Cloud account (free tier)
-2. Windows machine with ADB
-3. Tailscale (for secure connection)
+**Do not stomp farm/Builder work.** Prefer waiting for the PR merge, then `git pull origin main`. If you must preview before merge:
 
-## Step 1: Create Oracle Cloud ARM Instance
-
-1. Go to https://cloud.oracle.com
-2. Create a new VM instance:
-   - **Shape**: VM.Standard.A1.Flex (ARM)
-   - **OCPU**: 4 (free tier)
-   - **RAM**: 24 GB (free tier)
-   - **OS**: Ubuntu 22.04 or Oracle Linux 8
-3. Save the SSH key
-4. Note the public IP
-
-## Step 2: Install Docker and Redroid
-
-SSH into your instance and run:
-
-```bash
-# Install Docker
-curl -fsSL https://get.docker.com | sh
-sudo usermod -aG docker $USER
-newgrp docker
-
-# Install kernel modules for Redroid
-sudo apt-get update
-sudo apt-get install -y linux-headers-$(uname -r) dkms
-
-# Load required modules
-sudo modprobe binder_linux
-sudo modprobe ashmem_linux
-
-# Make modules persistent
-echo "binder_linux" | sudo tee /etc/modules-load.d/binder.conf
-echo "ashmem_linux" | sudo tee -a /etc/modules-load.d/binder.conf
+```bat
+git fetch origin cursor/cloud-connect-widget-1a5f
+git checkout origin/cursor/cloud-connect-widget-1a5f -- tools/cloud_connect.py tools/cloud_agent.py tests/test_cloud_connect.py docs/CLOUD_PHONES_SETUP.md docs/EXE_QUICK_START.md cloud_phones/README.md wizard/assets/pharmflow_app/index.html wizard/assets/pharmflow_app/app.js wizard/assets/pharmflow_app/app.css
 ```
 
-## Step 3: Deploy Redroid Instances
+Shared bridge/webview/desktop files also contain cloud hunks — take those only if you can merge by hand (`cloud_connect_login` / `cloud_session_status`). Never `git checkout … -- .` from this branch onto a dirty farm/Builder tree. This work does **not** swap `C:\PharmFlow\PharmFlow.exe`.
 
-Create the number of phones you want. Do not compose-up the checked-in file — it defines no phones.
+## One login (Control Panel)
+
+1. Open **PharmFlow.exe** → **Run** → **Cloud connect**.
+2. Enter the Oracle/Redroid **host IP** (Tailscale / private), the instance **count**, and leave **Agent key** blank if FreeLLMAPI is already running on this PC.
+3. Click **Connect cloud phones + agent**.
+
+That single action:
+
+- Saves `cloud_session.json` (host + count)
+- Wires `cloud_agent.json` to FreeLLMAPI (`http://127.0.0.1:31415/v1`) when possible
+- Starts `PharmFlow.exe --cloud-phones-cli setup` (connect + stealth + Tor)
+
+CLI equivalent (same code path):
+
+```batch
+PharmFlow.exe --cloud-phones-cli setup --host 100.x.x.x --count N
+```
+
+Agent-only (FreeLLMAPI already up): leave host blank and paste a key only if `freellmapi.env` is missing.
+
+## Free-tier limits (clear)
+
+| Piece | Free path | Limits |
+|-------|-----------|--------|
+| Cloud phones host | Oracle Cloud **Always Free** Ampere `VM.Standard.A1.Flex` | Up to **4 OCPU** and **24 GB RAM** total in the home region (shared across Always Free A1 VMs) |
+| Block storage | Oracle Always Free | Up to **200 GB** home-region block volume (shared with other Always Free volumes) |
+| Network | Tailscale or VCN private IP | **Do not** publish ADB ports (`5555+`) on the public Internet |
+| Agent | **FreeLLMAPI** on `127.0.0.1:31415` | Local gateway is free; upstream model quotas depend on providers FreeLLMAPI routes to on this PC |
+| Phone count | Operator `--count` | **No product phone ceiling.** On 24 GB, leave RAM for the host OS + Docker — hardware headroom, not a hard cap |
+
+PharmFlow does **not** invent a paid device-farm vendor for this path.
+
+## First-time Oracle host (once)
+
+1. Create an Always Free A1.Flex VM (Ubuntu 24.04 ARM) at https://cloud.oracle.com
+2. SSH in and run:
+
+```bash
+bash cloud_phones/setup-oracle-cloud.sh
+```
+
+Or create phones with a count you choose:
 
 ```bash
 py -3 cloud_phones/redroid_local.py up --count N
 ```
 
-`--count` writes one service per phone, then starts them. There is no default count.
+Then use **Cloud connect** on Windows.
 
-## Step 4: Connect from Windows
+## Advanced tools
 
-```batch
-REM Connect to all instances
-adb connect 100.x.x.x:5555
-adb connect 100.x.x.x:5556
-... (up to 5562)
+Under **Advanced cloud tools** on the Run page (or `Tools → Cloud Phones` in the Tk menu):
 
-REM Or use PharmFlow (there is no separate CloudPhones.exe)
-PharmFlow.exe --cloud-phones-cli connect --host 100.x.x.x
-```
+- Cloud phone setup / status
+- Agent status / Run cloud agent / Agent settings
 
-## Step 5: Apply Stealth
+These call the same `cloud_phones_cli` and `cloud_agent` modules — not a parallel stack.
 
-```batch
-PharmFlow.exe --cloud-phones-cli stealth --host 100.x.x.x --count N
-```
-
-This applies:
-- Unique device fingerprints
-- Valid IMEI numbers
-- Unique Android IDs
-- Browser user-agents matching each device
-- Anti-detection properties
-
-## Step 6: Set Up Tor (Optional)
-
-```batch
-PharmFlow.exe --cloud-phones-cli tor --host 100.x.x.x --verify
-```
-
-Each device gets its own Tor circuit with a unique exit IP.
-
-## Step 7: Verify
+## Verify
 
 ```batch
 PharmFlow.exe --cloud-phones-cli status
+PharmFlow.exe --cloud-agent "Summarize farm health"
 ```
 
-Should show the instances that answered, with their spoofed identities. There is no fixed device count.
-
-## Integration with PharmFlow
-
-Once connected, the cloud phones appear as regular ADB devices. PharmFlow automation can use them alongside local MuMu VMs.
-
-## Troubleshooting
-
-### ADB can't connect
-- Ensure Tailscale is running on both machines
-- Check firewall rules allow ADB ports (5555-5562)
-- Verify Redroid containers are running: `docker ps`
-
-### Stealth not applying
-- Run as Administrator if needed
-- Check ADB connectivity: `adb devices`
-- Verify device is fully booted: `adb shell getprop sys.boot_completed`
-
-### Tor not working
-- Ensure Tor is installed in the containers
-- Check Tor logs: `adb shell cat /data/tor_0/tor.log`
-- Wait 30 seconds for initial bootstrap
+Cloud devices appear as normal ADB serials next to local MuMu phones.

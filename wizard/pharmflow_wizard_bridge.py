@@ -4450,6 +4450,78 @@ def cloud_phone_status(host: str = "") -> dict:
     return run_cloud_phone_command("status", host, 0)
 
 
+def _cloud_connect_mod():
+    """Load tools/cloud_connect.py (bundled under EXE tools/).
+
+    Import is deferred on purpose: frozen builds resolve ``tools/`` from
+    ``sys._MEIPASS``, which is only correct after the EXE is running. Keeping
+    the import here avoids a top-level load against the wrong path.
+    """
+    tools_dir = Path(__file__).resolve().parent.parent / "tools"
+    if getattr(sys, "frozen", False):
+        tools_dir = Path(sys._MEIPASS) / "tools"  # type: ignore[attr-defined]
+    if str(tools_dir) not in sys.path:
+        sys.path.insert(0, str(tools_dir))
+    import cloud_connect as mod
+
+    return mod
+
+
+def _agent_config_root() -> Path:
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parent.parent
+
+
+def cloud_session_status() -> dict:
+    """One-login widget status: saved host/count, FreeLLMAPI agent, free-tier limits."""
+    try:
+        return _cloud_connect_mod().session_status(root=_agent_config_root())
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "error": f"Cloud session status failed: {exc}"}
+
+
+def cloud_connect_login(host: str = "", count: int = 0, api_key: str = "") -> dict:
+    """One login: wire FreeLLMAPI agent + save Oracle/Redroid host, then start phone setup.
+
+    Free path only — does not invent a paid phone vendor. Phone work reuses
+    ``cloud_phone_setup`` (PharmFlow.exe --cloud-phones-cli). No second farm stack.
+    """
+    try:
+        cc = _cloud_connect_mod()
+        plan = cc.connect_login(
+            host,
+            count,
+            api_key,
+            root=_agent_config_root(),
+            start_phones=True,
+        )
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "error": f"Cloud connect failed: {exc}"}
+    if not plan.get("ok"):
+        return plan
+    out = dict(plan)
+    if plan.get("start_phones"):
+        setup = cloud_phone_setup(str(plan.get("host") or ""), int(plan.get("count") or 0))
+        out["phones"] = setup
+        if setup.get("ok") is False:
+            out["ok"] = False
+            out["error"] = setup.get("error") or "Cloud phone setup failed to start."
+            return out
+        if setup.get("already_running"):
+            out["message"] = (
+                (plan.get("message") or "Cloud connect saved.")
+                + " A cloud command is already running — watch the Run log."
+            )
+        else:
+            out["message"] = (
+                (plan.get("message") or "Cloud connect saved.")
+                + " Cloud phone setup started — watch the Run log."
+            )
+            out["starting"] = True
+    return out
+
+
 def _watchdog_script_path() -> str:
     if getattr(sys, "frozen", False):
         return str(Path(sys._MEIPASS) / "tools" / "pharmflow_watchdog.py")  # type: ignore[attr-defined]
@@ -4464,78 +4536,55 @@ def _agent_script_path() -> str:
 
 
 def _agent_config_path() -> Path:
-    if getattr(sys, "frozen", False):
-        return Path(sys.executable).resolve().parent / "cloud_agent.json"
-    return Path(__file__).resolve().parent.parent / "cloud_agent.json"
+    return _agent_config_root() / "cloud_agent.json"
 
 
 def cloud_agent_config() -> dict:
-    """Return current cloud-agent config WITHOUT exposing the API key (masked)."""
-    import os
+    """Return current cloud-agent config WITHOUT exposing the API key (masked).
 
-    cfg_path = _agent_config_path()
-    cfg: dict = {
-        "base": os.environ.get("PHARMFLOW_CLOUD_AGENT_BASE", "http://127.0.0.1:31415/v1"),
-        "model": os.environ.get("PHARMFLOW_CLOUD_AGENT_MODEL", "auto"),
-        "api_key": "",
-        "configured": False,
+    Free path default is FreeLLMAPI on 127.0.0.1:31415 (auto-loads key from
+    freellmapi.env when present).
+    """
+    try:
+        cc = _cloud_connect_mod()
+        resolved = cc.resolve_agent_config(root=_agent_config_root())
+        status = cc.session_status(root=_agent_config_root())
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "base": os.environ.get("PHARMFLOW_CLOUD_AGENT_BASE", "http://127.0.0.1:31415/v1"),
+            "model": os.environ.get("PHARMFLOW_CLOUD_AGENT_MODEL", "auto"),
+            "api_key": "",
+            "configured": False,
+            "error": str(exc),
+        }
+    raw_key = str(resolved.get("api_key") or "")
+    return {
+        "base": resolved.get("base") or "http://127.0.0.1:31415/v1",
+        "model": resolved.get("model") or "auto",
+        "api_key": (raw_key[:4] + "…" if len(raw_key) > 6 else "") if raw_key else "",
+        "configured": bool(resolved.get("configured")),
+        "free_path": bool(resolved.get("free_path")),
+        "source": resolved.get("source") or "",
+        "free_tier": status.get("free_tier") or {},
+        "freellmapi": status.get("freellmapi") or {},
+        "host": status.get("host") or "",
+        "count": status.get("count"),
     }
-    raw_key = os.environ.get("PHARMFLOW_CLOUD_AGENT_KEY", "")
-    if cfg_path.is_file():
-        try:
-            data = json.loads(cfg_path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            data = {}
-        if isinstance(data.get("base"), str) and data["base"].strip():
-            cfg["base"] = data["base"].strip()
-        if isinstance(data.get("model"), str) and data["model"].strip():
-            cfg["model"] = data["model"].strip()
-        if isinstance(data.get("api_key"), str) and data["api_key"].strip():
-            raw_key = data["api_key"].strip()
-    cfg["configured"] = bool(raw_key)
-    cfg["api_key"] = (raw_key[:4] + "…" if len(raw_key) > 6 else "") if raw_key else ""
-    return cfg
 
 
 def save_cloud_agent_config(base: str = "", model: str = "", api_key: str = "") -> dict:
-    """Persist cloud-agent config to <root>/cloud_agent.json (key stored on disk)."""
-    cfg_path = _agent_config_path()
-    existing: dict = {}
-    if cfg_path.is_file():
-        try:
-            loaded = json.loads(cfg_path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            return {
-                "ok": False,
-                "error": "Agent settings file is corrupt. It was not replaced.",
-            }
-        if not isinstance(loaded, dict):
-            return {
-                "ok": False,
-                "error": "Agent settings file is not a settings object. It was not replaced.",
-            }
-        existing = loaded
-    if base and base.strip():
-        existing["base"] = base.strip().rstrip("/")
-    if model and model.strip():
-        existing["model"] = model.strip()
-    if api_key and api_key.strip():
-        existing["api_key"] = api_key.strip()
-    payload = json.dumps(existing, indent=2)
+    """Persist cloud-agent config via the free-path helper (FreeLLMAPI by default)."""
     try:
-        cfg_path.write_text(payload, encoding="utf-8")
-        stored = json.loads(cfg_path.read_text(encoding="utf-8"))
-    except (OSError, ValueError) as exc:
-        return {"ok": False, "error": str(exc) or "Agent settings were not saved on disk."}
-    if not isinstance(stored, dict) or stored.get("base") != existing.get("base") or stored.get("model") != existing.get("model"):
-        return {"ok": False, "error": "Agent settings were not saved on disk."}
-    if api_key and api_key.strip() and stored.get("api_key") != api_key.strip():
-        return {"ok": False, "error": "Agent settings were not saved on disk."}
-    return {
-        "ok": True,
-        "saved": True,
-        "configured": bool(existing.get("api_key") or os.environ.get("PHARMFLOW_CLOUD_AGENT_KEY")),
-    }
+        cc = _cloud_connect_mod()
+        return cc.wire_agent_config(
+            api_key=api_key,
+            base=base,
+            model=model,
+            root=_agent_config_root(),
+            prefer_freellm=not bool(str(base or "").strip()),
+        )
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "saved": False, "configured": False, "error": str(exc)}
 
 
 def _tool_argv(flag: str, rel: str, extra: list[str]) -> list[str]:

@@ -833,6 +833,12 @@ class PharmFlowAppApi:
     def cloud_phone_status(self, host: str = "") -> dict:
         return self._bridge_call("cloud_phone_status", host)
 
+    def cloud_session_status(self) -> dict:
+        return self._bridge_call("cloud_session_status")
+
+    def cloud_connect_login(self, host: str = "", count: int = 0, api_key: str = "") -> dict:
+        return self._bridge_call("cloud_connect_login", host, count, api_key)
+
     def cloud_agent_status(self) -> dict:
         return self._bridge_call("cloud_agent_status")
 

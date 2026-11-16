@@ -19,10 +19,11 @@ Design intent
   That is an operational safety rail for the operator's own infra, not content
   filtering.
 
-Config (in order): environment variables, then a JSON file in the PharmFlow root.
-    PHARMFLOW_CLOUD_AGENT_BASE    base URL, e.g. https://api.openai.com/v1
-    PHARMFLOW_CLOUD_AGENT_KEY     API key (never logged)
-    PHARMFLOW_CLOUD_AGENT_MODEL   model id, e.g. gpt-4o
+Config (in order): environment variables, then cloud_agent.json, then FreeLLMAPI
+local gateway (the free path — tools/freellmapi_client.py on 127.0.0.1:31415).
+    PHARMFLOW_CLOUD_AGENT_BASE    base URL (default free path: http://127.0.0.1:31415/v1)
+    PHARMFLOW_CLOUD_AGENT_KEY     API key (never logged; FreeLLMAPI key auto-loaded when present)
+    PHARMFLOW_CLOUD_AGENT_MODEL   model id (default free path: auto)
     cloud_agent.json           {"base":..., "api_key":..., "model":...}
 """
 from __future__ import annotations
@@ -35,6 +36,14 @@ import sys
 import urllib.error
 import urllib.request
 from pathlib import Path
+
+_TOOLS_DIR = Path(__file__).resolve().parent
+if str(_TOOLS_DIR) not in sys.path:
+    sys.path.insert(0, str(_TOOLS_DIR))
+try:
+    import cloud_connect as _cloud_connect
+except ImportError:  # pragma: no cover
+    _cloud_connect = None  # type: ignore[assignment]
 
 
 def _repo_root() -> Path:
@@ -245,10 +254,21 @@ def _redact(obj) -> dict:
 
 
 def _load_config() -> dict:
+    """Resolve agent config. Free path = FreeLLMAPI on :31415 when no paid base is set."""
+    if _cloud_connect is not None:
+        try:
+            resolved = _cloud_connect.resolve_agent_config(root=ROOT)
+            return {
+                "base": str(resolved.get("base") or "http://127.0.0.1:31415/v1").rstrip("/"),
+                "api_key": str(resolved.get("api_key") or ""),
+                "model": str(resolved.get("model") or "auto"),
+            }
+        except Exception:  # noqa: BLE001
+            pass
     cfg = {
-        "base": os.environ.get("PHARMFLOW_CLOUD_AGENT_BASE", "https://api.openai.com/v1").rstrip("/"),
+        "base": os.environ.get("PHARMFLOW_CLOUD_AGENT_BASE", "http://127.0.0.1:31415/v1").rstrip("/"),
         "api_key": os.environ.get("PHARMFLOW_CLOUD_AGENT_KEY", ""),
-        "model": os.environ.get("PHARMFLOW_CLOUD_AGENT_MODEL", "gpt-4o"),
+        "model": os.environ.get("PHARMFLOW_CLOUD_AGENT_MODEL", "auto"),
     }
     json_file = ROOT / "cloud_agent.json"
     if json_file.is_file():
@@ -296,7 +316,11 @@ def run_agent(goal: str, *, apply: bool, max_steps: int | None = None, stream=pr
     cfg = _load_config()
     if not cfg["api_key"]:
         print("No API key configured.", file=sys.stderr)
-        print("Set PHARMFLOW_CLOUD_AGENT_KEY or create <root>/cloud_agent.json.", file=sys.stderr)
+        print(
+            "Free path: start FreeLLMAPI on this PC (writes freellmapi.env), "
+            "or use Cloud connect in PharmFlow, or set PHARMFLOW_CLOUD_AGENT_KEY / cloud_agent.json.",
+            file=sys.stderr,
+        )
         return 3
     if not goal or not goal.strip():
         print("A goal is required.", file=sys.stderr)

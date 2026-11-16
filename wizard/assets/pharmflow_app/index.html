@@ -612,16 +612,41 @@
                     <button type="button" class="btn-ghost" id="btn-open-dash" data-help="Opens the wizard control server in your browser (localhost:8080). Start service first. This is not the farm dashboard at 127.0.0.1:8091.">Open control dashboard</button>
                   </div>
                 </div>
-                <div class="advanced-block">
-                  <p class="panel-title">Cloud phones + agent</p>
-                  <div class="advanced-actions">
-                    <button type="button" class="btn-ghost" id="btn-cloud-setup">Cloud phone setup…</button>
-                    <button type="button" class="btn-ghost" id="btn-cloud-status">Cloud status…</button>
-                    <button type="button" class="btn-ghost" id="btn-agent-status">Agent status</button>
-                    <button type="button" class="btn-ghost" id="btn-cloud-agent">Run cloud agent…</button>
-                    <button type="button" class="btn-ghost" id="btn-cloud-agent-settings">Agent settings…</button>
+                <div class="advanced-block" id="cloud-connect-widget">
+                  <p class="panel-title">Cloud connect</p>
+                  <p class="panel-note" id="cloud-free-tier-note">
+                    Free path: Oracle Always Free ARM (A1.Flex ≤4 OCPU / 24&nbsp;GB) + Redroid for phones;
+                    FreeLLMAPI on this PC (<span class="mono">127.0.0.1:31415</span>) for the agent.
+                    Do not expose ADB ports publicly. Phone count is yours — no product ceiling.
+                  </p>
+                  <div class="cloud-connect-form">
+                    <label class="cloud-field">
+                      <span>Host IP</span>
+                      <input type="text" id="cloud-host-input" class="site-url-input" placeholder="100.x.x.x (Tailscale / private)" autocomplete="off" data-help="Oracle/Redroid host reached over Tailscale or private IP. Required to connect cloud phones." />
+                    </label>
+                    <label class="cloud-field cloud-field-narrow">
+                      <span>Count</span>
+                      <input type="number" id="cloud-count-input" min="1" step="1" placeholder="N" inputmode="numeric" data-help="How many Redroid instances to connect. Operator-chosen — not a product cap." />
+                    </label>
+                    <label class="cloud-field">
+                      <span>Agent key (optional)</span>
+                      <input type="password" id="cloud-key-input" class="site-url-input" placeholder="Leave blank to use FreeLLMAPI on this PC" autocomplete="off" data-help="Paste only if FreeLLMAPI is not already writing freellmapi.env. Prefer the free local gateway." />
+                    </label>
                   </div>
-                  <p class="panel-note">Cloud setup connects, disguises, and routes Tor for remote Android instances. Agent status checks Docker, emulators, and ADB health. Run cloud agent uses your own API key to reason over the farm.</p>
+                  <div class="action-row">
+                    <button type="button" class="btn-go" id="btn-cloud-connect" data-help="One login: saves host/count, wires FreeLLMAPI agent, then runs cloud phone setup (connect + stealth + Tor).">Connect cloud phones + agent</button>
+                  </div>
+                  <p class="status-line" id="cloud-connect-status">Checking cloud session…</p>
+                  <details class="cloud-advanced">
+                    <summary>Advanced cloud tools</summary>
+                    <div class="advanced-actions">
+                      <button type="button" class="btn-ghost" id="btn-cloud-setup">Cloud phone setup…</button>
+                      <button type="button" class="btn-ghost" id="btn-cloud-status">Cloud status…</button>
+                      <button type="button" class="btn-ghost" id="btn-agent-status">Agent status</button>
+                      <button type="button" class="btn-ghost" id="btn-cloud-agent">Run cloud agent…</button>
+                      <button type="button" class="btn-ghost" id="btn-cloud-agent-settings">Agent settings…</button>
+                    </div>
+                  </details>
                 </div>
               </section>
               <section class="panel log-panel">
