@@ -405,10 +405,28 @@
   let builderPhoneCtx = null;
   let builderPlaylistDraft = [];
 
+  /* Canonical age-gate Yes tap (dabflow_layout.age_gate_tap_step / AGE_YES_MUMU). */
+  const AGE_GATE_TAP_PRESET = {
+    type: "tap",
+    x: 460,
+    y: 907,
+    base_w: 900,
+    base_h: 1600,
+    retries: 5,
+    jitter: 4,
+    pre_wait_ms: 80,
+    age_verification: true,
+    age_gate: true,
+    checkpoint: "age_verification",
+    phase: "pre_site_fast",
+    note: "age gate",
+  };
+
   const BUILDER_STEP_TYPES = [
     "open_url",
     "launch_app",
     "tap",
+    "age_gate",
     "wait",
     "swipe",
     "keyevent",
@@ -416,12 +434,14 @@
     "type_text",
     "clear_cookies",
     "rotate_identity",
+    "full_reset",
   ];
 
   const BUILDER_FIELD_SCHEMA = {
     open_url: [
       { key: "url", label: "Website URL", type: "text", def: "https://getdabflow.app" },
       { key: "post_wait_secs", label: "After-open wait (sec)", type: "text", def: "" },
+      { key: "checkpoint", label: "Checkpoint (optional)", type: "text", def: "" },
     ],
     launch_app: [
       { key: "package", label: "Package name", type: "text", def: "com.example.app" },
@@ -433,8 +453,13 @@
       { key: "retries", label: "Retries", type: "number", def: "2" },
       { key: "jitter", label: "Jitter ±px", type: "number", def: "24" },
       { key: "pre_wait_ms", label: "Pre-wait ms", type: "number", def: "0" },
+      { key: "checkpoint", label: "Checkpoint (optional)", type: "text", def: "" },
     ],
-    wait: [{ key: "seconds", label: "Seconds", type: "number", def: "5" }],
+    age_gate: [],
+    wait: [
+      { key: "seconds", label: "Seconds", type: "number", def: "5" },
+      { key: "checkpoint", label: "Checkpoint (optional)", type: "text", def: "" },
+    ],
     swipe: [
       { key: "x1", label: "Start X", type: "number", def: "540" },
       { key: "y1", label: "Start Y", type: "number", def: "1600" },
@@ -447,7 +472,18 @@
     type_text: [{ key: "text", label: "Text", type: "text", def: "hello world" }],
     clear_cookies: [],
     rotate_identity: [],
+    full_reset: [],
   };
+
+  function stepLooksLikeAgeGate(step) {
+    if (!step || typeof step !== "object") return false;
+    if (step.type === "age_gate") return true;
+    if (step.age_gate === true || step.age_verification === true) return true;
+    const cp = String(step.checkpoint || "")
+      .trim()
+      .toLowerCase();
+    return cp === "age_verification" || cp === "age_gate";
+  }
 
   function formatSecs(v) {
     const n = Number(v);
@@ -458,12 +494,19 @@
 
   function stepSummaryLine(step) {
     if (!step || typeof step !== "object") return "(invalid)";
+    if (stepLooksLikeAgeGate(step)) {
+      const bits = ["age_gate", (step.x != null ? step.x : AGE_GATE_TAP_PRESET.x) + "," + (step.y != null ? step.y : AGE_GATE_TAP_PRESET.y)];
+      if (step.post_wait_secs != null && step.post_wait_secs !== "")
+        bits.push("+" + formatSecs(step.post_wait_secs) + "s");
+      return bits.join(" · ");
+    }
     const t = step.type || "?";
     const bits = [t];
     if (t === "open_url" && step.url) bits.push(String(step.url).slice(0, 48));
     else if (t === "launch_app" && step.package) bits.push(String(step.package));
     else if (t === "tap") bits.push((step.x != null ? step.x : "?") + "," + (step.y != null ? step.y : "?"));
     else if (t === "wait" && step.seconds != null) bits.push(formatSecs(step.seconds) + "s");
+    else if (t === "full_reset") bits.push("new circuit");
     else if (t === "swipe")
       bits.push(
         (step.x1 != null ? step.x1 : "?") +
@@ -477,6 +520,7 @@
     else if (t === "keyevent" && step.key) bits.push(String(step.key));
     else if (t === "close_app" && step.package) bits.push(String(step.package));
     else if (t === "type_text" && step.text) bits.push(JSON.stringify(String(step.text).slice(0, 32)));
+    if (step.checkpoint) bits.push("@" + String(step.checkpoint));
     if (step.post_wait_secs != null && step.post_wait_secs !== "")
       bits.push("+" + formatSecs(step.post_wait_secs) + "s");
     return bits.join(" · ");
@@ -535,6 +579,10 @@
           ? "Clears browser cookies — no extra fields."
           : type === "rotate_identity"
           ? "Rotates identity — no extra fields."
+          : type === "age_gate"
+          ? "Taps Age Gate Yes (MuMu-validated coords). No extra fields."
+          : type === "full_reset"
+          ? "Full session reset (new Tor circuit) — no extra fields."
           : "No fields for this step type.";
       fields.appendChild(note);
       return;
@@ -565,6 +613,12 @@
   function collectBuilderStep() {
     const typeSel = document.getElementById("builder-step-type");
     const type = (typeSel && typeSel.value) || "wait";
+    if (type === "age_gate") {
+      return Object.assign({}, AGE_GATE_TAP_PRESET);
+    }
+    if (type === "full_reset") {
+      return { type: "full_reset" };
+    }
     const step = { type: type };
     const fields = document.getElementById("builder-step-fields");
     if (!fields) return step;
@@ -595,7 +649,8 @@
   function fillBuilderFormFromStep(step) {
     const typeSel = document.getElementById("builder-step-type");
     if (!typeSel || !step) return;
-    const t = step.type || "wait";
+    let t = step.type || "wait";
+    if (stepLooksLikeAgeGate(step)) t = "age_gate";
     if (BUILDER_STEP_TYPES.indexOf(t) >= 0) typeSel.value = t;
     else typeSel.value = "wait";
     rebuildBuilderFields(typeSel.value, step);
@@ -702,6 +757,46 @@
         if (o.value) pick.appendChild(o);
       });
     } catch (_e) {}
+  }
+
+  async function openPhoneInBuilder(groupI, serial) {
+    /* Groups Edit → Builder only. Never arms Start farm / run_farm_*. */
+    const a = api();
+    const begin =
+      a && typeof a.cursor_begin_phone_edit === "function"
+        ? a.cursor_begin_phone_edit.bind(a)
+        : a && typeof a.run_edit_phone_sequence === "function"
+        ? a.run_edit_phone_sequence.bind(a)
+        : null;
+    if (!begin) {
+      showBackendError("Per-phone Edit unavailable — update the app.");
+      return;
+    }
+    try {
+      showToast("Opening Builder for " + serial + "…", true);
+      const res = await begin(groupI, serial);
+      if (!res || res.error || res.ok === false) {
+        showBackendError((res && (res.error || res.message)) || "Edit phone sequence failed");
+        return;
+      }
+      /* Harden: Edit must never navigate to Run/farm start. */
+      if (res.arm_farm || res.start_farm || res.mode === "farm") {
+        showBackendError("Edit refused farm arm — Builder only");
+        return;
+      }
+      applyBuilderTargetUI(res);
+      const modeSel = document.getElementById("builder-playlist-mode");
+      const shuffleSel = document.getElementById("builder-playlist-shuffle");
+      if (modeSel && res.playlist_mode) modeSel.value = String(res.playlist_mode);
+      if (shuffleSel && res.playlist_shuffle) shuffleSel.value = String(res.playlist_shuffle);
+      builderSelectedIndex = -1;
+      showView("builder", { animate: true });
+      await refreshBuilder();
+      await refreshBuilderPlaylistLibrary();
+      showToast("Editing " + (res.phone_name || serial) + " in Builder");
+    } catch (e) {
+      showBackendError(String(e));
+    }
   }
 
   async function endPhoneBuilderEdit(goTeams) {
@@ -1014,6 +1109,10 @@
           ? "Clears browser cookies — no extra fields."
           : type === "rotate_identity"
           ? "Rotates identity — no extra fields."
+          : type === "age_gate"
+          ? "Taps Age Gate Yes (MuMu-validated coords). No extra fields."
+          : type === "full_reset"
+          ? "Full session reset (new Tor circuit) — no extra fields."
           : "No fields for this step type.";
       fields.appendChild(note);
       return;
@@ -1044,6 +1143,12 @@
   function collectPhoneStep() {
     const typeSel = document.getElementById("phone-step-type");
     const type = (typeSel && typeSel.value) || "wait";
+    if (type === "age_gate") {
+      return Object.assign({}, AGE_GATE_TAP_PRESET);
+    }
+    if (type === "full_reset") {
+      return { type: "full_reset" };
+    }
     const step = { type: type };
     const fields = document.getElementById("phone-step-fields");
     if (!fields) return step;
@@ -1074,7 +1179,8 @@
   function fillPhoneFormFromStep(step) {
     const typeSel = document.getElementById("phone-step-type");
     if (!typeSel || !step) return;
-    const t = step.type || "wait";
+    let t = step.type || "wait";
+    if (stepLooksLikeAgeGate(step)) t = "age_gate";
     if (BUILDER_STEP_TYPES.indexOf(t) >= 0) typeSel.value = t;
     else typeSel.value = "wait";
     rebuildPhoneFields(typeSel.value, step);
@@ -3971,10 +4077,19 @@
     const btnBuilderRun = document.getElementById("btn-builder-run-groups");
     if (btnBuilderRun && !btnBuilderRun.dataset.wired) {
       btnBuilderRun.dataset.wired = "1";
-      btnBuilderRun.addEventListener("click", async function () {
+      btnBuilderRun.addEventListener("click", async function (ev) {
+        if (ev) {
+          ev.preventDefault();
+          ev.stopPropagation();
+        }
         const a = requireApi("Run groups");
+        /* Harden: wizard groups run only — never start_farm / farm_control. */
         if (!a || typeof a.run_all_groups !== "function") {
           showBackendError("Run groups unavailable");
+          return;
+        }
+        if (typeof a.start_farm === "function" && a.run_all_groups === a.start_farm) {
+          showBackendError("Run groups miswired to Start farm — refused");
           return;
         }
         showView("go", { animate: true });
@@ -4251,10 +4366,13 @@
       groupsList.addEventListener("click", async function (ev) {
         const editPhoneBtn = ev.target.closest("[data-edit-phone-serial]");
         if (editPhoneBtn) {
+          ev.preventDefault();
+          ev.stopPropagation();
           const gi = parseInt(editPhoneBtn.getAttribute("data-edit-phone-group"), 10);
           const serial = String(editPhoneBtn.getAttribute("data-edit-phone-serial") || "").trim();
           if (Number.isNaN(gi) || !serial) return;
-          await openPhoneSeqEditor(gi, serial);
+          /* B3: Edit → Builder only; never Start farm / run groups from this click. */
+          await openPhoneInBuilder(gi, serial);
           return;
         }
         const renameBtn = ev.target.closest("[data-rename-group]");

@@ -35,19 +35,24 @@ class PharmFlowWizardBridgeContractTests(unittest.TestCase):
             "cursor_set_phone_playlist",
             "cursor_get_phone_sequence",
             "cursor_set_phone_steps",
+            "cursor_begin_phone_edit",
+            "cursor_end_phone_edit",
+            "cursor_get_builder_target",
             "run_edit_phone_sequence",
         ):
             self.assertIn(f"def {name}(", BRIDGE)
 
     def test_run_edit_phone_sequence_is_deck_native_not_tk(self):
-        """Groups Edit must not open legacy Tk PerPhoneSequenceEditor."""
+        """Groups Edit → Builder target (no Tk PerPhoneSequenceEditor, no farm arm)."""
         block = BRIDGE.split("def run_edit_phone_sequence(")[1].split("\ndef ")[0]
-        self.assertIn("cursor_get_phone_sequence", block)
-        self.assertNotIn("PerPhoneSequenceEditor(", block)
-        self.assertNotIn("_tk_dialog_parent", block)
+        self.assertIn("cursor_begin_phone_edit", block)
+        self.assertNotIn("PerPhoneSequenceEditor", block)
         self.assertNotIn("_safe_run_on_tk", block)
-        get_block = BRIDGE.split("def cursor_get_phone_sequence(")[1].split("\ndef ")[0]
-        self.assertIn("_phone_entry_for_edit", get_block)
+        self.assertNotIn("start_farm", block)
+        begin_block = BRIDGE.split("def cursor_begin_phone_edit(")[1].split("\ndef ")[0]
+        self.assertIn('_builder_target', begin_block)
+        self.assertIn('"mode": "builder"', begin_block)
+        self.assertNotIn("start_farm", begin_block)
         set_block = BRIDGE.split("def cursor_set_phone_steps(")[1].split("\ndef ")[0]
         self.assertIn("_persist_groups_config", set_block)
         self.assertIn('ent["steps"]', set_block)
