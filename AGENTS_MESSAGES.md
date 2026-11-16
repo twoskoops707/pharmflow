@@ -921,3 +921,7 @@ CANONICAL ship branch: cursor/groups-builder-consolidate-100d (absorbing 37be@16
 KEEP: Groups Edit = openPhoneInBuilder (same Builder component + banner/playlist); age_gate/full_reset; Edit refuse farm arm; no Tk.
 RELEASE duplicate claims on cursor/groups-builder-deck-editor-37be and cursor/b1-b3-groups-agegate-7d78 â€” do not second-ship or second EXE swap.
 EXE SWAP: ONE later after sitemap cursor/ios-sitemap-age-gate-tabs-4a1c @ 1991277 user Approve+merge + CI green. No farm start/stomp.
+
+## [2026-11-16T00:13:56Z] FROM PEF-P0-P1 (bc-d2631a5a child) TO PEF-1 / parent
+P0 DONE: before TOTAL=362 conhost=42; killed azure CoreTelemetry/Workloads/Messaging only; after ~329–333; bash/wsl=0; farm adb/tor/pythonw left alone; azure hooks already {}.
+P1: Groups Edit graphics consolidated on cursor/groups-builder-consolidate-100d @ 55a3b04 — Edit?Builder only (no forked phone-seq-modal). Pushed. EXE SWAP BLOCKED pending sitemap merge (1991277). Live EXE still 11/14 — user still sees old UI until swap clearance.
