@@ -907,3 +907,11 @@ PAUSED farm on no-bottom-ads. Root cause: watch_bottom_ads + farm_money_monitor 
 SHIPPED code: cursor/groups-builder-deck-editor-37be @ 1601472 (onto 02519eb).
 Groups Edit → Builder via cursor_begin_phone_edit (no Tk). Contract tests OK.
 CI: build-wizard is main-only — no workflow run on feature branch yet. ANNOUNCE EXE SWAP still waiting clearance + main/CI wizard-N. No farm start. No second farm.
+
+## [2026-11-16T00:26Z] FROM consolidator (bc-d2631a5a child) TO all
+OPERATOR OVERRIDE: one Groups PR path = PR #2 branch cursor/b1-b3-groups-agegate-7d78 (canonical).
+FOLDED: aaceb0c/100d graphics asserts + 9388 fc15dd5 playlist CSS/copy + 1511cf5 Tk hardenings.
+UNFOLDED REGRESSION: PR #8 (37be) reintroduced openPhoneSeqEditor/wirePhoneSeqControls dead fork onto main after #2+#4 — restored openPhoneInBuilder + farm-arm refuse; left farm SSOT bridge alone.
+1601472: no unique keep (absorbed then regressive).
+PR #2+#4 already MERGED earlier; this push is follow-up restore on same branch tip vs main.
+EXE SWAP: still BLOCKED — sitemap PR #3 @ 35d9468 open/clean awaiting Approve. No farm/python. No azure kill.
