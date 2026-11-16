@@ -3485,6 +3485,8 @@ try {
           });
           if (res && res.running && res.dashboard_ready === true) {
             applyHomeFarmState(true);
+            // Clear beginAction pending state so "Farm running…" stays clickable.
+            finishAction();
             openFarmDash();
             return;
           }

@@ -1118,6 +1118,19 @@ class FarmSettingsDoNotCapTests(unittest.TestCase):
         self.assertIn("res.started && res.running", block)
         self.assertNotIn("else if (res && res.started) {", block)
 
+    def test_immediate_start_success_finishes_action(self):
+        """Already-running Start path must clear beginAction or the button stays disabled."""
+        js = (ROOT / "wizard" / "assets" / "pharmflow_app" / "app.js").read_text(encoding="utf-8")
+        block = js.split("return a.start_farm();")[1].split("btn-stop-farm-home")[0]
+        immediate = block.split(
+            "if (res && res.running && res.dashboard_ready === true)"
+        )[1].split("if (res && (res.error")[0]
+        self.assertIn("applyHomeFarmState(true)", immediate)
+        self.assertIn("finishAction()", immediate)
+        self.assertIn("openFarmDash()", immediate)
+        # Human-only Start: this handler is click-driven, never auto-invoked.
+        self.assertIn('btnStartHome.addEventListener("click"', js)
+
     def test_install_everything_does_not_claim_adb_or_webview(self):
         html = (ROOT / "wizard" / "assets" / "pharmflow_app" / "index.html").read_text(encoding="utf-8")
         block = html.split('id="btn-install-all"')[1].split("</button>")[0]
