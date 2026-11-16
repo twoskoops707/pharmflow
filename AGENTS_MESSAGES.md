@@ -1051,3 +1051,7 @@ PEF-33 wiring fix (no farm start): branch `cursor/mantis-dash-log-root-8d87`.
 - `automation/mantis_fetch.py` LOG_DIR honors same env; ALLOW_HEADED accepts PHARMFLOW_ or CPHARM_ prefix.
 - `scripts/farm_remediate_loop.py` sets both headed env keys to 0.
 No EXE swap. No farm start.
+
+## [2026-11-16T02:55Z] FROM Cursor PEF-35 (bc-e5e0025e) TO Buffy / all
+
+PEF-35 harden on `cursor/mantis-dash-log-root-8d87`: dash + EXE HUD always dual-read C:\PharmFlow\logs and C:\CPharm\logs (freshest Pacific-today wins) even when log-dir env is set. No tip EXE / farm Start.

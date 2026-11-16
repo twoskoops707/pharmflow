@@ -1135,7 +1135,14 @@ def _default_mantis_today() -> dict[str, Any]:
 
 
 def _mantis_today_candidate_paths() -> list[Path]:
-    """Prefer env/LOG_DIR; else dual-read PharmFlow + legacy CPharm (freshest wins)."""
+    """Always dual-read PharmFlow + legacy CPharm; freshest Pacific-day file wins.
+
+    Env override (PHARMFLOW_LOG_DIR / PHARMFLOW_LOGS / CPHARM_LOG_DIR) and
+    LOG_DIR are checked first, but both default roots stay in the candidate
+    set so dash gauges match EXE HUD even when one tree still holds the
+    live pull.
+    """
+    roots: list[Path] = []
     forced = (
         os.environ.get("PHARMFLOW_LOG_DIR")
         or os.environ.get("PHARMFLOW_LOGS")
@@ -1143,13 +1150,11 @@ def _mantis_today_candidate_paths() -> list[Path]:
         or ""
     ).strip()
     if forced:
-        return [Path(forced) / "mantis_today_state.json"]
-    out: list[Path] = []
+        roots.append(Path(forced))
     for root in (LOG_DIR, Path(r"C:\PharmFlow\logs"), Path(r"C:\CPharm\logs")):
-        path = root / "mantis_today_state.json"
-        if path not in out:
-            out.append(path)
-    return out
+        if root not in roots:
+            roots.append(root)
+    return [root / "mantis_today_state.json" for root in roots]
 
 
 def load_mantis_today() -> dict[str, Any]:

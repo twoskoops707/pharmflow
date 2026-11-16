@@ -5395,21 +5395,23 @@ def _operator_status() -> dict[str, Any] | None:
 def _mantis_today_file() -> dict[str, Any] | None:
     """Same Pacific-day guard the operator dash uses.
 
-    Prefer PHARMFLOW_LOG_DIR when set. Otherwise read the freshest
-    mantis_today_state.json under C:\\PharmFlow\\logs or the pre-branding
-    C:\\CPharm\\logs root so a live farm writing the legacy path does not
-    make the HUD show blank money when the dash is briefly down.
+    Always dual-read C:\\PharmFlow\\logs and legacy C:\\CPharm\\logs (plus
+    PHARMFLOW_/CPHARM_ log-dir overrides). Freshest Pacific-today
+    mantis_today_state.json wins so HUD money matches the operator dash.
     """
     today = datetime.now(ZoneInfo("America/Los_Angeles")).date().isoformat()
     roots: list[Path] = []
-    forced = os.environ.get("PHARMFLOW_LOG_DIR") or os.environ.get("PHARMFLOW_LOGS")
+    forced = (
+        os.environ.get("PHARMFLOW_LOG_DIR")
+        or os.environ.get("PHARMFLOW_LOGS")
+        or os.environ.get("CPHARM_LOG_DIR")
+        or ""
+    ).strip()
     if forced:
         roots.append(Path(forced))
-    else:
-        roots.append(Path(r"C:\PharmFlow\logs"))
-        legacy = Path(r"C:\CPharm\logs")
-        if legacy.resolve() != roots[0].resolve():
-            roots.append(legacy)
+    for root in (Path(r"C:\PharmFlow\logs"), Path(r"C:\CPharm\logs")):
+        if root not in roots:
+            roots.append(root)
     candidates: list[Path] = []
     for root in roots:
         path = root / "mantis_today_state.json"
