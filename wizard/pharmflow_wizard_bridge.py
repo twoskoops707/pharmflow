@@ -1004,6 +1004,14 @@ def _start_dashboard_headless() -> dict:
 
             clear_dashboard_listen_port_cache()
             py_argv, py_disp = _host_python_argv()
+            # PY=0 / EXE-only: never spawn host python for control dash when EXE owns.
+            try:
+                from automation.pharmflow_exe_owned import exe_owns_farm
+                if exe_owns_farm() or getattr(__import__('sys'), 'frozen', False):
+                    py_argv = []
+            except Exception:
+                if getattr(__import__('sys'), 'frozen', False):
+                    py_argv = []
             if not py_argv:
                 if not _start_dashboard_inprocess():
                     return {

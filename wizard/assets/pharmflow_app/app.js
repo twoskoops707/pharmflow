@@ -3243,7 +3243,16 @@
       return;
     }
 
+        // A4: auto-bring control :8080 + farm :8091 with EXE Control Panel (no orphan python).
     try {
+      if (typeof pyApi.boot_ensure_dashboards === "function") {
+        pyApi.boot_ensure_dashboards();
+      } else if (typeof pyApi.ensure_both_dashboards === "function") {
+        pyApi.ensure_both_dashboards(false);
+      }
+    } catch (_dashBoot) {}
+
+try {
       wizardSteps = (await pyApi.get_wizard_steps()) || [];
     } catch (e) {
       wizardSteps = [];

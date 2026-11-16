@@ -373,6 +373,14 @@ def ensure_operator_stack(*, log: Callable[[str, str], None] | None = None) -> l
             env.setdefault("PHARMFLOW_FARM_STOP", "0")
             env.setdefault(_START_FARM_OWNER_ENV, str(os.getpid()))
             helper_py = _helper_python_for(name)
+            # EXE-only / PY=0: never spawn host pythonw helpers when PharmFlow.exe
+            # owns the stack — run remediator/dash lanes in-process instead.
+            try:
+                if exe_owns_farm() or getattr(sys, "frozen", False):
+                    helper_py = None
+            except Exception:
+                if getattr(sys, "frozen", False):
+                    helper_py = None
             # Never re-exec this EXE. A frozen child inherits --start-farm and
             # hangs in another farm CLI loop instead of running the helper.
             if helper_py and (
