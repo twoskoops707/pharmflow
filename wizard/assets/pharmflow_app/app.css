@@ -635,6 +635,40 @@ body::before {
   font-variant-numeric: tabular-nums;
 }
 
+/* PEF-48: unmistakable GATE_OK / GATE_BLOCKED above Start farm */
+.farm-start-gate-banner {
+  margin: 0 0 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--line2);
+  border-radius: var(--rad-sm);
+  background: var(--panel2);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  line-height: 1.45;
+  white-space: normal;
+  word-break: break-word;
+}
+
+.farm-start-gate-banner.gate-ok {
+  border-color: rgba(61, 169, 133, 0.65);
+  background: rgba(61, 169, 133, 0.14);
+  color: #9fe0c5;
+}
+
+.farm-start-gate-banner.gate-blocked {
+  border-color: rgba(207, 106, 99, 0.65);
+  background: rgba(207, 106, 99, 0.14);
+  color: #f0b4af;
+}
+
+.farm-start-gate-banner.gate-pending {
+  border-color: rgba(210, 171, 52, 0.45);
+  background: rgba(210, 171, 52, 0.1);
+  color: #e6d08a;
+}
+
 /* ---------- buttons ---------- */
 
 button {

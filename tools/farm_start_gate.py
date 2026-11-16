@@ -162,13 +162,23 @@ def _income_path_ready(prefs: dict[str, Any]) -> tuple[bool, list[str]]:
     return (not problems), problems
 
 
+def _gate_label(ok: bool) -> str:
+    """Unmistakable Control Panel / dump token — never starts the farm."""
+    return "GATE_OK" if ok else "GATE_BLOCKED"
+
+
 def evaluate_start_gate(
     *,
     serials: list[str] | None = None,
     log: LogFn | None = None,
     apply_stealth_defaults: bool = True,
+    skip_audit: bool = False,
 ) -> dict[str, Any]:
-    """Return ok=True only when stealth AND funds checks both pass."""
+    """Return ok=True only when stealth AND funds checks both pass.
+
+    ``skip_audit=True`` skips the slow fingerprint round-trip (Control Panel
+    banner / PEF-44 fast dump). Funds/path checks still run. Never starts the farm.
+    """
     prefs = _desktop_prefs()
     if apply_stealth_defaults and prefs.get("mask_emulator_fingerprint") is not True:
         # Soft default: treat missing as True; explicit False is a gate fail
@@ -179,16 +189,30 @@ def evaluate_start_gate(
     if gate_stop.is_file():
         return {
             "ok": False,
+            "gate_label": _gate_label(False),
             "stealth_ok": False,
             "funds_ok": False,
             "error": "Stealth gate stop file is set (FARM_STEALTH_GATE_STOP.json) — Start farm refused.",
+            "message": "GATE_BLOCKED — stealth gate stop file is set (FARM_STEALTH_GATE_STOP.json).",
             "phones": [],
+            "phone_count": 0,
             "stealth": {},
             "funds": _funds_snapshot(),
+            "audit_skipped": bool(skip_audit),
         }
 
     phones = list(serials) if serials is not None else _discover_phones(log)
-    stealth = _stealth_audit(phones, log)
+    if skip_audit:
+        stealth = {
+            "ok": True,
+            "phones": len(phones),
+            "phones_with_leaks": 0,
+            "leaks_total": 0,
+            "all_clean": True,
+            "skipped": True,
+        }
+    else:
+        stealth = _stealth_audit(phones, log)
     stealth_ok = bool(phones) and bool(stealth.get("all_clean")) and not stealth.get("error")
 
     path_ok, path_problems = _income_path_ready(prefs)
@@ -225,13 +249,16 @@ def evaluate_start_gate(
     if not funds_ok:
         errors.append(funds_reason or "funds check failed")
 
-    message = (
-        "Start farm gate OK — stealth clean and funds-ready."
-        if ok
-        else "Start farm refused: " + "; ".join(errors)
-    )
+    label = _gate_label(ok)
+    if ok and skip_audit:
+        message = f"{label} — funds-ready (fingerprint audit skipped). Human click Start farm only."
+    elif ok:
+        message = f"{label} — stealth clean and funds-ready. Human click Start farm only."
+    else:
+        message = f"{label} — Start farm refused: " + "; ".join(errors)
     return {
         "ok": ok,
+        "gate_label": label,
         "stealth_ok": stealth_ok,
         "funds_ok": funds_ok,
         "error": None if ok else message,
@@ -241,6 +268,7 @@ def evaluate_start_gate(
         "stealth": stealth,
         "funds": {**funds, "path_ok": path_ok, "path_problems": path_problems, "reason": funds_reason},
         "prefer_newest_build": True,
+        "audit_skipped": bool(skip_audit),
     }
 
 

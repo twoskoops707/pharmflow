@@ -126,8 +126,9 @@
             <div class="main-grid">
               <section class="panel panel-run-actions">
                 <h2 class="panel-title">Quick start</h2>
+                <p class="status-line farm-start-gate-banner" id="farm-start-gate-status-home" role="status" aria-live="polite">GATE: checking stealth + funds…</p>
                 <div class="action-row action-row-big">
-                  <button type="button" class="btn-go" id="btn-start-farm-home" data-help="Farms every phone already answering ADB. This button does not boot phones. If nothing is answering, press Boot all phones first.">Start farm</button>
+                  <button type="button" class="btn-go" id="btn-start-farm-home" disabled data-help="Farms every phone already answering ADB only when GATE_OK. Human click only — never auto-starts. If nothing is answering, press Boot all phones first.">Start farm</button>
                   <button type="button" class="btn-go btn-go-secondary" id="btn-open-dash-home" data-help="Opens the farm operator dashboard at 127.0.0.1:8091. If that is down, it says so. It does not open the control dashboard.">Open dashboard</button>
                   <button type="button" class="btn-go btn-go-secondary" id="btn-health-home" data-help="Session quality from the farm log. LIVE means a farm worker process is running, not that the log was touched recently.">Farm health</button>
                 </div>
@@ -667,7 +668,7 @@
                 <div class="action-row">
                   <button type="button" class="btn-go" id="btn-start-automation" data-help="Boots stopped phones, then starts the service and runs every group. Does not wipe AVD data.">Start automation (service + run)</button>
                 </div>
-                <p class="status-line" id="farm-start-gate-status">Start farm gate: checking stealth + funds…</p>
+                <p class="status-line farm-start-gate-banner" id="farm-start-gate-status" role="status" aria-live="polite">GATE: checking stealth + funds…</p>
                 <div class="advanced-block">
                   <p class="panel-title">Extra tools</p>
                   <div class="advanced-actions">

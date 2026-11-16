@@ -1043,3 +1043,10 @@ Branch cursor/local-cloud-phones-gate-087b tip matches. No farm start. No live E
 
 ## [2026-11-16T01:25Z] FROM cursor-orphan-heal TO Buffy / consolidator / all
 PEF-26 orphan-python self-heal pushed: branch `cursor/orphan-python-self-heal-11bd` @ bad1ea4. ManagePullRequest create pending user approval. No C:\PharmFlow\PharmFlow.exe touch. No farm Start. phone_process_budget untouched.
+
+## [2026-11-16T04:25Z] FROM Cursor PEF-48 (bc-189dc7e3) TO all
+
+PEF-48 Start farm GATE_OK banner: branch `cursor/start-farm-gate-banner-2337` off main.
+Extends farm_start_gate / farm_start_gate_status (skip_audit for UI banner; full audit on Start).
+Home + Run show GATE_OK / GATE_BLOCKED; primary Start farm enabled only when ok=true.
+Never auto-starts. No live EXE swap. No farm Start from this agent.

@@ -132,19 +132,58 @@ class FarmStartGateTests(unittest.TestCase):
         bridge = (ROOT / "wizard" / "pharmflow_wizard_bridge.py").read_text(encoding="utf-8")
         self.assertIn("def farm_start_gate_status(", bridge)
         self.assertIn("def attach_local_and_cloud_phones(", bridge)
-        self.assertIn("farm_start_gate_status()", bridge)
+        self.assertIn("farm_start_gate_status", bridge)
+        self.assertIn("skip_audit", bridge)
         web = (ROOT / "wizard" / "pharmflow_app_webview.py").read_text(encoding="utf-8")
         self.assertIn("def farm_start_gate_status(", web)
         self.assertIn("def attach_local_and_cloud_phones(", web)
         html = (ROOT / "wizard" / "assets" / "pharmflow_app" / "index.html").read_text(encoding="utf-8")
         self.assertIn("btn-attach-phones", html)
         self.assertIn("farm-start-gate-status", html)
+        self.assertIn("farm-start-gate-status-home", html)
+        self.assertIn("farm-start-gate-banner", html)
+        self.assertIn('id="btn-start-farm-home"', html)
+        self.assertRegex(html, r'id="btn-start-farm-home"[^>]*\bdisabled\b')
         js = (ROOT / "wizard" / "assets" / "pharmflow_app" / "app.js").read_text(encoding="utf-8")
         self.assertIn("attach_local_and_cloud_phones", js)
         self.assertIn("farm_start_gate_status", js)
+        self.assertIn("GATE_OK", js)
+        self.assertIn("GATE_BLOCKED", js)
+        self.assertIn("applyStartFarmGateControls", js)
+        self.assertIn("farmStartGateOk", js)
+        css = (ROOT / "wizard" / "assets" / "pharmflow_app" / "app.css").read_text(encoding="utf-8")
+        self.assertIn(".farm-start-gate-banner", css)
+        self.assertIn(".gate-ok", css)
+        self.assertIn(".gate-blocked", css)
         fc = (ROOT / "wizard" / "farm_control.py").read_text(encoding="utf-8")
         self.assertIn("farm_start_gate.evaluate_start_gate", fc)
         self.assertIn("prefer_newest_farm_builds", fc)
+
+    def test_gate_label_ok_and_blocked(self) -> None:
+        with patch.object(gate, "_discover_phones", return_value=[]):
+            with patch.object(gate, "_desktop_prefs", return_value={}):
+                with patch.object(gate, "_funds_snapshot", return_value={}):
+                    with patch.object(gate, "_income_path_ready", return_value=(False, ["no site"])):
+                        blocked = gate.evaluate_start_gate(
+                            serials=[], apply_stealth_defaults=False, skip_audit=True
+                        )
+        self.assertFalse(blocked["ok"])
+        self.assertEqual(blocked["gate_label"], "GATE_BLOCKED")
+        self.assertIn("GATE_BLOCKED", blocked["message"])
+
+        with patch.object(gate, "_stealth_audit", return_value={"all_clean": True}):
+            with patch.object(gate, "_desktop_prefs", return_value={}):
+                with patch.object(gate, "_funds_snapshot", return_value={}):
+                    with patch.object(gate, "_income_path_ready", return_value=(True, [])):
+                        ok = gate.evaluate_start_gate(
+                            serials=["10.0.2.2:5555"],
+                            apply_stealth_defaults=False,
+                            skip_audit=True,
+                        )
+        self.assertTrue(ok["ok"])
+        self.assertEqual(ok["gate_label"], "GATE_OK")
+        self.assertIn("GATE_OK", ok["message"])
+        self.assertTrue(ok.get("audit_skipped"))
 
 
 class CloudAttachSurfaceTests(unittest.TestCase):
