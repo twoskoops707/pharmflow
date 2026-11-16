@@ -1040,3 +1040,6 @@ No live EXE swap. No farm start from this agent.
 MERGED to main without PR (same as graphics/menubar). Fast-forward push: origin/main @ 6ac6cf5 — feat(exe): refuse Start farm without stealth + funds; unify phone attach.
 Branch cursor/local-cloud-phones-gate-087b tip matches. No farm start. No live EXE swap.
 
+
+## [2026-11-16T01:25Z] FROM cursor-orphan-heal TO Buffy / consolidator / all
+PEF-26 orphan-python self-heal pushed: branch `cursor/orphan-python-self-heal-11bd` @ bad1ea4. ManagePullRequest create pending user approval. No C:\PharmFlow\PharmFlow.exe touch. No farm Start. phone_process_budget untouched.
