@@ -324,6 +324,19 @@ class FarmControlTests(unittest.TestCase):
         ):
             self.assertFalse(external_python_farm_running())
 
+    def test_farm_running_ignores_fresh_log_heartbeat(self) -> None:
+        """A3: fresh farm_354.log must not paint farm_running True alone."""
+        from wizard.farm_control import farm_running
+
+        with (
+            patch("wizard.farm_control._farm_heartbeat_alive", return_value=True),
+            patch("wizard.farm_control.farm_process_alive", return_value=False),
+            patch("wizard.farm_control.external_python_farm_running", return_value=False),
+            patch("wizard.farm_control._helper_already_alive", return_value=False),
+            patch("wizard.farm_control._unison_supervisor_alive", return_value=False),
+        ):
+            self.assertFalse(farm_running())
+
     def test_operator_stack_three_unison_lanes(self) -> None:
         # Unison stack: one supervisor lane arms farm + stealth + watchdog; the
         # old per-helper scripts (remediate loop, keep-alive, inject proxies,

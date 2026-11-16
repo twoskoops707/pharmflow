@@ -36,16 +36,33 @@ INTERVAL_S = float(os.environ.get("CPHARM_KEEPALIVE_INTERVAL_S", "90"))
 sys.path.insert(0, str(ROOT))
 
 import automation.no_window  # noqa: E402,F401
-from automation.cpharm_unison_dedupe import pids_for_script  # noqa: E402
+from automation.pharmflow_unison_dedupe import pids_for_script  # noqa: E402
 from automation.farm_health_audit import apply_money_rails  # noqa: E402
 from automation.farm_process_janitor import sweep_dead_processes  # noqa: E402
 
 
 def _unison_active() -> bool:
+    """True when unison (pharmflow or legacy cpharm name) owns the stack."""
     try:
-        return bool(pids_for_script("cpharm_unison_supervisor.py"))
+        if pids_for_script("pharmflow_unison_supervisor.py"):
+            return True
+        if pids_for_script("cpharm_unison_supervisor.py"):
+            return True
     except Exception:
-        return False
+        pass
+    return False
+
+
+def _stack_owned() -> bool:
+    """True when PharmFlow.exe or unison owns the money path — keepalive must exit."""
+    try:
+        from automation.pharmflow_exe_owned import exe_owns_farm
+
+        if exe_owns_farm():
+            return True
+    except Exception:
+        pass
+    return _unison_active()
 
 
 def _utc() -> str:
@@ -141,6 +158,9 @@ def ensure_farm_worker() -> list[str]:
     Frozen EXE + CPHARM_EXE_OWNED.flag made MEI ensure skip spawn, so a dead
     worker stayed dead (0 clicks). Respawn from FamFlow, never from MEI.
     """
+    if _stack_owned():
+        return ["exe_or_unison_owns_skip_farm"]
+
     from automation.farm_pause import farm_halted
 
     if farm_halted():
@@ -436,11 +456,20 @@ def cycle() -> dict:
 
 def main() -> int:
     LOG.mkdir(parents=True, exist_ok=True)
-    if _unison_active():
-        print("keep_farm_alive: unison supervisor owns stack — exiting", flush=True)
+    if _stack_owned():
+        print(
+            "keep_farm_alive: PharmFlow.exe / unison owns stack — exiting (no orphan respawn)",
+            flush=True,
+        )
         return 0
     print(f"keep_farm_alive start interval={INTERVAL_S}s", flush=True)
     while True:
+        if _stack_owned():
+            print(
+                "keep_farm_alive: ownership claimed mid-run — exiting (no orphan respawn)",
+                flush=True,
+            )
+            return 0
         t0 = time.time()
         try:
             cycle()

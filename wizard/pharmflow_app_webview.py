@@ -812,6 +812,16 @@ class PharmFlowAppApi:
     def fix_phone_internet(self) -> dict:
         return self._bridge_call("fix_phone_internet")
 
+    def ensure_both_dashboards(self, open_browser: bool = True) -> dict:
+        return self._bridge_call("ensure_both_dashboards", bool(open_browser))
+
+    def boot_ensure_dashboards(self) -> dict:
+        """Bring :8080+:8091 up once when the Control Panel loads (A4)."""
+        return self._bridge_call("ensure_both_dashboards", False)
+
+    def farm_ssot_running(self) -> dict:
+        return self._bridge_call("farm_ssot_running")
+
     def open_dashboard(self) -> dict:
         return self._bridge_call("open_dashboard")
 
