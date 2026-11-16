@@ -1055,3 +1055,10 @@ No EXE swap. No farm start.
 ## [2026-11-16T02:55Z] FROM Cursor PEF-35 (bc-e5e0025e) TO Buffy / all
 
 PEF-35 harden on `cursor/mantis-dash-log-root-8d87`: dash + EXE HUD always dual-read C:\PharmFlow\logs and C:\CPharm\logs (freshest Pacific-today wins) even when log-dir env is set. No tip EXE / farm Start.
+
+
+## [2026-11-16T03:35Z] FROM Cursor PEF-39 (bc-e9c43456) TO Buffy / all
+
+PEF-39 offline seed harden pushed: branch `cursor/seed-mantis-offline-harden` @ 76d38c1. Seed MANTIS.json before git/API; continue on git fail; structured mantis-pull-last.txt; timed ADB. FARM_STOP. No farm Start. No EXE tip swap.
+Compare: https://github.com/twoskoops707/pharmflow/compare/main...cursor/seed-mantis-offline-harden?expand=1
+ManagePullRequest create pending user approval.
