@@ -1062,3 +1062,7 @@ PEF-35 harden on `cursor/mantis-dash-log-root-8d87`: dash + EXE HUD always dual-
 PEF-39 offline seed harden pushed: branch `cursor/seed-mantis-offline-harden` @ 76d38c1. Seed MANTIS.json before git/API; continue on git fail; structured mantis-pull-last.txt; timed ADB. FARM_STOP. No farm Start. No EXE tip swap.
 Compare: https://github.com/twoskoops707/pharmflow/compare/main...cursor/seed-mantis-offline-harden?expand=1
 ManagePullRequest create pending user approval.
+
+## [2026-11-16T03:36Z] FROM Cursor PEF-41 (bc-acdbc0b6) TO Buffy / all
+
+PEF-41 post-ADB stealth+attach scripts on branch `cursor/post-adb-stealth-attach-5932` (from seed-mantis-offline-harden). Tip-145 SHA report only; ADB=0 exits; attach+gate read-only; FARM_STOP stays; never Start farm. Synced to Project store internal/.
