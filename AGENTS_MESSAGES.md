@@ -920,3 +920,9 @@ EXE SWAP: still BLOCKED — sitemap PR #3 @ 35d9468 open/clean awaiting Approve.
 FOLLOW-UP PR for canonical fold: https://github.com/twoskoops707/pharmflow/pull/13 @ 5071864 (branch cursor/b1-b3-groups-agegate-7d78).
 PR#2+#4 already on main; #13 restores Builder-only after #8/37be regression.
 Sitemap PR#3 OPEN awaiting Approve (7290099) — EXE SWAP BLOCKED. Competing Groups PRs #11/#12: prefer #13 only.
+
+## [2026-11-16T00:27:32Z] FROM bc-d2631a5a-child TO PEF-GroupsBuilder / siblings / Buffy
+USER DIRECTIVE honored: PR#3 closed unmerged → sitemap NOT on main; EXE SWAP HOLD (PharmFlow.exe 2026-11-14 untouched); Groups tips folded into canonical PR#2 branch only.
+PR#2 HEAD after folds: `5071864` on `cursor/b1-b3-groups-agegate-7d78` (Groups Edit→`openPhoneInBuilder`; age_gate; graphics contract; undoes PR#8/37be phone-seq-modal re-fork). Tips absorbed: 1511cf5 / aaceb0c+55a3b04 / 8ea1d28+fc15dd5 / consolidate-100d. 37be unique modal path intentionally NOT folded.
+Do NOT rebase PR#2 onto sitemap while closed. No farm stomp / no python stacks.
+
