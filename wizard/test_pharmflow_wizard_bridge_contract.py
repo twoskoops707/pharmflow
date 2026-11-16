@@ -33,9 +33,24 @@ class PharmFlowWizardBridgeContractTests(unittest.TestCase):
             "list_saved_sequences",
             "cursor_save_named_sequence",
             "cursor_set_phone_playlist",
+            "cursor_get_phone_sequence",
+            "cursor_set_phone_steps",
             "run_edit_phone_sequence",
         ):
             self.assertIn(f"def {name}(", BRIDGE)
+
+    def test_run_edit_phone_sequence_is_deck_native_not_tk(self):
+        """Groups Edit must not open legacy Tk PerPhoneSequenceEditor."""
+        block = BRIDGE.split("def run_edit_phone_sequence(")[1].split("\ndef ")[0]
+        self.assertIn("cursor_get_phone_sequence", block)
+        self.assertNotIn("PerPhoneSequenceEditor(", block)
+        self.assertNotIn("_tk_dialog_parent", block)
+        self.assertNotIn("_safe_run_on_tk", block)
+        get_block = BRIDGE.split("def cursor_get_phone_sequence(")[1].split("\ndef ")[0]
+        self.assertIn("_phone_entry_for_edit", get_block)
+        set_block = BRIDGE.split("def cursor_set_phone_steps(")[1].split("\ndef ")[0]
+        self.assertIn("_persist_groups_config", set_block)
+        self.assertIn('ent["steps"]', set_block)
 
     def test_start_farm_takes_over_external_python_stack(self):
         """EXE-only law: never refuse Start farm while orphans drive phones."""

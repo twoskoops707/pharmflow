@@ -670,6 +670,14 @@ class PharmFlowAppApi:
     def run_edit_phone_sequence(self, group_i: int = 0, serial: str = "") -> dict:
         return self._bridge_call("run_edit_phone_sequence", group_i, serial)
 
+    def cursor_get_phone_sequence(self, group_i: int = 0, serial: str = "") -> dict:
+        return self._bridge_call("cursor_get_phone_sequence", group_i, serial)
+
+    def cursor_set_phone_steps(
+        self, group_i: int = 0, serial: str = "", steps: list | None = None
+    ) -> dict:
+        return self._bridge_call("cursor_set_phone_steps", group_i, serial, steps)
+
     def list_saved_sequences(self) -> dict:
         return self._bridge_call("list_saved_sequences")
 

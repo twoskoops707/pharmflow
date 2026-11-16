@@ -2397,66 +2397,120 @@ def run_edit_default_sequence() -> dict:
     return _spawn_visible_wizard(5, "edit_sequence")
 
 
-def run_edit_phone_sequence(group_i: int = 0, serial: str = "") -> dict:
-    """Open PerPhoneSequenceEditor for one group phone (Tk dialog; deck Groups Edit)."""
+def _phone_entry_for_edit(group_i: int, serial: str) -> tuple[dict | None, dict | None, str | None]:
+    """Resolve group phones[serial] entry. Returns (ent, detail_extras, error)."""
+    from setup_wizard import state
+
+    _reload_persisted_wizard_state()
+    idx, err = _as_index(group_i, label="group index")
+    if err or idx is None:
+        return None, None, err or "Invalid group index"
+    groups = state.get("groups") or []
+    if idx < 0 or idx >= len(groups):
+        return None, None, f"Group index out of range: {idx}"
+    g = groups[idx]
+    if not isinstance(g, dict):
+        return None, None, "Group is not an object"
+    pmap = g.setdefault("phones", {})
+    if not isinstance(pmap, dict):
+        return None, None, "Group phones map invalid"
+    ser = (serial or "").strip()
+    if not ser:
+        return None, None, "serial required"
+    ent = pmap.setdefault(ser, {"steps": []})
+    if not isinstance(ent, dict):
+        ent = {"steps": []}
+        pmap[ser] = ent
+    steps = ent.setdefault("steps", [])
+    if not isinstance(steps, list):
+        steps = []
+        ent["steps"] = steps
+    phone_name = ser
+    for p in state.get("phones") or []:
+        if isinstance(p, dict) and (p.get("serial") or "").strip() == ser:
+            phone_name = (p.get("name") or ser).strip() or ser
+            break
+    extras = {
+        "group_index": idx,
+        "serial": ser,
+        "phone_name": phone_name,
+        "group_name": (g.get("name") or "Group"),
+    }
+    return ent, extras, None
+
+
+def cursor_get_phone_sequence(group_i: int = 0, serial: str = "") -> dict:
+    """Deck-native: return phones[serial].steps (+ playlist meta) for Groups Edit."""
 
     def work() -> dict:
-        from setup_wizard import PerPhoneSequenceEditor, _persist_groups_config, state
-
-        _reload_persisted_wizard_state()
-        idx, err = _as_index(group_i, label="group index")
-        if err or idx is None:
-            return {"ok": False, "error": err or "Invalid group index"}
-        groups = state.get("groups") or []
-        if idx < 0 or idx >= len(groups):
-            return {"ok": False, "error": f"Group index out of range: {idx}"}
-        g = groups[idx]
-        if not isinstance(g, dict):
-            return {"ok": False, "error": "Group is not an object"}
-        pmap = g.setdefault("phones", {})
-        if not isinstance(pmap, dict):
-            return {"ok": False, "error": "Group phones map invalid"}
-        ser = (serial or "").strip()
-        if not ser:
-            return {"ok": False, "error": "serial required"}
-        ent = pmap.setdefault(ser, {"steps": []})
-        if not isinstance(ent, dict):
-            ent = {"steps": []}
-            pmap[ser] = ent
-        steps = ent.setdefault("steps", [])
-        if not isinstance(steps, list):
-            steps = []
-            ent["steps"] = steps
-        phone_name = ser
-        for p in state.get("phones") or []:
-            if isinstance(p, dict) and (p.get("serial") or "").strip() == ser:
-                phone_name = (p.get("name") or ser).strip() or ser
-                break
-        parent = _tk_dialog_parent()
-        dlg = PerPhoneSequenceEditor(
-            parent,
-            serial=ser,
-            phone_name=phone_name,
-            steps_list=steps,
-            phone_ent=ent,
+        from setup_wizard import (
+            _normalize_sequence_playlist_items,
+            _normalize_sequence_playlist_shuffle,
         )
-        dlg.transient(parent)
-        dlg.protocol("WM_DELETE_WINDOW", dlg.destroy)
-        _show_tk_window(dlg)
-        dlg.grab_set()
-        dlg.wait_window()
-        if getattr(dlg, "_did_save", False):
-            ent["use_default_template"] = False
-            ent["explicit_override"] = True
-            try:
-                _persist_groups_config()
-            except Exception:
-                pass
-            _persist_editor_state()
-        return {"ok": True, "saved": bool(getattr(dlg, "_did_save", False)), **_groups_detail_from_state()}
 
-    # In-process Tk only — spawn cannot carry group_i/serial into PerPhoneSequenceEditor.
-    return _safe_run_on_tk(work)
+        ent, extras, err = _phone_entry_for_edit(group_i, serial)
+        if err or ent is None or extras is None:
+            return {"ok": False, "error": err or "Phone not found"}
+        steps = list(ent.get("steps") or [])
+        return {
+            "ok": True,
+            "steps": steps,
+            "count": len(steps),
+            "playlist": _normalize_sequence_playlist_items(ent.get("sequence_playlist")),
+            "playlist_secondary": _normalize_sequence_playlist_items(
+                ent.get("sequence_playlist_secondary")
+            ),
+            "playlist_mode": (ent.get("sequence_playlist_mode") or "series"),
+            "playlist_shuffle": _normalize_sequence_playlist_shuffle(
+                ent.get("sequence_playlist_shuffle")
+            ),
+            **extras,
+        }
+
+    return _run_direct(work)
+
+
+def cursor_set_phone_steps(
+    group_i: int = 0,
+    serial: str = "",
+    steps: list | None = None,
+) -> dict:
+    """Deck-native: persist phones[serial].steps from the Groups Builder-style editor."""
+
+    def work() -> dict:
+        from setup_wizard import _normalize_sequence_steps, _persist_groups_config
+
+        ent, extras, err = _phone_entry_for_edit(group_i, serial)
+        if err or ent is None or extras is None:
+            return {"ok": False, "error": err or "Phone not found"}
+        raw = steps if isinstance(steps, list) else []
+        normalized = _normalize_sequence_steps(raw)
+        ent["steps"] = list(normalized)
+        ent["use_default_template"] = False
+        ent["explicit_override"] = True
+        try:
+            _persist_groups_config()
+        except Exception as exc:
+            return {"ok": False, "error": f"persist failed: {exc}", "steps": list(ent["steps"])}
+        _persist_editor_state()
+        return {
+            "ok": True,
+            "saved": True,
+            "steps": list(ent["steps"]),
+            "count": len(ent["steps"]),
+            **extras,
+            **_groups_detail_from_state(),
+        }
+
+    return _run_direct(work)
+
+
+def run_edit_phone_sequence(group_i: int = 0, serial: str = "") -> dict:
+    """Deck-native Groups Edit: return phone sequence for the in-webview Builder-style editor.
+
+    Does not open the legacy Tk dialog; deck Groups Edit uses the Builder-style modal.
+    """
+    return cursor_get_phone_sequence(group_i, serial)
 
 
 def list_saved_sequences() -> dict:

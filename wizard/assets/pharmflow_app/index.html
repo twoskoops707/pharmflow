@@ -510,7 +510,7 @@
                 <ol class="instruction-list">
                   <li>Rename or remove groups in the list below — manage them here in the deck.</li>
                   <li>Put each phone in one group.</li>
-                  <li>Add a group only if you need one.</li>
+                  <li>Click <strong>Edit</strong> on a phone to open the Builder-style sequence editor and Save.</li>
                   <li>Then go to <strong>Run</strong>.</li>
                 </ol>
                 <h2 class="panel-title">Your groups</h2>
@@ -529,6 +529,53 @@
                   <button type="button" class="btn-ghost" id="btn-open-dash-teams" data-help="Opens the farm operator dashboard at 127.0.0.1:8091. If that is down, it says so. It does not open the control dashboard.">Open dashboard</button>
                 </div>
               </section>
+            </div>
+            <div id="phone-seq-modal" class="deck-modal" hidden>
+              <div class="deck-modal-card deck-modal-card-builder" id="phone-seq-editor">
+                <header class="panel-head">
+                  <h2 class="panel-title" id="phone-seq-title">Sequence — phone</h2>
+                  <p class="panel-note" id="phone-seq-subtitle">Same Builder editor — edits this phone’s steps in the group.</p>
+                </header>
+                <div class="main-grid main-grid-builder">
+                  <section class="panel panel-builder-list">
+                    <div class="panel-head">
+                      <h3 class="panel-title">Sequence steps</h3>
+                    </div>
+                    <ul class="step-editor-list" id="phone-step-list"></ul>
+                    <p class="panel-note">Select a step to edit it, or add a new one with the form.</p>
+                  </section>
+                  <section class="panel panel-builder-form">
+                    <h3 class="panel-title">Step form</h3>
+                    <form id="phone-step-form" class="builder-step-form" autocomplete="off" onsubmit="return false;">
+                      <div class="step-field-row">
+                        <label class="step-field-label" for="phone-step-type">Type</label>
+                        <select id="phone-step-type" class="browser-select" aria-label="Step type">
+                          <option value="open_url">Open URL</option>
+                          <option value="launch_app">Launch app</option>
+                          <option value="tap">Tap</option>
+                          <option value="wait">Wait</option>
+                          <option value="swipe">Swipe</option>
+                          <option value="keyevent">Keyevent</option>
+                          <option value="close_app">Close app</option>
+                          <option value="clear_cookies">Clear cookies</option>
+                          <option value="rotate_identity">Rotate identity</option>
+                          <option value="type_text">Type text</option>
+                        </select>
+                      </div>
+                      <div id="phone-step-fields" class="builder-step-fields"></div>
+                      <div class="action-row builder-form-actions">
+                        <button type="button" class="btn-go" id="btn-phone-step-add">Add step</button>
+                        <button type="button" class="btn-go btn-go-secondary" id="btn-phone-step-update" disabled hidden>Update selected</button>
+                        <button type="button" class="btn-mini" id="btn-phone-step-clear-sel">Clear selection</button>
+                      </div>
+                    </form>
+                  </section>
+                </div>
+                <div class="action-row" style="margin-top:12px">
+                  <button type="button" class="btn-go" id="btn-phone-seq-save">Save to phone</button>
+                  <button type="button" class="btn-ghost" id="btn-phone-seq-cancel">Cancel</button>
+                </div>
+              </div>
             </div>
           </div>
           <footer class="view-footer-nav">
@@ -704,6 +751,6 @@
       </div>
     </div>
 
-    <script src="app.js?v=20260908"></script>
+    <script src="app.js?v=20261115-groups-builder"></script>
   </body>
 </html>
