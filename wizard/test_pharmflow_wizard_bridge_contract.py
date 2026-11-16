@@ -654,10 +654,15 @@ class HeadlessDeckTests(unittest.TestCase):
         self.assertIn("def cloud_session_status(", BRIDGE)
         self.assertIn("def attach_local_and_cloud_phones(", BRIDGE)
         self.assertIn("def farm_start_gate_status(", BRIDGE)
+        self.assertIn("def dump_gate_status_fast(", BRIDGE)
         login = BRIDGE.split("def cloud_connect_login(")[1].split("\ndef ")[0]
         self.assertIn("cloud_phone_setup(", login)
         start = BRIDGE.split("def start_farm_from_app(")[1].split("\ndef ")[0]
-        self.assertIn("farm_start_gate_status()", start)
+        self.assertIn("farm_start_gate_status(False)", start)
+        self.assertIn("skip_audit", BRIDGE.split("def farm_start_gate_status(")[1].split("\ndef ")[0])
+        dump = BRIDGE.split("def dump_gate_status_fast(")[1].split("\ndef ")[0]
+        self.assertNotIn("start_farm(", dump)
+        self.assertNotIn("start_farm_from_app", dump)
         self.assertIn("31415", BRIDGE.split("def cloud_agent_config(")[1].split("\ndef ")[0])
         self.assertEqual(
             calls,
@@ -1117,6 +1122,19 @@ class FarmSettingsDoNotCapTests(unittest.TestCase):
         block = js.split("return a.start_farm();")[1].split("btn-stop-farm-home")[0]
         self.assertIn("res.started && res.running", block)
         self.assertNotIn("else if (res && res.started) {", block)
+
+    def test_immediate_start_success_finishes_action(self):
+        """Already-running Start path must clear beginAction or the button stays disabled."""
+        js = (ROOT / "wizard" / "assets" / "pharmflow_app" / "app.js").read_text(encoding="utf-8")
+        block = js.split("return a.start_farm();")[1].split("btn-stop-farm-home")[0]
+        immediate = block.split(
+            "if (res && res.running && res.dashboard_ready === true)"
+        )[1].split("if (res && (res.error")[0]
+        self.assertIn("applyHomeFarmState(true)", immediate)
+        self.assertIn("finishAction()", immediate)
+        self.assertIn("openFarmDash()", immediate)
+        # Human-only Start: this handler is click-driven, never auto-invoked.
+        self.assertIn('btnStartHome.addEventListener("click"', js)
 
     def test_install_everything_does_not_claim_adb_or_webview(self):
         html = (ROOT / "wizard" / "assets" / "pharmflow_app" / "index.html").read_text(encoding="utf-8")

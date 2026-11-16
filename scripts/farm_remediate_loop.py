@@ -1198,6 +1198,7 @@ def cycle() -> dict:
     except OSError:
         pass
     if do_pull:
+        os.environ["PHARMFLOW_MANTIS_ALLOW_HEADED"] = "0"
         os.environ["CPHARM_MANTIS_ALLOW_HEADED"] = "0"
         pull_mantis_soft()
         stamp.write_text(_utc(), encoding="utf-8")

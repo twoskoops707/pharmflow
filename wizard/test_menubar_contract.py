@@ -32,8 +32,11 @@ class MenubarContractTests(unittest.TestCase):
             "view.health",
             "view.farm_dash",
             "view.control_dash",
+            "view.gate_status",
             "options.farm_prefs",
             "options.reset_step",
+            "options.gate_status",
+            "options.gate_status_full",
             "options.classic_wizard",
             "help.guide",
             "help.about",
@@ -52,6 +55,8 @@ class MenubarContractTests(unittest.TestCase):
         self.assertIn("menuLoadSequence", JS)
         self.assertIn("menuSaveSequence", JS)
         self.assertIn("menuFarmPrefs", JS)
+        self.assertIn("menuDumpGateStatus", JS)
+        self.assertIn("dump_gate_status_fast", JS)
         self.assertIn("openAbout", JS)
         # No dead stub toasts for core actions
         self.assertNotIn("Coming soon", JS.split("function menuAction")[1].split("window.__pharmflowOpenHelp")[0])
@@ -68,7 +73,10 @@ class MenubarContractTests(unittest.TestCase):
             "edit.copy",
             "view.start",
             "view.farm_dash",
+            "view.gate_status",
             "options.farm_prefs",
+            "options.gate_status",
+            "options.gate_status_full",
             "help.guide",
             "help.about",
         ):
@@ -81,6 +89,7 @@ class MenubarContractTests(unittest.TestCase):
             "open_logs_folder",
             "get_about_info",
             "exit_app",
+            "dump_gate_status_fast",
         ):
             self.assertIn(f"def {name}(", WEB)
 

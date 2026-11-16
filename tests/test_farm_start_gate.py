@@ -131,20 +131,105 @@ class FarmStartGateTests(unittest.TestCase):
     def test_bridge_and_deck_expose_gate_and_attach(self) -> None:
         bridge = (ROOT / "wizard" / "pharmflow_wizard_bridge.py").read_text(encoding="utf-8")
         self.assertIn("def farm_start_gate_status(", bridge)
+        self.assertIn("def dump_gate_status_fast(", bridge)
         self.assertIn("def attach_local_and_cloud_phones(", bridge)
-        self.assertIn("farm_start_gate_status()", bridge)
+        self.assertIn("farm_start_gate_status", bridge)
+        self.assertIn("skip_audit", bridge)
+        dump = bridge.split("def dump_gate_status_fast(")[1].split("\ndef ")[0]
+        self.assertIn("dump_gate_status_fast", dump)
+        self.assertNotIn("start_farm(", dump)
+        self.assertNotIn("start_farm_from_app", dump)
         web = (ROOT / "wizard" / "pharmflow_app_webview.py").read_text(encoding="utf-8")
         self.assertIn("def farm_start_gate_status(", web)
+        self.assertIn("def dump_gate_status_fast(", web)
         self.assertIn("def attach_local_and_cloud_phones(", web)
         html = (ROOT / "wizard" / "assets" / "pharmflow_app" / "index.html").read_text(encoding="utf-8")
         self.assertIn("btn-attach-phones", html)
         self.assertIn("farm-start-gate-status", html)
+        self.assertIn('data-menu-action="options.gate_status"', html)
+        self.assertIn("farm-start-gate-status-home", html)
+        self.assertIn("farm-start-gate-banner", html)
+        self.assertIn('id="btn-start-farm-home"', html)
+        self.assertRegex(html, r'id="btn-start-farm-home"[^>]*\bdisabled\b')
         js = (ROOT / "wizard" / "assets" / "pharmflow_app" / "app.js").read_text(encoding="utf-8")
         self.assertIn("attach_local_and_cloud_phones", js)
         self.assertIn("farm_start_gate_status", js)
+        self.assertIn("dump_gate_status_fast", js)
+        self.assertIn("menuDumpGateStatus", js)
+        self.assertIn("GATE_OK", js)
+        self.assertIn("GATE_BLOCKED", js)
+        self.assertIn("applyStartFarmGateControls", js)
+        self.assertIn("farmStartGateOk", js)
+        css = (ROOT / "wizard" / "assets" / "pharmflow_app" / "app.css").read_text(encoding="utf-8")
+        self.assertIn(".farm-start-gate-banner", css)
+        self.assertIn(".gate-ok", css)
+        self.assertIn(".gate-blocked", css)
         fc = (ROOT / "wizard" / "farm_control.py").read_text(encoding="utf-8")
         self.assertIn("farm_start_gate.evaluate_start_gate", fc)
         self.assertIn("prefer_newest_farm_builds", fc)
+
+    def test_dump_gate_status_fast_writes_log_skip_audit(self) -> None:
+        with (
+            patch.object(gate, "_logs_dir", return_value=self.logs),
+            patch.object(
+                gate,
+                "_desktop_prefs",
+                return_value={"mask_emulator_fingerprint": True, "dabflow_mantis_patch": True},
+            ),
+            patch.object(
+                gate,
+                "_stealth_audit",
+                side_effect=AssertionError("skip_audit must not call fingerprint audit"),
+            ),
+            patch("wizard.site_prefs.load_target_site_url", return_value="https://getdabflow.app/"),
+            patch.dict("os.environ", {"PHARMFLOW_MANTIS_BILLING_DIRECT": "0"}, clear=False),
+        ):
+            out = gate.dump_gate_status_fast(
+                serials=["10.0.2.2:5555"],
+                skip_audit=True,
+            )
+        self.assertTrue(out.get("dumped"))
+        self.assertEqual(out.get("start_farm"), "never")
+        self.assertTrue(out.get("audit_skipped"))
+        path = Path(out["path"])
+        self.assertEqual(path.name, "gate-status-fast-last.txt")
+        self.assertTrue(path.is_file())
+        text = path.read_text(encoding="utf-8")
+        self.assertIn("ADB=1", text)
+        self.assertIn("STEALTH_OK=True (audit_skipped)", text)
+        self.assertIn("FUNDS_OK=", text)
+        self.assertIn("GATE_OK=", text)
+        self.assertIn("MESSAGE=", text)
+        self.assertIn("START_FARM=never", text)
+        src = (ROOT / "tools" / "farm_start_gate.py").read_text(encoding="utf-8")
+        dump_src = src.split("def dump_gate_status_fast(")[1].split("\ndef prefer_newest")[0]
+        self.assertNotIn("start_farm(", dump_src)
+
+    def test_gate_label_ok_and_blocked(self) -> None:
+        with patch.object(gate, "_discover_phones", return_value=[]):
+            with patch.object(gate, "_desktop_prefs", return_value={}):
+                with patch.object(gate, "_funds_snapshot", return_value={}):
+                    with patch.object(gate, "_income_path_ready", return_value=(False, ["no site"])):
+                        blocked = gate.evaluate_start_gate(
+                            serials=[], apply_stealth_defaults=False, skip_audit=True
+                        )
+        self.assertFalse(blocked["ok"])
+        self.assertEqual(blocked["gate_label"], "GATE_BLOCKED")
+        self.assertIn("GATE_BLOCKED", blocked["message"])
+
+        with patch.object(gate, "_stealth_audit", return_value={"all_clean": True}):
+            with patch.object(gate, "_desktop_prefs", return_value={}):
+                with patch.object(gate, "_funds_snapshot", return_value={}):
+                    with patch.object(gate, "_income_path_ready", return_value=(True, [])):
+                        ok = gate.evaluate_start_gate(
+                            serials=["10.0.2.2:5555"],
+                            apply_stealth_defaults=False,
+                            skip_audit=True,
+                        )
+        self.assertTrue(ok["ok"])
+        self.assertEqual(ok["gate_label"], "GATE_OK")
+        self.assertIn("GATE_OK", ok["message"])
+        self.assertTrue(ok.get("audit_skipped"))
 
 
 class CloudAttachSurfaceTests(unittest.TestCase):

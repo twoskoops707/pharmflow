@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import shutil
 import time
 from datetime import date, datetime, timedelta, timezone
 from http.cookiejar import CookieJar
@@ -28,12 +29,24 @@ AUTH_PAGE = "https://admin.mantisadnetwork.com/v4/auth/"
 ADMIN_ORIGIN = "https://admin.mantisadnetwork.com"
 METRICS = ("IMPRESSIONS", "CLICKS", "PAYOUT", "ECPM", "EVCPM")
 
-LOG_DIR = Path(r"C:\PharmFlow\logs")
+def _resolve_log_dir() -> Path:
+    """Align with operator dash / remediator: env override, else PharmFlow logs."""
+    for key in ("PHARMFLOW_LOG_DIR", "PHARMFLOW_LOGS", "CPHARM_LOG_DIR"):
+        env = (os.environ.get(key) or "").strip()
+        if env:
+            return Path(env)
+    return Path(r"C:\PharmFlow\logs")
+
+
+LOG_DIR = _resolve_log_dir()
 COOKIE_HEADER_FILE = LOG_DIR / "mantis_admin_cookie_header.txt"
 PW_PROFILE_DIR = LOG_DIR / "mantis_pw_profile"
 PW_STATE_FILE = LOG_DIR / "mantis_playwright_state.json"
 CREDS_CANDIDATES = (
     LOG_DIR / "MANTIS.json",
+    Path(r"C:\Users\jsmil\FamFlow\logs\MANTIS.json"),
+    Path(r"C:\Users\jsmil\Desktop\FamFlow_Transfer_Pack_2026-08-15\secrets\MANTIS.json"),
+    Path(r"C:\CPharm\logs\MANTIS.json"),
     Path(os.environ.get("PHARMFLOW_CODE_ROOT", "")) / "logs" / "MANTIS.json",
 )
 
@@ -275,7 +288,26 @@ def _merge_money_into_summary(
     return summary
 
 
+def _seed_creds_into_log_dir(source: Path) -> None:
+    """Copy a discovered MANTIS.json into LOG_DIR when the canonical file is missing."""
+    dest = LOG_DIR / "MANTIS.json"
+    if dest.is_file():
+        return
+    try:
+        if source.resolve() == dest.resolve():
+            return
+    except OSError:
+        pass
+    try:
+        LOG_DIR.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, dest)
+        log.info("Seeded MANTIS.json into LOG_DIR from alternate candidate")
+    except OSError as exc:
+        log.warning("Could not seed MANTIS.json into LOG_DIR: %s", exc)
+
+
 def load_creds() -> tuple[str, str]:
+    log_creds = LOG_DIR / "MANTIS.json"
     for path in CREDS_CANDIDATES:
         if not path.is_file():
             continue
@@ -289,8 +321,12 @@ def load_creds() -> tuple[str, str]:
             elif low.startswith("p:"):
                 password = raw.split(":", 1)[1].strip()
         if user and password:
+            if path != log_creds and not log_creds.is_file():
+                _seed_creds_into_log_dir(path)
             return user, password
-    raise FileNotFoundError("MANTIS.json credentials not found under PharmFlow/logs or C:\\PharmFlow\\logs")
+    raise FileNotFoundError(
+        "MANTIS.json credentials not found under LOG_DIR, FamFlow, transfer pack, or CPharm logs"
+    )
 
 
 def load_cookie_header() -> str | None:
@@ -620,8 +656,15 @@ def pull_today(
     # Never auto-open a headed Mantis browser from remediator/dash/money_mon.
     # Headed Chromium was popping the Mantis site then dying and looking like
     # the farm dash "shut down". Opt-in only via headed=True AND env flag.
+    # Accept legacy CPHARM_ prefix (remediator/dash notes) plus canonical PHARMFLOW_.
     allow_headed = headed and (
-        os.environ.get("PHARMFLOW_MANTIS_ALLOW_HEADED", "").strip().lower()
+        (
+            os.environ.get("PHARMFLOW_MANTIS_ALLOW_HEADED")
+            or os.environ.get("CPHARM_MANTIS_ALLOW_HEADED")
+            or ""
+        )
+        .strip()
+        .lower()
         in ("1", "true", "yes", "on")
     )
     try:

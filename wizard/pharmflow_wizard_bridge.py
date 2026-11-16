@@ -4540,8 +4540,12 @@ def attach_local_and_cloud_phones(apply_stealth: bool = True) -> dict:
         return {"ok": False, "error": f"Attach phones failed: {exc}", "phones": []}
 
 
-def farm_start_gate_status() -> dict:
-    """Read-only stealth + funds gate status for the Control Panel."""
+def farm_start_gate_status(skip_audit: bool = True) -> dict:
+    """Read-only stealth + funds gate status for the Control Panel.
+
+    Default skips the slow fingerprint audit (same as PEF-44 dump). Never
+    starts the farm — operator must click Start farm when GATE_OK.
+    """
     tools_dir = Path(__file__).resolve().parent.parent / "tools"
     if getattr(sys, "frozen", False):
         tools_dir = Path(sys._MEIPASS) / "tools"  # type: ignore[attr-defined]
@@ -4550,13 +4554,50 @@ def farm_start_gate_status() -> dict:
     try:
         import farm_start_gate as gate
 
-        return gate.evaluate_start_gate(apply_stealth_defaults=True)
+        return gate.evaluate_start_gate(
+            apply_stealth_defaults=True,
+            skip_audit=bool(skip_audit),
+        )
     except Exception as exc:  # noqa: BLE001
         return {
             "ok": False,
+            "gate_label": "GATE_BLOCKED",
             "stealth_ok": False,
             "funds_ok": False,
             "error": f"Start farm gate status failed: {exc}",
+            "message": f"GATE_BLOCKED — Start farm gate status failed: {exc}",
+        }
+
+
+def dump_gate_status_fast(skip_audit: bool = True) -> dict:
+    """Control Panel action: dump start-gate status to logs. Never starts the farm.
+
+    Default skips the slow fingerprint audit. Writes
+    ``C:\\PharmFlow\\logs\\gate-status-fast-last.txt`` (or PHARMFLOW_LOG_DIR).
+    """
+    tools_dir = Path(__file__).resolve().parent.parent / "tools"
+    if getattr(sys, "frozen", False):
+        tools_dir = Path(sys._MEIPASS) / "tools"  # type: ignore[attr-defined]
+    if str(tools_dir) not in sys.path:
+        sys.path.insert(0, str(tools_dir))
+    try:
+        import farm_start_gate as gate
+
+        def _log(msg: str) -> None:
+            _emit_log("go", f"[gate] {msg}\n")
+
+        return gate.dump_gate_status_fast(
+            skip_audit=bool(skip_audit),
+            log=_log,
+        )
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "ok": False,
+            "dumped": False,
+            "stealth_ok": False,
+            "funds_ok": False,
+            "error": f"Dump gate status failed: {exc}",
+            "start_farm": "never",
         }
 
 
@@ -4938,7 +4979,8 @@ def start_farm_from_app(profile_slug: str = "", hours: float = 0) -> dict:
         global _farm_start_result, _farm_starting
         try:
             _emit_log("go", "[farm] Starting farm stack — stealth + funds gate, then helper lanes…\n")
-            gate = farm_start_gate_status()
+            # Full fingerprint audit on Start (UI banner may use skip_audit=True).
+            gate = farm_start_gate_status(False)
             if not gate.get("ok"):
                 message = str(
                     gate.get("error")
@@ -5395,21 +5437,23 @@ def _operator_status() -> dict[str, Any] | None:
 def _mantis_today_file() -> dict[str, Any] | None:
     """Same Pacific-day guard the operator dash uses.
 
-    Prefer PHARMFLOW_LOG_DIR when set. Otherwise read the freshest
-    mantis_today_state.json under C:\\PharmFlow\\logs or the pre-branding
-    C:\\CPharm\\logs root so a live farm writing the legacy path does not
-    make the HUD show blank money when the dash is briefly down.
+    Always dual-read C:\\PharmFlow\\logs and legacy C:\\CPharm\\logs (plus
+    PHARMFLOW_/CPHARM_ log-dir overrides). Freshest Pacific-today
+    mantis_today_state.json wins so HUD money matches the operator dash.
     """
     today = datetime.now(ZoneInfo("America/Los_Angeles")).date().isoformat()
     roots: list[Path] = []
-    forced = os.environ.get("PHARMFLOW_LOG_DIR") or os.environ.get("PHARMFLOW_LOGS")
+    forced = (
+        os.environ.get("PHARMFLOW_LOG_DIR")
+        or os.environ.get("PHARMFLOW_LOGS")
+        or os.environ.get("CPHARM_LOG_DIR")
+        or ""
+    ).strip()
     if forced:
         roots.append(Path(forced))
-    else:
-        roots.append(Path(r"C:\PharmFlow\logs"))
-        legacy = Path(r"C:\CPharm\logs")
-        if legacy.resolve() != roots[0].resolve():
-            roots.append(legacy)
+    for root in (Path(r"C:\PharmFlow\logs"), Path(r"C:\CPharm\logs")):
+        if root not in roots:
+            roots.append(root)
     candidates: list[Path] = []
     for root in roots:
         path = root / "mantis_today_state.json"

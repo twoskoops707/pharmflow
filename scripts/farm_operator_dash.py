@@ -4,10 +4,11 @@
   py -u scripts/farm_operator_dash.py
   → http://127.0.0.1:8091
 
-Writes:
-  C:\\CPharm\\logs\\farm_operator_panel.json   (full panel state)
-  C:\\CPharm\\logs\\farm_panel_state.json      (synced twin for farm worker)
-  C:\\CPharm\\logs\\farm_runtime_overrides.json (CPHARM_* — source of truth for caps)
+Writes under the resolved farm log root (PHARMFLOW_LOG_DIR / PHARMFLOW_LOGS /
+CPHARM_LOG_DIR, else C:\\PharmFlow\\logs with C:\\CPharm\\logs fallback):
+  farm_operator_panel.json   (full panel state)
+  farm_panel_state.json      (synced twin for farm worker)
+  farm_runtime_overrides.json (CPHARM_* — source of truth for caps)
 
 Pull from Mantis → gauges, then closed-loop autopilot (browse-only at ≥40 clicks,
 kill evening flood, dwell/throttle) via automation/mantis_autopilot_*.py.
@@ -59,7 +60,38 @@ from automation.mantis_farm_math import (  # noqa: E402
 
 from wizard.wizard_paths import sequences_dir as wizard_sequences_dir  # noqa: E402
 
-LOG_DIR = Path(r"C:\CPharm\logs")
+
+def _resolve_log_dir() -> Path:
+    """Same root as mantis_fetch / remediator: env → PharmFlow → CPharm."""
+    for key in ("PHARMFLOW_LOG_DIR", "PHARMFLOW_LOGS", "CPHARM_LOG_DIR"):
+        env = (os.environ.get(key) or "").strip()
+        if env:
+            p = Path(env)
+            p.mkdir(parents=True, exist_ok=True)
+            return p
+    markers = (
+        "mantis_today_state.json",
+        "farm_354_progress.json",
+        "farm_operator_panel.json",
+        "farm_runtime_overrides.json",
+    )
+    candidates = (
+        Path(r"C:\PharmFlow\logs"),
+        Path(r"C:\CPharm\logs"),
+    )
+    for cand in candidates:
+        try:
+            if any((cand / m).is_file() for m in markers):
+                cand.mkdir(parents=True, exist_ok=True)
+                return cand
+        except OSError:
+            continue
+    fallback = Path(r"C:\PharmFlow\logs")
+    fallback.mkdir(parents=True, exist_ok=True)
+    return fallback
+
+
+LOG_DIR = _resolve_log_dir()
 PANEL = LOG_DIR / "farm_operator_panel.json"
 # Sticky phone list + stop flag + live caps truth. Cap *writes* still go through
 # write_runtime_overrides (SSOT); pointing this at NUL broke sticky phones and
@@ -1102,21 +1134,55 @@ def _default_mantis_today() -> dict[str, Any]:
     }
 
 
+def _mantis_today_candidate_paths() -> list[Path]:
+    """Always dual-read PharmFlow + legacy CPharm; freshest Pacific-day file wins.
+
+    Env override (PHARMFLOW_LOG_DIR / PHARMFLOW_LOGS / CPHARM_LOG_DIR) and
+    LOG_DIR are checked first, but both default roots stay in the candidate
+    set so dash gauges match EXE HUD even when one tree still holds the
+    live pull.
+    """
+    roots: list[Path] = []
+    forced = (
+        os.environ.get("PHARMFLOW_LOG_DIR")
+        or os.environ.get("PHARMFLOW_LOGS")
+        or os.environ.get("CPHARM_LOG_DIR")
+        or ""
+    ).strip()
+    if forced:
+        roots.append(Path(forced))
+    for root in (LOG_DIR, Path(r"C:\PharmFlow\logs"), Path(r"C:\CPharm\logs")):
+        if root not in roots:
+            roots.append(root)
+    return [root / "mantis_today_state.json" for root in roots]
+
+
 def load_mantis_today() -> dict[str, Any]:
     """Operator / GraphQL Mantis numbers for today (dash totals)."""
     base = _default_mantis_today()
     today = base["date"]
-    if not MANTIS_TODAY.is_file():
+    dated: list[tuple[float, dict[str, Any]]] = []
+    for path in _mantis_today_candidate_paths():
+        if not path.is_file():
+            continue
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError, TypeError):
+            continue
+        if not isinstance(raw, dict):
+            continue
+        # Keep showing last pull if file date matches Pacific today; otherwise blank.
+        if str(raw.get("date") or "") != today:
+            continue
+        try:
+            mtime = path.stat().st_mtime
+        except OSError:
+            mtime = 0.0
+        dated.append((mtime, raw))
+    if not dated:
         return base
-    try:
-        raw = json.loads(MANTIS_TODAY.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError, TypeError):
-        return base
-    if not isinstance(raw, dict):
-        return base
-    # Keep showing last pull if file date matches Pacific today; otherwise blank.
-    if str(raw.get("date") or "") != today:
-        return base
+    dated.sort(key=lambda row: row[0], reverse=True)
+    raw = dated[0][1]
     out = dict(base)
     for key in ("impressions", "clicks"):
         try:
@@ -3899,7 +3965,7 @@ def api_mantis_pull():
                     "totals": totals,
                     "cached": True,
                     "note": "pull_failed_using_cache — re-auth Mantis manually "
-                    "(CPHARM_MANTIS_ALLOW_HEADED=1) when ready",
+                    "(PHARMFLOW_MANTIS_ALLOW_HEADED=1) when ready",
                 }
             ), 200
         _MANTIS_PULL_LAST_OK["t"] = time.monotonic()

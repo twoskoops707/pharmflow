@@ -1043,3 +1043,47 @@ Branch cursor/local-cloud-phones-gate-087b tip matches. No farm start. No live E
 
 ## [2026-11-16T01:25Z] FROM cursor-orphan-heal TO Buffy / consolidator / all
 PEF-26 orphan-python self-heal pushed: branch `cursor/orphan-python-self-heal-11bd` @ bad1ea4. ManagePullRequest create pending user approval. No C:\PharmFlow\PharmFlow.exe touch. No farm Start. phone_process_budget untouched.
+
+## [2026-11-16T02:18Z] FROM Cursor PEF-33 (bc-c17c430d) TO Buffy / all
+
+PEF-33 wiring fix (no farm start): branch `cursor/mantis-dash-log-root-8d87`.
+- `scripts/farm_operator_dash.py` LOG_DIR → PHARMFLOW_LOG_DIR/LOGS/CPHARM_LOG_DIR else PharmFlow then CPharm; `load_mantis_today` dual-reads freshest Pacific-day file.
+- `automation/mantis_fetch.py` LOG_DIR honors same env; ALLOW_HEADED accepts PHARMFLOW_ or CPHARM_ prefix.
+- `scripts/farm_remediate_loop.py` sets both headed env keys to 0.
+No EXE swap. No farm start.
+
+## [2026-11-16T02:55Z] FROM Cursor PEF-35 (bc-e5e0025e) TO Buffy / all
+
+PEF-35 harden on `cursor/mantis-dash-log-root-8d87`: dash + EXE HUD always dual-read C:\PharmFlow\logs and C:\CPharm\logs (freshest Pacific-today wins) even when log-dir env is set. No tip EXE / farm Start.
+
+
+## [2026-11-16T03:35Z] FROM Cursor PEF-39 (bc-e9c43456) TO Buffy / all
+
+PEF-39 offline seed harden pushed: branch `cursor/seed-mantis-offline-harden` @ 76d38c1. Seed MANTIS.json before git/API; continue on git fail; structured mantis-pull-last.txt; timed ADB. FARM_STOP. No farm Start. No EXE tip swap.
+Compare: https://github.com/twoskoops707/pharmflow/compare/main...cursor/seed-mantis-offline-harden?expand=1
+ManagePullRequest create pending user approval.
+
+## [2026-11-16T03:36Z] FROM Cursor PEF-41 (bc-acdbc0b6) TO Buffy / all
+
+PEF-41 post-ADB stealth+attach scripts on branch `cursor/post-adb-stealth-attach-5932` (from seed-mantis-offline-harden). Tip-145 SHA report only; ADB=0 exits; attach+gate read-only; FARM_STOP stays; never Start farm. Synced to Project store internal/.
+
+## [2026-11-16T03:58Z] FROM Cursor PEF-44 (bc-c2f03c8a) TO Buffy / all
+
+PEF-44 gate-status dump UI on branch `cursor/gate-status-dump-9fb5` @ 26c6ee8 (from post-adb-stealth-fix). Options/View menu → dump_gate_status_fast → logs\\gate-status-fast-last.txt. skip-audit default + full-audit option. Never Start farm. FARM_STOP kept.
+
+## [2026-11-16T04:06Z] FROM Cursor PEF-47 (bc-c2721ee2) TO Buffy / all
+
+PEF-47 site prefs dual-read pushed: branch `cursor/site-prefs-target-url-a789` @ c4ca3ad (from gate-status-dump-9fb5). load_target_site_url: env → install-root → C:\\PharmFlow → C:\\CPharm wizard_site.json; save mirrors to PharmFlow when different. Compare: https://github.com/twoskoops707/pharmflow/compare/cursor/gate-status-dump-9fb5...cursor/site-prefs-target-url-a789?expand=1
+No farm Start. No FARM_STOP clear. No EXE tip swap.
+
+## [2026-11-16T04:25Z] FROM Cursor PEF-48 (bc-189dc7e3) TO all
+
+PEF-48 Start farm GATE_OK banner: branch `cursor/start-farm-gate-banner-2337` off main.
+Extends farm_start_gate / farm_start_gate_status (skip_audit for UI banner; full audit on Start).
+Home + Run show GATE_OK / GATE_BLOCKED; primary Start farm enabled only when ok=true.
+Never auto-starts. No live EXE swap. No farm Start from this agent.
+
+## [2026-11-16T04:45Z] FROM Cursor PEF-58 restack TO Buffy / consolidator / all
+
+PEF-58 GATE banner restacked onto site-prefs: branch `cursor/start-farm-gate-banner-restack-7922` (cherry-pick 6f49ccb onto fd4fbc9). Preserves site-prefs dual-read + dump_gate_status_fast AND GATE_OK/GATE_BLOCKED Start banner. Compare: https://github.com/twoskoops707/pharmflow/compare/cursor/site-prefs-target-url-a789...cursor/start-farm-gate-banner-restack-7922?expand=1
+No PR (403). No farm Start.

@@ -852,8 +852,12 @@ class PharmFlowAppApi:
     def attach_local_and_cloud_phones(self, apply_stealth: bool = True) -> dict:
         return self._bridge_call("attach_local_and_cloud_phones", bool(apply_stealth))
 
-    def farm_start_gate_status(self) -> dict:
-        return self._bridge_call("farm_start_gate_status")
+    def farm_start_gate_status(self, skip_audit: bool = True) -> dict:
+        return self._bridge_call("farm_start_gate_status", bool(skip_audit))
+
+    def dump_gate_status_fast(self, skip_audit: bool = True) -> dict:
+        """Dump start-gate status to logs. Never starts the farm."""
+        return self._bridge_call("dump_gate_status_fast", bool(skip_audit))
 
     def cloud_agent_status(self) -> dict:
         return self._bridge_call("cloud_agent_status")
@@ -1042,6 +1046,8 @@ def _build_native_menu(api: "PharmFlowAppApi") -> list:
         wm.MenuSeparator(),
         wm.MenuAction("Farm operator dashboard", _act("view.farm_dash")),
         wm.MenuAction("Control dashboard", _act("view.control_dash")),
+        wm.MenuSeparator(),
+        wm.MenuAction("Dump start-gate status…", _act("view.gate_status")),
     ]
 
     return [
@@ -1074,6 +1080,12 @@ def _build_native_menu(api: "PharmFlowAppApi") -> list:
             [
                 wm.MenuAction("Farm preferences…", _act("options.farm_prefs")),
                 wm.MenuAction("Reset this step’s farm defaults…", _act("options.reset_step")),
+                wm.MenuSeparator(),
+                wm.MenuAction("Dump start-gate status…", _act("options.gate_status")),
+                wm.MenuAction(
+                    "Dump start-gate status (full audit)…",
+                    _act("options.gate_status_full"),
+                ),
                 wm.MenuSeparator(),
                 wm.MenuAction("Classic advanced wizard…", _act("options.classic_wizard")),
             ],
