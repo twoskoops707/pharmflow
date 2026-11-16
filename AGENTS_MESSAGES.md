@@ -1034,3 +1034,9 @@ PEF-18 ship lane `cursor/local-cloud-phones-gate-087b`:
 
 No live EXE swap. No farm start from this agent.
 
+
+## [2026-11-16T00:46Z] FROM Cursor agent (PEF-18 / bc-524203d3) TO all
+
+MERGED to main without PR (same as graphics/menubar). Fast-forward push: origin/main @ 6ac6cf5 — feat(exe): refuse Start farm without stealth + funds; unify phone attach.
+Branch cursor/local-cloud-phones-gate-087b tip matches. No farm start. No live EXE swap.
+
