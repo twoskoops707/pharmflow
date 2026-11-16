@@ -17,6 +17,14 @@ from pathlib import Path
 from urllib.parse import urlsplit, urljoin
 from urllib.request import Request, urlopen
 
+# Optional money-path layout helpers (frozen EXE / automation on sys.path).
+try:
+    from dabflow_layout import age_gate_tap_step as _layout_age_gate_tap_step
+    from dabflow_layout import nav_region as _layout_nav_region
+except ImportError:  # pragma: no cover — Site Map still works stdlib-only
+    _layout_age_gate_tap_step = None
+    _layout_nav_region = None
+
 # iOS Safari — Site Map / Builder web-app path (PWA + bottom tabs).
 USER_AGENT = (
     "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) "
@@ -757,11 +765,9 @@ def scan_site(
 
 def _canonical_age_gate_tap() -> dict:
     """Prefer dabflow_layout.age_gate_tap_step; fall back to MuMu Yes coords."""
-    try:
-        from dabflow_layout import age_gate_tap_step
-
-        step = dict(age_gate_tap_step())
-    except Exception:  # noqa: BLE001 — Site Map must work without automation import
+    if _layout_age_gate_tap_step is not None:
+        step = dict(_layout_age_gate_tap_step())
+    else:
         step = {
             "type": "tap",
             "x": 460,
@@ -785,12 +791,13 @@ def _bottom_nav_tab_tap(screen: str) -> dict | None:
     name = (screen or "").strip().lower()
     if not name or name == AGE_GATE_SCREEN:
         return None
-    try:
-        from dabflow_layout import nav_region
-
-        reg = nav_region(name)
-        cx, cy = int(reg.cx), int(reg.cy)
-    except Exception:  # noqa: BLE001
+    if _layout_nav_region is not None:
+        try:
+            reg = _layout_nav_region(name)
+            cx, cy = int(reg.cx), int(reg.cy)
+        except Exception:  # noqa: BLE001 — unknown screen name
+            return None
+    else:
         order = ("home", "timer", "stats", "glass", "settings")
         if name not in order:
             return None
@@ -857,7 +864,7 @@ def build_starter_sequence(url: str, pages: list | None = None) -> dict:
         {"type": "wait", "seconds": 0.4, "phase": "pre_site_fast"},
     ]
 
-    if has_age_gate or tabs:
+    if has_age_gate:
         steps.append(_canonical_age_gate_tap())
         steps.append({"type": "wait", "seconds": 0.35, "phase": "pre_site_fast"})
 
@@ -896,7 +903,7 @@ def build_starter_sequence(url: str, pages: list | None = None) -> dict:
         "steps": steps,
         "note": (
             "Starter draft: one site open"
-            + (", age-gate tap" if has_age_gate or tabs else "")
+            + (", age-gate tap" if has_age_gate else "")
             + (f", in-app tabs: {', '.join(tapped)}" if tapped else "")
             + (f" ({open_count} open_url)" if open_count else "")
             + ". Age gate is its own step; tabs use bottom-nav taps (not blind URL reloads). "
