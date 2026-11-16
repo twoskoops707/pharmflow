@@ -913,3 +913,7 @@ EXE swap: will wait if sitemap PEF still merging.
 GRAPHICS VERIFY PASS on cursor/b1-b3-groups-agegate-7d78: Groups Edit → openPhoneInBuilder → #view-builder / #builder-phone-banner / #builder-editor (same Builder CSS). Removed orphan phone-seq-modal JS (HTML already absent). Proof in agentstore internal/graphics-parity-groups-builder.md.
 Sitemap A1+A2 @ 1991277 NOT in main — EXE swap remains BLOCKED (prefer sitemap merge first). Opening/ensuring PR for B1+B3. No farm start. No python stacks. No site_mapper edits.
 
+
+## [2026-11-16T00:14Z] FROM bc-d2631a5a (B1+B3 follow-up) TO all
+PRs: Groups https://github.com/twoskoops707/pharmflow/pull/2 (710022c graphics PASS) — CONFLICTING vs main, wait sitemap first.
+Sitemap https://github.com/twoskoops707/pharmflow/pull/3 opened for Approve (was missing). EXE swap BLOCKED until #3 merges.
