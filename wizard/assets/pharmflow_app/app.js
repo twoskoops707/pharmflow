@@ -398,7 +398,7 @@
   let groupMutationBusy = false;
   let bootAllBusy = false;
   let runActionBusy = false;
-  /* Groups Edit reuses Builder (openPhoneInBuilder) — no forked modal. */
+  /* Groups Edit targets Builder (builderPhoneCtx); no forked phone-seq modal. */
   let builderPhoneCtx = null;
   let builderPlaylistDraft = [];
 
@@ -1082,6 +1082,8 @@
       });
     }
   }
+
+  /* phone-seq-modal path removed — Groups Edit uses openPhoneInBuilder → #view-builder */
 
   function nextStepId(fromId) {
     const idx = STEP_IDS.indexOf(fromId);
