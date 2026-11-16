@@ -398,11 +398,35 @@
   let groupMutationBusy = false;
   let bootAllBusy = false;
   let runActionBusy = false;
+  /* Groups phone editor (Builder-parity modal; no Tk) */
+  let phoneSeqDraft = null;
+  let phoneSelectedIndex = -1;
+  let phoneMutationBusy = false;
+  let builderPhoneCtx = null;
+  let builderPlaylistDraft = [];
+
+  /* Canonical age-gate Yes tap (dabflow_layout.age_gate_tap_step / AGE_YES_MUMU). */
+  const AGE_GATE_TAP_PRESET = {
+    type: "tap",
+    x: 460,
+    y: 907,
+    base_w: 900,
+    base_h: 1600,
+    retries: 5,
+    jitter: 4,
+    pre_wait_ms: 80,
+    age_verification: true,
+    age_gate: true,
+    checkpoint: "age_verification",
+    phase: "pre_site_fast",
+    note: "age gate",
+  };
 
   const BUILDER_STEP_TYPES = [
     "open_url",
     "launch_app",
     "tap",
+    "age_gate",
     "wait",
     "swipe",
     "keyevent",
@@ -410,12 +434,14 @@
     "type_text",
     "clear_cookies",
     "rotate_identity",
+    "full_reset",
   ];
 
   const BUILDER_FIELD_SCHEMA = {
     open_url: [
       { key: "url", label: "Website URL", type: "text", def: "https://getdabflow.app" },
       { key: "post_wait_secs", label: "After-open wait (sec)", type: "text", def: "" },
+      { key: "checkpoint", label: "Checkpoint (optional)", type: "text", def: "" },
     ],
     launch_app: [
       { key: "package", label: "Package name", type: "text", def: "com.example.app" },
@@ -427,8 +453,13 @@
       { key: "retries", label: "Retries", type: "number", def: "2" },
       { key: "jitter", label: "Jitter ±px", type: "number", def: "24" },
       { key: "pre_wait_ms", label: "Pre-wait ms", type: "number", def: "0" },
+      { key: "checkpoint", label: "Checkpoint (optional)", type: "text", def: "" },
     ],
-    wait: [{ key: "seconds", label: "Seconds", type: "number", def: "5" }],
+    age_gate: [],
+    wait: [
+      { key: "seconds", label: "Seconds", type: "number", def: "5" },
+      { key: "checkpoint", label: "Checkpoint (optional)", type: "text", def: "" },
+    ],
     swipe: [
       { key: "x1", label: "Start X", type: "number", def: "540" },
       { key: "y1", label: "Start Y", type: "number", def: "1600" },
@@ -441,7 +472,18 @@
     type_text: [{ key: "text", label: "Text", type: "text", def: "hello world" }],
     clear_cookies: [],
     rotate_identity: [],
+    full_reset: [],
   };
+
+  function stepLooksLikeAgeGate(step) {
+    if (!step || typeof step !== "object") return false;
+    if (step.type === "age_gate") return true;
+    if (step.age_gate === true || step.age_verification === true) return true;
+    const cp = String(step.checkpoint || "")
+      .trim()
+      .toLowerCase();
+    return cp === "age_verification" || cp === "age_gate";
+  }
 
   function formatSecs(v) {
     const n = Number(v);
@@ -452,12 +494,19 @@
 
   function stepSummaryLine(step) {
     if (!step || typeof step !== "object") return "(invalid)";
+    if (stepLooksLikeAgeGate(step)) {
+      const bits = ["age_gate", (step.x != null ? step.x : AGE_GATE_TAP_PRESET.x) + "," + (step.y != null ? step.y : AGE_GATE_TAP_PRESET.y)];
+      if (step.post_wait_secs != null && step.post_wait_secs !== "")
+        bits.push("+" + formatSecs(step.post_wait_secs) + "s");
+      return bits.join(" · ");
+    }
     const t = step.type || "?";
     const bits = [t];
     if (t === "open_url" && step.url) bits.push(String(step.url).slice(0, 48));
     else if (t === "launch_app" && step.package) bits.push(String(step.package));
     else if (t === "tap") bits.push((step.x != null ? step.x : "?") + "," + (step.y != null ? step.y : "?"));
     else if (t === "wait" && step.seconds != null) bits.push(formatSecs(step.seconds) + "s");
+    else if (t === "full_reset") bits.push("new circuit");
     else if (t === "swipe")
       bits.push(
         (step.x1 != null ? step.x1 : "?") +
@@ -471,6 +520,7 @@
     else if (t === "keyevent" && step.key) bits.push(String(step.key));
     else if (t === "close_app" && step.package) bits.push(String(step.package));
     else if (t === "type_text" && step.text) bits.push(JSON.stringify(String(step.text).slice(0, 32)));
+    if (step.checkpoint) bits.push("@" + String(step.checkpoint));
     if (step.post_wait_secs != null && step.post_wait_secs !== "")
       bits.push("+" + formatSecs(step.post_wait_secs) + "s");
     return bits.join(" · ");
@@ -529,6 +579,10 @@
           ? "Clears browser cookies — no extra fields."
           : type === "rotate_identity"
           ? "Rotates identity — no extra fields."
+          : type === "age_gate"
+          ? "Taps Age Gate Yes (MuMu-validated coords). No extra fields."
+          : type === "full_reset"
+          ? "Full session reset (new Tor circuit) — no extra fields."
           : "No fields for this step type.";
       fields.appendChild(note);
       return;
@@ -559,6 +613,12 @@
   function collectBuilderStep() {
     const typeSel = document.getElementById("builder-step-type");
     const type = (typeSel && typeSel.value) || "wait";
+    if (type === "age_gate") {
+      return Object.assign({}, AGE_GATE_TAP_PRESET);
+    }
+    if (type === "full_reset") {
+      return { type: "full_reset" };
+    }
     const step = { type: type };
     const fields = document.getElementById("builder-step-fields");
     if (!fields) return step;
@@ -589,10 +649,184 @@
   function fillBuilderFormFromStep(step) {
     const typeSel = document.getElementById("builder-step-type");
     if (!typeSel || !step) return;
-    const t = step.type || "wait";
+    let t = step.type || "wait";
+    if (stepLooksLikeAgeGate(step)) t = "age_gate";
     if (BUILDER_STEP_TYPES.indexOf(t) >= 0) typeSel.value = t;
     else typeSel.value = "wait";
     rebuildBuilderFields(typeSel.value, step);
+  }
+
+
+  function applyBuilderTargetUI(meta) {
+    meta = meta || {};
+    const isPhone = meta.kind === "phone" && meta.serial;
+    if (isPhone) {
+      builderPhoneCtx = {
+        group_i: meta.group_i,
+        serial: String(meta.serial || ""),
+        phone_name: String(meta.phone_name || meta.serial || ""),
+      };
+      if (Array.isArray(meta.playlist)) builderPlaylistDraft = meta.playlist.slice();
+    } else if (meta.kind === "default") {
+      builderPhoneCtx = null;
+    }
+    const banner = document.getElementById("builder-phone-banner");
+    const playlistPanel = document.getElementById("builder-playlist-panel");
+    const sub = document.getElementById("builder-subtitle");
+    const title = document.getElementById("builder-steps-title");
+    const note = document.getElementById("builder-steps-note");
+    const metaEl = document.getElementById("builder-phone-banner-meta");
+    if (banner) banner.hidden = !builderPhoneCtx;
+    if (playlistPanel) playlistPanel.hidden = !builderPhoneCtx;
+    if (builderPhoneCtx) {
+      if (sub) {
+        sub.textContent =
+          "Editing this phone’s sequence with the same Builder controls — changes save as you edit.";
+      }
+      if (title) title.textContent = "Phone sequence steps";
+      if (note) {
+        note.textContent =
+          "Edits write to this phone’s steps in Groups (override). Done returns to Groups.";
+      }
+      if (metaEl) {
+        metaEl.textContent =
+          (builderPhoneCtx.phone_name || builderPhoneCtx.serial) +
+          " · " +
+          builderPhoneCtx.serial;
+      }
+      renderBuilderPlaylistList();
+    } else {
+      if (sub) {
+        sub.textContent = "Edit the default sequence in-deck — add, update, or clear steps.";
+      }
+      if (title) title.textContent = "Sequence steps";
+      if (note) {
+        note.textContent =
+          "Select a step to edit it, or add a new one below. Most people keep the money-path defaults.";
+      }
+    }
+  }
+
+  function renderBuilderPlaylistList() {
+    const list = document.getElementById("builder-playlist-list");
+    if (!list) return;
+    list.innerHTML = "";
+    const items = Array.isArray(builderPlaylistDraft) ? builderPlaylistDraft : [];
+    if (!items.length) {
+      const li = document.createElement("li");
+      li.className = "groups-list-empty";
+      li.textContent = "No playlist items — add from the library below.";
+      list.appendChild(li);
+      return;
+    }
+    items.forEach(function (ref, i) {
+      const li = document.createElement("li");
+      li.className = "step-row";
+      const line = document.createElement("span");
+      line.className = "step-row-label";
+      line.textContent = String(ref || "");
+      const actions = document.createElement("span");
+      actions.className = "step-row-actions";
+      const del = document.createElement("button");
+      del.type = "button";
+      del.textContent = "Delete";
+      del.dataset.playlistDel = String(i);
+      actions.appendChild(del);
+      li.appendChild(line);
+      li.appendChild(actions);
+      list.appendChild(li);
+    });
+  }
+
+  async function refreshBuilderPlaylistLibrary() {
+    const pick = document.getElementById("builder-playlist-pick");
+    if (!pick) return;
+    const a = api();
+    pick.innerHTML = "";
+    const empty = document.createElement("option");
+    empty.value = "";
+    empty.textContent = "Library sequence…";
+    pick.appendChild(empty);
+    if (!a || typeof a.list_saved_sequences !== "function") return;
+    try {
+      const res = await a.list_saved_sequences();
+      ((res && res.sequences) || []).forEach(function (row) {
+        const o = document.createElement("option");
+        o.value = row.ref || row.name || "";
+        o.textContent = row.ref || row.name || "";
+        if (o.value) pick.appendChild(o);
+      });
+    } catch (_e) {}
+  }
+
+  async function openPhoneInBuilder(groupI, serial) {
+    /* Groups Edit → Builder only. Never arms Start farm / run_farm_*. */
+    const a = api();
+    const begin =
+      a && typeof a.cursor_begin_phone_edit === "function"
+        ? a.cursor_begin_phone_edit.bind(a)
+        : a && typeof a.run_edit_phone_sequence === "function"
+        ? a.run_edit_phone_sequence.bind(a)
+        : null;
+    if (!begin) {
+      showBackendError("Per-phone Edit unavailable — update the app.");
+      return;
+    }
+    try {
+      showToast("Opening Builder for " + serial + "…", true);
+      const res = await begin(groupI, serial);
+      if (!res || res.error || res.ok === false) {
+        showBackendError((res && (res.error || res.message)) || "Edit phone sequence failed");
+        return;
+      }
+      /* Harden: Edit must never navigate to Run/farm start. */
+      if (res.arm_farm || res.start_farm || res.mode === "farm") {
+        showBackendError("Edit refused farm arm — Builder only");
+        return;
+      }
+      applyBuilderTargetUI(res);
+      const modeSel = document.getElementById("builder-playlist-mode");
+      const shuffleSel = document.getElementById("builder-playlist-shuffle");
+      if (modeSel && res.playlist_mode) modeSel.value = String(res.playlist_mode);
+      if (shuffleSel && res.playlist_shuffle) shuffleSel.value = String(res.playlist_shuffle);
+      builderSelectedIndex = -1;
+      showView("builder", { animate: true });
+      await refreshBuilder();
+      await refreshBuilderPlaylistLibrary();
+      showToast("Editing " + (res.phone_name || serial) + " in Builder");
+    } catch (e) {
+      showBackendError(String(e));
+    }
+  }
+
+  async function endPhoneBuilderEdit(goTeams) {
+    const a = api();
+    if (a && typeof a.cursor_end_phone_edit === "function") {
+      try {
+        const res = await a.cursor_end_phone_edit();
+        applyBuilderTargetUI({ kind: "default" });
+        if (goTeams !== false) {
+          showView("teams", { animate: true });
+          if (res) {
+            const sumEl = document.getElementById("teams-summary");
+            if (sumEl) sumEl.textContent = groupsSummaryText(res);
+            renderGroupsList(res);
+          } else if (typeof refreshTeams === "function") {
+            await refreshTeams();
+          }
+        } else if (typeof refreshBuilder === "function") {
+          await refreshBuilder();
+        }
+        showToast("Back to default sequence");
+        return;
+      } catch (_e) {}
+    }
+    builderPhoneCtx = null;
+    applyBuilderTargetUI({ kind: "default" });
+    if (goTeams !== false) {
+      showView("teams", { animate: true });
+      if (typeof refreshTeams === "function") await refreshTeams();
+    }
   }
 
   function renderBuilderStepList(steps) {
@@ -668,6 +902,7 @@
         showBackendError((res && res.error) || "Could not load sequence");
         return;
       }
+      applyBuilderTargetUI(res);
       const steps = res.steps || [];
       if (builderSelectedIndex >= steps.length) builderSelectedIndex = -1;
       renderBuilderStepList(steps);
@@ -847,6 +1082,345 @@
         } finally {
           if (act !== "edit") builderMutationBusy = false;
         }
+      });
+    }
+  }
+
+  /* ── Groups phone sequence editor (Builder graphics, deck-native) ── */
+
+  function setPhoneUpdateVisible(on) {
+    const btn = document.getElementById("btn-phone-step-update");
+    if (!btn) return;
+    btn.hidden = !on;
+    btn.disabled = !on;
+  }
+
+  function rebuildPhoneFields(type, values) {
+    const fields = document.getElementById("phone-step-fields");
+    if (!fields) return;
+    values = values || {};
+    fields.innerHTML = "";
+    const schema = BUILDER_FIELD_SCHEMA[type] || [];
+    if (!schema.length) {
+      const note = document.createElement("p");
+      note.className = "panel-note";
+      note.textContent =
+        type === "clear_cookies"
+          ? "Clears browser cookies — no extra fields."
+          : type === "rotate_identity"
+          ? "Rotates identity — no extra fields."
+          : type === "age_gate"
+          ? "Taps Age Gate Yes (MuMu-validated coords). No extra fields."
+          : type === "full_reset"
+          ? "Full session reset (new Tor circuit) — no extra fields."
+          : "No fields for this step type.";
+      fields.appendChild(note);
+      return;
+    }
+    schema.forEach(function (f) {
+      const row = document.createElement("div");
+      row.className = "site-url-row";
+      row.style.marginTop = "6px";
+      const lab = document.createElement("label");
+      lab.className = "browser-picker-label";
+      lab.htmlFor = "phone-field-" + f.key;
+      lab.textContent = f.label;
+      lab.style.minWidth = "120px";
+      const input = document.createElement("input");
+      input.id = "phone-field-" + f.key;
+      input.className = "site-url-input";
+      input.dataset.key = f.key;
+      input.type = f.type === "number" ? "number" : "text";
+      if (f.type === "number") input.step = "any";
+      const raw = values[f.key];
+      input.value = raw != null && raw !== "" ? String(raw) : f.def != null ? String(f.def) : "";
+      row.appendChild(lab);
+      row.appendChild(input);
+      fields.appendChild(row);
+    });
+  }
+
+  function collectPhoneStep() {
+    const typeSel = document.getElementById("phone-step-type");
+    const type = (typeSel && typeSel.value) || "wait";
+    if (type === "age_gate") {
+      return Object.assign({}, AGE_GATE_TAP_PRESET);
+    }
+    if (type === "full_reset") {
+      return { type: "full_reset" };
+    }
+    const step = { type: type };
+    const fields = document.getElementById("phone-step-fields");
+    if (!fields) return step;
+    fields.querySelectorAll("[data-key]").forEach(function (input) {
+      const key = input.dataset.key;
+      const v = String(input.value || "").trim();
+      if (v === "") return;
+      if (key === "post_wait_secs") {
+        const n = parseFloat(v);
+        if (!Number.isNaN(n) && n >= 0) step[key] = n;
+        return;
+      }
+      if (key === "pre_wait_ms" || key === "seconds") {
+        const n = parseFloat(v);
+        step[key] = Number.isNaN(n) ? v : n;
+        return;
+      }
+      if (input.type === "number") {
+        const n = parseInt(v, 10);
+        step[key] = Number.isNaN(n) ? v : n;
+        return;
+      }
+      step[key] = v;
+    });
+    return step;
+  }
+
+  function fillPhoneFormFromStep(step) {
+    const typeSel = document.getElementById("phone-step-type");
+    if (!typeSel || !step) return;
+    let t = step.type || "wait";
+    if (stepLooksLikeAgeGate(step)) t = "age_gate";
+    if (BUILDER_STEP_TYPES.indexOf(t) >= 0) typeSel.value = t;
+    else typeSel.value = "wait";
+    rebuildPhoneFields(typeSel.value, step);
+  }
+
+  function renderPhoneStepList(steps) {
+    const list = document.getElementById("phone-step-list");
+    if (!list) return;
+    list.innerHTML = "";
+    if (!steps || !steps.length) {
+      const li = document.createElement("li");
+      li.className = "groups-list-empty";
+      li.textContent = "No steps yet — pick a type and click Add step.";
+      list.appendChild(li);
+      setPhoneUpdateVisible(false);
+      return;
+    }
+    steps.forEach(function (step, i) {
+      const li = document.createElement("li");
+      li.className = "step-row" + (i === phoneSelectedIndex ? " active" : "");
+      li.dataset.index = String(i);
+      const line = document.createElement("span");
+      line.className = "step-row-label";
+      line.innerHTML =
+        '<span class="step-row-type">#' +
+        (i + 1) +
+        "</span>" +
+        escHtml(stepSummaryLine(step));
+      const actions = document.createElement("span");
+      actions.className = "step-row-actions";
+      [
+        { act: "up", label: "Up" },
+        { act: "down", label: "Down" },
+        { act: "edit", label: "Edit" },
+        { act: "del", label: "Delete" },
+      ].forEach(function (b) {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.textContent = b.label;
+        btn.dataset.phoneAct = b.act;
+        btn.dataset.index = String(i);
+        actions.appendChild(btn);
+      });
+      li.appendChild(line);
+      li.appendChild(actions);
+      list.appendChild(li);
+    });
+    setPhoneUpdateVisible(phoneSelectedIndex >= 0);
+  }
+
+  function closePhoneSeqEditor() {
+    const m = document.getElementById("phone-seq-modal");
+    if (m) m.hidden = true;
+    phoneSeqDraft = null;
+    phoneSelectedIndex = -1;
+    setPhoneUpdateVisible(false);
+  }
+
+  async function openPhoneSeqEditor(groupIndex, serial) {
+    const a = api();
+    const getter =
+      a &&
+      (typeof a.cursor_get_phone_sequence === "function"
+        ? a.cursor_get_phone_sequence
+        : typeof a.run_edit_phone_sequence === "function"
+        ? a.run_edit_phone_sequence
+        : null);
+    if (!getter) {
+      showBackendError("Phone sequence editor unavailable — update the app.");
+      return;
+    }
+    try {
+      showToast("Loading sequence for " + serial + "…", true);
+      const res = await getter.call(a, groupIndex, serial);
+      if (!res || res.error || res.ok === false) {
+        showBackendError((res && (res.error || res.message)) || "Could not load phone sequence");
+        return;
+      }
+      phoneSeqDraft = {
+        groupIndex: groupIndex,
+        serial: serial,
+        phone_name: res.phone_name || serial,
+        group_name: res.group_name || "Group",
+        steps: Array.isArray(res.steps)
+          ? res.steps.map(function (s) {
+              return Object.assign({}, s);
+            })
+          : [],
+      };
+      phoneSelectedIndex = -1;
+      const title = document.getElementById("phone-seq-title");
+      if (title) {
+        title.textContent =
+          "Sequence — " + (phoneSeqDraft.phone_name || serial) + " · " + phoneSeqDraft.group_name;
+      }
+      const typeSel = document.getElementById("phone-step-type");
+      rebuildPhoneFields((typeSel && typeSel.value) || "open_url", {});
+      renderPhoneStepList(phoneSeqDraft.steps);
+      wirePhoneSeqControls();
+      const modal = document.getElementById("phone-seq-modal");
+      if (modal) modal.hidden = false;
+      showToast("Editing " + (phoneSeqDraft.phone_name || serial));
+    } catch (e) {
+      showBackendError(String(e));
+    }
+  }
+
+  function wirePhoneSeqControls() {
+    const typeSel = document.getElementById("phone-step-type");
+    if (typeSel && !typeSel.dataset.phoneWired) {
+      typeSel.dataset.phoneWired = "1";
+      typeSel.addEventListener("change", function () {
+        rebuildPhoneFields(typeSel.value, {});
+      });
+    }
+
+    const btnAdd = document.getElementById("btn-phone-step-add");
+    if (btnAdd && !btnAdd.dataset.phoneWired) {
+      btnAdd.dataset.phoneWired = "1";
+      btnAdd.addEventListener("click", function () {
+        if (!phoneSeqDraft || phoneMutationBusy) return;
+        const step = collectPhoneStep();
+        phoneSeqDraft.steps.push(step);
+        phoneSelectedIndex = -1;
+        renderPhoneStepList(phoneSeqDraft.steps);
+        showToast("Step added (not saved yet)");
+      });
+    }
+
+    const btnUpdate = document.getElementById("btn-phone-step-update");
+    if (btnUpdate && !btnUpdate.dataset.phoneWired) {
+      btnUpdate.dataset.phoneWired = "1";
+      btnUpdate.addEventListener("click", function () {
+        if (!phoneSeqDraft || phoneMutationBusy) return;
+        if (phoneSelectedIndex < 0 || phoneSelectedIndex >= phoneSeqDraft.steps.length) {
+          showToast("Select a step with Edit first");
+          return;
+        }
+        phoneSeqDraft.steps[phoneSelectedIndex] = collectPhoneStep();
+        renderPhoneStepList(phoneSeqDraft.steps);
+        showToast("Step updated (not saved yet)");
+      });
+    }
+
+    const btnClear = document.getElementById("btn-phone-step-clear-sel");
+    if (btnClear && !btnClear.dataset.phoneWired) {
+      btnClear.dataset.phoneWired = "1";
+      btnClear.addEventListener("click", function () {
+        phoneSelectedIndex = -1;
+        setPhoneUpdateVisible(false);
+        const typeSel2 = document.getElementById("phone-step-type");
+        rebuildPhoneFields((typeSel2 && typeSel2.value) || "open_url", {});
+        if (phoneSeqDraft) renderPhoneStepList(phoneSeqDraft.steps);
+      });
+    }
+
+    const list = document.getElementById("phone-step-list");
+    if (list && !list.dataset.phoneWired) {
+      list.dataset.phoneWired = "1";
+      list.addEventListener("click", function (ev) {
+        if (!phoneSeqDraft) return;
+        const btn = ev.target && ev.target.closest ? ev.target.closest("[data-phone-act]") : null;
+        if (!btn) return;
+        const act = btn.dataset.phoneAct;
+        const idx = parseInt(btn.dataset.index, 10);
+        if (Number.isNaN(idx)) return;
+        const steps = phoneSeqDraft.steps;
+        if (act === "edit") {
+          const step = steps[idx];
+          if (!step) return;
+          phoneSelectedIndex = idx;
+          fillPhoneFormFromStep(step);
+          renderPhoneStepList(steps);
+          showToast("Editing step #" + (idx + 1));
+          return;
+        }
+        if (act === "del") {
+          steps.splice(idx, 1);
+          if (phoneSelectedIndex === idx) phoneSelectedIndex = -1;
+          else if (phoneSelectedIndex > idx) phoneSelectedIndex -= 1;
+          renderPhoneStepList(steps);
+          showToast("Step removed (not saved yet)");
+          return;
+        }
+        if (act === "up" || act === "down") {
+          const dir = act === "up" ? -1 : 1;
+          const j = idx + dir;
+          if (j < 0 || j >= steps.length) return;
+          const tmp = steps[idx];
+          steps[idx] = steps[j];
+          steps[j] = tmp;
+          if (phoneSelectedIndex === idx) phoneSelectedIndex = j;
+          else if (phoneSelectedIndex === j) phoneSelectedIndex = idx;
+          renderPhoneStepList(steps);
+        }
+      });
+    }
+
+    const btnSave = document.getElementById("btn-phone-seq-save");
+    if (btnSave && !btnSave.dataset.phoneWired) {
+      btnSave.dataset.phoneWired = "1";
+      btnSave.addEventListener("click", async function () {
+        if (!phoneSeqDraft || phoneMutationBusy) return;
+        const a = requireApi("Save phone sequence");
+        if (!a || typeof a.cursor_set_phone_steps !== "function") {
+          showBackendError("Save phone steps unavailable — update the app.");
+          return;
+        }
+        phoneMutationBusy = true;
+        btnSave.disabled = true;
+        try {
+          const res = await a.cursor_set_phone_steps(
+            phoneSeqDraft.groupIndex,
+            phoneSeqDraft.serial,
+            phoneSeqDraft.steps
+          );
+          if (!res || res.error || res.ok !== true || res.saved !== true) {
+            showBackendError((res && (res.error || res.message)) || "Save phone sequence failed");
+            return;
+          }
+          const sumEl = document.getElementById("teams-summary");
+          if (sumEl) sumEl.textContent = groupsSummaryText(res);
+          renderGroupsList(res);
+          closePhoneSeqEditor();
+          showToast("Phone sequence saved");
+        } catch (e) {
+          showBackendError(String(e));
+        } finally {
+          phoneMutationBusy = false;
+          btnSave.disabled = false;
+        }
+      });
+    }
+
+    const btnCancel = document.getElementById("btn-phone-seq-cancel");
+    if (btnCancel && !btnCancel.dataset.phoneWired) {
+      btnCancel.dataset.phoneWired = "1";
+      btnCancel.addEventListener("click", function () {
+        closePhoneSeqEditor();
+        showToast("Editor closed");
       });
     }
   }
@@ -1386,7 +1960,7 @@
           editBtn.dataset.editPhoneSerial = String(ph.serial || "");
           editBtn.setAttribute(
             "data-help",
-            "Edit this phone's sequence and playlist (same as classic Groups Edit)."
+            "Open the Builder-style sequence editor for this phone's steps."
           );
           pli.appendChild(label);
           pli.appendChild(editBtn);
@@ -3493,6 +4067,115 @@
       });
     }
 
+    const btnDonePhone = document.getElementById("btn-builder-done-phone");
+    if (btnDonePhone && !btnDonePhone.dataset.wired) {
+      btnDonePhone.dataset.wired = "1";
+      btnDonePhone.addEventListener("click", async function () {
+        await endPhoneBuilderEdit(true);
+      });
+    }
+    const btnBuilderRun = document.getElementById("btn-builder-run-groups");
+    if (btnBuilderRun && !btnBuilderRun.dataset.wired) {
+      btnBuilderRun.dataset.wired = "1";
+      btnBuilderRun.addEventListener("click", async function (ev) {
+        if (ev) {
+          ev.preventDefault();
+          ev.stopPropagation();
+        }
+        const a = requireApi("Run groups");
+        /* Harden: wizard groups run only — never start_farm / farm_control. */
+        if (!a || typeof a.run_all_groups !== "function") {
+          showBackendError("Run groups unavailable");
+          return;
+        }
+        if (typeof a.start_farm === "function" && a.run_all_groups === a.start_farm) {
+          showBackendError("Run groups miswired to Start farm — refused");
+          return;
+        }
+        showView("go", { animate: true });
+        try {
+          const res = await a.run_all_groups();
+          if (res && (res.error || res.ok === false)) {
+            showBackendError((res && res.error) || "Run groups failed");
+            return;
+          }
+          if (res && res.starting) {
+            showToast("Running groups — watch the Run log", true);
+            const st = await pollGroupsRun();
+            if (!st || st.error || st.ok === false || !st.started) {
+              showBackendError((st && st.error) || "Run groups failed");
+              return;
+            }
+            showToast((st && st.message) || "Groups accepted — watch the Run log");
+            return;
+          }
+          showBackendError((res && (res.error || res.message)) || "Run groups did not start");
+        } catch (e) {
+          showBackendError(String(e));
+        }
+      });
+    }
+    const playlistList = document.getElementById("builder-playlist-list");
+    if (playlistList && !playlistList.dataset.wired) {
+      playlistList.dataset.wired = "1";
+      playlistList.addEventListener("click", function (ev) {
+        const btn = ev.target && ev.target.closest ? ev.target.closest("[data-playlist-del]") : null;
+        if (!btn) return;
+        const idx = parseInt(btn.getAttribute("data-playlist-del"), 10);
+        if (Number.isNaN(idx)) return;
+        builderPlaylistDraft.splice(idx, 1);
+        renderBuilderPlaylistList();
+      });
+    }
+    const btnPlAdd = document.getElementById("btn-builder-playlist-add");
+    if (btnPlAdd && !btnPlAdd.dataset.wired) {
+      btnPlAdd.dataset.wired = "1";
+      btnPlAdd.addEventListener("click", function () {
+        const pick = document.getElementById("builder-playlist-pick");
+        const ref = pick ? String(pick.value || "").trim() : "";
+        if (!ref) {
+          showToast("Pick a library sequence first");
+          return;
+        }
+        if (builderPlaylistDraft.indexOf(ref) < 0) builderPlaylistDraft.push(ref);
+        renderBuilderPlaylistList();
+      });
+    }
+    const btnPlSave = document.getElementById("btn-builder-playlist-save");
+    if (btnPlSave && !btnPlSave.dataset.wired) {
+      btnPlSave.dataset.wired = "1";
+      btnPlSave.addEventListener("click", async function () {
+        if (!builderPhoneCtx || !builderPhoneCtx.serial) {
+          showToast("Playlist only when editing a phone");
+          return;
+        }
+        const a = requireApi("Save playlist");
+        if (!a || typeof a.cursor_set_phone_playlist !== "function") {
+          showBackendError("Save playlist unavailable — update the app.");
+          return;
+        }
+        const modeSel = document.getElementById("builder-playlist-mode");
+        const shuffleSel = document.getElementById("builder-playlist-shuffle");
+        try {
+          const res = await a.cursor_set_phone_playlist(
+            builderPhoneCtx.group_i,
+            builderPhoneCtx.serial,
+            builderPlaylistDraft.slice(),
+            [],
+            (modeSel && modeSel.value) || "series",
+            (shuffleSel && shuffleSel.value) || "none"
+          );
+          if (!res || res.error || res.ok === false) {
+            showBackendError((res && (res.error || res.message)) || "Save playlist failed");
+            return;
+          }
+          showToast("Playlist saved");
+        } catch (e) {
+          showBackendError((e && e.message) || String(e));
+        }
+      });
+    }
+
     const btnSaveLibrary = document.getElementById("btn-builder-save-library");
     if (btnSaveLibrary && !btnSaveLibrary.dataset.wired) {
       btnSaveLibrary.dataset.wired = "1";
@@ -3683,28 +4366,13 @@
       groupsList.addEventListener("click", async function (ev) {
         const editPhoneBtn = ev.target.closest("[data-edit-phone-serial]");
         if (editPhoneBtn) {
+          ev.preventDefault();
+          ev.stopPropagation();
           const gi = parseInt(editPhoneBtn.getAttribute("data-edit-phone-group"), 10);
           const serial = String(editPhoneBtn.getAttribute("data-edit-phone-serial") || "").trim();
           if (Number.isNaN(gi) || !serial) return;
-          const a = api();
-          if (!a || typeof a.run_edit_phone_sequence !== "function") {
-            showBackendError("Per-phone Edit unavailable — update the app.");
-            return;
-          }
-          try {
-            showToast("Opening sequence editor for " + serial + "…", true);
-            const res = await a.run_edit_phone_sequence(gi, serial);
-            if (!res || res.error || res.ok === false) {
-              showBackendError((res && (res.error || res.message)) || "Edit phone sequence failed");
-              return;
-            }
-            const sumEl = document.getElementById("teams-summary");
-            if (sumEl) sumEl.textContent = groupsSummaryText(res);
-            renderGroupsList(res);
-            showToast(res.saved ? "Phone sequence saved" : "Editor closed");
-          } catch (e) {
-            showBackendError(String(e));
-          }
+          /* B3: Edit → Builder only; never Start farm / run groups from this click. */
+          await openPhoneInBuilder(gi, serial);
           return;
         }
         const renameBtn = ev.target.closest("[data-rename-group]");
