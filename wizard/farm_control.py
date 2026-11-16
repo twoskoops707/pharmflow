@@ -795,11 +795,47 @@ def _farm_logs_dir() -> Path:
     )
 
 
+# Desktop bats dual-clear these hard-coded roots; EXE Start must match.
+_STICKY_CLEAR_HARD_LOG_ROOTS = (
+    Path(r"C:\PharmFlow\logs"),
+    Path(r"C:\CPharm\logs"),
+)
+
+
+def _sticky_clear_log_roots() -> list[Path]:
+    """Log roots cleared on Start — PharmFlow + CPharm (desktop bat parity).
+
+    Always includes both hard-coded roots. When ``PHARMFLOW_LOG_DIR`` /
+    ``PHARMFLOW_LOGS`` is set (tests / operator override), that path is
+    included too so unit tests stay isolated from live Windows roots.
+    """
+    roots: list[Path] = []
+    seen: set[str] = set()
+    candidates = list(_STICKY_CLEAR_HARD_LOG_ROOTS)
+    override = os.environ.get("PHARMFLOW_LOG_DIR") or os.environ.get("PHARMFLOW_LOGS")
+    if override:
+        # Tests / operator override: clear that root too (isolated from live paths).
+        candidates.append(Path(override))
+    for root in candidates:
+        try:
+            key = str(root.resolve()).casefold()
+        except OSError:
+            key = str(root).casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        roots.append(root)
+    return roots
+
+
 def _clear_sticky_farm_stop_after_start(
     *,
     log: Callable[[str, str], None] | None = None,
 ) -> list[str]:
     """Clear sticky stop rails that idle workers after a successful human Start.
+
+    Dual-root (``C:\\PharmFlow\\logs`` + ``C:\\CPharm\\logs``), same rules as
+    desktop clear bats:
 
     - Sets ``PHARMFLOW_FARM_STOP`` to ``\"0\"`` in farm_runtime_overrides.json
       when that key is present (file kept; other keys untouched).
@@ -813,43 +849,49 @@ def _clear_sticky_farm_stop_after_start(
         if log:
             log(msg, level)
 
-    logs = _farm_logs_dir()
-    ov_path = logs / "farm_runtime_overrides.json"
-    try:
-        if ov_path.is_file():
-            try:
-                raw = json.loads(ov_path.read_text(encoding="utf-8-sig"))
-            except (OSError, json.JSONDecodeError, TypeError, ValueError):
-                raw = {}
-            if isinstance(raw, dict) and "PHARMFLOW_FARM_STOP" in raw:
-                cur = str(raw.get("PHARMFLOW_FARM_STOP") or "").strip()
-                if cur != "0":
-                    raw["PHARMFLOW_FARM_STOP"] = "0"
-                    ov_path.write_text(
-                        json.dumps(raw, indent=2) + "\n", encoding="utf-8"
-                    )
-                    notes.append("sticky_farm_stop=0")
-                    _log("Cleared sticky PHARMFLOW_FARM_STOP in overrides", "ok")
-    except OSError as exc:
-        notes.append(f"sticky_farm_stop_clear_failed:{exc}")
-        _log(f"sticky FARM_STOP clear failed: {exc}", "warn")
+    for logs in _sticky_clear_log_roots():
+        ov_path = logs / "farm_runtime_overrides.json"
+        try:
+            if ov_path.is_file():
+                try:
+                    raw = json.loads(ov_path.read_text(encoding="utf-8-sig"))
+                except (OSError, json.JSONDecodeError, TypeError, ValueError):
+                    raw = {}
+                if isinstance(raw, dict) and "PHARMFLOW_FARM_STOP" in raw:
+                    cur = str(raw.get("PHARMFLOW_FARM_STOP") or "").strip()
+                    if cur != "0":
+                        raw["PHARMFLOW_FARM_STOP"] = "0"
+                        ov_path.write_text(
+                            json.dumps(raw, indent=2) + "\n", encoding="utf-8"
+                        )
+                        notes.append("sticky_farm_stop=0")
+                        _log(
+                            f"Cleared sticky PHARMFLOW_FARM_STOP in overrides ({logs})",
+                            "ok",
+                        )
+        except OSError as exc:
+            notes.append(f"sticky_farm_stop_clear_failed:{exc}")
+            _log(f"sticky FARM_STOP clear failed ({logs}): {exc}", "warn")
 
-    flag = logs / "PHARMFLOW_FARM_STOP.flag"
-    try:
-        if flag.is_file():
-            try:
-                body = flag.read_text(encoding="utf-8", errors="replace")
-            except OSError:
-                body = ""
-            if "stealth_gate" in body.lower():
-                notes.append("farm_stop_flag_kept_stealth_gate")
-            else:
-                flag.unlink()
-                notes.append("farm_stop_flag_removed")
-                _log("Removed idle PHARMFLOW_FARM_STOP.flag after Start", "ok")
-    except OSError as exc:
-        notes.append(f"farm_stop_flag_clear_failed:{exc}")
-        _log(f"FARM_STOP.flag clear failed: {exc}", "warn")
+        flag = logs / "PHARMFLOW_FARM_STOP.flag"
+        try:
+            if flag.is_file():
+                try:
+                    body = flag.read_text(encoding="utf-8", errors="replace")
+                except OSError:
+                    body = ""
+                if "stealth_gate" in body.lower():
+                    notes.append("farm_stop_flag_kept_stealth_gate")
+                else:
+                    flag.unlink()
+                    notes.append("farm_stop_flag_removed")
+                    _log(
+                        f"Removed idle PHARMFLOW_FARM_STOP.flag after Start ({logs})",
+                        "ok",
+                    )
+        except OSError as exc:
+            notes.append(f"farm_stop_flag_clear_failed:{exc}")
+            _log(f"FARM_STOP.flag clear failed ({logs}): {exc}", "warn")
 
     return notes
 

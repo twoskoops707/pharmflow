@@ -12,12 +12,14 @@ from unittest.mock import patch
 from automation.site_profile import interview_defaults
 from wizard.farm_control import (
     _HELPER_SPECS,
+    _STICKY_CLEAR_HARD_LOG_ROOTS,
     _clear_sticky_farm_stop_after_start,
     _dabflow_sequence_root,
     _dir_has_v3_sequences,
     _farm_args,
     _resolve_helper_python,
     _set_test_phone_result,
+    _sticky_clear_log_roots,
     apply_profile_farm_env,
     ensure_operator_stack,
     external_python_farm_running,
@@ -290,6 +292,66 @@ class FarmControlTests(unittest.TestCase):
             with patch.dict(os.environ, {"PHARMFLOW_LOG_DIR": str(logs)}, clear=False):
                 notes = _clear_sticky_farm_stop_after_start()
             self.assertTrue(flag.exists())
+            self.assertIn("farm_stop_flag_kept_stealth_gate", notes)
+
+    def test_sticky_clear_log_roots_are_dual_hardcoded(self) -> None:
+        hard = list(_STICKY_CLEAR_HARD_LOG_ROOTS)
+        self.assertEqual(len(hard), 2)
+        self.assertEqual(hard[0], Path(r"C:\PharmFlow\logs"))
+        self.assertEqual(hard[1], Path(r"C:\CPharm\logs"))
+        env = {
+            k: v
+            for k, v in os.environ.items()
+            if k not in ("PHARMFLOW_LOG_DIR", "PHARMFLOW_LOGS")
+        }
+        with patch.dict(os.environ, env, clear=True):
+            roots = _sticky_clear_log_roots()
+        self.assertEqual(roots, hard)
+
+    def test_clear_sticky_farm_stop_dual_hardcoded_roots(self) -> None:
+        """Start clear must wipe sticky stop on BOTH PharmFlow and CPharm roots."""
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            pf = base / "PharmFlow" / "logs"
+            cp = base / "CPharm" / "logs"
+            pf.mkdir(parents=True)
+            cp.mkdir(parents=True)
+            for logs in (pf, cp):
+                (logs / "farm_runtime_overrides.json").write_text(
+                    json.dumps(
+                        {
+                            "PHARMFLOW_FARM_STOP": "1",
+                            "PHARMFLOW_FARM_PATH3": "1",
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+                (logs / "PHARMFLOW_FARM_STOP.flag").write_text(
+                    "operator idle stop\n", encoding="utf-8"
+                )
+                (logs / "FARM_STEALTH_GATE_STOP.json").write_text("{}", encoding="utf-8")
+            # Stealth-gate flag on CPharm must stay; idle flag on PharmFlow goes.
+            (cp / "PHARMFLOW_FARM_STOP.flag").write_text(
+                "stealth_gate leftover\n", encoding="utf-8"
+            )
+            with patch(
+                "wizard.farm_control._sticky_clear_log_roots",
+                return_value=[pf, cp],
+            ):
+                notes = _clear_sticky_farm_stop_after_start()
+
+            pf_ov = json.loads((pf / "farm_runtime_overrides.json").read_text(encoding="utf-8"))
+            cp_ov = json.loads((cp / "farm_runtime_overrides.json").read_text(encoding="utf-8"))
+            self.assertEqual(pf_ov["PHARMFLOW_FARM_STOP"], "0")
+            self.assertEqual(cp_ov["PHARMFLOW_FARM_STOP"], "0")
+            self.assertEqual(pf_ov["PHARMFLOW_FARM_PATH3"], "1")
+            self.assertEqual(cp_ov["PHARMFLOW_FARM_PATH3"], "1")
+            self.assertFalse((pf / "PHARMFLOW_FARM_STOP.flag").exists())
+            self.assertTrue((cp / "PHARMFLOW_FARM_STOP.flag").exists())  # stealth_gate kept
+            self.assertTrue((pf / "FARM_STEALTH_GATE_STOP.json").exists())
+            self.assertTrue((cp / "FARM_STEALTH_GATE_STOP.json").exists())
+            self.assertIn("sticky_farm_stop=0", notes)
+            self.assertIn("farm_stop_flag_removed", notes)
             self.assertIn("farm_stop_flag_kept_stealth_gate", notes)
 
     def test_start_farm_clears_sticky_stop_after_gate_ok(self) -> None:
