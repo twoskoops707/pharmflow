@@ -3901,29 +3901,20 @@ def _begin_service_start(*, open_browser: bool) -> dict:
 
     def work() -> None:
         try:
-            res = _start_dashboard_headless()
-            if not res.get("ok"):
-                err = str(res.get("error") or "Start service failed")
+            both = ensure_both_dashboards(open_browser=open_browser)
+            if not both.get("control_ready"):
+                err = str(both.get("error") or "Start service failed")
                 _emit_log("go", f"Start service failed: {err}\n")
                 with _service_start_lock:
                     _service_start_result.clear()
                     _service_start_result.update({"ok": False, "starting": False, "error": err})
                 return
-            if res.get("already_running"):
-                _emit_log("go", "Dashboard already running.\n")
-            opened = False
-            if open_browser:
-                from setup_wizard import dashboard_base_url
-
-                url = dashboard_base_url().rstrip("/") + "/"
-                opened = _open_browser(url)
-                if opened:
-                    _emit_log("go", f"Opened dashboard {url}\n")
-                else:
-                    _emit_log(
-                        "go",
-                        f"Dashboard is up at {url} but the browser did not open.\n",
-                    )
+            _emit_log(
+                "go",
+                "Dashboards "
+                f"8080={'UP' if both.get('control_ready') else 'DOWN'} "
+                f"8091={'UP' if both.get('farm_ready') else 'DOWN'}\n",
+            )
             with _service_start_lock:
                 _service_start_result.clear()
                 _service_start_result.update(
@@ -3932,8 +3923,14 @@ def _begin_service_start(*, open_browser: bool) -> dict:
                         "starting": False,
                         "ready": True,
                         "started": True,
-                        "already_running": bool(res.get("already_running")),
-                        "dashboard_opened": opened,
+                        "already_running": False,
+                        "dashboard_opened": bool(
+                            both.get("opened_control") or both.get("opened_farm")
+                        ),
+                        "control_ready": bool(both.get("control_ready")),
+                        "farm_ready": bool(both.get("farm_ready")),
+                        "dashboard": both.get("dashboard_8080"),
+                        "farm_dashboard": both.get("dashboard_8091"),
                     }
                 )
         except Exception as exc:  # noqa: BLE001 — the poll must see the failure
@@ -4799,34 +4796,30 @@ def start_farm_from_app(profile_slug: str = "", hours: float = 0) -> dict:
 
             def bring_dash() -> None:
                 global _farm_start_result, _farm_starting
-                from wizard.farm_control import open_operator_dashboard
-
                 try:
-                    up = bool(open_operator_dashboard(log=dash_log, open_browser=False))
+                    both = ensure_both_dashboards(open_browser=False)
+                    up = bool(both.get("farm_ready"))
+                    ctrl = bool(both.get("control_ready"))
                 except Exception as exc:  # noqa: BLE001 — surface in Run log
                     up = False
-                    _emit_log("go", f"[farm] Operator dashboard did not come up: {exc}\n")
+                    ctrl = False
+                    _emit_log("go", f"[farm] Dashboards did not come up: {exc}\n")
                 with _farm_start_lock:
                     _farm_starting = False
-                    if up:
-                        _farm_start_result = {
-                            "ok": True,
-                            "starting": False,
-                            "running": True,
-                            "dashboard_ready": True,
-                            "message": "Farm worker is running. Operator dashboard is answering.",
-                        }
-                    else:
-                        _farm_start_result = {
-                            "ok": True,
-                            "starting": False,
-                            "running": True,
-                            "dashboard_ready": False,
-                            "message": (
-                                "Farm worker is running. Operator dashboard is not answering "
-                                "on http://127.0.0.1:8091/."
-                            ),
-                        }
+                    _farm_start_result = {
+                        "ok": True,
+                        "starting": False,
+                        "running": True,
+                        "dashboard_ready": up,
+                        "control_ready": ctrl,
+                        "dashboard": "http://127.0.0.1:8091/",
+                        "control_dashboard": "http://127.0.0.1:8080/",
+                        "message": (
+                            "Farm worker is running. "
+                            f"8080={'UP' if ctrl else 'DOWN'} "
+                            f"8091={'UP' if up else 'DOWN'}."
+                        ),
+                    }
 
             threading.Thread(target=bring_dash, name="pharmflow-farm-dash", daemon=True).start()
             return dict(_farm_start_result)

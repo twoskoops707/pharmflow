@@ -659,19 +659,17 @@ def farm_process_alive() -> bool:
 
 
 def farm_running() -> bool:
-    """Display shortcut: a fresh log OR a live process.
+    """Process-truth farm liveness for display and gates.
 
-    Do not use this to decide whether Start farm may start. A log written in
-    the last few minutes stays true after the process dies.
+    A fresh ``farm_354.log`` / overrides mtime is **not** a running farm.
+    Heartbeat stays in ``_farm_heartbeat_alive`` for arming hints only — never
+    paint RUN/LIVE or refuse Start from log mtime alone (audit P0 A3).
     """
-    if _farm_heartbeat_alive() is True:
-        return True
     with _farm_lock:
         if _farm_proc is not None and _farm_proc.poll() is None:
             return True
         if _farm_thread is not None and _farm_thread.is_alive():
             return True
-    # Owned child or on-bus unison/farm counts even when heartbeat is stale.
     if _helper_already_alive("pharmflow_unison_supervisor.py"):
         return True
     if _helper_already_alive("run_farm_354.py"):

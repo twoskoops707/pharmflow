@@ -190,6 +190,14 @@ def _cull_singleton_helpers(actions: list[str]) -> None:
 
 
 def _ensure_keepalive_and_remediator(actions: list[str]) -> None:
+    try:
+        from automation.pharmflow_exe_owned import exe_owns_farm
+
+        if exe_owns_farm():
+            actions.append("exe_owned_skip_keepalive")
+            return
+    except Exception:
+        pass
     """ensure used to omit these â€” keepalive was the only remediator parent."""
     if _count("keep_farm_alive.py") < 1:
         _start_hidden("scripts/keep_farm_alive.py")
@@ -444,8 +452,16 @@ def _cull_thrash_watchers(actions: list[str]) -> None:
 
 def ensure_once(*, sweep_dead: bool = True) -> str:
     actions: list[str] = []
+    try:
+        from automation.pharmflow_exe_owned import exe_owns_farm
+
+        if exe_owns_farm():
+            _hb("exe_owns_farm_noop")
+            return "exe_owns_farm_noop"
+    except Exception:
+        pass
     # Unison owns the stack — do not respawn remediator/keepalive that it culls.
-    if _count("pharmflow_unison_supervisor.py") >= 1:
+    if _count("pharmflow_unison_supervisor.py") >= 1 or _count("cpharm_unison_supervisor.py") >= 1:
         _hb("unison_owns_stack")
         return "unison_owns_stack"
     try:
@@ -786,12 +802,28 @@ def main() -> int:
     if sys.platform != "win32":
         print("ensure_farm_24x7 is Windows-only", file=sys.stderr)
         return 2
+    try:
+        from automation.pharmflow_exe_owned import exe_owns_farm
+
+        if exe_owns_farm():
+            print(
+                "ensure_farm_24x7: PharmFlow.exe owns farm — exiting (no orphan respawn)",
+                flush=True,
+            )
+            _hb("exe_owns_farm_exit")
+            return 0
+    except Exception:
+        pass
     _hb("started")
     while True:
         try:
-            # Same cadence spirit as proxy watch: every tick, sweep orphans then
-            # restart any missing singleton helper.
-            ensure_once(sweep_dead=True)
+            status = ensure_once(sweep_dead=True)
+            if status == "exe_owns_farm_noop":
+                print(
+                    "ensure_farm_24x7: ownership claimed mid-run — exiting",
+                    flush=True,
+                )
+                return 0
         except Exception as exc:
             _hb(f"error {exc}")
         time.sleep(max(15.0, INTERVAL_S))

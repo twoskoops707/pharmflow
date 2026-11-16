@@ -812,6 +812,12 @@ class PharmFlowAppApi:
     def fix_phone_internet(self) -> dict:
         return self._bridge_call("fix_phone_internet")
 
+    def ensure_both_dashboards(self, open_browser: bool = True) -> dict:
+        return self._bridge_call("ensure_both_dashboards", bool(open_browser))
+
+    def farm_ssot_running(self) -> dict:
+        return self._bridge_call("farm_ssot_running")
+
     def open_dashboard(self) -> dict:
         return self._bridge_call("open_dashboard")
 
