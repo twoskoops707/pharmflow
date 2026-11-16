@@ -2205,7 +2205,6 @@ def _builder_load_steps():
 
 
 def _builder_persist_mutation(meta: dict, before_groups, before_steps) -> str | None:
-    """Persist after Builder mutate. Returns error string or None."""
     from setup_wizard import _apply_default_steps_to_template_phones, _persist_groups_config, state
 
     if (meta or {}).get("kind") == "phone":
@@ -2233,8 +2232,6 @@ def _builder_persist_mutation(meta: dict, before_groups, before_steps) -> str | 
 
 
 def cursor_get_builder_target() -> dict:
-    """Deck: which sequence Builder is editing (default vs group phone)."""
-
     def work() -> dict:
         steps, meta, err = _builder_load_steps()
         if err:
@@ -2278,8 +2275,6 @@ def cursor_begin_phone_edit(group_i: int = 0, serial: str = "") -> dict:
 
 
 def cursor_end_phone_edit() -> dict:
-    """Leave phone edit mode; Builder returns to default_steps."""
-
     def work() -> dict:
         global _builder_target
 
@@ -2652,6 +2647,7 @@ def cursor_set_phone_steps(
 def run_edit_phone_sequence(group_i: int = 0, serial: str = "") -> dict:
     """Deck-native Groups Edit — opens Builder for this phone (no Tk dialog)."""
     return cursor_begin_phone_edit(group_i, serial)
+
 
 
 def list_saved_sequences() -> dict:
@@ -4161,7 +4157,8 @@ def fix_phone_internet() -> dict:
 def ensure_both_dashboards(*, open_browser: bool = True) -> dict:
     """Start control :8080 and operator :8091; optionally open both in browser.
 
-    Operator must never hunt ports. Start farm / Open dashboard call this.
+    Operator must never hunt ports. Start service / Open dashboard / Start farm
+    call this so EXE-up always means both dashboards can answer (audit P0 A4).
     """
     from wizard.farm_control import open_operator_dashboard, operator_dashboard_listening
     from setup_wizard import dashboard_base_url, probe_dashboard_listen_port
@@ -4250,6 +4247,44 @@ def open_farm_dashboard() -> dict:
     }
 
 
+def farm_ssot_running() -> dict:
+    """Single source of truth for farm RUN (HUD) / LIVE (Health).
+
+    Owned EXE farm, external python money stack, or operator-dash process
+    list naming a farm worker all count as running. A fresh log alone does not.
+    """
+    owned = False
+    external = False
+    try:
+        from wizard.farm_control import external_python_farm_running, farm_process_alive
+
+        owned = bool(farm_process_alive())
+        external = bool(external_python_farm_running())
+    except Exception:  # noqa: BLE001
+        owned = False
+        external = False
+    status = _operator_status()
+    proc = _status_farm_process_alive(status)
+    if proc is None:
+        proc = bool(owned or external)
+    elif not proc and (owned or external):
+        proc = True
+    running = bool(proc)
+    return {
+        "ok": True,
+        "running": running,
+        "owned": owned,
+        "external": external,
+        "farm": "run" if running else "off",
+        "label": "LIVE" if running else "OFF",
+        "dashboard_ready": bool(
+            isinstance(status, dict) and status.get("ok") is not False
+        )
+        if status is not None
+        else False,
+    }
+
+
 def get_farm_health() -> dict:
     """Session-quality telemetry for the deck's Health view.
 
@@ -4266,16 +4301,14 @@ def get_farm_health() -> dict:
         return {"ok": False, "error": str(exc)}
     if not isinstance(out, dict):
         return {"ok": False, "error": "Farm health returned nothing."}
-    try:
-        from wizard.farm_control import (
-            external_python_farm_running,
-            farm_process_alive,
-        )
-
-        alive = bool(farm_process_alive() or external_python_farm_running())
-    except Exception:  # noqa: BLE001 — the card must not guess from the log
-        alive = False
+    ssot = farm_ssot_running()
+    alive = bool(ssot.get("running"))
     out["farm_alive"] = alive
+    out["running"] = alive
+    out["external"] = bool(ssot.get("external"))
+    out["owned"] = bool(ssot.get("owned"))
+    out["farm"] = ssot.get("farm") or ("run" if alive else "off")
+    out["label"] = ssot.get("label") or ("LIVE" if alive else "OFF")
     return out
 
 
@@ -5371,23 +5404,11 @@ def get_farm_hud() -> dict:
             ]
             if live:
                 out["phones_online"] = len(live)
-    proc = _status_farm_process_alive(status)
-    external = False
-    try:
-        from wizard.farm_control import external_python_farm_running as _ex
-        from wizard.farm_control import farm_process_alive as _alive
-
-        external = bool(_ex())
-        if proc is None:
-            proc = bool(_alive() or external)
-        elif not proc and external:
-            proc = True
-    except Exception:  # noqa: BLE001 — HUD is best-effort
-        if proc is None:
-            proc = False
-    out["running"] = bool(proc)
-    out["external"] = bool(external)
-    out["farm"] = "run" if out["running"] else "off"
+    ssot = farm_ssot_running()
+    out["running"] = bool(ssot.get("running"))
+    out["external"] = bool(ssot.get("external"))
+    out["owned"] = bool(ssot.get("owned"))
+    out["farm"] = ssot.get("farm") or ("run" if out["running"] else "off")
     if money is None:
         money = _mantis_today_file()
     if money:
