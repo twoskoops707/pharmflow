@@ -447,20 +447,30 @@
           <header class="view-hero">
             <div class="kicker"><span class="badge-dot"></span> STEP 8 OF 10 · TEST</div>
             <h1>Builder</h1>
-            <p class="subtitle">Edit the default sequence in-deck — add, update, or clear steps.</p>
+            <p class="subtitle" id="builder-subtitle">Edit the default sequence in-deck — add, update, or clear steps.</p>
           </header>
+          <div id="builder-phone-banner" class="builder-phone-banner" hidden>
+            <div class="builder-phone-banner-text">
+              <strong id="builder-phone-banner-title">Editing phone sequence</strong>
+              <span class="panel-note" id="builder-phone-banner-meta"></span>
+            </div>
+            <div class="action-row builder-phone-banner-actions">
+              <button type="button" class="btn-mini" id="btn-builder-done-phone" data-help="Leave phone edit mode and return to Groups. Steps already saved as you edited.">Done → Groups</button>
+              <button type="button" class="btn-go btn-go-secondary" id="btn-builder-run-groups" data-help="Runs every group sequence (wizard groups run — not Start farm).">Run groups</button>
+            </div>
+          </div>
           <div class="view-body view-body-scroll">
             <div class="main-grid main-grid-builder">
               <section class="panel panel-builder-list" id="builder-editor">
                 <div class="panel-head">
-                  <h2 class="panel-title">Sequence steps</h2>
+                  <h2 class="panel-title" id="builder-steps-title">Sequence steps</h2>
                   <div class="panel-head-actions">
                     <button type="button" class="btn-mini" id="btn-builder-save-library" data-help="Writes the current default sequence into sequences/{profile}/{folder}/ so Groups playlists can pick it.">Save to library</button>
                     <button type="button" class="btn-mini" id="btn-open-builder" data-help="Reloads the step list from the current default sequence.">Reload steps</button>
                   </div>
                 </div>
                 <ul class="step-editor-list" id="builder-step-list"></ul>
-                <p class="panel-note">Select a step to edit it, or add a new one below. Most people keep the money-path defaults.</p>
+                <p class="panel-note" id="builder-steps-note">Select a step to edit it, or add a new one below. Most people keep the money-path defaults.</p>
               </section>
               <section class="panel panel-builder-form">
                 <h2 class="panel-title">Step form</h2>
@@ -488,6 +498,37 @@
                   </div>
                 </form>
               </section>
+              <section class="panel panel-builder-playlist" id="builder-playlist-panel" hidden>
+                <div class="panel-head">
+                  <h2 class="panel-title">Phone playlist</h2>
+                </div>
+                <p class="panel-note">Pick library sequences for this phone. Saved with the phone override.</p>
+                <div class="step-field-row">
+                  <label class="step-field-label" for="builder-playlist-mode">Mode</label>
+                  <select id="builder-playlist-mode" class="browser-select" aria-label="Playlist mode">
+                    <option value="series">Series</option>
+                    <option value="ordered">Ordered</option>
+                    <option value="random">Random</option>
+                    <option value="folder">Folder</option>
+                    <option value="folder_sorted">Folder sorted</option>
+                    <option value="folder_random">Folder random</option>
+                  </select>
+                </div>
+                <div class="step-field-row">
+                  <label class="step-field-label" for="builder-playlist-shuffle">Shuffle</label>
+                  <select id="builder-playlist-shuffle" class="browser-select" aria-label="Playlist shuffle">
+                    <option value="none">None</option>
+                    <option value="each_cycle">Each cycle</option>
+                    <option value="once">Once</option>
+                  </select>
+                </div>
+                <ul class="step-editor-list" id="builder-playlist-list"></ul>
+                <div class="action-row">
+                  <select id="builder-playlist-pick" class="browser-select" aria-label="Add library sequence"></select>
+                  <button type="button" class="btn-mini" id="btn-builder-playlist-add" data-help="Adds the selected library sequence to this phone playlist.">Add</button>
+                  <button type="button" class="btn-go" id="btn-builder-playlist-save" data-help="Persists playlist fields for this phone.">Save playlist</button>
+                </div>
+              </section>
             </div>
           </div>
           <footer class="view-footer-nav">
@@ -510,7 +551,7 @@
                 <ol class="instruction-list">
                   <li>Rename or remove groups in the list below — manage them here in the deck.</li>
                   <li>Put each phone in one group.</li>
-                  <li>Add a group only if you need one.</li>
+                  <li>Click <strong>Edit</strong> on a phone to open the Builder-style sequence editor and Save.</li>
                   <li>Then go to <strong>Run</strong>.</li>
                 </ol>
                 <h2 class="panel-title">Your groups</h2>
@@ -529,6 +570,7 @@
                   <button type="button" class="btn-ghost" id="btn-open-dash-teams" data-help="Opens the farm operator dashboard at 127.0.0.1:8091. If that is down, it says so. It does not open the control dashboard.">Open dashboard</button>
                 </div>
               </section>
+            </div>
             </div>
           </div>
           <footer class="view-footer-nav">
@@ -704,6 +746,6 @@
       </div>
     </div>
 
-    <script src="app.js?v=20260908"></script>
+    <script src="app.js?v=20261115-groups-builder"></script>
   </body>
 </html>

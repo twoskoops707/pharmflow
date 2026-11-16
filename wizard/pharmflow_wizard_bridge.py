@@ -251,6 +251,8 @@ _agent_run_lock = threading.Lock()
 _agent_run_result: dict[str, Any] = {"ok": True, "starting": False}
 _agent_run_thread: threading.Thread | None = None
 _BOOT_LOCK_STALE_S = 600.0  # force-steal if boot worker hangs >10m (OPS_NOTES)
+# Deck Builder target: default_steps, or one group phone's steps (Groups Edit → Builder).
+_builder_target: dict[str, Any] = {"kind": "default"}
 _farm_start_lock = threading.Lock()
 _farm_starting = False
 _farm_start_result: dict[str, Any] = {}
@@ -2117,119 +2119,264 @@ def _sync_default_steps_to_seq_page(steps: list) -> None:
         pass
 
 
-def cursor_get_sequence() -> dict:
-    """Deck-native: return default_steps for the in-webview sequence editor."""
+def _resolve_phone_ent(group_i: int | str, serial: str):
+    """Return (group_idx, serial, ent, phone_name, error)."""
+    from setup_wizard import state
+
+    idx, err = _as_index(group_i, label="group index")
+    if err or idx is None:
+        return None, "", None, "", err or "Invalid group index"
+    groups = state.get("groups") or []
+    if idx < 0 or idx >= len(groups):
+        return None, "", None, "", f"Group index out of range: {idx}"
+    g = groups[idx]
+    if not isinstance(g, dict):
+        return None, "", None, "", "Group is not an object"
+    pmap = g.setdefault("phones", {})
+    if not isinstance(pmap, dict):
+        return None, "", None, "", "Group phones map invalid"
+    ser = (serial or "").strip()
+    if not ser:
+        return None, "", None, "", "serial required"
+    ent = pmap.setdefault(ser, {"steps": []})
+    if not isinstance(ent, dict):
+        ent = {"steps": []}
+        pmap[ser] = ent
+    steps = ent.setdefault("steps", [])
+    if not isinstance(steps, list):
+        steps = []
+        ent["steps"] = steps
+    phone_name = ser
+    for p in state.get("phones") or []:
+        if isinstance(p, dict) and (p.get("serial") or "").strip() == ser:
+            phone_name = (p.get("name") or ser).strip() or ser
+            break
+    return idx, ser, ent, phone_name, None
+
+
+def _builder_target_meta(ent=None, phone_name: str = "") -> dict:
+    t = _builder_target if isinstance(_builder_target, dict) else {"kind": "default"}
+    kind = (t.get("kind") or "default").strip().lower()
+    if kind != "phone":
+        return {"kind": "default"}
+    meta = {
+        "kind": "phone",
+        "group_i": int(t.get("group_i") or 0),
+        "serial": str(t.get("serial") or ""),
+        "phone_name": phone_name or str(t.get("phone_name") or t.get("serial") or ""),
+    }
+    if isinstance(ent, dict):
+        from setup_wizard import (
+            _normalize_sequence_playlist_items,
+            _normalize_sequence_playlist_shuffle,
+        )
+
+        meta["playlist"] = _normalize_sequence_playlist_items(ent.get("sequence_playlist"))
+        meta["playlist_secondary"] = _normalize_sequence_playlist_items(
+            ent.get("sequence_playlist_secondary")
+        )
+        meta["playlist_mode"] = str(ent.get("sequence_playlist_mode") or "series")
+        meta["playlist_shuffle"] = _normalize_sequence_playlist_shuffle(
+            ent.get("sequence_playlist_shuffle")
+        )
+    return meta
+
+
+def _builder_load_steps():
+    """Return (steps_list_live, meta, error) for the active Builder target."""
+    from setup_wizard import state
+
+    _reload_persisted_wizard_state()
+    t = _builder_target if isinstance(_builder_target, dict) else {"kind": "default"}
+    if (t.get("kind") or "default").strip().lower() == "phone":
+        idx, ser, ent, phone_name, err = _resolve_phone_ent(
+            t.get("group_i", 0), t.get("serial", "")
+        )
+        if err or ent is None or idx is None:
+            return None, {"kind": "phone"}, err or "Phone not found"
+        steps = ent.setdefault("steps", [])
+        if not isinstance(steps, list):
+            steps = []
+            ent["steps"] = steps
+        return steps, _builder_target_meta(ent, phone_name), None
+    if not isinstance(state.get("default_steps"), list):
+        state["default_steps"] = []
+    return state["default_steps"], {"kind": "default"}, None
+
+
+def _builder_persist_mutation(meta: dict, before_groups, before_steps) -> str | None:
+    from setup_wizard import _apply_default_steps_to_template_phones, _persist_groups_config, state
+
+    if (meta or {}).get("kind") == "phone":
+        gi = meta.get("group_i", 0)
+        ser = meta.get("serial", "")
+        _idx, _ser, ent, _name, err = _resolve_phone_ent(gi, ser)
+        if err or ent is None:
+            return err or "Phone not found"
+        ent["use_default_template"] = False
+        ent["explicit_override"] = True
+        try:
+            _persist_groups_config()
+        except Exception as exc:
+            return str(exc)
+        _persist_editor_state()
+        return None
+    _apply_default_steps_to_template_phones()
+    _sync_default_steps_to_seq_page(list(state.get("default_steps") or []))
+    return _commit_editor_state(
+        require_groups=_groups_need_save(),
+        require_steps=True,
+        before_groups=before_groups,
+        before_steps=before_steps,
+    )
+
+
+def cursor_get_builder_target() -> dict:
+    def work() -> dict:
+        steps, meta, err = _builder_load_steps()
+        if err:
+            return {"ok": False, "error": err, **(meta or {})}
+        return {"ok": True, "count": len(steps or []), "steps": list(steps or []), **meta}
+
+    return _run_direct(work)
+
+
+def cursor_begin_phone_edit(group_i: int = 0, serial: str = "") -> dict:
+    """Deck-native Groups Edit: point Builder at one phone sequence (no Tk)."""
 
     def work() -> dict:
-        from setup_wizard import state
+        global _builder_target
 
         _reload_persisted_wizard_state()
-        steps = list(state.get("default_steps") or [])
-        return {"ok": True, "steps": steps, "count": len(steps)}
+        idx, ser, ent, phone_name, err = _resolve_phone_ent(group_i, serial)
+        if err or ent is None or idx is None:
+            return {"ok": False, "error": err or "Phone not found"}
+        _builder_target = {
+            "kind": "phone",
+            "group_i": idx,
+            "serial": ser,
+            "phone_name": phone_name,
+        }
+        steps = list(ent.get("steps") or [])
+        meta = _builder_target_meta(ent, phone_name)
+        detail = _groups_detail_from_state()
+        return {
+            "ok": True,
+            "deck": True,
+            "mode": "builder",
+            "saved": False,
+            "count": len(steps),
+            "steps": steps,
+            **meta,
+            **detail,
+        }
+
+    return _run_direct(work)
+
+
+def cursor_end_phone_edit() -> dict:
+    def work() -> dict:
+        global _builder_target
+
+        _builder_target = {"kind": "default"}
+        detail = _groups_detail_from_state()
+        return {"ok": True, "kind": "default", "deck": True, **detail}
+
+    return _run_direct(work)
+
+
+def cursor_get_sequence() -> dict:
+    """Deck-native: steps for the active Builder target (default or phone)."""
+
+    def work() -> dict:
+        steps, meta, err = _builder_load_steps()
+        if err:
+            return {"ok": False, "error": err, "steps": [], "count": 0, **(meta or {})}
+        return {"ok": True, "steps": list(steps or []), "count": len(steps or []), **meta}
 
     return _run_direct(work)
 
 
 def cursor_add_step(step: dict | None = None) -> dict:
     def work() -> dict:
-        from setup_wizard import _apply_default_steps_to_template_phones, _normalize_sequence_steps, state
+        from setup_wizard import _normalize_sequence_steps
 
-        _reload_persisted_wizard_state()
         raw = step if isinstance(step, dict) else {"type": "wait", "seconds": 2.0}
         normalized = _normalize_sequence_steps([raw])
         new_step = normalized[0] if normalized else dict(raw)
         before_groups, before_steps = _editor_snapshot()
-        steps = list(state.get("default_steps") or [])
+        steps, meta, err = _builder_load_steps()
+        if err or steps is None:
+            return {"ok": False, "error": err or "No sequence target", "count": 0, "steps": []}
         steps.append(new_step)
-        state["default_steps"] = steps
-        _apply_default_steps_to_template_phones()
-        _sync_default_steps_to_seq_page(steps)
-        err = _commit_editor_state(
-            require_groups=_groups_need_save(),
-            require_steps=True,
-            before_groups=before_groups,
-            before_steps=before_steps,
-        )
-        steps = list(state.get("default_steps") or [])
-        if err:
-            return {"ok": False, "error": err, "count": len(steps), "steps": steps}
-        return {"ok": True, "saved": True, "count": len(steps), "steps": steps}
+        perr = _builder_persist_mutation(meta, before_groups, before_steps)
+        steps2, meta2, _ = _builder_load_steps()
+        out_steps = list(steps2 or steps)
+        if perr:
+            return {"ok": False, "error": perr, "count": len(out_steps), "steps": out_steps, **meta2}
+        return {"ok": True, "saved": True, "count": len(out_steps), "steps": out_steps, **meta2}
 
     return _run_direct(work)
 
 
 def cursor_update_step(i: int, step: dict | None = None) -> dict:
     def work() -> dict:
-        from setup_wizard import _apply_default_steps_to_template_phones, _normalize_sequence_steps, state
+        from setup_wizard import _normalize_sequence_steps
 
-        _reload_persisted_wizard_state()
-        steps = list(state.get("default_steps") or [])
-        idx, err = _as_index(i, label="step index")
-        if err or idx is None:
-            return {"ok": False, "error": err or "Invalid step index"}
+        before_groups, before_steps = _editor_snapshot()
+        steps, meta, err = _builder_load_steps()
+        if err or steps is None:
+            return {"ok": False, "error": err or "No sequence target", "count": 0, "steps": []}
+        idx, ierr = _as_index(i, label="step index")
+        if ierr or idx is None:
+            return {"ok": False, "error": ierr or "Invalid step index"}
         if idx < 0 or idx >= len(steps):
             return {"ok": False, "error": f"Step index out of range: {idx}"}
         if not isinstance(step, dict):
             return {"ok": False, "error": "step must be an object"}
-        before_groups, before_steps = _editor_snapshot()
         normalized = _normalize_sequence_steps([step])
         steps[idx] = normalized[0] if normalized else dict(step)
-        state["default_steps"] = steps
-        _apply_default_steps_to_template_phones()
-        _sync_default_steps_to_seq_page(steps)
-        err = _commit_editor_state(
-            require_groups=_groups_need_save(),
-            require_steps=True,
-            before_groups=before_groups,
-            before_steps=before_steps,
-        )
-        steps = list(state.get("default_steps") or [])
-        if err:
-            return {"ok": False, "error": err, "count": len(steps), "steps": steps}
-        return {"ok": True, "saved": True, "count": len(steps), "steps": steps}
+        perr = _builder_persist_mutation(meta, before_groups, before_steps)
+        steps2, meta2, _ = _builder_load_steps()
+        out_steps = list(steps2 or steps)
+        if perr:
+            return {"ok": False, "error": perr, "count": len(out_steps), "steps": out_steps, **meta2}
+        return {"ok": True, "saved": True, "count": len(out_steps), "steps": out_steps, **meta2}
 
     return _run_direct(work)
 
 
 def cursor_remove_step(i: int) -> dict:
     def work() -> dict:
-        from setup_wizard import _apply_default_steps_to_template_phones, state
-
-        _reload_persisted_wizard_state()
-        steps = list(state.get("default_steps") or [])
-        idx, err = _as_index(i, label="step index")
-        if err or idx is None:
-            return {"ok": False, "error": err or "Invalid step index"}
+        before_groups, before_steps = _editor_snapshot()
+        steps, meta, err = _builder_load_steps()
+        if err or steps is None:
+            return {"ok": False, "error": err or "No sequence target", "count": 0, "steps": []}
+        idx, ierr = _as_index(i, label="step index")
+        if ierr or idx is None:
+            return {"ok": False, "error": ierr or "Invalid step index"}
         if idx < 0 or idx >= len(steps):
             return {"ok": False, "error": f"Step index out of range: {idx}"}
-        before_groups, before_steps = _editor_snapshot()
         steps.pop(idx)
-        state["default_steps"] = steps
-        _apply_default_steps_to_template_phones()
-        _sync_default_steps_to_seq_page(steps)
-        err = _commit_editor_state(
-            require_groups=_groups_need_save(),
-            require_steps=True,
-            before_groups=before_groups,
-            before_steps=before_steps,
-        )
-        steps = list(state.get("default_steps") or [])
-        if err:
-            return {"ok": False, "error": err, "count": len(steps), "steps": steps}
-        return {"ok": True, "saved": True, "count": len(steps), "steps": steps}
+        perr = _builder_persist_mutation(meta, before_groups, before_steps)
+        steps2, meta2, _ = _builder_load_steps()
+        out_steps = list(steps2 or steps)
+        if perr:
+            return {"ok": False, "error": perr, "count": len(out_steps), "steps": out_steps, **meta2}
+        return {"ok": True, "saved": True, "count": len(out_steps), "steps": out_steps, **meta2}
 
     return _run_direct(work)
 
 
 def cursor_move_step(i: int, dir: int = 1) -> dict:
     def work() -> dict:
-        from setup_wizard import _apply_default_steps_to_template_phones, state
-
-        _reload_persisted_wizard_state()
-        steps = list(state.get("default_steps") or [])
-        idx, err = _as_index(i, label="step index")
-        if err or idx is None:
-            return {"ok": False, "error": err or "Invalid step index"}
+        before_groups, before_steps = _editor_snapshot()
+        steps, meta, err = _builder_load_steps()
+        if err or steps is None:
+            return {"ok": False, "error": err or "No sequence target", "count": 0, "steps": []}
+        idx, ierr = _as_index(i, label="step index")
+        if ierr or idx is None:
+            return {"ok": False, "error": ierr or "Invalid step index"}
         delta, derr = _as_index(dir, label="dir")
         if derr or delta is None:
             return {"ok": False, "error": derr or "Invalid dir"}
@@ -2238,21 +2385,13 @@ def cursor_move_step(i: int, dir: int = 1) -> dict:
             return {"ok": False, "error": f"Step index out of range: {idx}"}
         if j < 0 or j >= len(steps):
             return {"ok": False, "error": "Cannot move step further"}
-        before_groups, before_steps = _editor_snapshot()
         steps[idx], steps[j] = steps[j], steps[idx]
-        state["default_steps"] = steps
-        _apply_default_steps_to_template_phones()
-        _sync_default_steps_to_seq_page(steps)
-        err = _commit_editor_state(
-            require_groups=_groups_need_save(),
-            require_steps=True,
-            before_groups=before_groups,
-            before_steps=before_steps,
-        )
-        steps = list(state.get("default_steps") or [])
-        if err:
-            return {"ok": False, "error": err, "count": len(steps), "steps": steps}
-        return {"ok": True, "saved": True, "count": len(steps), "steps": steps}
+        perr = _builder_persist_mutation(meta, before_groups, before_steps)
+        steps2, meta2, _ = _builder_load_steps()
+        out_steps = list(steps2 or steps)
+        if perr:
+            return {"ok": False, "error": perr, "count": len(out_steps), "steps": out_steps, **meta2}
+        return {"ok": True, "saved": True, "count": len(out_steps), "steps": out_steps, **meta2}
 
     return _run_direct(work)
 
@@ -2397,66 +2536,118 @@ def run_edit_default_sequence() -> dict:
     return _spawn_visible_wizard(5, "edit_sequence")
 
 
-def run_edit_phone_sequence(group_i: int = 0, serial: str = "") -> dict:
-    """Open PerPhoneSequenceEditor for one group phone (Tk dialog; deck Groups Edit)."""
+def _phone_entry_for_edit(group_i: int, serial: str) -> tuple[dict | None, dict | None, str | None]:
+    """Resolve group phones[serial] entry. Returns (ent, detail_extras, error)."""
+    from setup_wizard import state
+
+    _reload_persisted_wizard_state()
+    idx, err = _as_index(group_i, label="group index")
+    if err or idx is None:
+        return None, None, err or "Invalid group index"
+    groups = state.get("groups") or []
+    if idx < 0 or idx >= len(groups):
+        return None, None, f"Group index out of range: {idx}"
+    g = groups[idx]
+    if not isinstance(g, dict):
+        return None, None, "Group is not an object"
+    pmap = g.setdefault("phones", {})
+    if not isinstance(pmap, dict):
+        return None, None, "Group phones map invalid"
+    ser = (serial or "").strip()
+    if not ser:
+        return None, None, "serial required"
+    ent = pmap.setdefault(ser, {"steps": []})
+    if not isinstance(ent, dict):
+        ent = {"steps": []}
+        pmap[ser] = ent
+    steps = ent.setdefault("steps", [])
+    if not isinstance(steps, list):
+        steps = []
+        ent["steps"] = steps
+    phone_name = ser
+    for p in state.get("phones") or []:
+        if isinstance(p, dict) and (p.get("serial") or "").strip() == ser:
+            phone_name = (p.get("name") or ser).strip() or ser
+            break
+    extras = {
+        "group_index": idx,
+        "serial": ser,
+        "phone_name": phone_name,
+        "group_name": (g.get("name") or "Group"),
+    }
+    return ent, extras, None
+
+
+def cursor_get_phone_sequence(group_i: int = 0, serial: str = "") -> dict:
+    """Deck-native: return phones[serial].steps (+ playlist meta) for Groups Edit."""
 
     def work() -> dict:
-        from setup_wizard import PerPhoneSequenceEditor, _persist_groups_config, state
-
-        _reload_persisted_wizard_state()
-        idx, err = _as_index(group_i, label="group index")
-        if err or idx is None:
-            return {"ok": False, "error": err or "Invalid group index"}
-        groups = state.get("groups") or []
-        if idx < 0 or idx >= len(groups):
-            return {"ok": False, "error": f"Group index out of range: {idx}"}
-        g = groups[idx]
-        if not isinstance(g, dict):
-            return {"ok": False, "error": "Group is not an object"}
-        pmap = g.setdefault("phones", {})
-        if not isinstance(pmap, dict):
-            return {"ok": False, "error": "Group phones map invalid"}
-        ser = (serial or "").strip()
-        if not ser:
-            return {"ok": False, "error": "serial required"}
-        ent = pmap.setdefault(ser, {"steps": []})
-        if not isinstance(ent, dict):
-            ent = {"steps": []}
-            pmap[ser] = ent
-        steps = ent.setdefault("steps", [])
-        if not isinstance(steps, list):
-            steps = []
-            ent["steps"] = steps
-        phone_name = ser
-        for p in state.get("phones") or []:
-            if isinstance(p, dict) and (p.get("serial") or "").strip() == ser:
-                phone_name = (p.get("name") or ser).strip() or ser
-                break
-        parent = _tk_dialog_parent()
-        dlg = PerPhoneSequenceEditor(
-            parent,
-            serial=ser,
-            phone_name=phone_name,
-            steps_list=steps,
-            phone_ent=ent,
+        from setup_wizard import (
+            _normalize_sequence_playlist_items,
+            _normalize_sequence_playlist_shuffle,
         )
-        dlg.transient(parent)
-        dlg.protocol("WM_DELETE_WINDOW", dlg.destroy)
-        _show_tk_window(dlg)
-        dlg.grab_set()
-        dlg.wait_window()
-        if getattr(dlg, "_did_save", False):
-            ent["use_default_template"] = False
-            ent["explicit_override"] = True
-            try:
-                _persist_groups_config()
-            except Exception:
-                pass
-            _persist_editor_state()
-        return {"ok": True, "saved": bool(getattr(dlg, "_did_save", False)), **_groups_detail_from_state()}
 
-    # In-process Tk only — spawn cannot carry group_i/serial into PerPhoneSequenceEditor.
-    return _safe_run_on_tk(work)
+        ent, extras, err = _phone_entry_for_edit(group_i, serial)
+        if err or ent is None or extras is None:
+            return {"ok": False, "error": err or "Phone not found"}
+        steps = list(ent.get("steps") or [])
+        return {
+            "ok": True,
+            "steps": steps,
+            "count": len(steps),
+            "playlist": _normalize_sequence_playlist_items(ent.get("sequence_playlist")),
+            "playlist_secondary": _normalize_sequence_playlist_items(
+                ent.get("sequence_playlist_secondary")
+            ),
+            "playlist_mode": (ent.get("sequence_playlist_mode") or "series"),
+            "playlist_shuffle": _normalize_sequence_playlist_shuffle(
+                ent.get("sequence_playlist_shuffle")
+            ),
+            **extras,
+        }
+
+    return _run_direct(work)
+
+
+def cursor_set_phone_steps(
+    group_i: int = 0,
+    serial: str = "",
+    steps: list | None = None,
+) -> dict:
+    """Deck-native: persist phones[serial].steps from the Groups Builder-style editor."""
+
+    def work() -> dict:
+        from setup_wizard import _normalize_sequence_steps, _persist_groups_config
+
+        ent, extras, err = _phone_entry_for_edit(group_i, serial)
+        if err or ent is None or extras is None:
+            return {"ok": False, "error": err or "Phone not found"}
+        raw = steps if isinstance(steps, list) else []
+        normalized = _normalize_sequence_steps(raw)
+        ent["steps"] = list(normalized)
+        ent["use_default_template"] = False
+        ent["explicit_override"] = True
+        try:
+            _persist_groups_config()
+        except Exception as exc:
+            return {"ok": False, "error": f"persist failed: {exc}", "steps": list(ent["steps"])}
+        _persist_editor_state()
+        return {
+            "ok": True,
+            "saved": True,
+            "steps": list(ent["steps"]),
+            "count": len(ent["steps"]),
+            **extras,
+            **_groups_detail_from_state(),
+        }
+
+    return _run_direct(work)
+
+
+def run_edit_phone_sequence(group_i: int = 0, serial: str = "") -> dict:
+    """Deck-native Groups Edit — opens Builder for this phone (no Tk dialog)."""
+    return cursor_begin_phone_edit(group_i, serial)
+
 
 
 def list_saved_sequences() -> dict:
@@ -2504,17 +2695,18 @@ def cursor_save_named_sequence(
     profile: str = "900x1600",
     folder: str = "site",
 ) -> dict:
-    """Write default_steps to sequences/{profile}/{folder}/{name}.json for playlists."""
+    """Write active Builder steps to sequences/{profile}/{folder}/{name}.json for playlists."""
 
     def work() -> dict:
         import json
         import re
 
-        from setup_wizard import state
         from wizard_paths import sequences_dir
 
-        _reload_persisted_wizard_state()
-        steps = list(state.get("default_steps") or [])
+        steps, meta, err = _builder_load_steps()
+        if err:
+            return {"ok": False, "error": err}
+        steps = list(steps or [])
         if not steps:
             return {"ok": False, "error": "No steps to save"}
         safe = re.sub(r"[^a-zA-Z0-9._-]+", "_", (name or "sequence").strip()) or "sequence"
@@ -2525,7 +2717,9 @@ def cursor_save_named_sequence(
         dest = dest_dir / f"{safe}.json"
         dest.write_text(json.dumps({"steps": steps}, indent=2) + "\n", encoding="utf-8")
         ref = f"{prof}/{fold}/{safe}.json"
-        return {"ok": True, "path": str(dest), "ref": ref, "count": len(steps)}
+        out = {"ok": True, "path": str(dest), "ref": ref, "count": len(steps)}
+        out.update(meta or {})
+        return out
 
     return _safe_run_on_tk(work)
 
@@ -3960,56 +4154,135 @@ def fix_phone_internet() -> dict:
     return out
 
 
-def open_dashboard() -> dict:
+def ensure_both_dashboards(*, open_browser: bool = True) -> dict:
+    """Start control :8080 and operator :8091; optionally open both in browser.
+
+    Operator must never hunt ports. Start service / Open dashboard / Start farm
+    call this so EXE-up always means both dashboards can answer (audit P0 A4).
+    """
+    from wizard.farm_control import open_operator_dashboard, operator_dashboard_listening
     from setup_wizard import dashboard_base_url, probe_dashboard_listen_port
 
-    if not probe_dashboard_listen_port():
-        return {
-            "ok": False,
-            "error": "Service is not running — use Go → Start service + open control dashboard first.",
-        }
-    url = dashboard_base_url().rstrip("/") + "/"
-    if not _open_browser(url):
-        return {
-            "ok": False,
-            "opened": False,
-            "error": f"Dashboard is up at {url} but the browser did not open.",
-            "dashboard": url,
-        }
-    return {"ok": True, "opened": True, "dashboard": url}
-
-
-def open_farm_dashboard() -> dict:
-    """Open the live farm dashboard (127.0.0.1:8091) only.
-
-    The Home and Groups buttons are labeled as the operator dashboard. Opening
-    the wizard control server on another port and returning opened=True made
-    that label a lie. If :8091 is down while the farm worker is already up,
-    start the operator dash, then open the browser — do not substitute the
-    control dashboard on :8080.
-    """
-    from wizard.farm_control import open_operator_dashboard
-
-    farm_dash = "http://127.0.0.1:8091/"
-    up = bool(
+    ctrl = _start_dashboard_headless()
+    ctrl_ready = bool(ctrl.get("ready") or ctrl.get("ok"))
+    if not ctrl_ready:
+        ctrl_ready = bool(probe_dashboard_listen_port())
+    ctrl_url = dashboard_base_url().rstrip("/") + "/"
+    farm_up = bool(
         open_operator_dashboard(
             log=lambda msg, _lvl="ok": _emit_log("go", msg + "\n"),
             wait_s=45.0,
-            open_browser=True,
+            open_browser=False,
         )
     )
-    if not up:
+    if not farm_up:
+        farm_up = bool(operator_dashboard_listening())
+    farm_url = "http://127.0.0.1:8091/"
+    opened_ctrl = False
+    opened_farm = False
+    if open_browser:
+        if ctrl_ready:
+            opened_ctrl = bool(_open_browser(ctrl_url))
+        if farm_up:
+            opened_farm = bool(_open_browser(farm_url))
+    ok = bool(ctrl_ready and farm_up)
+    out: dict[str, Any] = {
+        "ok": ok,
+        "control_ready": ctrl_ready,
+        "farm_ready": farm_up,
+        "dashboard_8080": ctrl_url,
+        "dashboard_8091": farm_url,
+        "opened_control": opened_ctrl,
+        "opened_farm": opened_farm,
+        "dashboard": farm_url if farm_up else ctrl_url,
+    }
+    if not ok:
+        errs: list[str] = []
+        if not ctrl_ready:
+            errs.append(str(ctrl.get("error") or "control :8080 not answering"))
+        if not farm_up:
+            errs.append("farm operator :8091 not answering")
+        out["error"] = "; ".join(errs)
+    return out
+
+
+def open_dashboard() -> dict:
+    """Start control :8080 if needed, open it. Also bring :8091 up when possible."""
+    both = ensure_both_dashboards(open_browser=True)
+    if both.get("control_ready"):
         return {
-            "ok": False,
-            "opened": False,
-            "error": (
-                "Farm dashboard is not up at http://127.0.0.1:8091/ — "
-                "could not start the operator dash. Start farm first, then retry. "
-                "This button does not open the control dashboard."
-            ),
-            "dashboard": farm_dash,
+            "ok": True,
+            "opened": bool(both.get("opened_control")),
+            "dashboard": both.get("dashboard_8080"),
+            "farm_dashboard": both.get("dashboard_8091"),
+            "farm_ready": bool(both.get("farm_ready")),
+            "opened_farm": bool(both.get("opened_farm")),
         }
-    return {"ok": True, "opened": True, "dashboard": farm_dash}
+    return {
+        "ok": False,
+        "opened": False,
+        "error": both.get("error") or "Control dashboard :8080 did not start",
+        "dashboard": both.get("dashboard_8080"),
+    }
+
+
+def open_farm_dashboard() -> dict:
+    """Open farm :8091 and ensure control :8080 so ports are never hunted."""
+    both = ensure_both_dashboards(open_browser=True)
+    if both.get("farm_ready"):
+        return {
+            "ok": True,
+            "opened": bool(both.get("opened_farm")),
+            "dashboard": both.get("dashboard_8091"),
+            "control_dashboard": both.get("dashboard_8080"),
+            "control_ready": bool(both.get("control_ready")),
+            "opened_control": bool(both.get("opened_control")),
+        }
+    return {
+        "ok": False,
+        "opened": False,
+        "error": both.get("error")
+        or "Farm dashboard is not up at http://127.0.0.1:8091/",
+        "dashboard": "http://127.0.0.1:8091/",
+    }
+
+
+def farm_ssot_running() -> dict:
+    """Single source of truth for farm RUN (HUD) / LIVE (Health).
+
+    Owned EXE farm, external python money stack, or operator-dash process
+    list naming a farm worker all count as running. A fresh log alone does not.
+    """
+    owned = False
+    external = False
+    try:
+        from wizard.farm_control import external_python_farm_running, farm_process_alive
+
+        owned = bool(farm_process_alive())
+        external = bool(external_python_farm_running())
+    except Exception:  # noqa: BLE001
+        owned = False
+        external = False
+    status = _operator_status()
+    proc = _status_farm_process_alive(status)
+    if proc is None:
+        proc = bool(owned or external)
+    elif not proc and (owned or external):
+        proc = True
+    running = bool(proc)
+    return {
+        "ok": True,
+        "running": running,
+        "owned": owned,
+        "external": external,
+        "farm": "run" if running else "off",
+        "label": "LIVE" if running else "OFF",
+        "dashboard_ready": bool(
+            isinstance(status, dict) and status.get("ok") is not False
+        )
+        if status is not None
+        else False,
+    }
 
 
 def get_farm_health() -> dict:
@@ -4028,16 +4301,14 @@ def get_farm_health() -> dict:
         return {"ok": False, "error": str(exc)}
     if not isinstance(out, dict):
         return {"ok": False, "error": "Farm health returned nothing."}
-    try:
-        from wizard.farm_control import (
-            external_python_farm_running,
-            farm_process_alive,
-        )
-
-        alive = bool(farm_process_alive() or external_python_farm_running())
-    except Exception:  # noqa: BLE001 — the card must not guess from the log
-        alive = False
+    ssot = farm_ssot_running()
+    alive = bool(ssot.get("running"))
     out["farm_alive"] = alive
+    out["running"] = alive
+    out["external"] = bool(ssot.get("external"))
+    out["owned"] = bool(ssot.get("owned"))
+    out["farm"] = ssot.get("farm") or ("run" if alive else "off")
+    out["label"] = ssot.get("label") or ("LIVE" if alive else "OFF")
     return out
 
 
@@ -5118,23 +5389,11 @@ def get_farm_hud() -> dict:
             ]
             if live:
                 out["phones_online"] = len(live)
-    proc = _status_farm_process_alive(status)
-    external = False
-    try:
-        from wizard.farm_control import external_python_farm_running as _ex
-        from wizard.farm_control import farm_process_alive as _alive
-
-        external = bool(_ex())
-        if proc is None:
-            proc = bool(_alive() or external)
-        elif not proc and external:
-            proc = True
-    except Exception:  # noqa: BLE001 — HUD is best-effort
-        if proc is None:
-            proc = False
-    out["running"] = bool(proc)
-    out["external"] = bool(external)
-    out["farm"] = "run" if out["running"] else "off"
+    ssot = farm_ssot_running()
+    out["running"] = bool(ssot.get("running"))
+    out["external"] = bool(ssot.get("external"))
+    out["owned"] = bool(ssot.get("owned"))
+    out["farm"] = ssot.get("farm") or ("run" if out["running"] else "off")
     if money is None:
         money = _mantis_today_file()
     if money:
