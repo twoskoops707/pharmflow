@@ -786,6 +786,74 @@ def _kill_farm_stack(*, log: Callable[[str, str], None] | None = None) -> list[i
     return killed
 
 
+def _farm_logs_dir() -> Path:
+    """Resolve live farm log root (respects PHARMFLOW_LOG_DIR / PHARMFLOW_LOGS)."""
+    return Path(
+        os.environ.get("PHARMFLOW_LOG_DIR")
+        or os.environ.get("PHARMFLOW_LOGS")
+        or r"C:\PharmFlow\logs"
+    )
+
+
+def _clear_sticky_farm_stop_after_start(
+    *,
+    log: Callable[[str, str], None] | None = None,
+) -> list[str]:
+    """Clear sticky stop rails that idle workers after a successful human Start.
+
+    - Sets ``PHARMFLOW_FARM_STOP`` to ``\"0\"`` in farm_runtime_overrides.json
+      when that key is present (file kept; other keys untouched).
+    - Deletes ``PHARMFLOW_FARM_STOP.flag`` only when it is a non-stealth-gate
+      idle stop. A flag containing ``stealth_gate`` is left alone.
+    - Never deletes ``FARM_STEALTH_GATE_STOP.json`` (gate refuse path owns that).
+    """
+    notes: list[str] = []
+
+    def _log(msg: str, level: str = "ok") -> None:
+        if log:
+            log(msg, level)
+
+    logs = _farm_logs_dir()
+    ov_path = logs / "farm_runtime_overrides.json"
+    try:
+        if ov_path.is_file():
+            try:
+                raw = json.loads(ov_path.read_text(encoding="utf-8-sig"))
+            except (OSError, json.JSONDecodeError, TypeError, ValueError):
+                raw = {}
+            if isinstance(raw, dict) and "PHARMFLOW_FARM_STOP" in raw:
+                cur = str(raw.get("PHARMFLOW_FARM_STOP") or "").strip()
+                if cur != "0":
+                    raw["PHARMFLOW_FARM_STOP"] = "0"
+                    ov_path.write_text(
+                        json.dumps(raw, indent=2) + "\n", encoding="utf-8"
+                    )
+                    notes.append("sticky_farm_stop=0")
+                    _log("Cleared sticky PHARMFLOW_FARM_STOP in overrides", "ok")
+    except OSError as exc:
+        notes.append(f"sticky_farm_stop_clear_failed:{exc}")
+        _log(f"sticky FARM_STOP clear failed: {exc}", "warn")
+
+    flag = logs / "PHARMFLOW_FARM_STOP.flag"
+    try:
+        if flag.is_file():
+            try:
+                body = flag.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                body = ""
+            if "stealth_gate" in body.lower():
+                notes.append("farm_stop_flag_kept_stealth_gate")
+            else:
+                flag.unlink()
+                notes.append("farm_stop_flag_removed")
+                _log("Removed idle PHARMFLOW_FARM_STOP.flag after Start", "ok")
+    except OSError as exc:
+        notes.append(f"farm_stop_flag_clear_failed:{exc}")
+        _log(f"FARM_STOP.flag clear failed: {exc}", "warn")
+
+    return notes
+
+
 def _apply_sticky_overrides() -> None:
     """SSOT from code — no farm_runtime_overrides.json."""
     purge_legacy_override_files()
@@ -1090,6 +1158,7 @@ def start_farm(
                 except Exception:
                     pass
                 os.environ["PHARMFLOW_FARM_STOP"] = "0"
+                _clear_sticky_farm_stop_after_start(log=log)
                 os.environ["PHARMFLOW_UNISON_MODE"] = "1"
                 ensure_operator_stack(log=log)
                 _log("Adopted live external farm stack (no kill/re-arm)", "ok")
@@ -1141,6 +1210,9 @@ def start_farm(
         except Exception as exc:
             _log(f"self-heal failed (continuing): {exc}", "warn")
         os.environ["PHARMFLOW_FARM_STOP"] = "0"
+        # Sticky overrides / idle stop flag can leave workers halted even when
+        # process env is 0 ("Started but no income"). Clear after gate OK only.
+        _clear_sticky_farm_stop_after_start(log=log)
         claim_start_farm_owner()
         helper_py = _resolve_helper_python()
         # Prefer real pythonw workers; only use in-process farm when frozen w/o python.
