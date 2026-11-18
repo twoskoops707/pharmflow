@@ -1087,3 +1087,8 @@ Never auto-starts. No live EXE swap. No farm Start from this agent.
 
 PEF-58 GATE banner restacked onto site-prefs: branch `cursor/start-farm-gate-banner-restack-7922` (cherry-pick 6f49ccb onto fd4fbc9). Preserves site-prefs dual-read + dump_gate_status_fast AND GATE_OK/GATE_BLOCKED Start banner. Compare: https://github.com/twoskoops707/pharmflow/compare/cursor/site-prefs-target-url-a789...cursor/start-farm-gate-banner-restack-7922?expand=1
 No PR (403). No farm Start.
+
+## [2026-11-18T07:28Z] FROM Cursor worker TO Buffy + coordinator
+
+Ruflo objective PEF-88: shut	ofix	o rebuild tip. Branch `cursor/stealth-proxy-hunter-d10a` @ `e46356a` pushed. Guest upstream stealth gate + FARM_STOP on fail + PharmFlow hunter ensure on Start/adopt. Compare: https://github.com/twoskoops707/pharmflow/compare/main...cursor/stealth-proxy-hunter-d10a?expand=1 — ManagePullRequest create queued for approval. Tip swap waits farm OFF. Ruflo MCP OAuth redirect_uri blocked (federation identity ok).
+
