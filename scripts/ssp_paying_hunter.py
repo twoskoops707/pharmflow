@@ -30,6 +30,7 @@ from automation.dabflow_mantis_client_patch import (  # noqa: E402
     _store_ssp_ads,
     clear_ssp_cache,
     clear_ssp_paying_fill_file,
+    paying_fill_file_fresh,
     prefetch_ssp_ads_prefer_paying,
     ssp_ads_paying_count,
 )
@@ -43,6 +44,10 @@ OUT = LOG / "ssp_paying_hunter.json"
 FLAG = LOG / "SSP_FORCE_REFRESH.flag"
 FILL = LOG / "ssp_paying_fill.json"
 STOP = LOG / "SSP_HUNTER_STOP.flag"
+# Two house rounds used to wipe a fill Path3 was still using. Require a longer
+# miss streak (and only clear when the shared fill is already stale) so a brief
+# Tor house blip cannot re-enter SSP_HOUSE_ONLY while money is flat.
+_HOUSE_STREAK_CLEAR = 6
 
 logging.basicConfig(
     level=logging.INFO,
@@ -215,21 +220,26 @@ def main() -> int:
             _store_ssp_ads(ads, persist=True)
             _persist_paying_fill(ads)
             _clear_ssp_house_only()
-            try:
-                FLAG.write_text(
-                    json.dumps(
-                        {
-                            "reason": "ssp_paying_hunter",
-                            "paying": paying,
-                            "ts": time.time(),
-                            "fill": str(FILL),
-                        }
-                    )
-                    + "\n",
-                    encoding="utf-8",
+            flag_body = (
+                json.dumps(
+                    {
+                        "reason": "ssp_paying_hunter",
+                        "paying": paying,
+                        "ts": time.time(),
+                        "fill": str(FILL),
+                    }
                 )
-            except OSError:
-                pass
+                + "\n"
+            )
+            # Wake both log roots — farm consume dual-reads CPharm + PharmFlow.
+            for root in _LOG_MIRRORS:
+                try:
+                    root.mkdir(parents=True, exist_ok=True)
+                    (root / "SSP_FORCE_REFRESH.flag").write_text(
+                        flag_body, encoding="utf-8"
+                    )
+                except OSError:
+                    continue
             _hb(f"PAYING={paying} n={len(ads)} round={round_n} newnym={nym} fill={FILL.name}")
             log.info(
                 "paying fill locked paying=%d round=%d fill=%s",
@@ -240,9 +250,16 @@ def main() -> int:
             time.sleep(45.0)
         else:
             house_streak += 1
-            # Live SSP is house-only — drop stale shared fill so farm does not
+            # Live SSP is house-only — drop *stale* shared fill so farm does not
             # keep painting the same one paying creative (e.g. Viking) forever.
-            if house_streak >= 2:
+            # Never clear a still-fresh fill on a short miss streak: Path3 / money
+            # monitor need those tokens while Tor exits rotate back to paying.
+            fill_fresh = False
+            try:
+                fill_fresh = bool(paying_fill_file_fresh())
+            except Exception:
+                fill_fresh = False
+            if house_streak >= _HOUSE_STREAK_CLEAR and not fill_fresh:
                 cleared = clear_ssp_paying_fill_file(
                     reason=f"hunter_house_streak={house_streak}"
                 )
@@ -258,12 +275,16 @@ def main() -> int:
                     cleared,
                 )
             else:
-                _hb(f"house_only round={round_n} newnym={nym} streak={house_streak}")
+                _hb(
+                    f"house_only round={round_n} newnym={nym} "
+                    f"streak={house_streak} fill_fresh={fill_fresh}"
+                )
                 log.info(
-                    "still house-only round=%d newnym=%d streak=%d",
+                    "still house-only round=%d newnym=%d streak=%d fill_fresh=%s",
                     round_n,
                     nym,
                     house_streak,
+                    fill_fresh,
                 )
             time.sleep(20.0)
     _hb(f"stopped last_pay={last_pay}")

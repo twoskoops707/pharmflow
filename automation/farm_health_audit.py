@@ -32,12 +32,16 @@ NTFY_MIN_GAP_S = float(os.environ.get("PHARMFLOW_MONITOR_NTFY_GAP_S", "900"))  #
 
 try:
     from automation.dabflow_mantis_client_patch import (
+        _ingest_paying_fill_file,
         clear_ssp_cache,
+        paying_fill_file_fresh,
         prefetch_ssp_ads_prefer_paying,
         ssp_ads_paying_count,
     )
 except Exception:  # noqa: BLE001 — optional at import time
+    _ingest_paying_fill_file = None  # type: ignore[assignment]
     clear_ssp_cache = None  # type: ignore[assignment]
+    paying_fill_file_fresh = None  # type: ignore[assignment]
     prefetch_ssp_ads_prefer_paying = None  # type: ignore[assignment]
     ssp_ads_paying_count = None  # type: ignore[assignment]
 
@@ -461,19 +465,43 @@ def apply_money_rails(
 
 def _prefer_paying_burst() -> list[str]:
     fixes: list[str] = []
-    if clear_ssp_cache is None or prefetch_ssp_ads_prefer_paying is None:
+    if prefetch_ssp_ads_prefer_paying is None:
         return ["FIX_prefer_paying_unavailable"]
     try:
-        clear_ssp_cache()
+        # Do not clear_ssp_cache first — that dropped in-memory paying so the
+        # subsequent host/Tor house probe reported paying=0 and could race the
+        # shared fill file. prefer_paying already clears house-only TTL.
         ads = prefetch_ssp_ads_prefer_paying(
             attempts=14, delay_s=0.4, allow_house_fallback=False
         )
         paying = ssp_ads_paying_count(ads or []) if ssp_ads_paying_count else 0
+        if (
+            paying <= 0
+            and paying_fill_file_fresh is not None
+            and _ingest_paying_fill_file is not None
+            and paying_fill_file_fresh()
+        ):
+            try:
+                fill_ads = _ingest_paying_fill_file() or []
+                fill_n = ssp_ads_paying_count(fill_ads) if ssp_ads_paying_count else 0
+                if fill_n > 0:
+                    paying = fill_n
+                    ads = fill_ads
+                    fixes.append(f"FIX_keep_fresh_paying_fill paying={fill_n}")
+            except Exception as fill_exc:
+                fixes.append(f"FIX_fill_ingest_err:{fill_exc}")
         fixes.append(f"FIX_prefer_paying_burst paying={paying} n={len(ads or [])}")
-        (LOG / "SSP_FORCE_REFRESH.flag").write_text(
-            json.dumps({"paying": paying, "ts": _utc(), "src": "health_audit"}, indent=2),
-            encoding="utf-8",
+        flag_body = json.dumps(
+            {"paying": paying, "ts": _utc(), "src": "health_audit"}, indent=2
         )
+        for root in (LOG, Path(r"C:\CPharm\logs")):
+            try:
+                root.mkdir(parents=True, exist_ok=True)
+                (root / "SSP_FORCE_REFRESH.flag").write_text(
+                    flag_body, encoding="utf-8"
+                )
+            except OSError:
+                continue
     except Exception as exc:
         fixes.append(f"FIX_prefer_paying_err:{exc}")
     return fixes

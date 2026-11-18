@@ -246,15 +246,25 @@ def _read_history_tail(n: int = 40) -> list[dict[str, Any]]:
 
 
 def probe_ssp() -> dict[str, Any]:
-    """Host-side SSP snapshot (paying vs house)."""
-    try:
-        from automation import dabflow_mantis_client_patch as ssp
+    """SSP snapshot (paying vs house) without destroying a live paying fill.
 
-        ssp.clear_ssp_cache()
-        ads = ssp.prefetch_ssp_ads(force=True) or []
-        paying = int(ssp.ssp_ads_paying_count(ads))
+    Prefer the shared ``ssp_paying_fill.json`` handoff (hunter / Tor prefer-paying)
+    over a destructive host re-probe. Clearing cache then force-fetching host
+    inventory used to report paying=0/house=8 while a fresh paying fill still
+    existed — which kept money_ok false and FLAT_DOLLAR/SSP_HOUSE_ONLY sticky.
+    """
+    try:
+        file_ads = ssp_mod._ingest_paying_fill_file() or []
+        file_paying = int(ssp_mod.ssp_ads_paying_count(file_ads))
+        if file_paying > 0:
+            ads = file_ads
+            paying = file_paying
+        else:
+            # No fresh shared fill — probe live inventory (may still recover paying).
+            ads = ssp_mod.prefetch_ssp_ads(force=True) or []
+            paying = int(ssp_mod.ssp_ads_paying_count(ads))
         house = max(0, len(ads) - paying)
-        zones = sorted(ssp.ssp_paying_zone_ids(force_refresh=False))
+        zones = sorted(ssp_mod.ssp_paying_zone_ids(force_refresh=False))
         return {
             "count": len(ads),
             "paying": paying,
@@ -475,12 +485,25 @@ def nudge_chromium_dabflow() -> list[str]:
 
 def write_ssp_force_refresh(ssp: dict[str, Any] | None = None) -> list[str]:
     payload = ssp or probe_ssp()
+    body = json.dumps(payload, indent=2)
+    wrote = False
+    # Dual-write wake flag — hunter/farm consume both CPharm and PharmFlow roots.
+    for root in (LOG, Path(r"C:\CPharm\logs"), Path(r"C:\PharmFlow\logs")):
+        try:
+            root.mkdir(parents=True, exist_ok=True)
+            (root / "SSP_FORCE_REFRESH.flag").write_text(body, encoding="utf-8")
+            wrote = True
+        except OSError:
+            continue
     try:
-        SSP_FLAG.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-        (LOG / "_live_ssp_probe.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
-        return [f"ssp_force_refresh paying={payload.get('paying')} house={payload.get('house')}"]
-    except OSError as exc:
-        return [f"ssp_flag_fail:{exc}"]
+        (LOG / "_live_ssp_probe.json").write_text(body, encoding="utf-8")
+    except OSError:
+        pass
+    if wrote:
+        return [
+            f"ssp_force_refresh paying={payload.get('paying')} house={payload.get('house')}"
+        ]
+    return ["ssp_flag_fail:no_log_root"]
 
 
 def _fresh_paying_fill_count() -> int:

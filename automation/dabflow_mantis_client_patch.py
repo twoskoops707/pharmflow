@@ -382,6 +382,18 @@ def _ingest_paying_fill_file(*, max_age_s: float | None = None) -> list[dict[str
 def _store_ssp_ads(ads: list[dict[str, Any]], *, persist: bool = True) -> None:
     global _SSP_ADS, _SSP_FETCHED_AT
     incoming_pay = ssp_ads_paying_count(ads)
+    # House probes must not clobber a fresh shared paying fill — even when
+    # memory was just cleared (probe_ssp / hunter / prefer_paying burst).
+    # Old gate required cached_pay > 0, so clear→host-house left paying=0
+    # while ssp_paying_fill.json still held billable creatives.
+    if incoming_pay == 0 and paying_fill_file_fresh():
+        with _SSP_LOCK:
+            if ssp_ads_paying_count(_SSP_ADS) > 0:
+                return
+        # Memory empty after clear_ssp_cache — re-ingest file, still refuse house.
+        loaded = _ingest_paying_fill_file()
+        if ssp_ads_paying_count(loaded) > 0:
+            return
     with _SSP_LOCK:
         cached_pay = ssp_ads_paying_count(_SSP_ADS)
         if incoming_pay == 0 and cached_pay > 0:
@@ -548,6 +560,11 @@ def fire_ssp_impression_pixels_hostside(
     return fired
 
 
+def _ssp_force_refresh_flag_paths() -> list[Path]:
+    """Dual-root wake flags (hunter often writes CPharm; farm reads PharmFlow)."""
+    return [d / "SSP_FORCE_REFRESH.flag" for d in _ssp_logs_dirs()]
+
+
 def _consume_ssp_force_refresh_flag() -> bool:
     """Wake farm SSP refresh without destroying a live paying fill.
 
@@ -555,16 +572,23 @@ def _consume_ssp_force_refresh_flag() -> bool:
     path wiped ``_SSP_ADS`` then re-fetched house — throwing away the fill the
     hunter just locked. Now: ingest shared paying file first; only clear memory
     when there is no paying creative to keep.
+
+    Dual-read both log roots — hunter sticky state is under C:\\CPharm\\logs while
+    money monitor / health audit write C:\\PharmFlow\\logs; watching only one
+    root left the other wake signal unread.
     """
-    flag = Path(r"C:\PharmFlow\logs\SSP_FORCE_REFRESH.flag")
-    try:
-        if not flag.is_file():
-            return False
-        flag.unlink()
-    except FileNotFoundError:
-        return False
-    except OSError as exc:
-        logger.debug("SSP force-refresh flag soft-fail: %s", exc)
+    consumed = False
+    for flag in _ssp_force_refresh_flag_paths():
+        try:
+            if not flag.is_file():
+                continue
+            flag.unlink()
+            consumed = True
+        except FileNotFoundError:
+            continue
+        except OSError as exc:
+            logger.debug("SSP force-refresh flag soft-fail path=%s: %s", flag, exc)
+    if not consumed:
         return False
 
     _clear_ssp_house_only()

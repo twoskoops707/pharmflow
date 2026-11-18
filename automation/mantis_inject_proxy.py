@@ -581,15 +581,19 @@ def _build_inject_script() -> bytes:
     # Paint the bottom creative so the page is not empty. Do not store these
     # host tokens for Path3 — their bi/bt were issued to this PC. The page's
     # own SSP fetch is what Path3 opens.
+    # Never host-paint house/bot creatives into empty zones. House paint makes
+    # bottom-ads "visible" while Path3 has nothing billable, and can occupy the
+    # slot before a late native paying fill lands. Prefer paying only; leave
+    # empty when inventory is house-only so native mantis.js / phone SSP can win.
     ads: list = []
     try:
         ads = filter_ssp_ads_prefer_paying(
             get_cached_ssp_ads(allow_stale=True) or [],
-            allow_house_fallback=True,
+            allow_house_fallback=False,
         )
         if not ads:
             ads = prefetch_ssp_ads_prefer_paying(
-                attempts=4, delay_s=0.2, allow_house_fallback=True
+                attempts=4, delay_s=0.2, allow_house_fallback=False
             )
     except Exception as exc:
         logger.debug("bottom-ad paint prefetch failed: %s", exc)

@@ -70,3 +70,34 @@ def test_fresh_paying_fill_not_cleared(monkeypatch) -> None:
     monkeypatch.setattr(mon.ssp_mod, "clear_ssp_paying_fill_file", boom)
     assert mon._fresh_paying_fill_count() == 2
     assert cleared["n"] == 0
+
+
+def test_probe_ssp_prefers_fresh_paying_fill_over_host_house(monkeypatch) -> None:
+    """money_ok must see hunter fill even when a host re-probe would be house-only."""
+    from automation import farm_money_monitor as mon
+
+    paying_ads = [
+        {
+            "zone_id": "zone-one",
+            "click_url": (
+                "https://bids.mantis.marketing/clicked?r="
+                "https%3A%2F%2Fwww.grasscity.com%2F%3Futm_source%3Dmantis&bi=x&bt=y"
+            ),
+        }
+    ]
+
+    monkeypatch.setattr(mon.ssp_mod, "_ingest_paying_fill_file", lambda: paying_ads)
+    monkeypatch.setattr(mon.ssp_mod, "ssp_ads_paying_count", lambda ads: 1 if ads else 0)
+    monkeypatch.setattr(
+        mon.ssp_mod,
+        "prefetch_ssp_ads",
+        lambda force=False: (_ for _ in ()).throw(
+            AssertionError("host prefetch must not run when fill is paying")
+        ),
+    )
+    monkeypatch.setattr(mon.ssp_mod, "ssp_paying_zone_ids", lambda force_refresh=False: {"zone-one"})
+
+    out = mon.probe_ssp()
+    assert out["paying"] == 1
+    assert out["has_paying_fill"] is True
+    assert out["paying_zones"] == ["zone-one"]
