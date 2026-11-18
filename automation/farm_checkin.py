@@ -542,49 +542,23 @@ def _idx_from_guest_proxy(value: str) -> int | None:
 
 
 def _proxy_ok_for_serial(serial: str, value: str | None) -> bool:
-    """Guest http_proxy matches the *expected* endpoint for the active browser.
+    """Guest http_proxy has a real upstream exit (Tor/residential), not inject-only.
 
-    Scramble + Firefox/DuckDuckGo/Brave correctly use :0 (no MITM CA). Calling that
-    "Tor broken" made the dash lie and triggered thrash re-pins onto Tor.
-
-    Chromium may sit on inject (8218+) or Tor (8118+). Never default unknown
-    serials to phone_idx=0 — that falsely flagged good 8220/8221 pins as bad.
+    Inject listen ``127.0.0.1:822x`` alone used to count as OK while Tor upstream
+    was dead — dash showed 2/6 and farm kept running. Cleared ``:0`` is host-IP
+    egress and never OK. Never default unknown serials to phone_idx=0.
     """
     try:
-        adb = AdbWrapper()
-        pkg = resolve_browser_package(adb, serial)
+        from automation.browse_proxy import guest_proxy_stealth_ok
+
         cur = (value or "").strip()
         phone_idx = _phone_idx_for_serial(serial)
         if phone_idx is None:
             phone_idx = _idx_from_guest_proxy(cur)
-
-        # MITM-skip browsers: cleared proxy is the happy path.
-        if skips_mitm(pkg):
-            if _proxy_cleared(cur):
-                return True
-            # Mid-scramble race: inject briefly visible — not a hard fault if
-            # mode is scramble and package is Brave/FF/DDG (watcher will clear).
-            if browse_proxy_mode() in ("scramble", "direct", "upstream"):
-                return False
-            return bool(phone_idx is not None and guest_proxy_healthy(cur, phone_idx))
-
-        if phone_idx is None:
-            # Chromium + unknown index: accept any farm inject/tor port.
-            return bool(_idx_from_guest_proxy(cur) is not None)
-
-        want = expected_guest_proxy(phone_idx, browser_package=pkg)
-        if not want:
-            return _proxy_cleared(cur)
-        # Accept exact want OR either inject/Tor port for this phone.
-        if cur == want or guest_proxy_healthy(cur, phone_idx):
-            return True
-        # Path3 FORCE_DIRECT clears proxy for a few seconds — not lasting damage.
-        return False
+        ok, _reason = guest_proxy_stealth_ok(cur, phone_idx, ensure_upstream=False)
+        return bool(ok)
     except Exception:
-        # Fall back: any live 127.0.0.1:port OR cleared scramble proxy.
-        if _proxy_cleared(value):
-            return True
-        return bool(value) and str(value).startswith("127.0.0.1:") and not str(value).endswith(":0")
+        return False
 
 
 def _proxy_health(serials: list[str]) -> tuple[int, int, list[str]]:

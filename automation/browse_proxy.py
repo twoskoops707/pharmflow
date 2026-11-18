@@ -191,7 +191,11 @@ def _host_port_listens(port: int, host: str = "127.0.0.1", timeout: float = 0.6)
 
 
 def guest_proxy_healthy(value: str, phone_idx: int | None = None) -> bool:
-    """True when Android http_proxy is a usable 127.0.0.1:<port> (not :0/null/empty)."""
+    """True when Android http_proxy is a usable 127.0.0.1:<port> (not :0/null/empty).
+
+    String/port match only — does **not** prove Tor/residential upstream is live.
+    Use :func:`guest_proxy_stealth_ok` for Start/stealth / NO-STEALTH=NO-RUN.
+    """
     raw = (value or "").strip()
     if not raw or raw.lower() in _CLEARED_PROXY_VALUES or raw.endswith(":0"):
         return False
@@ -222,6 +226,193 @@ def expected_guest_proxy_ports(phone_idx: int) -> set[int]:
     except Exception:
         pass
     return ports
+
+
+def _inject_listen_base() -> int:
+    try:
+        from automation.mantis_inject_proxy import INJECT_BASE
+
+        return int(INJECT_BASE)
+    except Exception:
+        return 8218
+
+
+def _is_inject_guest_port(port: int, phone_idx: int | None) -> bool:
+    base = _inject_listen_base()
+    if int(port) < int(base):
+        return False
+    if phone_idx is None:
+        return True
+    try:
+        from automation.mantis_inject_proxy import phone_inject_port
+
+        return int(port) == int(phone_inject_port(int(phone_idx)))
+    except Exception:
+        return int(port) == int(base) + int(phone_idx)
+
+
+def ensure_tor_upstream_listening(phone_idx: int) -> tuple[bool, int, str]:
+    """Ensure this phone's Tor HTTPTunnel upstream accepts TCP.
+
+    Inject listen (8218+) is never a valid upstream. Returns
+    ``(ok, tor_http_port, reason)``.
+    """
+    idx = int(phone_idx)
+    base = _inject_listen_base()
+    try:
+        from automation.mantis_inject_proxy import upstream_tor_port
+
+        tor_port = int(upstream_tor_port(idx))
+    except Exception as exc:
+        return False, 0, f"upstream_resolve_fail:{exc}"
+    if tor_port <= 0 or tor_port >= base:
+        return False, tor_port, f"upstream_poison:{tor_port}"
+    if _host_port_listens(tor_port):
+        return True, tor_port, f"tor_up:{tor_port}"
+    try:
+        from automation.tor_manager import start_tor_for_phone
+
+        start_tor_for_phone(idx)
+    except Exception as exc:
+        return False, tor_port, f"tor_start_fail:{exc}"
+    if _host_port_listens(tor_port):
+        return True, tor_port, f"tor_started:{tor_port}"
+    return False, tor_port, f"upstream_tor_dead:{tor_port}"
+
+
+def guest_proxy_stealth_ok(
+    value: str,
+    phone_idx: int | None = None,
+    *,
+    ensure_upstream: bool = False,
+) -> tuple[bool, str]:
+    """Stealth-grade guest proxy: loopback pin + live real upstream.
+
+    A guest on ``127.0.0.1:822x`` (inject) is **not** OK unless that inject
+    lane's Tor/residential upstream is actually listening. String-only
+    ``guest_proxy_healthy`` used to report 2/6 OK while four phones sat on
+    dead/localhost inject pins with no exit.
+    """
+    raw = (value or "").strip()
+    if not guest_proxy_healthy(raw, phone_idx):
+        return False, f"guest_unhealthy:{raw or ':0'}"
+    try:
+        port = int(raw.split(":", 1)[1])
+    except (IndexError, ValueError):
+        return False, f"bad_port:{raw}"
+    if not _host_port_listens(port):
+        return False, f"guest_listen_dead:{port}"
+
+    if _is_inject_guest_port(port, phone_idx):
+        mode = "tor"
+        try:
+            from automation.mantis_inject_proxy import upstream_mode
+
+            mode = (upstream_mode() or "tor").strip().lower()
+        except Exception:
+            mode = "tor"
+        if mode == "direct":
+            return False, "inject_upstream_direct_host_ip"
+        if mode == "residential":
+            idx = int(phone_idx) if phone_idx is not None else (port - _inject_listen_base())
+            try:
+                url = upstream_proxy_url_for_phone(idx)
+            except Exception:
+                url = None
+            if not url:
+                return False, "inject_residential_missing"
+            return True, f"inject+residential:{port}"
+        idx = int(phone_idx) if phone_idx is not None else (port - _inject_listen_base())
+        if ensure_upstream:
+            ok, tor_port, reason = ensure_tor_upstream_listening(idx)
+            if not ok:
+                return False, reason
+            return True, f"inject+tor:{port}->{tor_port}"
+        try:
+            from automation.mantis_inject_proxy import upstream_tor_port
+
+            tor_port = int(upstream_tor_port(idx))
+        except Exception as exc:
+            return False, f"upstream_resolve_fail:{exc}"
+        if tor_port <= 0 or tor_port >= _inject_listen_base() or tor_port == port:
+            return False, f"upstream_poison:{tor_port}"
+        if not _host_port_listens(tor_port):
+            return False, f"upstream_tor_dead:{tor_port}"
+        return True, f"inject+tor:{port}->{tor_port}"
+
+    # Direct Tor HTTPTunnel pin (8118+ / live broadcast base).
+    if phone_idx is not None and ensure_upstream:
+        ok, tor_port, reason = ensure_tor_upstream_listening(int(phone_idx))
+        if not ok:
+            return False, reason
+        if tor_port and port != tor_port and not _host_port_listens(port):
+            return False, f"tor_pin_mismatch:{port}!={tor_port}"
+    return True, f"tor:{port}"
+
+
+def audit_fleet_upstream_proxies(
+    serials: list[str],
+    *,
+    read_proxy: Callable[[str], str] | None = None,
+    index_for_serial: Callable[[str], int | None] | None = None,
+    ensure_upstream: bool = False,
+) -> dict:
+    """Audit every live ADB phone for stealth-grade guest+upstream proxy.
+
+    Returns ``ok`` only when **every** serial has a real upstream. Partial
+    (e.g. 2/6) is a stealth failure — never Start / keep FARM_STOP.
+    """
+    phones = [str(s).strip() for s in (serials or []) if str(s).strip()]
+    reader = read_proxy or (lambda ser: "")
+    indexer = index_for_serial
+    rows: list[dict] = []
+    ok_n = 0
+    for ser in phones:
+        idx: int | None = None
+        if indexer is not None:
+            try:
+                idx = indexer(ser)
+            except Exception:
+                idx = None
+        try:
+            cur = str(reader(ser) or "").strip()
+        except Exception as exc:
+            rows.append(
+                {
+                    "serial": ser,
+                    "phone_idx": idx,
+                    "proxy": "?",
+                    "ok": False,
+                    "reason": f"read_fail:{exc}",
+                }
+            )
+            continue
+        good, reason = guest_proxy_stealth_ok(
+            cur, idx, ensure_upstream=bool(ensure_upstream)
+        )
+        if good:
+            ok_n += 1
+        rows.append(
+            {
+                "serial": ser,
+                "phone_idx": idx,
+                "proxy": cur or ":0",
+                "ok": bool(good),
+                "reason": reason,
+            }
+        )
+    total = len(phones)
+    all_ok = bool(total) and ok_n == total
+    bad = [r for r in rows if not r.get("ok")]
+    return {
+        "ok": all_ok,
+        "ok_count": ok_n,
+        "total": total,
+        "bad_count": len(bad),
+        "bad": bad,
+        "phones": rows,
+        "summary": f"guest_proxy_upstream {ok_n}/{total} OK",
+    }
 
 
 # Last browser package per serial — so Tor restore pins Tor for Firefox/DDG, not MITM.
@@ -584,7 +775,19 @@ def pin_guest_proxy(
         cur = _read_guest_proxy(adb, ser)
         if guest_proxy_healthy(cur, idx) and cur == want:
             if _host_port_listens(want_port):
-                return cur
+                if use_inject:
+                    up_ok, _tor_p, up_reason = ensure_tor_upstream_listening(idx)
+                    if up_ok:
+                        return cur
+                    logger.warning(
+                        "pin_guest_proxy inject pin lacks upstream serial=%s "
+                        "phone=%d — %s",
+                        ser,
+                        idx,
+                        up_reason,
+                    )
+                else:
+                    return cur
             logger.warning(
                 "pin_guest_proxy dead listener serial=%s phone=%d proxy=%s — restoring",
                 ser,
@@ -655,6 +858,30 @@ def pin_guest_proxy(
             and (last == want or last.endswith(f":{want_port}"))
             and _host_port_listens(want_port)
         ):
+            if use_inject:
+                up_ok, tor_port, up_reason = ensure_tor_upstream_listening(idx)
+                if not up_ok:
+                    logger.warning(
+                        "pin_guest_proxy inject without upstream serial=%s "
+                        "phone=%d inject=%s — %s",
+                        ser,
+                        idx,
+                        last,
+                        up_reason,
+                    )
+                    if attempt + 1 < tries:
+                        time.sleep(0.12 * (attempt + 1))
+                        continue
+                    # Do not claim a healthy pin: inject-only localhost is not
+                    # a real exit. Leave guest setting (never :0) for heal.
+                    return ""
+                logger.info(
+                    "pin_guest_proxy inject+tor serial=%s phone=%d %s->%s",
+                    ser,
+                    idx,
+                    want_port,
+                    tor_port,
+                )
             _push_farmbrowser_proxy(adb, ser, want_port, pkg)
             return last
         if attempt + 1 < tries:
@@ -682,6 +909,18 @@ def pin_guest_proxy(
                 last_port,
             )
             return last
+        if _is_inject_guest_port(last_port, idx):
+            up_ok, _tor_port, up_reason = ensure_tor_upstream_listening(idx)
+            if not up_ok:
+                logger.warning(
+                    "pin_guest_proxy refuse inject-without-upstream serial=%s "
+                    "phone=%d proxy=%s — %s",
+                    ser,
+                    idx,
+                    last,
+                    up_reason,
+                )
+                return ""
         _push_farmbrowser_proxy(adb, ser, last_port, pkg)
         return last
     logger.warning(

@@ -26,11 +26,23 @@ class FarmStartGateTests(unittest.TestCase):
     def tearDown(self) -> None:
         self._td.cleanup()
 
+    def _proxy_ok(self, serials: list[str] | None = None) -> dict:
+        n = len(serials or [])
+        return {
+            "ok": True,
+            "ok_count": n,
+            "total": n,
+            "bad_count": 0,
+            "bad": [],
+            "summary": f"guest_proxy_upstream {n}/{n} OK",
+        }
+
     def test_refuses_without_phones(self) -> None:
         with (
             patch.object(gate, "_logs_dir", return_value=self.logs),
             patch.object(gate, "_desktop_prefs", return_value={"mask_emulator_fingerprint": True, "dabflow_mantis_patch": True}),
             patch.object(gate, "_discover_phones", return_value=[]),
+            patch.object(gate, "_proxy_audit", return_value=self._proxy_ok([])),
             patch("wizard.site_prefs.load_target_site_url", return_value="https://getdabflow.app/"),
             patch.dict("os.environ", {"PHARMFLOW_MANTIS_BILLING_DIRECT": "0"}, clear=False),
         ):
@@ -54,6 +66,7 @@ class FarmStartGateTests(unittest.TestCase):
                     "all_clean": False,
                 },
             ),
+            patch.object(gate, "_proxy_audit", return_value=self._proxy_ok(["10.0.2.2:5555"])),
             patch("wizard.site_prefs.load_target_site_url", return_value="https://getdabflow.app/"),
             patch.dict("os.environ", {"PHARMFLOW_MANTIS_BILLING_DIRECT": "0"}, clear=False),
         ):
@@ -81,6 +94,7 @@ class FarmStartGateTests(unittest.TestCase):
                     "all_clean": True,
                 },
             ),
+            patch.object(gate, "_proxy_audit", return_value=self._proxy_ok(["10.0.2.2:5555"])),
             patch("wizard.site_prefs.load_target_site_url", return_value="https://getdabflow.app/"),
             patch.dict("os.environ", {"PHARMFLOW_MANTIS_BILLING_DIRECT": "0"}, clear=False),
         ):
@@ -109,6 +123,11 @@ class FarmStartGateTests(unittest.TestCase):
                     "all_clean": True,
                 },
             ),
+            patch.object(
+                gate,
+                "_proxy_audit",
+                return_value=self._proxy_ok(["10.0.2.2:5555", "10.0.2.3:5555"]),
+            ),
             patch("wizard.site_prefs.load_target_site_url", return_value="https://getdabflow.app/"),
             patch.dict("os.environ", {"PHARMFLOW_MANTIS_BILLING_DIRECT": "0"}, clear=False),
         ):
@@ -118,8 +137,67 @@ class FarmStartGateTests(unittest.TestCase):
             )
         self.assertTrue(out["ok"])
         self.assertTrue(out["stealth_ok"])
+        self.assertTrue(out["proxy_ok"])
         self.assertTrue(out["funds_ok"])
         self.assertTrue(out["prefer_newest_build"])
+
+    def test_refuses_inject_without_upstream_proxy(self) -> None:
+        with (
+            patch.object(gate, "_logs_dir", return_value=self.logs),
+            patch.object(gate, "_desktop_prefs", return_value={"mask_emulator_fingerprint": True, "dabflow_mantis_patch": True}),
+            patch.object(
+                gate,
+                "_stealth_audit",
+                return_value={
+                    "ok": True,
+                    "phones": 2,
+                    "phones_with_leaks": 0,
+                    "leaks_total": 0,
+                    "all_clean": True,
+                },
+            ),
+            patch.object(
+                gate,
+                "_proxy_audit",
+                return_value={
+                    "ok": False,
+                    "ok_count": 2,
+                    "total": 6,
+                    "bad_count": 4,
+                    "bad": [
+                        {
+                            "serial": "10.0.2.4:5555",
+                            "proxy": "127.0.0.1:8220",
+                            "reason": "upstream_tor_dead:8120",
+                        }
+                    ],
+                    "summary": "guest_proxy_upstream 2/6 OK",
+                },
+            ),
+            patch("wizard.site_prefs.load_target_site_url", return_value="https://getdabflow.app/"),
+            patch.dict("os.environ", {"PHARMFLOW_MANTIS_BILLING_DIRECT": "0"}, clear=False),
+        ):
+            out = gate.evaluate_start_gate(
+                serials=["10.0.2.2:5555", "10.0.2.3:5555"],
+                apply_stealth_defaults=False,
+            )
+        self.assertFalse(out["ok"])
+        self.assertFalse(out["stealth_ok"])
+        self.assertFalse(out["proxy_ok"])
+        self.assertIn("proxy stealth fail", (out.get("error") or "").lower())
+
+    def test_enforce_stealth_farm_stop_writes_flags(self) -> None:
+        with patch.object(gate, "_dual_log_roots", return_value=[self.logs]):
+            notes = gate.enforce_stealth_farm_stop(
+                reason="proxy stealth fail: guest_proxy_upstream 2/6 OK",
+                details={"ok_count": 2, "total": 6},
+            )
+        self.assertTrue((self.logs / "FARM_STEALTH_GATE_STOP.json").is_file())
+        flag = (self.logs / "PHARMFLOW_FARM_STOP.flag").read_text(encoding="utf-8")
+        self.assertIn("stealth_gate", flag)
+        ov = json.loads((self.logs / "farm_runtime_overrides.json").read_text(encoding="utf-8"))
+        self.assertEqual(ov.get("PHARMFLOW_FARM_STOP"), "1")
+        self.assertTrue(any("wrote_stealth_gate_stop" in n for n in notes))
 
     def test_refuses_stealth_gate_stop_file(self) -> None:
         (self.logs / "FARM_STEALTH_GATE_STOP.json").write_text("{}", encoding="utf-8")
@@ -179,6 +257,8 @@ class FarmStartGateTests(unittest.TestCase):
         fc = (ROOT / "wizard" / "farm_control.py").read_text(encoding="utf-8")
         self.assertIn("farm_start_gate.evaluate_start_gate", fc)
         self.assertIn("prefer_newest_farm_builds", fc)
+        self.assertIn("enforce_stealth_farm_stop", fc)
+        self.assertIn("ensure_pharmflow_paying_hunter", fc)
 
     def test_dump_gate_status_fast_writes_log_skip_audit(self) -> None:
         with (
@@ -193,6 +273,7 @@ class FarmStartGateTests(unittest.TestCase):
                 "_stealth_audit",
                 side_effect=AssertionError("skip_audit must not call fingerprint audit"),
             ),
+            patch.object(gate, "_proxy_audit", return_value=self._proxy_ok(["10.0.2.2:5555"])),
             patch("wizard.site_prefs.load_target_site_url", return_value="https://getdabflow.app/"),
             patch.dict("os.environ", {"PHARMFLOW_MANTIS_BILLING_DIRECT": "0"}, clear=False),
         ):
@@ -222,9 +303,10 @@ class FarmStartGateTests(unittest.TestCase):
             with patch.object(gate, "_desktop_prefs", return_value={}):
                 with patch.object(gate, "_funds_snapshot", return_value={}):
                     with patch.object(gate, "_income_path_ready", return_value=(False, ["no site"])):
-                        blocked = gate.evaluate_start_gate(
-                            serials=[], apply_stealth_defaults=False, skip_audit=True
-                        )
+                        with patch.object(gate, "_proxy_audit", return_value=self._proxy_ok([])):
+                            blocked = gate.evaluate_start_gate(
+                                serials=[], apply_stealth_defaults=False, skip_audit=True
+                            )
         self.assertFalse(blocked["ok"])
         self.assertEqual(blocked["gate_label"], "GATE_BLOCKED")
         self.assertIn("GATE_BLOCKED", blocked["message"])
@@ -233,11 +315,14 @@ class FarmStartGateTests(unittest.TestCase):
             with patch.object(gate, "_desktop_prefs", return_value={}):
                 with patch.object(gate, "_funds_snapshot", return_value={}):
                     with patch.object(gate, "_income_path_ready", return_value=(True, [])):
-                        ok = gate.evaluate_start_gate(
-                            serials=["10.0.2.2:5555"],
-                            apply_stealth_defaults=False,
-                            skip_audit=True,
-                        )
+                        with patch.object(
+                            gate, "_proxy_audit", return_value=self._proxy_ok(["10.0.2.2:5555"])
+                        ):
+                            ok = gate.evaluate_start_gate(
+                                serials=["10.0.2.2:5555"],
+                                apply_stealth_defaults=False,
+                                skip_audit=True,
+                            )
         self.assertTrue(ok["ok"])
         self.assertEqual(ok["gate_label"], "GATE_OK")
         self.assertIn("GATE_OK", ok["message"])

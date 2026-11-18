@@ -1185,6 +1185,34 @@ def start_farm(
         if log:
             log(msg, level)
 
+    def _ensure_paying_hunter(tag: str) -> None:
+        """Cull FamFlow hunters and keep one PharmFlow fill writer alive."""
+        try:
+            from automation.ssp_paying_hunter_lane import ensure_pharmflow_paying_hunter
+
+            for note in ensure_pharmflow_paying_hunter(cull_foreign=True):
+                _log(f"{tag}: {note}", "ok")
+        except Exception as exc:
+            _log(f"{tag}: hunter ensure failed: {exc}", "warn")
+
+    def _refuse_gate(gate: dict) -> bool:
+        msg = str(gate.get("error") or gate.get("message") or "Start farm gate failed")
+        _log(msg, "err")
+        try:
+            for note in farm_start_gate.enforce_stealth_farm_stop(
+                reason=msg,
+                details={
+                    "stealth_ok": gate.get("stealth_ok"),
+                    "proxy_ok": gate.get("proxy_ok"),
+                    "funds_ok": gate.get("funds_ok"),
+                    "proxy": gate.get("proxy") or {},
+                },
+            ):
+                _log(note, "warn")
+        except Exception as exc:
+            _log(f"enforce_stealth_farm_stop failed: {exc}", "warn")
+        return False
+
     with _farm_lock:
         if farm_process_alive():
             _log("Farm already running", "warn")
@@ -1193,7 +1221,15 @@ def start_farm(
             # Healthy live money workers already earn. Claim ownership and keep
             # them — do NOT stop_external then fail to re-arm (that killed the
             # farm and left FARM OFF with zero phones earning).
+            # NO STEALTH = NO RUN: adopt still requires stealth+proxy+funds gate.
             if _unison_supervisor_alive() or _helper_already_alive("run_farm_354"):
+                for note in farm_start_gate.prefer_newest_farm_builds():
+                    _log(note, "ok")
+                gate = farm_start_gate.evaluate_start_gate(
+                    log=lambda m: _log(str(m).rstrip(), "warn"),
+                )
+                if not gate.get("ok"):
+                    return _refuse_gate(gate)
                 claim_start_farm_owner()
                 try:
                     mark_exe_owned(in_process=False)
@@ -1203,6 +1239,7 @@ def start_farm(
                 _clear_sticky_farm_stop_after_start(log=log)
                 os.environ["PHARMFLOW_UNISON_MODE"] = "1"
                 ensure_operator_stack(log=log)
+                _ensure_paying_hunter("adopt-hunter")
                 _log("Adopted live external farm stack (no kill/re-arm)", "ok")
                 return True
             if not takeover:
@@ -1212,7 +1249,7 @@ def start_farm(
                 )
                 return False
             stop_external_python_farm(log=log)
-        # Hard gate: stealth + funds must both pass before any lane arms.
+        # Hard gate: stealth + proxy + funds must all pass before any lane arms.
         # Prefer newest duplicate workers only (dedupe), then evaluate posture.
         for note in farm_start_gate.prefer_newest_farm_builds():
             _log(note, "ok")
@@ -1220,9 +1257,7 @@ def start_farm(
             log=lambda m: _log(str(m).rstrip(), "warn"),
         )
         if not gate.get("ok"):
-            msg = str(gate.get("error") or gate.get("message") or "Start farm gate failed")
-            _log(msg, "err")
-            return False
+            return _refuse_gate(gate)
         _log(str(gate.get("message") or "Start farm gate OK"), "ok")
         apply_profile_farm_env(profile)
         # Wizard Advanced panels persist user overrides here; re-apply after
@@ -1263,6 +1298,7 @@ def start_farm(
         os.environ["PHARMFLOW_UNISON_MODE"] = "1"
         # Unison owns farm + stealth + watchdog — do not also spawn run_farm_354 here.
         ensure_operator_stack(log=log)
+        _ensure_paying_hunter("start-hunter")
         if not _wait_farm_armed(log=log, timeout_s=20.0):
             _log("Farm stack failed to arm (unison/helpers not alive)", "err")
             clear_exe_owned()

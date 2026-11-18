@@ -4079,12 +4079,13 @@ def start_automation_one_click() -> dict:
 
 
 def _exits_after_heal(serials: list[str]) -> tuple[list[str], list[str]]:
-    """Split live serials by the guest proxy actually on the phone.
+    """Split live serials by stealth-grade guest+upstream proxy.
 
     Heal notes that omit ``repin_fail`` are not a pin. An empty, null, or
-    ``:0`` proxy is this PC's path. Only a loopback exit counts.
+    ``:0`` proxy is this PC's path. Inject listen without Tor upstream is
+    also missing — localhost ``822x`` alone is not a real exit.
     """
-    from automation.browse_proxy import guest_proxy_healthy
+    from automation.browse_proxy import guest_proxy_stealth_ok
     from setup_wizard import _wiz_read_guest_proxy
 
     pinned: list[str] = []
@@ -4095,10 +4096,28 @@ def _exits_after_heal(serials: list[str]) -> tuple[list[str], list[str]]:
         except Exception:
             missing.append(serial)
             continue
-        if "error:" in str(cur or "").lower() or not guest_proxy_healthy(str(cur or "")):
+        if "error:" in str(cur or "").lower():
             missing.append(serial)
-        else:
+            continue
+        idx = None
+        try:
+            from wizard.mumu_farm_ops import MuMuFarmOps
+
+            farm = MuMuFarmOps()
+            farm.refresh_serials()
+            for inst in farm.list_instances():
+                if str(getattr(inst, "adb_serial", "") or "") == str(serial):
+                    raw_idx = getattr(inst, "index", None)
+                    if raw_idx is not None:
+                        idx = int(raw_idx)
+                    break
+        except Exception:
+            idx = None
+        ok, _reason = guest_proxy_stealth_ok(str(cur or ""), idx)
+        if ok:
             pinned.append(serial)
+        else:
+            missing.append(serial)
     return pinned, missing
 
 
