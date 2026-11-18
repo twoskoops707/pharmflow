@@ -47,6 +47,10 @@ from automation.farm_exe_self_heal import (  # noqa: E402
     heal_inject_and_tor,
 )
 from automation.farm_health_audit import apply_money_rails, behind_on_path3_clicks  # noqa: E402
+from automation.ssp_paying_hunter_lane import (  # noqa: E402
+    ensure_pharmflow_paying_hunter,
+    pharmflow_hunter_pids,
+)
 
 try:
     from wizard.wizard_paths import logs_dir as _wizard_logs_dir
@@ -611,68 +615,24 @@ def _hunter_hb_mtime() -> float | None:
     return None
 
 
-def _spawn_paying_hunter() -> int | None:
-    script = ROOT / "scripts" / "ssp_paying_hunter.py"
-    if not script.is_file() or psutil is None:
-        return None
-    pyw = sys.executable.replace("python.exe", "pythonw.exe")
-    if not Path(pyw).is_file():
-        pyw = sys.executable
-    env = os.environ.copy()
-    env["PYTHONPATH"] = str(ROOT)
-    flags = 0x08000000
-    proc = subprocess.Popen(
-        [pyw, "-u", str(script)],
-        cwd=str(ROOT),
-        env=env,
-        creationflags=flags,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        close_fds=True,
-    )
-    return int(proc.pid)
-
-
 def _cull_duplicate_hunters() -> list[str]:
-    """Keep exactly one live hunter. Respawn if heartbeat is stale (hung prefetch)."""
+    """Keep exactly one PharmFlow hunter. Foreign FamFlow/CPharm never counts."""
     fixes: list[str] = []
-    if psutil is None:
-        return fixes
-    pids: list[int] = []
-    for proc in psutil.process_iter(["pid", "cmdline"]):
-        try:
-            argv = proc.info.get("cmdline") or []
-            if "-c" in argv:
-                continue
-            cmd = " ".join(str(x) for x in argv)
-            if "ssp_paying_hunter.py" in cmd:
-                pids.append(int(proc.info["pid"]))
-        except (psutil.Error, OSError, TypeError, ValueError):
-            continue
-    stale = hunter_heartbeat_stale(_hunter_hb_mtime(), time.time())
-    if len(pids) > 1:
-        for pid in sorted(pids)[:-1]:
-            try:
-                psutil.Process(pid).kill()
-                fixes.append(f"kill_dup_hunter pid={pid}")
-            except (psutil.Error, OSError):
-                pass
-        pids = [sorted(pids)[-1]]
-    if pids and stale:
-        pid = pids[0]
-        try:
-            psutil.Process(pid).kill()
-            fixes.append(f"kill_stale_hunter pid={pid}")
-        except (psutil.Error, OSError):
-            pass
-        pids = []
     if _lane_thread_alive("lane-ssp-hunter"):
         fixes.append("hunter_lane")
+        # Still cull foreign basename blockers so PharmFlow HB/fill stay owned.
+        fixes.extend(ensure_pharmflow_paying_hunter(root=ROOT, cull_foreign=True))
         return fixes
-    if not pids:
-        spawned = _spawn_paying_hunter()
-        if spawned:
-            fixes.append(f"spawn_paying_hunter pid={spawned}")
+    stale = hunter_heartbeat_stale(_hunter_hb_mtime(), time.time())
+    pids = pharmflow_hunter_pids()
+    if pids and stale and psutil is not None:
+        for pid in list(pids):
+            try:
+                psutil.Process(pid).kill()
+                fixes.append(f"kill_stale_pharmflow_hunter pid={pid}")
+            except (psutil.Error, OSError):
+                continue
+    fixes.extend(ensure_pharmflow_paying_hunter(root=ROOT, cull_foreign=True))
     return fixes
 
 

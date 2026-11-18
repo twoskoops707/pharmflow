@@ -33,6 +33,10 @@ from automation.pharmflow_farm_config import (  # noqa: E402
 
 from automation.pharmflow_unison_dedupe import dedupe_keep_newest  # noqa: E402
 from automation.singleton_liveness import check_tick  # noqa: E402
+from automation.ssp_paying_hunter_lane import (  # noqa: E402
+    ensure_pharmflow_paying_hunter,
+    process_is_pharmflow_hunter,
+)
 
 LANES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     # ADB bond keeper: holds/repairs/starts the adb connection to every known
@@ -138,13 +142,23 @@ def _lane_pids() -> dict[str, list[int]]:
     try:
         for proc in psutil.process_iter(["pid", "cmdline"]):
             try:
-                cmd = " ".join(str(x) for x in (proc.info.get("cmdline") or []))
+                argv = list(proc.info.get("cmdline") or [])
+                cmd = " ".join(str(x) for x in argv)
                 pid = int(proc.info.get("pid") or 0)
             except (TypeError, ValueError, psutil.Error):
                 continue
             for name, script in needles.items():
-                if script in cmd and "-c" not in cmd:
-                    out[name].append(pid)
+                if script not in cmd or "-c" in cmd:
+                    continue
+                # ssp-hunter: FamFlow/CPharm basename matches must NOT count —
+                # they blocked PharmFlow spawn (tip-150 HUNTER_EXE_CHILD=0).
+                if name == "ssp-hunter":
+                    try:
+                        if not process_is_pharmflow_hunter(psutil.Process(pid)):
+                            continue
+                    except (psutil.Error, OSError):
+                        continue
+                out[name].append(pid)
     except Exception:
         # A process can die while process_iter materializes attrs — psutil then
         # raises from the iterator itself. Partial results are fine; a scan must
@@ -223,6 +237,9 @@ def _ensure_lanes() -> list[str]:
         notes.append("skip_spawn_no_psutil")
         return notes
     for _name, script, _args in LANES:
+        # Ownership-aware ensure for ssp-hunter (culls FamFlow/CPharm blockers).
+        if _name == "ssp-hunter":
+            continue
         extras = dedupe_keep_newest(script)
         for pid in extras:
             notes.append(f"dedupe_{script}:{pid}")
@@ -230,7 +247,13 @@ def _ensure_lanes() -> list[str]:
     gate_block = _stealth_gate_blocks_farm()
     if gate_block:
         notes.append("stealth_gate_active")
+    else:
+        # Paying hunter required while farm runs — never optional, never FamFlow.
+        notes.extend(ensure_pharmflow_paying_hunter(root=ROOT, cull_foreign=True))
     for name, script, args in LANES:
+        if name == "ssp-hunter":
+            # Handled by ensure_pharmflow_paying_hunter (ownership-aware).
+            continue
         if gate_block and name in _STEALTH_GATE_BLOCKED_LANES:
             continue
         if pids.get(name):

@@ -36,9 +36,14 @@ from automation.dabflow_mantis_client_patch import (  # noqa: E402
 )
 from automation.tor_manager import TorManager  # noqa: E402
 
-LOG = Path(r"C:\CPharm\logs")
-# Dual-write sticky hunter state so branded PharmFlow readers stay in sync.
-_LOG_MIRRORS = (Path(r"C:\CPharm\logs"), Path(r"C:\PharmFlow\logs"))
+# PharmFlow is the live tip root. Mirror to legacy CPharm so dual-root readers
+# stay in sync — never the reverse (CPharm-primary left PharmFlow HB stale).
+LOG = Path(
+    os.environ.get("PHARMFLOW_LOGS")
+    or os.environ.get("PHARMFLOW_LOG_DIR")
+    or r"C:\PharmFlow\logs"
+)
+_LOG_MIRRORS = (Path(r"C:\PharmFlow\logs"), Path(r"C:\CPharm\logs"))
 HB = LOG / "ssp_paying_hunter_heartbeat.txt"
 OUT = LOG / "ssp_paying_hunter.json"
 FLAG = LOG / "SSP_FORCE_REFRESH.flag"
@@ -49,21 +54,31 @@ STOP = LOG / "SSP_HUNTER_STOP.flag"
 # Tor house blip cannot re-enter SSP_HOUSE_ONLY while money is flat.
 _HOUSE_STREAK_CLEAR = 6
 
+try:
+    LOG.mkdir(parents=True, exist_ok=True)
+except OSError:
+    pass
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(message)s",
     handlers=[
         logging.FileHandler(LOG / "ssp_paying_hunter.log", encoding="utf-8"),
-    ],
+    ]
+    if LOG.is_dir()
+    else [logging.StreamHandler()],
 )
 log = logging.getLogger("ssp_hunter")
 
 
 def _hb(msg: str) -> None:
-    try:
-        HB.write_text(f"{time.strftime('%Y-%m-%d %H:%M:%S')} {msg}\n", encoding="utf-8")
-    except OSError:
-        pass
+    body = f"{time.strftime('%Y-%m-%d %H:%M:%S')} {msg}\n"
+    for root in _LOG_MIRRORS:
+        try:
+            root.mkdir(parents=True, exist_ok=True)
+            (root / "ssp_paying_hunter_heartbeat.txt").write_text(body, encoding="utf-8")
+        except OSError:
+            continue
 
 
 def _live_tor_control_ports() -> list[int]:

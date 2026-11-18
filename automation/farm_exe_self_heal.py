@@ -37,6 +37,7 @@ from automation.mumu_fingerprint import (
     ensure_windows_gpu_prefs_for_mumu,
     reassert_all_vm_gpu_accel,
 )
+from automation.ssp_paying_hunter_lane import ensure_pharmflow_paying_hunter
 from wizard.wizard_paths import mumu_vms_dir
 
 log = logging.getLogger("farm_exe_self_heal")
@@ -1786,6 +1787,19 @@ def run_self_heal(*, reason: str = "tick") -> dict[str, Any]:
         # GPU High / DirectX on Start farm + tick (same helpers as stealth/remediate).
         # File rewrite only — does not launch/kill farm lanes or fight PEF-1.
         fixes.extend(_reassert_mumu_gpu_rails()[:8])
+        # Paying hunter is money-critical: Start/self-heal must keep one
+        # PharmFlow-owned ssp_paying_hunter alive (never FamFlow/CPharm).
+        if _farm_lane_alive() or reason_l in {
+            "start_farm",
+            "start",
+            "arm",
+            "unison_boot",
+            "unison_tick",
+        }:
+            try:
+                fixes.extend(ensure_pharmflow_paying_hunter(cull_foreign=True)[:6])
+            except Exception as exc:  # noqa: BLE001
+                fixes.append(f"paying_hunter_ensure_err:{exc}")
     except Exception as exc:  # noqa: BLE001
         fixes.append(f"self_heal_crash:{type(exc).__name__}:{exc}")
         log.exception("farm_exe_self_heal failed")

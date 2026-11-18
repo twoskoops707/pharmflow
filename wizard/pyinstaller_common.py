@@ -196,6 +196,7 @@ def base_hiddenimports() -> list[str]:
         "automation.farm_health_audit",
         "automation.farm_phone_discover",
         "automation.farm_money_monitor",
+        "automation.ssp_paying_hunter_lane",
         "automation.farm_pause",
         "automation.display_resolution",
         "automation.farm_sites",
