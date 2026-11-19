@@ -304,18 +304,54 @@ def enforce_stealth_farm_stop(
     return notes
 
 
+def clear_stealth_gate_stop() -> list[str]:
+    """Remove the stealth stop records so a healthy fleet can Start again.
+
+    The stop file is a *record of the last refusal*, not a permanent verdict.
+    A real Start re-audits; when the audit now passes this clears the record so
+    the EXE heals itself instead of needing an operator to delete a file.
+    """
+    notes: list[str] = []
+    for logs in _dual_log_roots():
+        for name in ("FARM_STEALTH_GATE_STOP.json", "PHARMFLOW_FARM_STOP.flag"):
+            path = logs / name
+            try:
+                if path.is_file():
+                    path.unlink()
+                    notes.append(f"cleared_stealth_gate:{name}:{logs}")
+            except OSError as exc:
+                notes.append(f"clear_stealth_gate_fail:{name}:{logs}:{exc}")
+        ov = logs / "farm_runtime_overrides.json"
+        try:
+            if ov.is_file():
+                loaded = json.loads(ov.read_text(encoding="utf-8-sig"))
+                if isinstance(loaded, dict) and loaded.get("PHARMFLOW_FARM_STOP") not in (None, "0"):
+                    loaded["PHARMFLOW_FARM_STOP"] = "0"
+                    ov.write_text(json.dumps(loaded, indent=2) + "\n", encoding="utf-8")
+                    notes.append(f"sticky_farm_stop_cleared:{logs}")
+        except (OSError, ValueError, TypeError) as exc:
+            notes.append(f"clear_override_stop_fail:{logs}:{exc}")
+    return notes
+
+
 def evaluate_start_gate(
     *,
     serials: list[str] | None = None,
     log: LogFn | None = None,
     apply_stealth_defaults: bool = True,
     skip_audit: bool = False,
+    reaudit_after_stop: bool = False,
 ) -> dict[str, Any]:
     """Return ok=True only when stealth (FP + proxy) AND funds checks both pass.
 
     ``skip_audit=True`` skips the slow fingerprint round-trip (Control Panel
     banner / PEF-44 fast dump) but still audits guest+upstream proxy.
     Funds/path checks still run. Never starts the farm.
+
+    ``reaudit_after_stop=True`` is for a real human Start: an existing stealth
+    stop record is re-audited instead of refusing outright, and is cleared when
+    the fleet now passes. Banners/dumps leave it False so the record stays
+    visible until a Start actually proves the fleet clean.
     """
     prefs = _desktop_prefs()
     if apply_stealth_defaults and prefs.get("mask_emulator_fingerprint") is not True:
@@ -324,7 +360,7 @@ def evaluate_start_gate(
         pass
 
     gate_stop = _logs_dir() / "FARM_STEALTH_GATE_STOP.json"
-    if gate_stop.is_file():
+    if gate_stop.is_file() and not reaudit_after_stop:
         return {
             "ok": False,
             "gate_label": _gate_label(False),
@@ -415,6 +451,15 @@ def evaluate_start_gate(
     if not funds_ok:
         errors.append(funds_reason or "funds check failed")
 
+    cleared: list[str] = []
+    if ok and reaudit_after_stop:
+        # Stealth now proven: drop the stale refusal record so lanes can arm.
+        os.environ["PHARMFLOW_FARM_STOP"] = "0"
+        cleared = clear_stealth_gate_stop()
+        if log:
+            for note in cleared:
+                log(note)
+
     label = _gate_label(ok)
     if ok and skip_audit:
         message = (
@@ -440,6 +485,7 @@ def evaluate_start_gate(
         "funds": {**funds, "path_ok": path_ok, "path_problems": path_problems, "reason": funds_reason},
         "prefer_newest_build": True,
         "audit_skipped": bool(skip_audit),
+        "stealth_gate_cleared": cleared,
     }
 
 

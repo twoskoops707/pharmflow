@@ -74,25 +74,37 @@ class PharmFlowAppApiTests(unittest.TestCase):
         self.assertFalse(out.get("ok"))
         self.assertIn("no_such_bridge_method", str(out.get("error")))
 
-    def test_start_farm_bridge_refuses_external_python(self) -> None:
-        """App Start-farm must refuse when the python money path is already UP."""
+    def test_start_farm_bridge_takes_over_external_python(self) -> None:
+        """Start farm acknowledges, then owns an already-running python farm.
+
+        Operator law (wizard/farm_control.start_farm): PharmFlow.exe is the only
+        farm controller, so an orphan python/unison stack must be adopted and
+        re-armed under the EXE. Refusing Start would leave sequences running
+        outside the Control Panel, so the bridge acks ``starting`` and the worker
+        takes over.
+        """
         from wizard.pharmflow_wizard_bridge import start_farm_from_app
 
         with (
             patch("wizard.farm_control.farm_process_alive", return_value=False),
             patch("wizard.farm_control.external_python_farm_running", return_value=True),
-            patch("wizard.farm_control.operator_dashboard_listening", return_value=True),
-            patch("wizard.farm_control.start_farm", return_value=True) as sf,
+            patch("wizard.farm_control.operator_dashboard_listening", return_value=False),
+            patch("wizard.farm_control.start_farm", return_value=True),
             patch("wizard.pharmflow_wizard_bridge._emit_log") as emit,
+            patch("wizard.pharmflow_wizard_bridge._farm_starting", False),
+            patch("wizard.pharmflow_wizard_bridge._farm_start_result", {}),
+            # Keep the async worker off the real stealth/ADB audit.
+            patch(
+                "wizard.pharmflow_wizard_bridge.farm_start_gate_status",
+                return_value={"ok": False, "message": "gate"},
+            ),
         ):
             out = start_farm_from_app()
-        self.assertFalse(out.get("starting"))
-        self.assertFalse(out.get("ok"))
-        self.assertTrue(out.get("running"))
-        self.assertTrue(out.get("external"))
-        self.assertFalse(sf.called)
+        self.assertTrue(out.get("ok"))
+        self.assertTrue(out.get("starting"))
         self.assertTrue(emit.called)
-        self.assertIn("does not take over", str(out.get("error") or out.get("message") or ""))
+        logged = " ".join(str(c) for c in emit.call_args_list).lower()
+        self.assertIn("taking over", logged)
 
     def test_farm_status_bridge_reports_external_as_running(self) -> None:
         from wizard.pharmflow_wizard_bridge import farm_status_from_app

@@ -169,6 +169,22 @@ def probe_freellmapi(timeout: float = 2.5) -> dict[str, Any]:
     return out
 
 
+def agent_file_is_corrupt(root: Path | None = None) -> bool:
+    """True when cloud_agent.json exists but is not valid JSON.
+
+    Overwriting a corrupt-but-present config silently destroys whatever the
+    operator had in it, so the writer refuses instead of reporting success.
+    """
+    path = cloud_agent_config_path(root)
+    if not path.is_file():
+        return False
+    try:
+        json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return True
+    return False
+
+
 def load_agent_file(root: Path | None = None) -> dict[str, Any]:
     path = cloud_agent_config_path(root)
     if not path.is_file():
@@ -262,6 +278,16 @@ def wire_agent_config(
         }
 
     path = cloud_agent_config_path(root)
+    if agent_file_is_corrupt(root):
+        return {
+            "ok": False,
+            "saved": False,
+            "configured": False,
+            "error": (
+                f"{path.name} is not valid JSON and was left untouched — "
+                "fix or delete it, then save again."
+            ),
+        }
     existing = load_agent_file(root)
     existing["base"] = use_base
     existing["model"] = use_model

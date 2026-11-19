@@ -193,7 +193,13 @@ def test_reap_process_storm_kills_orphan_tor() -> None:
     ]
     pid_map = {r["pid"]: r for r in rows}
 
-    with mock.patch.object(heal, "_collect_storm_rows", return_value=(rows, pid_map)):
+    with (
+        mock.patch.object(heal, "_collect_storm_rows", return_value=(rows, pid_map)),
+        # Hermetic: the "still serving money ports" probe reads the REAL host,
+        # so a synthetic pid could be skipped nondeterministically depending on
+        # what that pid happens to be doing on this machine.
+        mock.patch.object(heal, "_tor_still_serving_money_ports", return_value=False),
+    ):
         fixes = heal.reap_process_storm(apply=False)
 
     would = [f for f in fixes if str(f).startswith("storm_would_kill:")]

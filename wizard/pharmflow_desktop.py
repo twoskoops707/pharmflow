@@ -1457,6 +1457,27 @@ def run_farm_cli() -> int:
         stop_farm as _stop,
     )
 
+    def _cli_log(msg: str, level: str = "ok") -> None:
+        """Persist the Start farm trail: the CLI has no dashboard to show it.
+
+        ``run_farm_cli`` used to call start_farm without a ``log`` callback, so
+        every gate refusal and self-heal note was dropped and an operator saw a
+        silent start that looked like a hang or a crash.
+        """
+        try:
+            from pathlib import Path as _Path
+            import datetime as _dt
+
+            p = _Path(r"C:\PharmFlow\logs\pharmflow.log")
+            p.parent.mkdir(parents=True, exist_ok=True)
+            stamp = _dt.datetime.now().strftime("%H:%M:%S")
+            with p.open("a", encoding="utf-8", errors="replace") as fh:
+                fh.write(f"[{stamp}] farm-cli {level}: {msg}\n")
+        except Exception:
+            pass
+        _bootlog(f"farm-cli {level}: {msg}")
+        print(f"{level}: {msg}", flush=True)
+
     _ensure_console()
     if "--stop-farm" in sys.argv:
         stopped = _stop()
@@ -1467,7 +1488,9 @@ def run_farm_cli() -> int:
         _bootlog("farm-cli: already-running")
         print("Farm already running — dashboard http://127.0.0.1:8091/")
         return 0
-    ok = _sf(profile=_load_profile(None), hours=None, takeover=True)
+    _bootlog("farm-cli: start_farm begin")
+    ok = _sf(profile=_load_profile(None), hours=None, takeover=True, log=_cli_log)
+    _bootlog(f"farm-cli: start_farm returned ok={ok}")
     if not ok and _fr():
         # start_farm returns False when unison is already up. That is not a
         # failed arm — the stale-log path used to take this branch by mistake.

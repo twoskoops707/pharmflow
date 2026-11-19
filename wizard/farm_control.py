@@ -1196,8 +1196,18 @@ def start_farm(
             _log(f"{tag}: hunter ensure failed: {exc}", "warn")
 
     def _refuse_gate(gate: dict) -> bool:
+        """Refuse Start. Latch a stealth stop only on a real stealth verdict.
+
+        When the gate could not reach a verdict (no phones answering, unknown
+        error, funds-only failure) it must NOT write FARM_STOP. A false latch
+        permanently refused every later Start on a fully healthy fleet, which
+        is what left the farm stopped and earning nothing.
+        """
         msg = str(gate.get("error") or gate.get("message") or "Start farm gate failed")
         _log(msg, "err")
+        if gate.get("stealth_ok") is not False and gate.get("proxy_ok") is not False:
+            _log("gate refused without a stealth verdict — FARM_STOP not latched", "warn")
+            return False
         try:
             for note in farm_start_gate.enforce_stealth_farm_stop(
                 reason=msg,
@@ -1227,6 +1237,7 @@ def start_farm(
                     _log(note, "ok")
                 gate = farm_start_gate.evaluate_start_gate(
                     log=lambda m: _log(str(m).rstrip(), "warn"),
+                    reaudit_after_stop=True,
                 )
                 if not gate.get("ok"):
                     return _refuse_gate(gate)
@@ -1255,6 +1266,7 @@ def start_farm(
             _log(note, "ok")
         gate = farm_start_gate.evaluate_start_gate(
             log=lambda m: _log(str(m).rstrip(), "warn"),
+            reaudit_after_stop=True,
         )
         if not gate.get("ok"):
             return _refuse_gate(gate)

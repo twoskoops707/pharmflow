@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import os
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -27,6 +28,36 @@ if str(_WIZARD_DIR) not in sys.path:
 _KEEP = {"PHARMFLOW_ALLOW_SEQUENCE_RUNS", "PHARMFLOW_PORT", "PHARMFLOW_HOST"}
 for _key in [k for k in os.environ if k.startswith("PHARMFLOW_") and k not in _KEEP]:
     del os.environ[_key]
+
+# Tests must never read or write the operator's LIVE farm state. Without an
+# explicit log root, the start gate, phone budget and Tor prewarm resolvers all
+# fall back to C:\PharmFlow\logs — so a test run both read the host lock map
+# (wrong phone counts) and could latch a real FARM_STOP that then refused every
+# later Start farm. Point every log-root variable at a throwaway session dir.
+_TEST_LOGS_DIR = Path(tempfile.mkdtemp(prefix="pharmflow-test-logs-"))
+for _key in ("PHARMFLOW_LOG_DIR", "PHARMFLOW_LOGS", "CPHARM_LOGS", "CPHARM_LOG_DIR"):
+    os.environ[_key] = str(_TEST_LOGS_DIR)
+
+
+@pytest.fixture(autouse=True)
+def _reset_bridge_start_latch():
+    """Clear the module-global Start-farm latch between tests.
+
+    ``_farm_starting``/``_farm_start_result`` live on the bridge module. A test
+    that starts an adoption/dashboard worker leaves them set, so a later test
+    sees ``start_farm_from_app()`` answer "already in progress" and fails on
+    state it never created.
+    """
+    try:
+        import pharmflow_wizard_bridge as _bridge
+    except Exception:  # noqa: BLE001 — suite may run without the wizard path
+        yield
+        return
+    _bridge._farm_starting = False
+    _bridge._farm_start_result = {}
+    yield
+    _bridge._farm_starting = False
+    _bridge._farm_start_result = {}
 
 
 @pytest.fixture(autouse=True)

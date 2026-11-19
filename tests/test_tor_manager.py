@@ -7,6 +7,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from automation.tor_manager import (
@@ -170,8 +171,15 @@ class TorWarmupHasNoPhoneCountCeilingTests(unittest.TestCase):
     def test_prewarm_default_follows_live_fleet_size(self) -> None:
         from automation import tor_manager as tm
 
+        # Hermetic: _tor_prewarm_slots() prefers the 1:1 phone budget, which
+        # reads the host's ADB lock map. Pin an empty budget so this test
+        # measures the fleet-size fallback it is actually asserting.
+        empty_budget = SimpleNamespace(slots=(), count=0, abs_indices=())
         env = {k: v for k, v in os.environ.items() if k != "PHARMFLOW_TOR_PREWARM_MAX_IDX"}
-        with patch.dict(os.environ, env, clear=True):
+        with (
+            patch.dict(os.environ, env, clear=True),
+            patch("automation.phone_process_budget.active_phone_budget", return_value=empty_budget),
+        ):
             # A 40-phone fleet prewarms 40 lanes, not a fixed 8.
             with patch.object(tm, "live_fleet_indices", return_value=list(range(40, 80))):
                 self.assertEqual(tm._tor_prewarm_max_idx(), 39)

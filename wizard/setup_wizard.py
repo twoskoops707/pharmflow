@@ -15919,3 +15919,9 @@ if __name__ == "__main__":
 
     _root.protocol("WM_DELETE_WINDOW", _standalone_wm_delete)
     _root.mainloop()
+
+
+# --- Dual-brand compatibility -------------------------------------------------
+# wizard/cpharm_* shims and their contract tests still import the legacy name.
+# The CPharm<->PharmFlow branding split must stay healed: one class, both names.
+CPharmWizard = PharmFlowWizard

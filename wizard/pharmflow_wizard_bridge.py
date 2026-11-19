@@ -4679,7 +4679,10 @@ def save_cloud_agent_config(base: str = "", model: str = "", api_key: str = "") 
             api_key=api_key,
             base=base,
             model=model,
-            root=_agent_config_root(),
+            # The bridge owns the config location: _agent_config_path() is the
+            # documented surface (and what tests/other callers patch). Passing a
+            # separately derived root let the two drift apart.
+            root=_agent_config_path().parent,
             prefer_freellm=not bool(str(base or "").strip()),
         )
     except Exception as exc:  # noqa: BLE001
