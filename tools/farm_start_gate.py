@@ -473,8 +473,12 @@ def evaluate_start_gate(
     return {
         "ok": ok,
         "gate_label": label,
-        "stealth_ok": stealth_ok,
-        "proxy_ok": proxy_ok,
+        # No phones answering ADB means NO VERDICT, not a stealth failure.
+        # Reporting False here made a fleet that was still booting write a
+        # sticky FARM_STOP (see farm_control._refuse_gate, which must only
+        # latch on a real stealth/proxy verdict) and the farm never armed.
+        "stealth_ok": stealth_ok if phones else None,
+        "proxy_ok": proxy_ok if phones else None,
         "funds_ok": funds_ok,
         "error": None if ok else message,
         "message": message,
