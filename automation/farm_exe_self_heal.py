@@ -121,8 +121,16 @@ def _write_json(path: Path, data: dict[str, Any]) -> None:
     path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
 
 
-def adb_live_serials() -> list[str]:
-    code, out = _run([_adb_bin(), "devices"], timeout=25.0)
+def adb_live_serials(timeout: float | None = None) -> list[str]:
+    """Live ADB serials, excluding loopback pins.
+
+    ``timeout`` bounds the adb call for hot-path callers (deck bridge, wizard)
+    that cannot wait the full default; five shipped call sites already passed
+    it, so the missing parameter raised ``TypeError`` instead of returning a
+    phone count.
+    """
+    budget = 25.0 if timeout is None else float(timeout)
+    code, out = _run([_adb_bin(), "devices"], timeout=budget)
     if code != 0 and not out:
         return []
     live: list[str] = []
