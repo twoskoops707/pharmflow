@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
+import sys
 import threading
 from copy import deepcopy
 from datetime import datetime, timezone
@@ -61,8 +63,58 @@ def resolve_tor_exe_path() -> str:
     return str(preferred)
 
 
+_SAFE_SOCKS_BASE = 9550
+_SOCKS_LANE_SPAN = 64
+
+
+def _windows_excluded_tcp_ranges() -> list[tuple[int, int]]:
+    """TCP ranges Windows reserves for Hyper-V/WinNAT (re-rolled every boot).
+
+    A SocksPort inside one fails to bind with WSAEACCES, so the base must be
+    checked against the live list instead of trusting a stored value.
+    """
+    if sys.platform != "win32":
+        return []
+    try:
+        from automation.no_window import CREATE_NO_WINDOW
+    except Exception:  # noqa: BLE001
+        CREATE_NO_WINDOW = 0
+    try:
+        proc = subprocess.run(
+            ["netsh", "int", "ipv4", "show", "excludedportrange", "protocol=tcp"],
+            capture_output=True,
+            text=True,
+            timeout=8.0,
+            creationflags=CREATE_NO_WINDOW,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return []
+    ranges: list[tuple[int, int]] = []
+    for line in (proc.stdout or "").splitlines():
+        parts = line.split()
+        if len(parts) >= 2 and parts[0].isdigit() and parts[1].isdigit():
+            lo, hi = int(parts[0]), int(parts[1])
+            if lo > 0 and hi >= lo:
+                ranges.append((lo, hi))
+    return ranges
+
+
+def _socks_base_is_bindable(base: int, excluded: list[tuple[int, int]]) -> bool:
+    if base <= 0 or base == 9050:
+        return False
+    span_hi = base + _SOCKS_LANE_SPAN
+    return not any(base <= hi and span_hi >= lo for lo, hi in excluded)
+
+
 def _resolve_tor_socks_base() -> int:
-    """Prefer the freshest live Tor base broadcast over a hardcoded 9050."""
+    """Prefer the freshest live Tor base broadcast, but never a dead one.
+
+    Stored record, env and the 9550 default are candidates; the first whose
+    per-phone lane span escapes the live Windows exclusion list wins. A stored
+    9050 is exactly the base Hyper-V exclusions made unbindable (WSAEACCES), so
+    persisting it must not pin every lane to a dead port.
+    """
+    candidates: list[int] = []
     newest: tuple[float, int] | None = None
     for path in (
         Path(r"C:\PharmFlow\logs\tor_port_bases.json"),
@@ -81,11 +133,20 @@ def _resolve_tor_socks_base() -> int:
         except (OSError, json.JSONDecodeError, TypeError, ValueError):
             continue
     if newest is not None:
-        return newest[1]
+        candidates.append(newest[1])
     env = (os.environ.get("PHARMFLOW_TOR_SOCKS_BASE") or "").strip()
     if env.isdigit() and int(env) > 0:
-        return int(env)
-    return 9550
+        candidates.append(int(env))
+    candidates.append(_SAFE_SOCKS_BASE)
+
+    excluded = _windows_excluded_tcp_ranges()
+    for base in candidates:
+        if _socks_base_is_bindable(base, excluded):
+            return base
+    for base in range(_SAFE_SOCKS_BASE, 20000, 100):
+        if _socks_base_is_bindable(base, excluded):
+            return base
+    return _SAFE_SOCKS_BASE
 
 
 def _base_runtime() -> dict[str, str]:
