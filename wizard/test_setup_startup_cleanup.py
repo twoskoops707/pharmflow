@@ -63,11 +63,20 @@ class SetupStartupCleanupTests(unittest.TestCase):
             summary = cleanup.run_startup_cleanup(first_time=True)
         self.assertIn("platform", summary["skipped"])
 
-    def test_first_time_kills_mumu_not_protected(self) -> None:
+    def test_first_time_never_kills_mumu_player(self) -> None:
+        """First-time setup must not terminate MuMu — that tore down booted guests.
+
+        Regression: a missing ``mumu_setup_complete`` marker made every
+        phone-setup open a "first" one, and the cleanup killed the player shell
+        and ``nemux-shell-winui.Manager.exe`` (Windows logged an Application Hang
+        plus a 0xe0434352 Manager crash, then every VM was torn down).
+        """
         my_pid = 1000
         procs = [
             FakeProc(1000, "PharmFlow.exe"),
             FakeProc(2001, "MuMuPlayer.exe", exe=r"C:\Program Files\Netease\MuMuPlayerARM\MuMuPlayer.exe"),
+            FakeProc(2004, "nemux-shell-winui.exe", exe=r"C:\Program Files\Netease\MuMuPlayerARM\shell\nemux-shell-winui.exe"),
+            FakeProc(2005, "nemux-shell-winui.Manager.exe", exe=r"C:\Program Files\Netease\MuMuPlayerARM\manager\nemux-shell-winui.Manager.exe"),
             FakeProc(2002, "adb.exe"),
             FakeProc(2003, "PharmFlow.exe"),
         ]
@@ -85,9 +94,17 @@ class SetupStartupCleanupTests(unittest.TestCase):
                     with mock.patch.dict(sys.modules, {"psutil": fake_psutil}):
                         summary = cleanup.run_startup_cleanup(first_time=True, my_pid=my_pid)
         killed = " ".join(summary["killed"])
-        self.assertIn("mumu", killed)
+        skipped = " ".join(summary["skipped"])
         self.assertIn("adb", killed)
         self.assertIn("pharmflow", killed)
+        # Every MuMu process survives, and it is reported as skipped.
+        self.assertNotIn("mumu", killed)
+        self.assertNotIn("2001", killed)
+        self.assertNotIn("2004", killed)
+        self.assertNotIn("2005", killed)
+        self.assertIn("mumu:2001", skipped)
+        self.assertIn("mumu:2004", skipped)
+        self.assertIn("mumu:2005", skipped)
 
     def test_not_first_time_skips_mumu(self) -> None:
         procs = [
@@ -154,6 +171,14 @@ class SetupStartupCleanupTests(unittest.TestCase):
                     cleanup._adb_kill_server(logs.append)
         self.assertEqual(run.call_count, 1)
         self.assertTrue(any("skipped adb kill-server" in line for line in logs))
+
+    def test_kill_server_skips_when_mumu_players_are_up(self) -> None:
+        logs: list[str] = []
+        with mock.patch.object(cleanup, "_mumu_player_running", return_value=True):
+            with mock.patch.object(cleanup.subprocess, "run") as run:
+                cleanup._adb_kill_server(logs.append)
+        run.assert_not_called()
+        self.assertTrue(any("MuMu phones are up" in line for line in logs))
 
     def test_kill_server_runs_only_when_no_phone_is_listed(self) -> None:
         logs: list[str] = []

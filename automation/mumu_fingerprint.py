@@ -966,13 +966,22 @@ def ensure_windows_gpu_prefs_for_mumu(mumu_root: Path | None = None) -> list[str
     return notes
 
 
-def reassert_all_vm_gpu_accel(vms_dir: Path) -> list[str]:
-    """Rewrite GPU/lean rails on every VM (classic setting.json and MuMu 15 nx)."""
+def reassert_all_vm_gpu_accel(vms_dir: Path, *, skip: set[str] | None = None) -> list[str]:
+    """Rewrite GPU/lean rails on every VM (classic setting.json and MuMu 15 nx).
+
+    ``skip`` holds VM folder names that are booted right now. Writing a live
+    guest's ``setting.json`` mid-session is how a running MuMu player gets torn
+    down; those VMs pick the rails up on their next cold boot instead.
+    """
     fixes: list[str] = []
     if not vms_dir.is_dir():
         return ["vms_dir_missing"]
+    skip_names = {str(s).lower() for s in (skip or ()) if str(s).strip()}
     for vm in sorted(vms_dir.iterdir()):
         if not vm.is_dir():
+            continue
+        if vm.name.lower() in skip_names:
+            fixes.append(f"{vm.name}:skipped_running")
             continue
         has_guest = (
             (vm / "setting.json").is_file()

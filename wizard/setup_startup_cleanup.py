@@ -1,13 +1,16 @@
 """
-Close stale MuMu, adb, and PharmFlow processes before phone setup opens.
+Close stale adb and PharmFlow processes before phone setup opens.
 
-Runs automatically when the app starts in phone-setup mode (before the UI). On
-the **first setup** (``mumu_setup_complete`` not yet set), also closes MuMu so
-you start from a clean slate. After setup is done, re-opening setup only clears
-duplicate PharmFlow / adb / setup instances — not running MuMu phones.
+Runs automatically when the app starts in phone-setup mode (before the UI).
 
-Skip: ``PHARMFLOW_SKIP_STARTUP_CLEANUP=1``
-Force MuMu kill even after setup: ``PHARMFLOW_FORCE_STARTUP_CLEANUP=1``
+**MuMu is never closed here.** The player shells and the Manager GUI are the
+phones the farm earns on; terminating them tore down booted guests (a shell
+hung, Windows closed it, and ``nemux-shell-winui.Manager.exe`` then crashed
+with 0xe0434352) every time phone setup re-opened while the operator had just
+spun the emulators up. A missing ``mumu_setup_complete`` marker must not cost
+the operator their fleet. Only PharmFlow / adb duplicates are cleared.
+
+``PHARMFLOW_SKIP_STARTUP_CLEANUP=1`` skips everything.
 
 Dev CLI: ``python tools/kill_pharmflow_stale_processes.py``
 """
@@ -137,7 +140,35 @@ def _adb_has_live_device(exe: str) -> bool | None:
     return False
 
 
+def _mumu_player_running() -> bool:
+    """True when a MuMu player shell (not the Manager GUI) is alive.
+
+    A live player means the guest is booted: an ``adb kill-server`` would drop
+    every phone's device list even though nothing is stale.
+    """
+    try:
+        import psutil
+    except ImportError:
+        return False
+    for proc in psutil.process_iter(["name", "cmdline"]):
+        try:
+            name = _basename(proc.info.get("name") or "")
+            if "nemux-shell-winui" not in name or "manager" in name:
+                continue
+            cmd = " ".join(str(x) for x in (proc.info.get("cmdline") or []))
+            if "--VmIndex" in cmd:
+                return True
+        except (AttributeError, TypeError, ValueError):
+            continue
+        except Exception:  # noqa: BLE001 — psutil.Error subclasses vary by version
+            continue
+    return False
+
+
 def _adb_kill_server(log: LogFn) -> None:
+    if _mumu_player_running():
+        log("  skipped adb kill-server — MuMu phones are up")
+        return
     exe: str | None = None
     try:
         from adb_paths import adb_executable
@@ -313,13 +344,14 @@ def run_startup_cleanup(
 
     log("")
     if first_time:
-        log("First-time setup — closing previous MuMu, adb, and PharmFlow processes…")
+        log("First-time setup — closing previous adb and PharmFlow processes (MuMu stays up)…")
         # Only a first phone-setup open resets adb. A later open must not drop
         # the farm's device list.
         _adb_kill_server(log)
         time.sleep(0.4)
     else:
         log("Closing duplicate setup windows (MuMu, adb, and farm lanes left running)…")
+
 
     try:
         import psutil
@@ -363,8 +395,10 @@ def run_startup_cleanup(
                 targets.append((proc, "pharmflow_py"))
             elif first_time and _is_adb_process(proc):
                 targets.append((proc, "adb"))
-            elif first_time and _is_mumu_process(proc):
-                targets.append((proc, "mumu"))
+            elif _is_mumu_process(proc):
+                # Standing rule: startup cleanup never powers down the player
+                # or the Manager GUI. Killing either tears down booted guests.
+                skipped.append(f"mumu:{pid}")
         except Exception:
             continue
 

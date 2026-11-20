@@ -736,6 +736,33 @@ def _boot_cooldown_ok(idx: int, state: dict[str, dict[str, Any]]) -> tuple[bool,
     return due, max(0.0, cooldown - max(0.0, time.time() - last))
 
 
+def _live_serial_for_vm(idx: int) -> str:
+    """Current ``AdbHost:AdbPort`` published by MuMu ARM guest ``vm<idx>``.
+
+    MuMu hands out a fresh guest IP on every boot, so a serial remembered from
+    a previous session stops answering. ``misc/state.json`` is the only place
+    the guest publishes where its ADB daemon actually listens right now; dialing
+    it is how the EXE finds the emulator instead of ``connect``-ing a dead IP
+    forever.
+    """
+    try:
+        vms = Path(mumu_vms_dir())
+    except Exception:  # noqa: BLE001 — no MuMu root on this box
+        return ""
+    state_path = vms / f"vm{int(idx)}.gmadoa" / "misc" / "state.json"
+    data = _read_json(state_path)
+    if not data:
+        return ""
+    host = str(data.get("AdbHost") or "").strip()
+    if not host:
+        return ""
+    try:
+        port = int(data.get("AdbPort") or 5555)
+    except (TypeError, ValueError):
+        port = 5555
+    return f"{host}:{port}"
+
+
 def _boot_mumu_instance(idx: int) -> tuple[bool, str]:
     """Cold-boot one dead MuMu VM. Detached; never blocks beyond timeout."""
     try:
@@ -823,7 +850,14 @@ def connect_live_fleet(*, allow_boot: bool = True) -> list[str]:
             # the guest needs minutes to expose ADB (and may change serial);
             # the next heal tick owns the connect.
             continue
+        # Prefer the guest's own published endpoint over the remembered serial:
+        # a booted MuMu VM re-issues AdbHost, so the stale IP never connects and
+        # the farm saw "no phones" while every phone was up.
+        live_ser = _live_serial_for_vm(idx) if idx is not None else ""
+        if live_ser:
+            ser = live_ser
         if not ser or ser.startswith("127.0.0.1:"):
+            fixes.append(f"no_serial_yet {name} idx={idx}")
             continue
         _code, out = _run([_adb_bin(), "connect", ser], timeout=4.0)
         if "connected" in out.lower() or "already" in out.lower():
@@ -1751,7 +1785,10 @@ def _reassert_mumu_gpu_rails() -> list[str]:
         vms_env = (os.environ.get("CPHARM_MUMU_VMS") or "").strip()
         vms = Path(vms_env) if vms_env else (mumu_vms_dir() or Path(r"C:\Program Files\Netease\MuMuPlayer\vms"))
         notes.extend(ensure_windows_gpu_prefs_for_mumu())
-        notes.extend(reassert_all_vm_gpu_accel(vms))
+        # Never rewrite a booted guest's setting.json: that is a live player
+        # teardown. Running VMs get the rails on their next cold boot.
+        running_names = {f"vm{idx}.gmadoa" for idx in _running_vm_indices()}
+        notes.extend(reassert_all_vm_gpu_accel(vms, skip=running_names))
     except Exception as exc:  # noqa: BLE001
         notes.append(f"gpu_reassert_err:{type(exc).__name__}:{exc}")
         log.warning("MuMu GPU reassert failed: %s", exc)
