@@ -778,6 +778,30 @@ def _boot_mumu_instance(idx: int) -> tuple[bool, str]:
         return False, f"launch_exc:{type(exc).__name__}:{exc}"
 
 
+def _wait_guest_adb(idx: int, budget: float = 90.0) -> str:
+    """Block until guest ``idx`` answers ADB, or the budget runs out.
+
+    Booting the next VM before the previous one has settled is what starved the
+    host (measured: free RAM fell to 43 MB while the 4th guest was still
+    booting). MuMu then force-terminates the guest (``ExitType: ForcedExit``,
+    ``Initiator: Client``) and its Manager dies with 0xe0434352, taking the
+    whole fleet down. Pacing is host health, not a phone cap: every VM still
+    boots, just one at a time.
+    """
+    deadline = time.monotonic() + max(5.0, float(budget))
+    last = ""
+    while True:
+        serial = _live_serial_for_vm(idx)
+        if serial:
+            last = serial
+            _run([_adb_bin(), "connect", serial], timeout=6.0)
+            if serial in adb_live_serials(timeout=15.0):
+                return serial
+        if time.monotonic() >= deadline:
+            return last
+        time.sleep(5.0)
+
+
 def _boot_blocked_by_headroom() -> str:
     """Empty string when a cold boot is allowed.
 
@@ -844,11 +868,15 @@ def connect_live_fleet(*, allow_boot: bool = True) -> list[str]:
             fixes.append(f"boot_vm idx={idx} {name} {'ok' if ok else 'fail'}: {note}")
             if ok:
                 booted += 1
+                # Let this guest come up (and the host recover) before the
+                # next launch. Fire-and-forget boots stacked RAM until the
+                # host hit 43 MB free and MuMu started killing its own VMs.
+                settled = _wait_guest_adb(idx)
+                fixes.append(
+                    f"boot_settled idx={idx} adb={settled or 'pending'}"
+                )
             else:
                 skipped += 1
-            # Do NOT adb-connect in the pass that just launched the VM —
-            # the guest needs minutes to expose ADB (and may change serial);
-            # the next heal tick owns the connect.
             continue
         # Prefer the guest's own published endpoint over the remembered serial:
         # a booted MuMu VM re-issues AdbHost, so the stale IP never connects and
